@@ -1,0 +1,324 @@
+<script setup lang="ts">
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { useRundownStore } from '../stores/rundown';
+import { invoke } from '@tauri-apps/api/core';
+
+const store = useRundownStore();
+const props = defineProps<{ isOpen: boolean }>();
+const emit  = defineEmits(['close']);
+
+const item = computed(() => store.selectedItem);
+
+// ── Video preview via local streaming server ──────────────────────────────────
+// We get a stream URL from our Rust media_server (zero memory overhead)
+const videoRef = ref<HTMLVideoElement | null>(null);
+const videoSrc = ref('');
+
+const loadVideoSrc = async (path: string | undefined) => {
+    videoSrc.value = '';
+    if (!path || item.value?.type === 'live' || path.startsWith('http')) return;
+    try {
+        videoSrc.value = await invoke<string>('get_media_url', { path });
+    } catch (e) {
+        console.warn('[TrimPanel] failed to get streaming URL:', e);
+    }
+};
+
+// ── State ────────────────────────────────────────────────────────────────────
+const inMs   = ref(0);
+const outMs  = ref(0);
+const totalDurationMs = ref(0);
+const isProbing  = ref(false);
+const isTrimming = ref(false);
+const isSmartTrimming = ref(false);
+const trimStatus = ref('');
+const speed = ref(0); // for JKL display badge
+const FRAME_MS = 40; // 25fps
+
+// ── Seek video ────────────────────────────────────────────────────────────────
+const seekTo = (ms: number) => {
+    const v = videoRef.value;
+    if (!v) return;
+    v.currentTime = ms / 1000;
+};
+
+// ── Duration from <video> metadata ────────────────────────────────────────────
+const onVideoLoaded = () => {
+    const v = videoRef.value;
+    if (!v || isNaN(v.duration)) return;
+    const dur = v.duration * 1000;
+    if (dur > 0) {
+        totalDurationMs.value = dur;
+        if (outMs.value === 0 || outMs.value > dur) outMs.value = dur;
+    }
+};
+
+// ── Probe via ffprobe (fallback for formats browser can't decode) ─────────────
+const probeDuration = async () => {
+    if (!item.value?.path || item.value.type === 'live') return;
+    isProbing.value = true;
+    try {
+        const meta = await invoke<{ duration: string }>('scan_media', { filepath: item.value.path });
+        const dur  = parseFloat(meta.duration) * 1000;
+        if (dur > 0 && totalDurationMs.value === 0) {
+            totalDurationMs.value = dur;
+            if (outMs.value === 0) outMs.value = dur;
+        }
+    } catch { }
+    finally { isProbing.value = false; }
+};
+
+// ── Hydrate when panel opens ──────────────────────────────────────────────────
+watch([() => store.selectedItem, () => props.isOpen], ([val, open]) => {
+    if (val && open) {
+        inMs.value  = val.inPoint  || 0;
+        outMs.value = val.outPoint || (val.duration > 0 ? val.duration * 1000 : 0);
+        totalDurationMs.value = val.duration > 0 ? val.duration * 1000 : 0;
+        trimStatus.value = '';
+        speed.value = 0;
+        loadVideoSrc(val.path);
+        probeDuration();
+    }
+    if (!open) {
+        if (videoRef.value) videoRef.value.pause();
+        videoSrc.value = '';
+    }
+}, { immediate: true });
+
+// Sync sliders with video
+watch(inMs,  (v) => seekTo(v));
+watch(outMs, (v) => seekTo(v));
+
+// ── Timecodes ─────────────────────────────────────────────────────────────────
+const msToTC = (ms: number): string => {
+    if (!Number.isFinite(ms)) return '00:00:00:00';
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    const f = Math.floor((ms % 1000) / 40);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}:${String(f).padStart(2,'0')}`;
+};
+const tcToMs = (tc: string): number => {
+    const p = tc.split(':').map(Number);
+    if (p.length < 3 || p.slice(0, p.length).some(isNaN)) return -1;
+    const [h=0, m=0, s=0, f=0] = p;
+    if (p.length === 4) return (h*3600 + m*60 + s)*1000 + f*40;
+    return (h*3600 + m*60 + s)*1000;
+};
+const applyInTC  = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) { inMs.value  = v; seekTo(v); } };
+const applyOutTC = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) outMs.value = v; };
+const trimmedDuration = computed(() => {
+    const d = outMs.value - inMs.value;
+    return d > 0 ? `${(d/1000).toFixed(1)}s  (${msToTC(d)})` : '–';
+});
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+const currentVideoMs = () => (videoRef.value?.currentTime ?? 0) * 1000;
+const nudge = (frames: number) => {
+    if (!videoRef.value) return;
+    videoRef.value.currentTime = Math.max(0, Math.min(currentVideoMs() + frames*FRAME_MS, totalDurationMs.value)) / 1000;
+};
+const applySpeed = (s: number) => {
+    const v = videoRef.value; if (!v) return;
+    speed.value = s;
+    if (s === 0) { v.pause(); return; }
+    v.playbackRate = Math.abs(s) === 2 ? 4 : 1;
+    if (s > 0) v.play().catch(() => {});
+    else v.pause();
+};
+const handleKey = (e: KeyboardEvent) => {
+    if (!props.isOpen) return;
+    const tag = (e.target as HTMLElement).tagName.toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    e.preventDefault();
+    switch (e.key.toLowerCase()) {
+        case 'j': applySpeed(speed.value === -2 ? 0 : (speed.value === 0 ? -1 : -2)); break;
+        case 'k': applySpeed(0); break;
+        case 'l': applySpeed(speed.value === 2 ? 0 : (speed.value === 0 ? 1 : 2)); break;
+        case 'arrowleft':  nudge(e.shiftKey ? -10 : -1); break;
+        case 'arrowright': nudge(e.shiftKey ?  10 :  1); break;
+        case 'i': inMs.value  = Math.round(currentVideoMs()); trimStatus.value = `IN: ${msToTC(inMs.value)}`; break;
+        case 'o': outMs.value = Math.round(currentVideoMs()); trimStatus.value = `OUT: ${msToTC(outMs.value)}`; break;
+        case 'escape': emit('close'); break;
+    }
+};
+onMounted(()  => window.addEventListener('keydown', handleKey));
+onUnmounted(() => window.removeEventListener('keydown', handleKey));
+
+// ── Save / Trim ───────────────────────────────────────────────────────────────
+const saveNonDestructive = () => {
+    if (!item.value) return;
+    store.updateItem(item.value.id, { inPoint: inMs.value, outPoint: outMs.value });
+    trimStatus.value = '✅ Saved to playlist.';
+    setTimeout(() => emit('close'), 800);
+};
+
+const buildPaths = (suffix: string) => {
+    const ip   = item.value!.path;
+    const dot  = ip.lastIndexOf('.');
+    const base = ip.slice(0, dot);
+    const ext  = ip.split('.').pop() || 'mp4';
+    return { inputPath: ip, outputPath: `${base}${suffix}.${ext}` };
+};
+
+const doDestructiveTrim = async () => {
+    if (!item.value?.path || outMs.value <= inMs.value) return;
+    isTrimming.value = true; trimStatus.value = 'Stream-copy trim…';
+    try {
+        const { inputPath, outputPath } = buildPaths('_trimmed');
+        const r = await invoke<string>('trim_file', { inputPath, outputPath, inMs: inMs.value, outMs: outMs.value });
+        trimStatus.value = `✅ ${r.split(/[/\\]/).pop()} (stream copy)`;
+    } catch (e) { trimStatus.value = `❌ ${e}`; }
+    finally { isTrimming.value = false; }
+};
+
+const doSmartTrim = async () => {
+    if (!item.value?.path || outMs.value <= inMs.value) return;
+    isSmartTrimming.value = true; trimStatus.value = 'Accurate cut…';
+    try {
+        const { inputPath, outputPath } = buildPaths('_accurate');
+        const r = await invoke<string>('trim_file_smart', { inputPath, outputPath, inMs: inMs.value, outMs: outMs.value });
+        trimStatus.value = `✅ ${r.split(/[/\\]/).pop()} (accurate)`;
+    } catch (e) { trimStatus.value = `❌ ${e}`; }
+    finally { isSmartTrimming.value = false; }
+};
+</script>
+
+<template>
+  <div v-if="isOpen && item" class="modal-backdrop" @click.self="$emit('close')">
+    <div class="glass-panel trim-panel">
+
+      <!-- Header -->
+      <div class="trim-header">
+        <div>
+          <div class="text-accent" style="font-size:0.88rem;font-weight:600;">✂️ {{ item.filename }}</div>
+          <div class="text-secondary" style="font-size:0.68rem;">
+            Total: {{ isProbing ? '⌛' : (totalDurationMs ? (totalDurationMs/1000).toFixed(2)+'s' : 'type timecodes') }}
+            &nbsp;|&nbsp; Selection: <strong style="color:var(--accent-blue,#33becc)">{{ trimmedDuration }}</strong>
+          </div>
+        </div>
+        <div class="shortcut-hint">
+          <span>J</span>rewind &nbsp;<span>K</span>pause &nbsp;<span>L</span>fwd &nbsp;
+          <span>I</span>set IN &nbsp;<span>O</span>set OUT &nbsp;<span>← →</span>1fr &nbsp;<span>⇧← →</span>10fr
+        </div>
+        <button class="icon-btn" @click="$emit('close')">✕</button>
+      </div>
+
+      <!-- Two-column: Video | Controls -->
+      <div class="trim-body">
+
+        <!-- Left: Video preview -->
+        <div class="video-col">
+          <video v-if="videoSrc" ref="videoRef" :src="videoSrc" class="trim-video"
+            muted preload="metadata" @loadedmetadata="onVideoLoaded"></video>
+          <div v-else-if="item.type === 'live' || item.path?.startsWith('http')" class="video-placeholder">
+            <div style="font-size:2rem;">{{ item.type === 'live' ? '📹' : '🌐' }}</div>
+            <small class="text-secondary">No local preview</small>
+          </div>
+          <div v-else class="video-placeholder">
+            <div style="font-size:1.5rem;">⌛</div>
+            <small class="text-secondary">Loading preview…</small>
+          </div>
+          <div v-if="speed !== 0" class="speed-badge">{{ speed < 0 ? '◀◀' : '▶▶' }} {{ Math.abs(speed) === 2 ? '×4' : '×1' }}</div>
+        </div>
+
+        <!-- Right: Controls -->
+        <div class="ctrl-col">
+
+          <!-- Scrub bar -->
+          <div class="scrub-area">
+            <div class="scrub-track">
+              <div class="scrub-range" :style="{
+                left:  totalDurationMs ? (inMs  / totalDurationMs * 100)+'%' : '0%',
+                width: totalDurationMs ? Math.max(0,(outMs - inMs)/totalDurationMs*100)+'%' : '100%'
+              }"></div>
+              <div class="scrub-in"  :style="{ left: totalDurationMs ? (inMs  / totalDurationMs*100)+'%' : '0%' }"></div>
+              <div class="scrub-out" :style="{ left: totalDurationMs ? (outMs / totalDurationMs*100)+'%' : '100%' }"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:3px;">
+              <span class="text-secondary" style="font-size:0.6rem;">00:00:00:00</span>
+              <span class="text-secondary" style="font-size:0.6rem;">{{ msToTC(totalDurationMs) }}</span>
+            </div>
+          </div>
+
+          <!-- IN / OUT slots -->
+          <div class="tc-grid">
+            <div class="tc-group">
+              <label class="text-secondary" style="font-size:0.68rem;">IN POINT</label>
+              <input class="tc-input" :value="msToTC(inMs)" @change="applyInTC" placeholder="00:00:00:00" spellcheck="false">
+              <input v-if="totalDurationMs > 0" type="range" class="scrub-slider" min="0" :max="totalDurationMs" :value="inMs" step="40"
+                @input="inMs = Number(($event.target as HTMLInputElement).value); seekTo(inMs)">
+            </div>
+            <div class="tc-group">
+              <label class="text-secondary" style="font-size:0.68rem;">OUT POINT</label>
+              <input class="tc-input" :value="msToTC(outMs)" @change="applyOutTC" placeholder="00:00:00:00" spellcheck="false">
+              <input v-if="totalDurationMs > 0" type="range" class="scrub-slider" min="0" :max="totalDurationMs" :value="outMs" step="40"
+                @input="outMs = Number(($event.target as HTMLInputElement).value); seekTo(outMs)">
+            </div>
+          </div>
+
+          <!-- Non-destructive save -->
+          <div class="trim-actions">
+            <button class="trim-btn btn-primary" @click="saveNonDestructive">💾 Save to Playlist</button>
+            <button class="trim-btn" @click="$emit('close')">Cancel</button>
+          </div>
+
+          <!-- Destructive -->
+          <div class="section-divider">
+            <span class="text-secondary" style="font-size:0.62rem;background:var(--bg-dark,#0d0d0d);padding:0 8px;">DESTRUCTIVE FILE TRIM</span>
+          </div>
+          <div class="warning-badge">⚠️ Writes a new file alongside original — original is untouched</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="trim-btn btn-danger"
+              :disabled="isTrimming || isSmartTrimming || outMs <= inMs"
+              title="Stream copy — instant, ±keyframe accuracy"
+              @click="doDestructiveTrim">
+              {{ isTrimming ? '⌛ Trimming…' : '✂️ Stream Copy' }}
+            </button>
+            <button class="trim-btn btn-accurate"
+              :disabled="isTrimming || isSmartTrimming || outMs <= inMs"
+              title="Frame-accurate: mkvmerge (MKV) or libx264 ultrafast fallback"
+              @click="doSmartTrim">
+              {{ isSmartTrimming ? '⌛ Cutting…' : '🎯 Accurate Cut' }}
+            </button>
+          </div>
+          <div v-if="trimStatus" class="trim-status">{{ trimStatus }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(6px);display:flex;justify-content:center;align-items:center;z-index:9998; }
+.trim-panel { width:840px;max-width:96vw;padding:1rem;display:flex;flex-direction:column;gap:0.85rem;border:1px solid rgba(255,255,255,0.1);box-shadow:0 24px 48px rgba(0,0,0,0.7); }
+.trim-header { display:flex;justify-content:space-between;align-items:flex-start;gap:12px; }
+.icon-btn { background:transparent;border:none;color:var(--text-secondary);cursor:pointer;font-size:1rem;padding:4px;flex-shrink:0; }
+.shortcut-hint { font-size:0.62rem;color:rgba(255,255,255,0.3);display:flex;align-items:center;flex-wrap:wrap;gap:2px;flex:1;justify-content:center; }
+.shortcut-hint span { background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:3px;padding:1px 5px;color:rgba(255,255,255,0.6);font-family:monospace;font-size:0.65rem; }
+.trim-body { display:grid;grid-template-columns:1fr 1fr;gap:1rem; }
+.video-col { position:relative;background:#000;border-radius:8px;overflow:hidden;min-height:200px;display:flex;align-items:center;justify-content:center; }
+.trim-video { width:100%;max-height:240px;object-fit:contain;display:block; }
+.video-placeholder { text-align:center;padding:2rem;color:rgba(255,255,255,0.25); }
+.speed-badge { position:absolute;bottom:6px;right:8px;background:rgba(0,0,0,0.7);color:#e63946;font-size:0.72rem;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:1px; }
+.ctrl-col { display:flex;flex-direction:column;gap:0.7rem; }
+.scrub-area { background:rgba(0,0,0,0.3);border-radius:6px;padding:0.7rem; }
+.scrub-track { position:relative;height:10px;background:rgba(255,255,255,0.08);border-radius:5px; }
+.scrub-range { position:absolute;top:0;height:100%;background:rgba(51,190,204,0.35);border-radius:5px; }
+.scrub-in,.scrub-out { position:absolute;top:-5px;width:3px;height:20px;background:var(--accent-blue,#33becc);border-radius:2px;transform:translateX(-50%); }
+.tc-grid { display:grid;grid-template-columns:1fr 1fr;gap:0.7rem; }
+.tc-group { display:flex;flex-direction:column;gap:3px; }
+.tc-input { font-family:'Courier New',monospace;font-size:1rem;font-weight:700;letter-spacing:3px;text-align:center;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.12);color:var(--accent-blue,#33becc);padding:7px;border-radius:6px;width:100%;transition:border-color 0.15s; }
+.tc-input:focus { outline:none;border-color:rgba(51,190,204,0.6); }
+.scrub-slider { width:100%;accent-color:var(--accent-blue,#33becc);cursor:pointer; }
+.trim-actions { display:flex;gap:0.6rem; }
+.trim-btn { padding:7px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.05);color:var(--text-primary);cursor:pointer;transition:0.15s;font-size:0.82rem; }
+.trim-btn:hover { background:rgba(255,255,255,0.1); }
+.trim-btn:disabled { opacity:0.4;cursor:not-allowed; }
+.btn-primary  { background:rgba(51,190,204,0.15);border-color:rgba(51,190,204,0.4);color:var(--accent-blue,#33becc); }
+.btn-danger   { background:rgba(230,57,70,0.12);border-color:rgba(230,57,70,0.4);color:#e63946; }
+.btn-accurate { background:rgba(255,165,0,0.1);border-color:rgba(255,165,0,0.35);color:#ffa500; }
+.section-divider { border-top:1px solid rgba(255,255,255,0.07);text-align:center; }
+.warning-badge { background:rgba(255,165,0,0.07);border:1px solid rgba(255,165,0,0.22);color:#ffa500;border-radius:4px;padding:3px 8px;font-size:0.68rem; }
+.trim-status { font-size:0.78rem;padding:4px 8px;background:rgba(0,0,0,0.3);border-radius:4px; }
+</style>
