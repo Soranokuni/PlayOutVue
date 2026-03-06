@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import { draggingItem } from '../composables/useDragState';
-import { PlaybackService, isPlaying, obs, playStartTime, playStartIndex } from '../services/obs';
+import { PlaybackService, isPlaying, obs, playStartTime, playStartIndex, currentMediaMs } from '../services/obs';
 import Sortable from 'sortablejs';
 import TrimPanel from './TrimPanel.vue';
 import LiveEntryDialog from './LiveEntryDialog.vue';
@@ -13,6 +13,10 @@ const rundownListRef = ref<HTMLElement | null>(null);
 const isDragOver = ref(false);
 const showTrimPanel = ref(false);
 const showLiveDialog = ref(false);
+
+const contextMenu = ref({
+    show: false, x: 0, y: 0, index: -1, item: null as any
+});
 
 // ── Real-time wall clock ──────────────────────────────────────────────────────
 const clockNow = ref(Date.now());
@@ -30,9 +34,7 @@ const itemDurationMs = (item: any): number => {
     return (item.duration > 0 ? item.duration * 1000 : 60000);
 };
 
-// Correct schedule: every item's start time is playStartTime + sum of durations
-// of all items from playStartIndex up to (but not including) that item.
-// Items before playStartIndex are marked as skipped.
+// Scheduled times logic
 const scheduledTimes = computed(() => {
     const playing = store.currentPlayingIndex >= 0;
     const sIdx = playing ? playStartIndex.value : 0;
@@ -42,7 +44,6 @@ const scheduledTimes = computed(() => {
         if (playing && idx < sIdx)                        return { kind: 'skip' };
         if (playing && idx < store.currentPlayingIndex)   return { kind: 'done' };
         if (playing && idx === store.currentPlayingIndex)  return { kind: 'now' };
-        // Compute offset: sum durations from sIdx to idx (exclusive)
         let acc = 0;
         for (let j = sIdx; j < idx; j++) acc += itemDurationMs(store.activeItems[j]);
         const d = new Date(base + acc);
@@ -50,6 +51,12 @@ const scheduledTimes = computed(() => {
     });
 });
 
+const calcProgress = (item: any) => {
+    const dur = itemDurationMs(item);
+    if (!dur || dur <= 0) return 0;
+    const p = ((currentMediaMs.value - (item.inPoint || 0)) / dur) * 100;
+    return Math.max(0, Math.min(100, Math.round(p * 100) / 100)); // smooth visual
+};
 
 // ── Playback ─────────────────────────────────────────────────────────────────
 PlaybackService.onAdvance((index) => {
@@ -67,14 +74,40 @@ const stopPlayback = async () => {
     store.currentPlayingIndex = -1;
 };
 
-// ── Duplicate (Shift+Down) ────────────────────────────────────────────────────
+// ── Context Menu ─────────────────────────────────────────────────────────────
+const onContextMenu = (event: MouseEvent, index: number, item: any) => {
+    store.selectedItemId = item.id;
+    contextMenu.value = { show: true, x: event.clientX, y: event.clientY, index, item };
+};
+const closeContextMenu = () => {
+    contextMenu.value.show = false;
+};
+const ctxPlayFrom = () => {
+    if (contextMenu.value.index !== -1) playFrom(contextMenu.value.index);
+    closeContextMenu();
+};
+const ctxDuplicate = () => {
+    if (contextMenu.value.item) store.duplicateItem(contextMenu.value.item.id);
+    closeContextMenu();
+};
+const ctxResetTrim = () => {
+    if (contextMenu.value.item) {
+        contextMenu.value.item.inPoint = 0;
+        contextMenu.value.item.outPoint = 0;
+    }
+    closeContextMenu();
+};
+const ctxDelete = () => {
+    if (contextMenu.value.item) store.removeItem(contextMenu.value.item.id);
+    closeContextMenu();
+};
+
 const openTrim = (id: string) => {
     store.selectedItemId = id;
     showTrimPanel.value = true;
 };
 
 onMounted(() => {
-    // SortableJS for internal reordering
     if (rundownListRef.value) {
         Sortable.create(rundownListRef.value, {
             animation: 120,
@@ -89,23 +122,23 @@ onMounted(() => {
     }
 
     window.addEventListener('keydown', handleKey);
+    window.addEventListener('click', closeContextMenu);
 });
 
 onUnmounted(() => {
     window.removeEventListener('keydown', handleKey);
+    window.removeEventListener('click', closeContextMenu);
 });
 
 const handleKey = (e: KeyboardEvent) => {
     const id = store.selectedItemId;
     const items = store.activeItems;
-    const idx = id ? items.findIndex(i => i.id === id) : -1;
+    const idx = id ? items.findIndex((i: any) => i.id === id) : -1;
 
     if (e.shiftKey && e.key === 'ArrowDown') {
-        // Duplicate selected item, insert below
         e.preventDefault();
         if (idx !== -1) {
             store.duplicateItem(id!);
-            // Select the new duplicate (idx + 1)
             store.selectedItemId = items[idx + 1]?.id || id;
         }
         return;
@@ -187,8 +220,13 @@ const msToDisplay = (ms: number) => {
           'playing': index === store.currentPlayingIndex,
           'played': index < store.currentPlayingIndex
         }"
+        :style="index === store.currentPlayingIndex && isPlaying && item.type !== 'live' ? {
+            background: `linear-gradient(90deg, rgba(230,57,70,0.3) ${calcProgress(item)}%, rgba(230,57,70,0.08) ${calcProgress(item)}%)`,
+            borderColor: 'rgba(230,57,70,0.4)'
+        } : {}"
         @click="store.selectedItemId = item.id"
         @dblclick="openTrim(item.id)"
+        @contextmenu.prevent="onContextMenu($event, index, item)"
         @dragover.prevent
         @drop.prevent
       >
@@ -230,6 +268,15 @@ const msToDisplay = (ms: number) => {
       </div>
     </div>
 
+    <!-- Custom Context Menu for Rundown -->
+    <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
+      <div class="menu-item" @click.stop="ctxPlayFrom">▶ Play from here</div>
+      <div class="menu-item" @click.stop="ctxDuplicate">⧉ Duplicate</div>
+      <div class="menu-item" @click.stop="ctxResetTrim">⟲ Reset Trim</div>
+      <div class="menu-divider"></div>
+      <div class="menu-item menu-item-danger" @click.stop="ctxDelete">✕ Delete</div>
+    </div>
+
     <PlaylistControls />
 
     <TrimPanel :is-open="showTrimPanel" @close="showTrimPanel = false" />
@@ -238,7 +285,7 @@ const msToDisplay = (ms: number) => {
 </template>
 
 <style scoped>
-.rundown-wrapper { height:100%; display:flex; flex-direction:column; overflow:hidden; }
+.rundown-wrapper { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
 .rw-header {
   padding:5px 10px; border-bottom:1px solid var(--glass-border);
   display:flex; justify-content:space-between; align-items:center; flex-shrink:0;
@@ -310,4 +357,37 @@ const msToDisplay = (ms: number) => {
   border:2px dashed rgba(255,255,255,0.06); border-radius:6px; margin:4px;
 }
 .rw-ghost { opacity:0.3; background:rgba(255,255,255,0.06); }
+
+/* Context Menu */
+.context-menu {
+    position: absolute;
+    background: rgba(20, 20, 25, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 160px;
+    z-index: 9999;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    backdrop-filter: blur(10px);
+}
+.menu-item {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.menu-item:hover {
+    background: rgba(51, 190, 204, 0.2);
+    color: #33becc;
+}
+.menu-item-danger:hover {
+    background: rgba(230, 57, 70, 0.2);
+    color: #e63946;
+}
+.menu-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 4px 0;
+}
 </style>

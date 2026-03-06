@@ -5,55 +5,62 @@ import { obs, isObsConnected } from '../services/obs';
 const previewSrc = ref<string | null>(null);
 const isCapturing = ref(false);
 const lastError = ref('');
-let pollInterval: ReturnType<typeof setInterval> | null = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let keepPolling = true;
 
 const captureFrame = async () => {
-    if (!isObsConnected.value || isCapturing.value) return;
-    isCapturing.value = true;
-    try {
-        // GetVideoMixSnapshot captures the live Program output — no source name needed.
-        // This is the correct OBS WebSocket v5 API for program monitoring.
-        const { imageData } = await (obs as any).call('GetVideoMixSnapshot', {
-            videoMixType: 'OBS_WEBSOCKET_VIDEO_MIX_TYPE_PROGRAM',
-            imageFormat: 'jpeg',
-            imageWidth: 480,
-            imageHeight: 270,
-            imageCompressionQuality: 75
-        });
-        previewSrc.value = imageData;
-        lastError.value = '';
-    } catch (e: any) {
-        // If GetVideoMixSnapshot not supported, fall back to GetSourceScreenshot on the current scene
-        if (!lastError.value) {
-            try {
-                const sceneResp = await (obs as any).call('GetCurrentProgramScene');
-                const sceneName = sceneResp?.currentProgramSceneName || sceneResp?.sceneName;
-                if (sceneName) {
-                    const { imageData } = await (obs as any).call('GetSourceScreenshot', {
-                        sourceName: sceneName,
-                        imageFormat: 'jpeg',
-                        imageWidth: 480,
-                        imageHeight: 270,
-                        imageCompressionQuality: 75
-                    });
-                    previewSrc.value = imageData;
-                    lastError.value = '';
+    if (!keepPolling) return;
+    
+    if (isObsConnected.value && !isCapturing.value) {
+        isCapturing.value = true;
+        try {
+            const { imageData } = await (obs as any).call('GetVideoMixSnapshot', {
+                videoMixType: 'OBS_WEBSOCKET_VIDEO_MIX_TYPE_PROGRAM',
+                imageFormat: 'jpeg',
+                imageWidth: 480,
+                imageHeight: 270,
+                imageCompressionQuality: 75
+            });
+            previewSrc.value = imageData;
+            lastError.value = '';
+        } catch (e: any) {
+            if (!lastError.value) {
+                try {
+                    const sceneResp = await (obs as any).call('GetCurrentProgramScene');
+                    const sceneName = sceneResp?.currentProgramSceneName || sceneResp?.sceneName;
+                    if (sceneName) {
+                        const { imageData } = await (obs as any).call('GetSourceScreenshot', {
+                            sourceName: sceneName,
+                            imageFormat: 'jpeg',
+                            imageWidth: 480,
+                            imageHeight: 270,
+                            imageCompressionQuality: 75
+                        });
+                        previewSrc.value = imageData;
+                        lastError.value = '';
+                    }
+                } catch {
+                    lastError.value = e?.message || String(e);
                 }
-            } catch {
-                lastError.value = e?.message || String(e);
             }
+        } finally {
+            isCapturing.value = false;
         }
-    } finally {
-        isCapturing.value = false;
+    }
+    
+    if (keepPolling) {
+        pollTimer = setTimeout(captureFrame, 200);
     }
 };
 
 onMounted(() => {
-    pollInterval = setInterval(captureFrame, 200); // 5fps - gentle on OBS
+    keepPolling = true;
+    captureFrame();
 });
 
 onUnmounted(() => {
-    if (pollInterval) clearInterval(pollInterval);
+    keepPolling = false;
+    if (pollTimer) clearTimeout(pollTimer);
 });
 </script>
 
