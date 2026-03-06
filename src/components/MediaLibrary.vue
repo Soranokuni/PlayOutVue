@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
-import { useRundownStore, type RundownItem } from '../stores/rundown';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { useRundownStore } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
 import { draggingItem } from '../composables/useDragState';
 import { invoke } from '@tauri-apps/api/core';
+import MediaTreeNode from './MediaTreeNode.vue';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -13,8 +14,8 @@ interface MediaNode {
     path: string;
     type: 'file' | 'folder';
     mediaType?: 'video' | 'live' | 'graphic';
-    duration?: number; // seconds
-    duration_ms?: number; // from rust DiscoveredMedia
+    duration?: number;
+    duration_ms?: number;
     children?: MediaNode[];
     expanded?: boolean;
 }
@@ -24,23 +25,78 @@ const isScanning = ref(false);
 const streamUrl = ref('');
 const isExtracting = ref(false);
 
-const VIDEO_EXTS = ['mp4', 'mkv', 'mov', 'mxf', 'avi', 'webm'];
+const contextMenu = ref({
+    show: false, x: 0, y: 0, node: null as MediaNode | null
+});
 
 const buildTree = async (dirPath: string): Promise<MediaNode[]> => {
-    const nodes: MediaNode[] = [];
+    const rootNodes: MediaNode[] = [];
     try {
-        // Get files + subdirectories
-        const files = await invoke<{ filename: string, path: string, media_type: string, duration: number }[]>(
+        const files = await invoke<{ filename: string, path: string, media_type: string, duration: number, duration_ms?: number }[]>(
             'scan_directory', { path: dirPath }
         );
+
+        const normalizedDir = dirPath.replace(/\\/g, '/');
+
         for (const f of files) {
-            nodes.push({ name: f.filename, path: f.path, type: 'file', mediaType: f.media_type as any, duration: f.duration || 0 });
+            const normalizedFilePath = f.path.replace(/\\/g, '/');
+            let relPath = normalizedFilePath;
+            
+            if (normalizedFilePath.startsWith(normalizedDir)) {
+                relPath = normalizedFilePath.substring(normalizedDir.length);
+            }
+            if (relPath.startsWith('/')) relPath = relPath.substring(1);
+
+            const parts = relPath.split('/');
+            let currentLevel = rootNodes;
+            
+            for (let i = 0; i < parts.length; i++) {
+                const partName = parts[i];
+                const isFile = i === parts.length - 1;
+                
+                if (isFile) {
+                    currentLevel.push({
+                        name: f.filename || partName || '',
+                        path: f.path || '',
+                        type: 'file',
+                        mediaType: f.media_type as any,
+                        duration: f.duration || 0,
+                        duration_ms: f.duration_ms || (f.duration ? f.duration * 1000 : 0)
+                    });
+                } else {
+                    let folder = currentLevel.find((n: MediaNode) => n.type === 'folder' && n.name === partName);
+                    if (!folder) {
+                        folder = {
+                            name: partName || 'Folder',
+                            path: '',
+                            type: 'folder',
+                            children: [],
+                            expanded: false
+                        };
+                        currentLevel.push(folder);
+                    }
+                    if (!folder.children) folder.children = [];
+                    currentLevel = folder.children as MediaNode[];
+                }
+            }
         }
-    } catch { /* ignore unreadable dirs */ }
-    return nodes.sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
-        return a.name.localeCompare(b.name);
-    });
+        
+        const sortNodes = (nodes: MediaNode[]) => {
+            nodes.sort((a, b) => {
+                if (!a || !b) return 0;
+                if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+                return (a.name || '').localeCompare(b.name || '');
+            });
+            nodes.forEach((n: MediaNode) => {
+                if (n && n.children) sortNodes(n.children as MediaNode[]);
+            });
+        };
+        sortNodes(rootNodes);
+
+    } catch (e) {
+        console.warn('[Library] buildTree scan failed:', e);
+    }
+    return rootNodes;
 };
 
 const rescanLibrary = async () => {
@@ -48,12 +104,11 @@ const rescanLibrary = async () => {
     tree.value = [];
     try {
         const nodes = await buildTree(settings.localMediaPath || '');
-        // Add static items
         nodes.push({ name: 'Live Desk Cam', path: '1', type: 'file', mediaType: 'live' });
         nodes.push({ name: 'External_Network_Stream.m3u8', path: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', type: 'file', mediaType: 'video' });
         tree.value = nodes;
     } catch (e) {
-        console.warn('[Library] Scan failed:', e);
+        console.warn('[Library] rescanLibrary failed:', e);
         tree.value = [
             { name: '⚠ Set media folder in ⚙️ Settings', path: '', type: 'file', mediaType: 'video' },
             { name: 'Live Desk Cam', path: '1', type: 'file', mediaType: 'live' }
@@ -64,7 +119,6 @@ const rescanLibrary = async () => {
 };
 
 watch(() => settings.localMediaPath, rescanLibrary);
-onMounted(rescanLibrary);
 
 const addWebStream = async () => {
     if (!streamUrl.value) return;
@@ -77,7 +131,6 @@ const addWebStream = async () => {
     finally { isExtracting.value = false; }
 };
 
-// Drag
 const onDragStart = (event: DragEvent, node: MediaNode) => {
     draggingItem.value = {
         filename: node.name,
@@ -88,21 +141,56 @@ const onDragStart = (event: DragEvent, node: MediaNode) => {
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
 };
 
-// Double click = add directly
 const addItem = (node: MediaNode) => {
     store.addItem({ filename: node.name, path: node.path, type: node.mediaType || 'video', duration: node.duration || 0, seek: 0, length: 0 });
 };
 
-const typeIcon = (type?: string) => ({ video: '🎬', live: '📹', graphic: '🎨' }[type || ''] || '📄');
-
-const fmtDur = (sec: number) => {
-    if (!sec) return '';
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = Math.floor(sec % 60);
-    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-    return `${m}:${String(s).padStart(2,'0')}`;
+// --- Context Menu Options ---
+const onContextMenu = (event: MouseEvent, node: MediaNode) => {
+    if (node.type !== 'file' || !node.path) return;
+    contextMenu.value = { show: true, x: event.clientX, y: event.clientY, node };
 };
+
+const closeContextMenu = () => {
+    contextMenu.value.show = false;
+};
+
+const appendNode = () => {
+    if (contextMenu.value.node) addItem(contextMenu.value.node);
+    closeContextMenu();
+};
+
+const insertNode = () => {
+    if (contextMenu.value.node) {
+        const item = {
+            filename: contextMenu.value.node.name,
+            path: contextMenu.value.node.path,
+            type: contextMenu.value.node.mediaType || 'video',
+            duration: contextMenu.value.node.duration || 0,
+            seek: 0, length: 0
+        };
+        if (store.selectedItemId) {
+            const idx = store.activeItems.findIndex((i: any) => i.id === store.selectedItemId);
+            if (idx >= 0) {
+                const uuid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+                const completeItem = { ...item, id: uuid } as any;
+                store.activeItems.splice(idx + 1, 0, completeItem);
+                closeContextMenu();
+                return;
+            }
+        }
+        store.addItem(item);
+    }
+    closeContextMenu();
+};
+
+onMounted(() => {
+    rescanLibrary();
+    window.addEventListener('click', closeContextMenu);
+});
+onUnmounted(() => {
+    window.removeEventListener('click', closeContextMenu);
+});
 </script>
 
 <template>
@@ -116,23 +204,18 @@ const fmtDur = (sec: number) => {
     </div>
 
     <!-- File Tree -->
-    <div class="lib-tree custom-scroll">
+    <div class="lib-tree custom-scroll" @contextmenu.prevent>
       <div v-if="isScanning" class="lib-empty">⌛ Scanning…</div>
       <div v-else-if="tree.length === 0" class="lib-empty">📂 No media found.<br><small>Set folder in ⚙️ Settings</small></div>
 
-      <div
+      <MediaTreeNode
         v-for="node in tree"
         :key="node.path || node.name"
-        class="lib-row"
-        :draggable="node.type === 'file' && !!node.path"
-        @dragstart="node.type === 'file' && onDragStart($event, node)"
-        @dblclick="node.type === 'file' && addItem(node)"
-        :title="node.type === 'file' ? 'Drag or double-click to add' : ''"
-      >
-        <span class="lib-icon">{{ typeIcon(node.mediaType) }}</span>
-        <span class="lib-name" :class="{ 'lib-name-dim': !node.path }" style="flex:1">{{ node.name }}</span>
-        <span v-if="node.duration_ms" class="lib-duration">{{ msToTC(node.duration_ms) }}</span>
-      </div>
+        :node="node"
+        @dragstart="onDragStart"
+        @dblclick="addItem"
+        @contextmenu="onContextMenu"
+      />
     </div>
 
     <!-- Web Stream Ingest -->
@@ -143,27 +226,24 @@ const fmtDur = (sec: number) => {
         <button class="icon-action" @click="addWebStream" :disabled="isExtracting">{{ isExtracting ? '⌛' : '＋' }}</button>
       </div>
     </div>
+
+    <!-- Custom Context Menu -->
+    <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
+      <div class="menu-item" @click.stop="appendNode">Append to Rundown</div>
+      <div class="menu-item" @click.stop="insertNode">Insert After Selected</div>
+      <div class="menu-divider"></div>
+      <div class="menu-item" @click.stop="closeContextMenu">Cancel</div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.lib-wrap { height:100%; display:flex; flex-direction:column; overflow:hidden; }
+.lib-wrap { height:100%; display:flex; flex-direction:column; overflow:hidden; position: relative; }
 .lib-header {
     display:flex; justify-content:space-between; align-items:center;
     padding:6px 10px; border-bottom:1px solid var(--glass-border); flex-shrink:0;
 }
 .lib-tree { flex:1; overflow-y:auto; padding:4px; min-height:0; }
-.lib-row {
-    display:flex; align-items:center; gap:6px;
-    height:32px; padding:0 6px; border-radius:5px; cursor:grab; user-select:none;
-    border:1px solid transparent; transition:background 0.12s;
-}
-.lib-row:hover { background:rgba(255,255,255,0.06); }
-.lib-row:active { cursor:grabbing; }
-.lib-icon { font-size:0.85rem; flex-shrink:0; }
-.lib-name { font-size:0.78rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-.lib-name-dim { color:rgba(255,165,0,0.7); font-size:0.72rem; }
-.lib-duration { font-size:0.68rem; color:var(--text-secondary); font-variant-numeric: tabular-nums; flex-shrink:0; }
 .lib-empty { color:rgba(255,255,255,0.25); font-size:0.78rem; text-align:center; padding:20px 10px; line-height:1.6; }
 .lib-stream-bar { padding:8px; border-top:1px solid rgba(255,255,255,0.06); flex-shrink:0; }
 .glass-input {
@@ -176,4 +256,33 @@ const fmtDur = (sec: number) => {
 }
 .icon-action:hover { background:rgba(255,255,255,0.1); }
 .icon-action:disabled { opacity:0.4; cursor:not-allowed; }
+
+/* Context Menu */
+.context-menu {
+    position: fixed;
+    background: rgba(20, 20, 25, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 160px;
+    z-index: 9999;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    backdrop-filter: blur(10px);
+}
+.menu-item {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.menu-item:hover {
+    background: rgba(51, 190, 204, 0.2);
+    color: #33becc;
+}
+.menu-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 4px 0;
+}
 </style>

@@ -4,6 +4,7 @@ import { ref } from 'vue';
 export const obs = new OBSWebSocket();
 export const isObsConnected = ref(false);
 export const currentMediaTime = ref('00:00:00:00');
+export const currentMediaMs = ref(0);
 export const isPlaying = ref(false);
 export const currentPlayingSourceName = ref('');
 export const playStartTime = ref(0);   // epoch ms when current playlist segment started
@@ -24,6 +25,7 @@ obs.on('MediaInputPlaybackStarted', (data) => {
         try {
             const status = await obs.call('GetMediaInputStatus', { inputName: data.inputName });
             const ms = status.mediaCursor as number;
+            currentMediaMs.value = ms;
             const h = String(Math.floor(ms / 3600000)).padStart(2, '0');
             const m = String(Math.floor((ms % 3600000) / 60000)).padStart(2, '0');
             const s = String(Math.floor((ms % 60000) / 1000)).padStart(2, '0');
@@ -34,18 +36,13 @@ obs.on('MediaInputPlaybackStarted', (data) => {
 });
 
 obs.on('MediaInputPlaybackEnded', (data: any) => {
-    // Only care about our unified media source
-    if (data.inputName !== 'SOTA_Playout_Media' && data.inputName !== currentPlayingSourceName.value) return;
+    if (data.inputName !== `SOTA_Player_${PlaybackService.activeDeck}`) return;
     if (tcInterval) clearInterval(tcInterval);
     isPlaying.value = false;
-    // Auto-advance is handled externally by the playback service
-    PlaybackService.onEnded();
+    PlaybackService.onEnded(PlaybackService.playbackToken);
 });
 
 // ── PlaybackService ────────────────────────────────────────────────────────────
-// Manages playlist-style sequential playback through rundown items.
-// The consumer (RundownList / App) calls PlaybackService.play(items, startIndex).
-// ─────────────────────────────────────────────────────────────────────────────
 
 type PlayItem = {
     id: string;
@@ -62,118 +59,170 @@ let playItems: PlayItem[] = [];
 let playIndex = 0;
 let onAdvanceCb: OnAdvanceCb | null = null;
 let outPointTimer: ReturnType<typeof setTimeout> | null = null;
-let stopRequested = false; // prevents onEnded() auto-advance on manual stop
+let stopRequested = false;
 
 export const PlaybackService = {
     isSwitching: false,
+    playbackToken: 0,
+    activeDeck: 'A' as 'A' | 'B',
 
     onAdvance(cb: OnAdvanceCb) { onAdvanceCb = cb; },
 
     async play(items: PlayItem[], startIndex: number) {
+        this.playbackToken++;
+        const token = this.playbackToken;
         this.isSwitching = true;
         stopRequested = false;
         playItems = items;
         playIndex = startIndex;
         playStartTime.value = Date.now();
         playStartIndex.value = startIndex;
-        await this._playAt(playIndex);
+
+        await this._playAt(playIndex, token);
+        if (this.playbackToken !== token) return;
         this.isSwitching = false;
     },
 
     async stop() {
-        stopRequested = true; // must be set BEFORE triggering OBS stop
+        this.playbackToken++; // cancel ongoing plays
+        stopRequested = true;
         if (outPointTimer) clearTimeout(outPointTimer);
         isPlaying.value = false;
-        try {
-            await obs.call('TriggerMediaInputAction', {
-                inputName: 'SOTA_Playout_Media',
-                mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP'
-            });
-        } catch { }
+        try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_A', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
+        try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_B', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
         try { await obs.call('SetCurrentProgramScene', { sceneName: 'SOTA_Black' }); } catch { }
         currentPlayingSourceName.value = '';
     },
 
-    async _playAt(index: number) {
+    async cutToDeck(deckName: 'A' | 'B') {
+        const newPlayer = `SOTA_Player_${deckName}`;
+        const oldPlayer = `SOTA_Player_${deckName === 'A' ? 'B' : 'A'}`;
+
+        try {
+            await obs.call('SetSceneItemEnabled', {
+                sceneName: 'SOTA_Program',
+                sceneItemId: (await obs.call('GetSceneItemId', { sceneName: 'SOTA_Program', sourceName: newPlayer })).sceneItemId,
+                sceneItemEnabled: true
+            });
+            await obs.call('SetSceneItemEnabled', {
+                sceneName: 'SOTA_Program',
+                sceneItemId: (await obs.call('GetSceneItemId', { sceneName: 'SOTA_Program', sourceName: oldPlayer })).sceneItemId,
+                sceneItemEnabled: false
+            });
+        } catch (e) {
+            console.error('[OBS] cutToDeck visibility toggle error', e);
+        }
+
+        try { await obs.call('TriggerMediaInputAction', { inputName: newPlayer, mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PLAY' }); } catch { }
+        try { await obs.call('TriggerMediaInputAction', { inputName: oldPlayer, mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
+
+        this.activeDeck = deckName;
+        currentPlayingSourceName.value = newPlayer;
+    },
+
+    async preloadDeck(deckName: 'A' | 'B', item: PlayItem, token: number) {
+        if (this.playbackToken !== token) return;
+        const player = `SOTA_Player_${deckName}`;
+        const isNetwork = item.path.startsWith('http');
+
+        try {
+            await obs.call('SetInputSettings', {
+                inputName: player,
+                inputSettings: {
+                    is_local_file: !isNetwork,
+                    local_file: !isNetwork ? item.path : '',
+                    input: isNetwork ? item.path : ''
+                }
+            });
+        } catch (e) {
+            console.error(`[OBS] Failed to set input settings for ${player}`, e);
+        }
+
+        if (this.playbackToken !== token) return;
+
+        try {
+            await obs.call('TriggerMediaInputAction', {
+                inputName: player,
+                mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
+            });
+
+            await new Promise(r => setTimeout(r, 100)); // wait for media to open
+            if (this.playbackToken !== token) return;
+
+            await obs.call('TriggerMediaInputAction', {
+                inputName: player,
+                mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE'
+            });
+
+            if (item.inPoint > 0) {
+                await obs.call('SetMediaInputCursor', {
+                    inputName: player,
+                    mediaCursor: item.inPoint
+                });
+            }
+        } catch (e) {
+            console.error(`[OBS] Failed to preload media into ${player}`, e);
+        }
+    },
+
+    async _playAt(index: number, token: number) {
+        if (this.playbackToken !== token) return;
         if (outPointTimer) clearTimeout(outPointTimer);
+
         if (index < 0 || index >= playItems.length) {
             isPlaying.value = false;
             return;
         }
+
         const item = playItems[index];
         if (!item) return;
 
         if (onAdvanceCb) onAdvanceCb(index);
 
-        // Unified 1-player strategy removes layering bugs
-        const sourceName = 'SOTA_Playout_Media';
-
         try {
             if (item.type === 'live') {
                 await obs.call('SetCurrentProgramScene', { sceneName: 'SOTA_Program' });
+                try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_A', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
+                try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_B', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
+
                 const dur = item.duration || item.outPoint || 0;
                 if (dur > 0) {
-                    outPointTimer = setTimeout(() => PlaybackService.onEnded(), dur * 1000);
+                    outPointTimer = setTimeout(() => this.onEnded(token), dur * 1000);
                 }
             } else {
-                const isNetwork = item.path.startsWith('http');
-                try {
-                    await obs.call('CreateInput', {
-                        sceneName: 'SOTA_Program',
-                        inputName: sourceName,
-                        inputKind: 'ffmpeg_source',
-                        inputSettings: {
-                            is_local_file: !isNetwork,
-                            local_file: !isNetwork ? item.path : '',
-                            input: isNetwork ? item.path : '',
-                            hw_decode: true,
-                            close_when_inactive: true,
-                            clear_on_media_end: true // makes transparent when done
-                        }
-                    });
-                } catch (e: any) {
-                    // Update existing unified source
-                    await obs.call('SetInputSettings', {
-                        inputName: sourceName,
-                        inputSettings: {
-                            is_local_file: !isNetwork,
-                            local_file: !isNetwork ? item.path : '',
-                            input: isNetwork ? item.path : ''
-                        }
-                    });
-                }
+                await obs.call('SetCurrentProgramScene', { sceneName: 'SOTA_Program' });
 
-                await obs.call('TriggerMediaInputAction', {
-                    inputName: sourceName,
-                    mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
-                });
+                const newDeck = this.activeDeck === 'A' ? 'B' : 'A';
 
-                if (item.inPoint > 0) {
-                    setTimeout(async () => {
-                        try {
-                            await obs.call('SetMediaInputCursor', {
-                                inputName: sourceName, mediaCursor: item.inPoint
-                            });
-                        } catch { }
-                    }, 300);
-                }
+                await this.preloadDeck(newDeck, item, token);
+                if (this.playbackToken !== token) return;
+
+                await this.cutToDeck(newDeck);
+                if (this.playbackToken !== token) return;
 
                 if (item.outPoint > item.inPoint) {
                     const trimDuration = item.outPoint - item.inPoint;
-                    outPointTimer = setTimeout(() => PlaybackService.onEnded(), trimDuration);
+                    outPointTimer = setTimeout(() => this.onEnded(token), trimDuration);
                 }
 
-                await obs.call('SetCurrentProgramScene', { sceneName: 'SOTA_Program' });
-                currentPlayingSourceName.value = sourceName;
+                // Next-Item Buffering
+                if (index + 1 < playItems.length) {
+                    const nextItem = playItems[index + 1];
+                    if (nextItem && nextItem.type !== 'live') {
+                        const standbyDeck = this.activeDeck === 'A' ? 'B' : 'A';
+                        this.preloadDeck(standbyDeck, nextItem, token).catch(e => console.error('[OBS] Buffering error:', e));
+                    }
+                }
             }
         } catch (e) {
             console.error('[Playback] Failed to play item:', e);
-            PlaybackService.onEnded();
+            this.onEnded(token);
         }
     },
 
-    onEnded() {
-        if (this.isSwitching) return; // Prevent OBS "Ended" events from skipping during file changes
+    onEnded(token: number) {
+        if (this.playbackToken !== token) return;
+        if (this.isSwitching) return;
         if (stopRequested) {
             stopRequested = false;
             isPlaying.value = false;
@@ -183,8 +232,8 @@ export const PlaybackService = {
         playIndex++;
         if (playIndex < playItems.length) {
             this.isSwitching = true;
-            PlaybackService._playAt(playIndex).then(() => {
-                this.isSwitching = false;
+            this._playAt(playIndex, token).then(() => {
+                if (this.playbackToken === token) this.isSwitching = false;
             });
         } else {
             isPlaying.value = false;
@@ -199,9 +248,32 @@ export class ObsService {
     static async connect(url = 'ws://127.0.0.1:4455', password?: string) {
         try {
             await obs.connect(url, password);
-            await obs.call('SetStudioModeEnabled', { studioModeEnabled: false }); // Simplified: direct to program
+            await obs.call('SetStudioModeEnabled', { studioModeEnabled: false });
             try { await obs.call('CreateScene', { sceneName: 'SOTA_Program' }); } catch { }
             try { await obs.call('CreateScene', { sceneName: 'SOTA_Black' }); } catch { }
+
+            const setupPlayer = async (playerName: string) => {
+                const settings = {
+                    hw_decode: true,
+                    close_when_inactive: false,
+                    clear_on_media_end: true,
+                    restart_on_activate: false
+                };
+                try {
+                    await obs.call('CreateInput', {
+                        sceneName: 'SOTA_Program',
+                        inputName: playerName,
+                        inputKind: 'ffmpeg_source',
+                        inputSettings: settings
+                    });
+                } catch (e: any) {
+                    try { await obs.call('SetInputSettings', { inputName: playerName, inputSettings: settings }); } catch { }
+                }
+            };
+
+            await setupPlayer('SOTA_Player_A');
+            await setupPlayer('SOTA_Player_B');
+
             await obs.call('SetCurrentProgramScene', { sceneName: 'SOTA_Program' });
         } catch (error) {
             console.error('[OBS] Failed to connect', error);
@@ -231,4 +303,32 @@ export class ObsService {
             }
         }
     }
+
+    static async clearCompliance() {
+        try {
+            const req = await obs.call('GetSceneItemId', { sceneName: 'SOTA_Program', sourceName: 'SOTA_Compliance_Bug' });
+            await obs.call('SetSceneItemEnabled', {
+                sceneName: 'SOTA_Program',
+                sceneItemId: req.sceneItemId,
+                sceneItemEnabled: false
+            });
+        } catch { }
+    }
+
+    static async seekMedia(inputName: string, timeCursor: number) {
+        try {
+            await obs.call('SetMediaInputCursor', {
+                inputName: `SOTA_Player_${PlaybackService.activeDeck}`,
+                mediaCursor: timeCursor
+            });
+        } catch { }
+    }
+
+    static async cueDecklink(url: number) { }
+    static async cueVideo(filename: string, path: string) { }
+    static async take() { }
+    static async clear() {
+        PlaybackService.stop();
+    }
 }
+
