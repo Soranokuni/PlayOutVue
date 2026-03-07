@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings';
+import { ObsService } from '../services/obs';
 
 const props = defineProps({
   isOpen: Boolean
@@ -15,11 +16,24 @@ const localState = ref({
     obsPassword: '',
     localMediaPath: '',
     complianceUrl: '',
+    decklinkOutputName: '',
     watermarkPath: '',
     watermarkEnabled: false,
     watermarkPosition: 'top-right' as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
     watermarkOpacity: 80,
     watermarkScale: 15
+});
+
+const availableOutputs = ref<any[]>([]);
+
+const fetchOutputs = async () => {
+    try {
+        availableOutputs.value = await ObsService.getOutputs();
+    } catch {}
+};
+
+watch(() => props.isOpen, (open) => {
+    if (open) fetchOutputs();
 });
 
 onMounted(() => {
@@ -28,6 +42,7 @@ onMounted(() => {
         obsPassword: settings.obsPassword,
         localMediaPath: settings.localMediaPath,
         complianceUrl: settings.complianceUrl,
+        decklinkOutputName: settings.decklinkOutputName,
         watermarkPath: settings.watermarkPath,
         watermarkEnabled: settings.watermarkEnabled,
         watermarkPosition: settings.watermarkPosition,
@@ -47,6 +62,7 @@ const discardAndClose = () => {
         obsPassword: settings.obsPassword,
         localMediaPath: settings.localMediaPath,
         complianceUrl: settings.complianceUrl,
+        decklinkOutputName: settings.decklinkOutputName,
         watermarkPath: settings.watermarkPath,
         watermarkEnabled: settings.watermarkEnabled,
         watermarkPosition: settings.watermarkPosition,
@@ -98,6 +114,24 @@ const discardAndClose = () => {
                 <label>Compliance Overlay Host URL</label>
                 <input type="text" class="glass-input" v-model="localState.complianceUrl" placeholder="http://localhost/greek_ratings.html">
                 <span class="hint-text">The HTTP address OBS will use for the NCRTV graphic Browser Source.</span>
+            </div>
+        </section>
+
+        <!-- Hardware Output -->
+        <section class="settings-section">
+            <h3 class="text-secondary section-title">Hardware Output (DeckLink/NDI)</h3>
+            <div class="form-group">
+                <label>Target Hardware Output</label>
+                <div style="display:flex; gap: 8px;">
+                    <select class="glass-input" v-model="localState.decklinkOutputName" style="flex:1;">
+                        <option value="">None / Disabled</option>
+                        <option v-for="out in availableOutputs" :key="out.outputName" :value="out.outputName">
+                            {{ out.outputName }} ({{ out.outputKind }})
+                        </option>
+                    </select>
+                    <button class="glass-btn" @click="fetchOutputs" title="Refresh Outputs" style="flex-shrink:0;">↻</button>
+                </div>
+                <span class="hint-text">Select a DeckLink or NDI output to allow SDI Out toggling in the main interface.</span>
             </div>
         </section>
 
