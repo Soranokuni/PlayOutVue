@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import MediaLibrary from './components/MediaLibrary.vue';
 import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
@@ -14,6 +14,34 @@ const rundown  = useRundownStore();
 const isStreaming  = ref(false);
 const isSdiActive  = ref(false);
 const showSettings = ref(false);
+
+const leftWidth = ref(260);
+const rightWidth = ref(300);
+const isResizing = ref<'left'|'right'|null>(null);
+
+const isLightMode = ref(localStorage.getItem('isLightMode') === 'true');
+watch(isLightMode, (val) => {
+    localStorage.setItem('isLightMode', String(val));
+    if (val) document.body.classList.add('light-theme');
+    else document.body.classList.remove('light-theme');
+}, { immediate: true });
+
+const startResizeLeft = () => { isResizing.value = 'left';  window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp); };
+const startResizeRight = () => { isResizing.value = 'right'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp); };
+
+const onMouseMove = (e: MouseEvent) => {
+    if (isResizing.value === 'left') {
+        leftWidth.value = Math.max(200, Math.min(600, e.clientX));
+    } else if (isResizing.value === 'right') {
+        rightWidth.value = Math.max(250, Math.min(800, window.innerWidth - e.clientX));
+    }
+};
+
+const onMouseUp = () => {
+    isResizing.value = null;
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+};
 
 obs.on('StreamStateChanged', (data: any) => { isStreaming.value = data.outputActive; });
 
@@ -51,9 +79,14 @@ const toggleSdi = async () => {
 </script>
 
 <template>
-  <main class="app-shell">
+  <main class="app-shell" :style="`--left-w: ${leftWidth}px; --right-w: ${rightWidth}px; cursor: ${isResizing ? 'ew-resize' : 'default'}`">
+    
     <aside class="panel panel-library glass-panel"><MediaLibrary /></aside>
+    <div class="resizer resizer-left" @mousedown="startResizeLeft"></div>
+    
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
+    <div class="resizer resizer-right" @mousedown="startResizeRight"></div>
+    
     <aside class="panel panel-right">
       <div class="glass-panel panel-preview"><PreviewMonitor /></div>
       <div class="glass-panel panel-inspector"><MediaInspector /></div>
@@ -122,7 +155,11 @@ const toggleSdi = async () => {
 
       <div class="ctrl-divider"></div>
 
-      <button class="ctrl-btn" style="font-size:0.78rem; margin-left:auto;" @click="showSettings = true">⚙ Settings</button>
+      <button class="ctrl-btn" style="font-size:0.75rem; margin-left:auto; width:40px;" @click="isLightMode = !isLightMode" :title="isLightMode ? 'Switch to Dark Mode' : 'Switch to Light Mode'">
+        {{ isLightMode ? '🌙' : '☀️' }}
+      </button>
+
+      <button class="ctrl-btn" style="font-size:0.78rem;" @click="showSettings = true">⚙ Settings</button>
     </footer>
 
     <SettingsModal :is-open="showSettings" @close="showSettings = false" />
@@ -132,18 +169,32 @@ const toggleSdi = async () => {
 <style scoped>
 .app-shell {
   display: grid;
-  grid-template-columns: 260px 1fr 300px;
+  grid-template-columns: var(--left-w) 8px 1fr 8px var(--right-w);
   grid-template-rows: 1fr 58px;
-  grid-template-areas: "library rundown right" "ctrl ctrl ctrl";
-  height: 100vh; gap: 5px; padding: 5px; overflow: hidden;
+  grid-template-areas: "library r1 rundown r2 right" "ctrl ctrl ctrl ctrl ctrl";
+  height: 100vh; gap: 0; padding: 5px; overflow: hidden;
   background: var(--bg-dark,#0d0d0d);
+  user-select: none;
 }
 .panel-library  { grid-area: library; overflow:hidden; }
 .panel-rundown  { grid-area: rundown; overflow:hidden; }
-.panel-right    { grid-area: right; display:flex; flex-direction:column; gap:5px; overflow:hidden; }
+.panel-right    { grid-area: right; display:flex; flex-direction:column; gap:8px; overflow:hidden; }
 .panel-preview  { flex: 0 0 170px; overflow:hidden; }
 .panel-inspector { flex:1; overflow:hidden; }
-.control-bar    { grid-area: ctrl; display:flex; align-items:center; gap:8px; padding:0 12px; }
+.control-bar    { grid-area: ctrl; display:flex; align-items:center; gap:8px; padding:0 12px; margin-top:5px; }
+
+.resizer {
+  cursor: ew-resize;
+  background: transparent;
+  width: 100%;
+  height: 100%;
+  transition: background 0.2s;
+}
+.resizer:hover, .resizer:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+.resizer-left { grid-area: r1; }
+.resizer-right { grid-area: r2; }
 
 .ctrl-section    { display:flex; align-items:center; gap:6px; }
 .ctrl-label      { font-size:0.68rem; color:rgba(255,255,255,0.45); letter-spacing:0.5px; white-space:nowrap; }

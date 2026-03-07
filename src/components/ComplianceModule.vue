@@ -83,8 +83,8 @@ const clearComplianceOverlay = async () => {
 
 <style scoped>
 .compliance-module {
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--bg-secondary);
+    border: 1px solid var(--glass-border);
     border-radius: 8px;
     padding: 1rem;
     margin-top: 2rem;
@@ -100,7 +100,7 @@ const clearComplianceOverlay = async () => {
 }
 
 .glass-input {
-    background: rgba(0,0,0,0.5);
+    background: var(--bg-tertiary);
     border: 1px solid var(--glass-border);
     color: var(--text-primary);
     padding: 8px;

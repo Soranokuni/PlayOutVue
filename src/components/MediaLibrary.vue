@@ -5,9 +5,13 @@ import { useSettingsStore } from '../stores/settings';
 import { draggingItem } from '../composables/useDragState';
 import { invoke } from '@tauri-apps/api/core';
 import MediaTreeNode from './MediaTreeNode.vue';
+import TrimPanel from './TrimPanel.vue';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
+
+const showTrimPanel = ref(false);
+const trimLibraryItem = ref<{ path: string, filename: string, type: string, duration?: number } | null>(null);
 
 interface MediaNode {
     name: string;
@@ -155,6 +159,19 @@ const closeContextMenu = () => {
     contextMenu.value.show = false;
 };
 
+const openTrimPanel = () => {
+    if (contextMenu.value.node) {
+        trimLibraryItem.value = {
+            path: contextMenu.value.node.path,
+            filename: contextMenu.value.node.name,
+            type: contextMenu.value.node.mediaType || 'video',
+            duration: contextMenu.value.node.duration || 0
+        };
+        showTrimPanel.value = true;
+    }
+    closeContextMenu();
+};
+
 const appendNode = () => {
     if (contextMenu.value.node) addItem(contextMenu.value.node);
     closeContextMenu();
@@ -228,12 +245,25 @@ onUnmounted(() => {
     </div>
 
     <!-- Custom Context Menu -->
-    <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
-      <div class="menu-item" @click.stop="appendNode">Append to Rundown</div>
-      <div class="menu-item" @click.stop="insertNode">Insert After Selected</div>
-      <div class="menu-divider"></div>
-      <div class="menu-item" @click.stop="closeContextMenu">Cancel</div>
-    </div>
+    <Teleport to="body">
+      <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
+        <div class="menu-item" @click.stop="appendNode">Append to Rundown</div>
+        <div class="menu-item" @click.stop="insertNode">Insert After Selected</div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" @click.stop="openTrimPanel">✂️ Trim & Extract...</div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" @click.stop="closeContextMenu">Cancel</div>
+      </div>
+    </Teleport>
+
+    <!-- Trim Panel Modal -->
+    <Teleport to="body">
+      <TrimPanel 
+        :is-open="showTrimPanel" 
+        :library-item="trimLibraryItem"
+        @close="showTrimPanel = false; trimLibraryItem = null" 
+      />
+    </Teleport>
   </div>
 </template>
 
@@ -247,7 +277,7 @@ onUnmounted(() => {
 .lib-empty { color:rgba(255,255,255,0.25); font-size:0.78rem; text-align:center; padding:20px 10px; line-height:1.6; }
 .lib-stream-bar { padding:8px; border-top:1px solid rgba(255,255,255,0.06); flex-shrink:0; }
 .glass-input {
-    background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.1);
+    background:var(--bg-tertiary); border:1px solid var(--glass-border);
     color:var(--text-primary); border-radius:4px; font-size:0.8rem; padding:5px 8px;
 }
 .icon-action {
@@ -260,8 +290,8 @@ onUnmounted(() => {
 /* Context Menu */
 .context-menu {
     position: fixed;
-    background: rgba(20, 20, 25, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--bg-secondary);
+    border: 1px solid var(--glass-border);
     border-radius: 6px;
     padding: 4px 0;
     min-width: 160px;

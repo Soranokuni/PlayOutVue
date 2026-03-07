@@ -7,23 +7,37 @@
   --bg-primary: #111827;
   --bg-secondary: #1B1B1B;
   --bg-tertiary: #2a2a2a;
-  
+
   /* Accents */
   --accent-blue: #33BECC;
   --accent-red: #E63946;
   --accent-yellow: #F8B400;
-  
+
   /* Text */
   --text-primary: #F9FAFB;
   --text-secondary: #9CA3AF;
-  
+
   /* Layout */
   --border-radius-base: 12px;
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-bg: rgba(255, 255, 255, 0.03);
 }
 
-*, *::before, *::after {
+.light-theme {
+  --bg-primary: #f0f2f5;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e4e6e9;
+
+  --text-primary: #1c1e21;
+  --text-secondary: #606770;
+
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-bg: rgba(255, 255, 255, 0.6);
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -87,14 +101,14 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary); 
+  background: var(--bg-primary);
 }
- 
+
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-tertiary); 
+  background: var(--bg-tertiary);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary); 
+  background: var(--text-secondary);
 }

@@ -17,9 +17,9 @@ const captureFrame = async () => {
             const { imageData } = await (obs as any).call('GetVideoMixSnapshot', {
                 videoMixType: 'OBS_WEBSOCKET_VIDEO_MIX_TYPE_PROGRAM',
                 imageFormat: 'jpeg',
-                imageWidth: 480,
-                imageHeight: 270,
-                imageCompressionQuality: 75
+                imageWidth: 320,
+                imageHeight: 180,
+                imageCompressionQuality: 50
             });
             previewSrc.value = imageData;
             lastError.value = '';
@@ -32,9 +32,9 @@ const captureFrame = async () => {
                         const { imageData } = await (obs as any).call('GetSourceScreenshot', {
                             sourceName: sceneName,
                             imageFormat: 'jpeg',
-                            imageWidth: 480,
-                            imageHeight: 270,
-                            imageCompressionQuality: 75
+                            imageWidth: 320,
+                            imageHeight: 180,
+                            imageCompressionQuality: 50
                         });
                         previewSrc.value = imageData;
                         lastError.value = '';
@@ -49,7 +49,7 @@ const captureFrame = async () => {
     }
     
     if (keepPolling) {
-        pollTimer = setTimeout(captureFrame, 200);
+        pollTimer = setTimeout(captureFrame, 500);
     }
 };
 
@@ -85,7 +85,7 @@ onUnmounted(() => {
 
 <style scoped>
 .preview-monitor { display:flex;flex-direction:column;height:100%;background:#000;border-radius:8px;overflow:hidden; }
-.monitor-header { display:flex;justify-content:space-between;align-items:center;padding:4px 10px;background:rgba(0,0,0,0.6);border-bottom:1px solid rgba(255,255,255,0.08); }
+.monitor-header { display:flex;justify-content:space-between;align-items:center;padding:4px 10px;background:var(--bg-secondary);border-bottom:1px solid var(--glass-border); }
 .badge-program { color:#e63946;font-size:0.72rem;font-weight:700;letter-spacing:1px;text-transform:uppercase; }
 .monitor-frame { flex:1;display:flex;align-items:center;justify-content:center;background:#0a0a0a;min-height:0; }
 .monitor-image { width:100%;height:100%;object-fit:contain;display:block; }
