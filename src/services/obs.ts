@@ -10,38 +10,30 @@ export const currentPlayingSourceName = ref('');
 export const playStartTime = ref(0);   // epoch ms when current playlist segment started
 export const playStartIndex = ref(0);  // which rundown index we started from
 
-let isPolling = false;
-
-const pollTimecode = async () => {
-    if (!isObsConnected.value || !isPlaying.value || !currentPlayingSourceName.value) {
-        if (isPolling) setTimeout(pollTimecode, 100);
-        return;
-    }
-    try {
-        const status = await obs.call('GetMediaInputStatus', { inputName: currentPlayingSourceName.value });
-        const ms = status.mediaCursor as number;
-        currentMediaMs.value = ms;
-        const h = String(Math.floor(ms / 3600000)).padStart(2, '0');
-        const m = String(Math.floor((ms % 3600000) / 60000)).padStart(2, '0');
-        const s = String(Math.floor((ms % 60000) / 1000)).padStart(2, '0');
-        const f = String(Math.floor((ms % 1000) / 40)).padStart(2, '0');
-        currentMediaTime.value = `${h}:${m}:${s}:${f}`;
-    } catch { }
-
-    if (isPolling) setTimeout(pollTimecode, 80);
+const startTimecodePolling = () => {
+    setInterval(async () => {
+        if (isPlaying.value && currentPlayingSourceName.value && currentPlayingSourceName.value.startsWith('SOTA_Player_')) {
+            try {
+                const status = await obs.call('GetMediaInputStatus', { inputName: currentPlayingSourceName.value });
+                const ms = status.mediaCursor as number;
+                currentMediaMs.value = ms;
+                const h = String(Math.floor(ms / 3600000)).padStart(2, '0');
+                const m = String(Math.floor((ms % 3600000) / 60000)).padStart(2, '0');
+                const s = String(Math.floor((ms % 60000) / 1000)).padStart(2, '0');
+                const f = String(Math.floor((ms % 1000) / 40)).padStart(2, '0');
+                currentMediaTime.value = `${h}:${m}:${s}:${f}`;
+            } catch { }
+        }
+    }, 80);
 };
 
 obs.on('ConnectionOpened', () => {
     isObsConnected.value = true;
-    if (!isPolling) {
-        isPolling = true;
-        pollTimecode();
-    }
+    startTimecodePolling();
 });
 obs.on('ConnectionClosed', () => {
     isObsConnected.value = false;
     isPlaying.value = false;
-    isPolling = false;
 });
 obs.on('ConnectionError', (err) => { console.error('[OBS] Connection Error', err); });
 
@@ -109,6 +101,17 @@ export const PlaybackService = {
         currentPlayingSourceName.value = '';
     },
 
+    async cutToLive() {
+        this.playbackToken++;
+        stopRequested = true;
+        if (outPointTimer) clearTimeout(outPointTimer);
+        isPlaying.value = false;
+        try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_A', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
+        try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_B', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
+        try { await obs.call('SetCurrentProgramScene', { sceneName: 'SOTA_Live' }); } catch { }
+        currentPlayingSourceName.value = '';
+    },
+
     async cutToDeck(deckName: 'A' | 'B') {
         const newPlayer = `SOTA_Player_${deckName}`;
         const oldPlayer = `SOTA_Player_${deckName === 'A' ? 'B' : 'A'}`;
@@ -161,15 +164,15 @@ export const PlaybackService = {
                 mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
             });
 
-            let attempts = 0;
-            while (attempts < 40) { // max 2000ms
-                await new Promise(r => setTimeout(r, 50));
+            let retries = 0;
+            while (retries < 40) { // Max 2 seconds wait
                 if (this.playbackToken !== token) return;
                 try {
-                    const st = await obs.call('GetMediaInputStatus', { inputName: player });
-                    if (st.mediaState === 'OBS_MEDIA_STATE_PLAYING') break;
+                    const status = await obs.call('GetMediaInputStatus', { inputName: player });
+                    if (status.mediaState === 'OBS_MEDIA_STATE_PLAYING') break;
                 } catch { }
-                attempts++;
+                await new Promise(r => setTimeout(r, 50));
+                retries++;
             }
             if (this.playbackToken !== token) return;
 
@@ -275,6 +278,7 @@ export class ObsService {
             await obs.call('SetStudioModeEnabled', { studioModeEnabled: false });
             try { await obs.call('CreateScene', { sceneName: 'SOTA_Program' }); } catch { }
             try { await obs.call('CreateScene', { sceneName: 'SOTA_Black' }); } catch { }
+            try { await obs.call('CreateScene', { sceneName: 'SOTA_Live' }); } catch { }
 
             const setupPlayer = async (playerName: string) => {
                 const settings = {

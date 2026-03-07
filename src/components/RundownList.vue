@@ -291,8 +291,8 @@ const msToDisplay = (ms: number) => {
   display:flex; justify-content:space-between; align-items:center; flex-shrink:0;
 }
 .clock-display {
-  font-family:'Courier New',monospace; font-size:0.9rem; font-weight:700;
-  letter-spacing:2px; color:var(--accent-blue,#33becc);
+  font-family:'Courier New',monospace; font-size:1.3rem; font-weight:700;
+  letter-spacing:2px; color:#ffffff; text-shadow:0 0 10px rgba(255,255,255,0.7);
 }
 .playing-badge {
   background:rgba(230,57,70,0.2); border:1px solid rgba(230,57,70,0.5);

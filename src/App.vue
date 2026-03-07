@@ -92,6 +92,10 @@ const toggleSdi = async () => {
         >
           ■ STOP
         </button>
+        
+        <button v-if="isObsConnected" class="ctrl-btn btn-live-now" @click="PlaybackService.cutToLive()" title="Cut to Live Scene">
+          🔴 LIVE NOW
+        </button>
       </div>
 
       <div class="ctrl-divider"></div>
@@ -175,6 +179,19 @@ const toggleSdi = async () => {
 }
 
 .btn-live { background:rgba(230,57,70,0.2); border-color:rgba(230,57,70,0.5); color:#e63946; }
+
+.btn-live-now {
+  background:rgba(230,57,70,0.1); border-color:#e63946;
+  color:#fff; font-size:0.85rem; font-weight:800;
+  padding:8px 16px; letter-spacing:1px; margin-left:8px;
+  animation:pulse-live 2s infinite;
+}
+.btn-live-now:hover { background:rgba(230,57,70,0.3); border-color:#fca5a5; box-shadow:0 0 16px rgba(230,57,70,0.4); }
+
+@keyframes pulse-live {
+  0%,100% { box-shadow:0 0 8px rgba(230,57,70,0.2); }
+  50% { box-shadow:0 0 16px rgba(230,57,70,0.5); border-color:#fca5a5; }
+}
 
 .timecode {
   font-size:1.4rem; font-weight:700; letter-spacing:3px;
