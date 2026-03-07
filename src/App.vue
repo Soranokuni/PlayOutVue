@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useStorage } from '@vueuse/core';
 import MediaLibrary from './components/MediaLibrary.vue';
 import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
@@ -15,35 +16,65 @@ const isStreaming  = ref(false);
 const isSdiActive  = ref(false);
 const showSettings = ref(false);
 
-const leftWidth = ref(260);
-const rightWidth = ref(300);
+const leftWidth = useStorage('layout.leftWidth', 260);
+const rightWidth = useStorage('layout.rightWidth', 300);
 const isResizing = ref<'left'|'right'|null>(null);
+const isLightMode = useStorage('ui.isLightMode', false);
+let pendingResizeX = 0;
+let resizeFrame = 0;
 
-const isLightMode = ref(localStorage.getItem('isLightMode') === 'true');
 watch(isLightMode, (val) => {
-    localStorage.setItem('isLightMode', String(val));
     if (val) document.body.classList.add('light-theme');
     else document.body.classList.remove('light-theme');
 }, { immediate: true });
+
+const formatDuration = (seconds: number) => {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainingSeconds = total % 60;
+  return [hours, minutes, remainingSeconds]
+    .filter((value, index) => value > 0 || index > 0)
+    .map((value) => String(value).padStart(2, '0'))
+    .join(':');
+};
+
+const rundownSummary = computed(() => {
+  const itemCount = rundown.activeItems.length;
+  if (!itemCount) return 'No items loaded';
+  return `${itemCount} item${itemCount === 1 ? '' : 's'} · ${formatDuration(rundown.totalDuration)}`;
+});
+
+const applyResize = () => {
+  resizeFrame = 0;
+  if (isResizing.value === 'left') {
+    leftWidth.value = Math.max(220, Math.min(520, pendingResizeX));
+  } else if (isResizing.value === 'right') {
+    rightWidth.value = Math.max(280, Math.min(680, window.innerWidth - pendingResizeX));
+  }
+};
 
 const startResizeLeft = () => { isResizing.value = 'left';  window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp); };
 const startResizeRight = () => { isResizing.value = 'right'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp); };
 
 const onMouseMove = (e: MouseEvent) => {
-    if (isResizing.value === 'left') {
-        leftWidth.value = Math.max(200, Math.min(600, e.clientX));
-    } else if (isResizing.value === 'right') {
-        rightWidth.value = Math.max(250, Math.min(800, window.innerWidth - e.clientX));
-    }
+  pendingResizeX = e.clientX;
+  if (!resizeFrame) resizeFrame = requestAnimationFrame(applyResize);
 };
 
 const onMouseUp = () => {
     isResizing.value = null;
     window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('mouseup', onMouseUp);
+  if (resizeFrame) {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = 0;
+  }
 };
 
-obs.on('StreamStateChanged', (data: any) => { isStreaming.value = data.outputActive; });
+const handleStreamStateChanged = (data: any) => {
+  isStreaming.value = data.outputActive;
+};
 
 const toggleConnection = async () => {
     if (isObsConnected.value) await ObsService.disconnect();
@@ -76,16 +107,25 @@ const toggleSdi = async () => {
         isSdiActive.value = true;
     }
 };
+
+    onMounted(() => {
+      obs.on('StreamStateChanged', handleStreamStateChanged);
+    });
+
+    onUnmounted(() => {
+      onMouseUp();
+      obs.off('StreamStateChanged', handleStreamStateChanged);
+    });
 </script>
 
 <template>
   <main class="app-shell" :style="`--left-w: ${leftWidth}px; --right-w: ${rightWidth}px; cursor: ${isResizing ? 'ew-resize' : 'default'}`">
     
     <aside class="panel panel-library glass-panel"><MediaLibrary /></aside>
-    <div class="resizer resizer-left" @mousedown="startResizeLeft"></div>
+    <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = 260"></div>
     
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
-    <div class="resizer resizer-right" @mousedown="startResizeRight"></div>
+    <div class="resizer resizer-right" title="Drag to resize · double-click to reset" @mousedown="startResizeRight" @dblclick="rightWidth = 300"></div>
     
     <aside class="panel panel-right">
       <div class="glass-panel panel-preview"><PreviewMonitor /></div>
@@ -155,6 +195,13 @@ const toggleSdi = async () => {
 
       <div class="ctrl-divider"></div>
 
+      <div class="ctrl-section ctrl-summary">
+        <span class="ctrl-label">RUNDOWN</span>
+        <span class="ctrl-value">{{ rundownSummary }}</span>
+      </div>
+
+      <div class="ctrl-divider"></div>
+
       <button class="ctrl-btn" style="font-size:0.75rem; margin-left:auto; width:40px;" @click="isLightMode = !isLightMode" :title="isLightMode ? 'Switch to Dark Mode' : 'Switch to Light Mode'">
         {{ isLightMode ? '🌙' : '☀️' }}
       </button>
@@ -198,6 +245,11 @@ const toggleSdi = async () => {
 
 .ctrl-section    { display:flex; align-items:center; gap:6px; }
 .ctrl-label      { font-size:0.68rem; color:rgba(255,255,255,0.45); letter-spacing:0.5px; white-space:nowrap; }
+.ctrl-summary    { min-width:0; }
+.ctrl-value      {
+  font-size:0.78rem; color:var(--text-primary); white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; max-width:220px;
+}
 .ctrl-divider    { width:1px; height:26px; background:rgba(255,255,255,0.1); flex-shrink:0; }
 .ctrl-play-wrap  { flex:0 0 auto; }
 
@@ -254,4 +306,20 @@ const toggleSdi = async () => {
   background:rgba(255,255,255,0.2);
 }
 .status-dot.connected { background:#4caf50; box-shadow:0 0 6px rgba(76,175,80,0.6); }
+
+@media (max-width: 1280px) {
+  .control-bar {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding-block: 8px;
+  }
+
+  .ctrl-divider {
+    display: none;
+  }
+
+  .ctrl-value {
+    max-width: none;
+  }
+}
 </style>

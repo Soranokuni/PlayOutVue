@@ -7,11 +7,24 @@ const isCapturing = ref(false);
 const lastError = ref('');
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let keepPolling = true;
+const ACTIVE_POLL_MS = 700;
+const IDLE_POLL_MS = 2200;
+
+const scheduleNextPoll = (delay: number) => {
+    if (pollTimer) clearTimeout(pollTimer);
+    if (keepPolling) pollTimer = setTimeout(captureFrame, delay);
+};
 
 const captureFrame = async () => {
     if (!keepPolling) return;
+
+    if (!isObsConnected.value || document.visibilityState === 'hidden') {
+        if (!isObsConnected.value) previewSrc.value = null;
+        scheduleNextPoll(IDLE_POLL_MS);
+        return;
+    }
     
-    if (isObsConnected.value && !isCapturing.value) {
+    if (!isCapturing.value) {
         isCapturing.value = true;
         try {
             const { imageData } = await (obs as any).call('GetVideoMixSnapshot', {
@@ -48,19 +61,25 @@ const captureFrame = async () => {
         }
     }
     
-    if (keepPolling) {
-        pollTimer = setTimeout(captureFrame, 500);
+    scheduleNextPoll(lastError.value ? IDLE_POLL_MS : ACTIVE_POLL_MS);
+};
+
+const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+        captureFrame();
     }
 };
 
 onMounted(() => {
     keepPolling = true;
     captureFrame();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 onUnmounted(() => {
     keepPolling = false;
     if (pollTimer) clearTimeout(pollTimer);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 </script>
 

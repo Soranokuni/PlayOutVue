@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import { draggingItem } from '../composables/useDragState';
 import { PlaybackService, isPlaying, obs, playStartTime, playStartIndex, currentMediaMs } from '../services/obs';
@@ -11,6 +11,7 @@ const store = useRundownStore();
 const rundownListRef = ref<HTMLElement | null>(null);
 const isDragOver = ref(false);
 const showLiveDialog = ref(false);
+let sortableInstance: Sortable | null = null;
 
 const contextMenu = ref({
     show: false, x: 0, y: 0, index: -1, item: null as any
@@ -28,23 +29,35 @@ const clockStr = computed(() => {
 });
 
 const itemDurationMs = (item: any): number => {
-    return (item.duration || 60) * 1000;
+  if (item.type === 'live') return (item.plannedDuration || item.duration || 0) * 1000;
+  if (item.outPoint > item.inPoint) return item.outPoint - item.inPoint;
+  return (item.plannedDuration || item.duration || 60) * 1000;
 };
+
+const formatClockTime = (epochMs: number) =>
+  new Date(epochMs).toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 
 // Scheduled times logic
 const scheduledTimes = computed(() => {
     const playing = store.currentPlayingIndex >= 0;
     const sIdx = playing ? playStartIndex.value : 0;
     const base  = playing ? playStartTime.value  : clockNow.value;
+  let accumulatedTime = base;
 
     return store.activeItems.map((item, idx) => {
-        if (playing && idx < sIdx)                        return { kind: 'skip' };
-        if (playing && idx < store.currentPlayingIndex)   return { kind: 'done' };
-        if (playing && idx === store.currentPlayingIndex)  return { kind: 'now' };
-        let acc = 0;
-        for (let j = sIdx; j < idx; j++) acc += itemDurationMs(store.activeItems[j]);
-        const d = new Date(base + acc);
-        return { kind: 'time', text: d.toLocaleTimeString('el-GR', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false }) };
+    if (playing && idx < sIdx) return { kind: 'skip' };
+    if (playing && idx < store.currentPlayingIndex) {
+      accumulatedTime += itemDurationMs(item);
+      return { kind: 'done' };
+    }
+    if (playing && idx === store.currentPlayingIndex) {
+      accumulatedTime += itemDurationMs(item);
+      return { kind: 'now' };
+    }
+
+    const nextStart = accumulatedTime;
+    accumulatedTime += itemDurationMs(item);
+    return { kind: 'time', text: formatClockTime(nextStart) };
     });
 });
 
@@ -65,6 +78,16 @@ const playFrom = async (index: number) => {
     store.currentPlayingIndex = index;
     await PlaybackService.play(store.activeItems as any, index);
 };
+
+watch(
+  () => store.activeItems.map((item) => `${item.id}:${item.path}:${item.inPoint}:${item.outPoint}:${item.plannedDuration}`).join('|'),
+  () => {
+    if (!isPlaying.value) return;
+    PlaybackService.refreshQueue(store.activeItems as any).catch((error) => {
+      console.error('[Playback] Failed to refresh rundown queue', error);
+    });
+  }
+);
 
 const stopPlayback = async () => {
     await PlaybackService.stop();
@@ -94,7 +117,7 @@ const ctxDelete = () => {
 
 onMounted(() => {
     if (rundownListRef.value) {
-        Sortable.create(rundownListRef.value, {
+    sortableInstance = Sortable.create(rundownListRef.value, {
             animation: 120,
             ghostClass: 'rw-ghost',
             handle: '.rw-handle',
@@ -111,14 +134,31 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  sortableInstance?.destroy();
+  sortableInstance = null;
     window.removeEventListener('keydown', handleKey);
     window.removeEventListener('click', closeContextMenu);
 });
 
 const handleKey = (e: KeyboardEvent) => {
+  const target = e.target as HTMLElement | null;
+  if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+
     const id = store.selectedItemId;
     const items = store.activeItems;
     const idx = id ? items.findIndex((i: any) => i.id === id) : -1;
+
+  if ((e.key === 'Delete' || e.key === 'Backspace') && id) {
+    e.preventDefault();
+    store.removeItem(id);
+    return;
+  }
+
+  if ((e.key === 'Enter' || e.key === ' ') && idx !== -1) {
+    e.preventDefault();
+    playFrom(idx);
+    return;
+  }
 
     if (e.shiftKey && e.key === 'ArrowDown') {
         e.preventDefault();
@@ -156,6 +196,14 @@ const msToDisplay = (ms: number) => {
     const m = Math.floor(ms / 60000);
     const s = String(Math.floor((ms % 60000) / 1000)).padStart(2,'0');
     return `${m}:${s}`;
+};
+
+const trimDisplay = (item: any) => {
+  if (item.type === 'live') return 'LIVE';
+  if (!item.inPoint && !item.outPoint) return 'FULL';
+  const inLabel = item.inPoint ? msToDisplay(item.inPoint) : '0:00';
+  const outLabel = item.outPoint ? msToDisplay(item.outPoint) : 'END';
+  return `${inLabel}→${outLabel}`;
 };
 </script>
 
@@ -218,6 +266,7 @@ const msToDisplay = (ms: number) => {
         <div class="rw-num">{{ index + 1 }}</div>
         <div class="rw-type-icon" :style="{ color: typeColor(item.type) }">{{ typeIcon(item.type) }}</div>
         <div class="rw-name" :title="item.filename">{{ item.filename }}</div>
+        <div class="rw-inout" :title="trimDisplay(item)">{{ trimDisplay(item) }}</div>
 
         <!-- Duration -->
         <div class="rw-dur">
@@ -306,7 +355,10 @@ const msToDisplay = (ms: number) => {
 .rw-num     { width:20px; text-align:center; font-size:0.67rem; color:rgba(255,255,255,0.3); flex-shrink:0; }
 .rw-type-icon { width:18px; font-size:0.85rem; text-align:center; flex-shrink:0; }
 .rw-name    { flex:1; font-size:0.78rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-.rw-inout   { width:70px; text-align:center; flex-shrink:0; }
+.rw-inout   {
+  width:70px; text-align:center; flex-shrink:0;
+  font-size:0.6rem; color:rgba(255,255,255,0.42); font-variant-numeric:tabular-nums;
+}
 .rw-dur     { width:52px; text-align:right; font-size:0.68rem; color:rgba(255,255,255,0.4); font-variant-numeric:tabular-nums; flex-shrink:0; }
 .rw-at      { width:58px; text-align:center; flex-shrink:0; }
 .rw-actions { width:62px; display:flex; gap:2px; flex-shrink:0; justify-content:flex-end; }

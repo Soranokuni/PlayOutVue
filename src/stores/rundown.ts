@@ -14,6 +14,9 @@ export interface RundownItem {
     outPoint: number;       // non-destructive OUT trim point in ms (0 = end/disabled)
     plannedDuration: number; // for live items: operator-planned duration in seconds
     note: string;           // optional operator note per line
+    complianceRating: 'k' | '8' | '12' | '16' | '18';
+    complianceDescriptors: string[];
+    complianceText: string;
 }
 
 export interface PlaylistFile {
@@ -23,21 +26,48 @@ export interface PlaylistFile {
     items: RundownItem[];
 }
 
+type RundownDraft = Omit<RundownItem, 'id' | 'inPoint' | 'outPoint' | 'plannedDuration' | 'note' | 'complianceRating' | 'complianceDescriptors' | 'complianceText'>;
+
 export const useRundownStore = defineStore('rundown', () => {
     const activeItems = ref<RundownItem[]>([]);
     const selectedItemId = ref<string | null>(null);
 
-    const makeItem = (item: Omit<RundownItem, 'id' | 'inPoint' | 'outPoint' | 'plannedDuration' | 'note'>): RundownItem => ({
+    const makeItem = (item: RundownDraft): RundownItem => ({
         ...item,
         id: uuidv4(),
         inPoint: 0,
         outPoint: 0,
         plannedDuration: item.duration || 0,
-        note: ''
+        note: '',
+        complianceRating: 'k',
+        complianceDescriptors: [],
+        complianceText: ''
     });
 
-    const addItem = (item: Omit<RundownItem, 'id' | 'inPoint' | 'outPoint' | 'plannedDuration' | 'note'>) => {
+    const hydrateItem = (item: Partial<RundownItem>): RundownItem => ({
+        id: uuidv4(),
+        type: (item.type as RundownItem['type']) || 'video',
+        path: item.path || '',
+        filename: item.filename || 'Untitled',
+        duration: item.duration || 0,
+        seek: item.seek || 0,
+        length: item.length || 0,
+        inPoint: item.inPoint || 0,
+        outPoint: item.outPoint || 0,
+        plannedDuration: item.plannedDuration || item.duration || 0,
+        note: item.note || '',
+        complianceRating: item.complianceRating || 'k',
+        complianceDescriptors: Array.isArray(item.complianceDescriptors) ? item.complianceDescriptors : [],
+        complianceText: item.complianceText || ''
+    });
+
+    const addItem = (item: RundownDraft) => {
         activeItems.value.push(makeItem(item));
+    };
+
+    const insertItemAt = (index: number, item: RundownDraft) => {
+        const nextIndex = Math.max(0, Math.min(index, activeItems.value.length));
+        activeItems.value.splice(nextIndex, 0, makeItem(item));
     };
 
     const addLiveItem = (name: string, durationSec: number) => {
@@ -52,22 +82,26 @@ export const useRundownStore = defineStore('rundown', () => {
             inPoint: 0,
             outPoint: 0,
             plannedDuration: durationSec,
-            note: ''
+            note: '',
+            complianceRating: 'k',
+            complianceDescriptors: [],
+            complianceText: ''
         });
     };
 
     const removeItem = (id: string) => {
-        activeItems.value = activeItems.value.filter(i => i.id !== id);
+        const index = activeItems.value.findIndex(i => i.id === id);
+        if (index !== -1) {
+            activeItems.value.splice(index, 1);
+        }
         if (selectedItemId.value === id) selectedItemId.value = null;
     };
 
     const reorderItems = (oldIndex: number, newIndex: number) => {
-        const arr = [...activeItems.value];
-        const movedItem = arr[oldIndex];
+        const movedItem = activeItems.value[oldIndex];
         if (movedItem) {
-            arr.splice(oldIndex, 1);
-            arr.splice(newIndex, 0, movedItem);
-            activeItems.value = arr;
+            activeItems.value.splice(oldIndex, 1);
+            activeItems.value.splice(newIndex, 0, movedItem);
         }
     };
 
@@ -79,7 +113,7 @@ export const useRundownStore = defineStore('rundown', () => {
     };
 
     const clearRundown = () => {
-        activeItems.value = [];
+        activeItems.value.splice(0, activeItems.value.length);
         selectedItemId.value = null;
     };
 
@@ -91,7 +125,7 @@ export const useRundownStore = defineStore('rundown', () => {
     });
 
     const deserializeRundown = (playlist: PlaylistFile, append = false) => {
-        const hydrated = playlist.items.map(item => ({ ...item, id: uuidv4() }));
+        const hydrated = playlist.items.map(item => hydrateItem(item));
         if (append) {
             activeItems.value.push(...hydrated);
         } else {
@@ -130,6 +164,7 @@ export const useRundownStore = defineStore('rundown', () => {
         totalDuration,
         currentPlayingIndex,
         addItem,
+        insertItemAt,
         addLiveItem,
         removeItem,
         duplicateItem,

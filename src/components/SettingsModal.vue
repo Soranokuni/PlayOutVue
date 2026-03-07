@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settings';
 import { ObsService } from '../services/obs';
+import FileBrowserModal from './FileBrowserModal.vue';
 
 const props = defineProps({
   isOpen: Boolean
@@ -16,7 +18,12 @@ const localState = ref({
     obsPassword: '',
     localMediaPath: '',
     complianceUrl: '',
+    logosPath: '',
     decklinkOutputName: '',
+    liveInputSourceName: '',
+    playoutProfile: 'PAL_1080I50' as 'PAL_1080I50' | 'PAL_1080P25',
+    transitionFrames: 2,
+    prerollFrames: 2,
     watermarkPath: '',
     watermarkEnabled: false,
     watermarkPosition: 'top-right' as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
@@ -25,6 +32,9 @@ const localState = ref({
 });
 
 const availableOutputs = ref<any[]>([]);
+const availableInputs = ref<any[]>([]);
+const browserMode = ref<'directory' | 'open-file' | null>(null);
+const browserTarget = ref<'media' | 'watermark' | 'logos'>('media');
 
 const fetchOutputs = async () => {
     try {
@@ -32,8 +42,17 @@ const fetchOutputs = async () => {
     } catch {}
 };
 
+const fetchInputs = async () => {
+    try {
+        availableInputs.value = await ObsService.getInputs();
+    } catch {}
+};
+
 watch(() => props.isOpen, (open) => {
-    if (open) fetchOutputs();
+    if (open) {
+        fetchOutputs();
+        fetchInputs();
+    }
 });
 
 onMounted(() => {
@@ -42,17 +61,38 @@ onMounted(() => {
         obsPassword: settings.obsPassword,
         localMediaPath: settings.localMediaPath,
         complianceUrl: settings.complianceUrl,
+        logosPath: settings.logosPath,
         decklinkOutputName: settings.decklinkOutputName,
+        liveInputSourceName: settings.liveInputSourceName,
+        playoutProfile: settings.playoutProfile,
+        transitionFrames: settings.transitionFrames,
+        prerollFrames: settings.prerollFrames,
         watermarkPath: settings.watermarkPath,
         watermarkEnabled: settings.watermarkEnabled,
         watermarkPosition: settings.watermarkPosition,
         watermarkOpacity: settings.watermarkOpacity,
         watermarkScale: settings.watermarkScale
     };
+
+    if (!settings.logosPath) {
+        invoke<string | null>('find_default_logos_dir')
+            .then((path) => {
+                if (path && !localState.value.logosPath) {
+                    localState.value.logosPath = path;
+                }
+            })
+            .catch(() => {});
+    }
 });
 
-const saveSettings = () => {
+const saveSettings = async () => {
     settings.updateSettings(localState.value);
+    try {
+        await ObsService.syncLiveInputScene(localState.value.liveInputSourceName);
+    } catch {}
+    try {
+        await ObsService.syncBrandingAssets();
+    } catch {}
     emit('close');
 };
 
@@ -62,7 +102,12 @@ const discardAndClose = () => {
         obsPassword: settings.obsPassword,
         localMediaPath: settings.localMediaPath,
         complianceUrl: settings.complianceUrl,
+        logosPath: settings.logosPath,
         decklinkOutputName: settings.decklinkOutputName,
+        liveInputSourceName: settings.liveInputSourceName,
+        playoutProfile: settings.playoutProfile,
+        transitionFrames: settings.transitionFrames,
+        prerollFrames: settings.prerollFrames,
         watermarkPath: settings.watermarkPath,
         watermarkEnabled: settings.watermarkEnabled,
         watermarkPosition: settings.watermarkPosition,
@@ -70,6 +115,18 @@ const discardAndClose = () => {
         watermarkScale: settings.watermarkScale
     };
     emit('close');
+};
+
+const openBrowser = (target: 'media' | 'watermark' | 'logos') => {
+    browserTarget.value = target;
+    browserMode.value = target === 'watermark' ? 'open-file' : 'directory';
+};
+
+const handleBrowserSelect = (path: string) => {
+    if (browserTarget.value === 'media') localState.value.localMediaPath = path;
+    if (browserTarget.value === 'watermark') localState.value.watermarkPath = path;
+    if (browserTarget.value === 'logos') localState.value.logosPath = path;
+    browserMode.value = null;
 };
 </script>
 
@@ -106,7 +163,7 @@ const discardAndClose = () => {
                   <div class="input-with-button">
                       <input type="text" class="glass-input" v-model="localState.localMediaPath" placeholder="C:/Media">
                       <!-- A native OS folder dialog could be hooked here via Tauri -->
-                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse (Requires Tauri File Dialog Plugin)">📁</button>
+                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse folders" @click="openBrowser('media')">📁</button>
                   </div>
                   <span class="hint-text">Absolute path where raw .mp4/.mxf files reside.</span>
               </div>
@@ -115,6 +172,15 @@ const discardAndClose = () => {
                   <label>Compliance Overlay Host URL</label>
                   <input type="text" class="glass-input" v-model="localState.complianceUrl" placeholder="http://localhost/greek_ratings.html">
                   <span class="hint-text">The HTTP address OBS will use for the NCRTV graphic Browser Source.</span>
+              </div>
+
+              <div class="form-group">
+                  <label>Logos / Ratings Folder</label>
+                  <div class="input-with-button">
+                      <input type="text" class="glass-input" v-model="localState.logosPath" placeholder="C:/PlayOut/logos">
+                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse logos folder" @click="openBrowser('logos')">📁</button>
+                  </div>
+                  <span class="hint-text">Expected assets: logo.png, K.png, 8.png, 12.png, 16.png, 18.png.</span>
               </div>
           </section>
 
@@ -136,12 +202,57 @@ const discardAndClose = () => {
               </div>
           </section>
 
+          <section class="settings-section">
+              <h3 class="text-secondary section-title">Live Rebroadcast / DeckLink Input</h3>
+              <div class="form-group">
+                  <label>OBS Input Source for Live Rebroadcast</label>
+                  <div style="display:flex; gap: 8px;">
+                      <select class="glass-input" v-model="localState.liveInputSourceName" style="flex:1;">
+                          <option value="">None selected</option>
+                          <option v-for="input in availableInputs" :key="input.inputUuid || input.inputName" :value="input.inputName">
+                              {{ input.inputName }} ({{ input.inputKind }})
+                          </option>
+                      </select>
+                      <button class="glass-btn" @click="fetchInputs" title="Refresh Inputs" style="flex-shrink:0;">↻</button>
+                  </div>
+                  <span class="hint-text">Choose the OBS input that represents your DeckLink ingest or live rebroadcast source.</span>
+              </div>
+          </section>
+
+          <section class="settings-section">
+              <h3 class="text-secondary section-title">PAL / SOTA Playout Timing</h3>
+              <div class="form-grid">
+                  <div class="form-group">
+                      <label>Playout Profile</label>
+                      <select class="glass-input" v-model="localState.playoutProfile">
+                          <option value="PAL_1080I50">PAL 1080i50</option>
+                          <option value="PAL_1080P25">PAL 1080p25</option>
+                      </select>
+                  </div>
+                  <div class="form-group">
+                      <label>Transition Length — {{ localState.transitionFrames }} frames</label>
+                      <input type="range" min="1" max="10" v-model.number="localState.transitionFrames" style="accent-color:var(--accent-blue,#33becc);">
+                  </div>
+                  <div class="form-group">
+                      <label>Pre-roll Buffer — {{ localState.prerollFrames }} frames</label>
+                      <input type="range" min="1" max="12" v-model.number="localState.prerollFrames" style="accent-color:var(--accent-blue,#33becc);">
+                  </div>
+                  <div class="form-group">
+                      <label>Operator Guidance</label>
+                      <div class="hint-card">Use 2-frame transitions and 2–4 frames of preroll for low-latency 1080i/25 playout into DeckLink output.</div>
+                  </div>
+              </div>
+          </section>
+
           <!-- TV Station Watermark / Bug -->
           <section class="settings-section">
               <h3 class="text-secondary section-title">📺 Station Watermark / Bug</h3>
               <div class="form-group">
                   <label>Logo Image Path (PNG/SVG on disk)</label>
-                  <input type="text" class="glass-input" v-model="localState.watermarkPath" placeholder="C:/Logos/station_logo.png">
+                  <div class="input-with-button">
+                      <input type="text" class="glass-input" v-model="localState.watermarkPath" placeholder="C:/Logos/station_logo.png">
+                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse files" @click="openBrowser('watermark')">📁</button>
+                  </div>
                   <span class="hint-text">OBS will load this as an Image Source overlay on all scenes.</span>
               </div>
               <div class="form-grid">
@@ -176,6 +287,18 @@ const discardAndClose = () => {
           <button class="glass-btn" @click="discardAndClose">Cancel</button>
           <button class="glass-btn btn-primary" @click="saveSettings">Save Configuration</button>
         </div>
+
+                <FileBrowserModal
+                    v-if="browserMode"
+                    :is-open="!!browserMode"
+                    :title="browserTarget === 'media' ? 'Choose Media Folder' : browserTarget === 'logos' ? 'Choose Logos Folder' : 'Choose Watermark File'"
+                    :description="browserTarget === 'media' ? 'Select the root folder that contains your playout assets.' : browserTarget === 'logos' ? 'Select the shared logos folder used for watermark and rating PNGs.' : 'Select an image file used as the station bug.'"
+                    :mode="browserMode"
+                    :start-path="browserTarget === 'media' ? localState.localMediaPath : browserTarget === 'logos' ? localState.logosPath : localState.watermarkPath"
+                    :extensions="browserTarget === 'watermark' ? ['png', 'jpg', 'jpeg', 'svg', 'webp'] : []"
+                    @close="browserMode = null"
+                    @select="handleBrowserSelect"
+                />
       </div>
     </div>
   </Teleport>
@@ -275,6 +398,16 @@ const discardAndClose = () => {
     color: var(--text-secondary);
     opacity: 0.6;
     margin-top: 0.4rem;
+}
+
+.hint-card {
+    min-height: 42px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    padding: 10px 12px;
 }
 
 .modal-footer {

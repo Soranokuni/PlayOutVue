@@ -21,6 +21,7 @@ pub struct MediaMetadata {
 pub struct DiscoveredMedia {
     pub filename: String,
     pub path: String,
+    pub entry_kind: String,
     pub media_type: String,
     pub duration: f64,      // seconds
     pub duration_ms: i64,
@@ -194,69 +195,113 @@ pub async fn scan_directory(
         return Err(format!("Directory does not exist: {}", path));
     }
 
-    let entries = std::fs::read_dir(&target_dir)
-        .map_err(|e| format!("Failed to read directory: {}", e))?;
-
     let mut results = Vec::new();
 
-    for entry in entries.flatten() {
-        let file_path = entry.path();
-        if !file_path.is_file() { continue; }
+    fn visit_directory(
+        dir: &PathBuf,
+        root: &PathBuf,
+        ffprobe: &str,
+        db_state: &State<'_, DbState>,
+        results: &mut Vec<DiscoveredMedia>,
+    ) -> Result<(), String> {
+        let entries = std::fs::read_dir(dir)
+            .map_err(|e| format!("Failed to read directory '{}': {}", dir.to_string_lossy(), e))?;
 
-        let ext = match file_path.extension().and_then(|e| e.to_str()) {
-            Some(e) => e.to_lowercase(),
-            None => continue,
-        };
+        for entry in entries.flatten() {
+            let file_path = entry.path();
 
-        if !["mp4","mkv","mov","mxf","avi","webm","ts","m2ts"].contains(&ext.as_str()) {
-            continue;
+            if file_path.is_dir() {
+                if file_path != *root {
+                    let path_str = file_path.to_string_lossy().into_owned().replace('\\', "/");
+                    results.push(DiscoveredMedia {
+                        filename: file_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                        path: path_str,
+                        entry_kind: "folder".to_string(),
+                        media_type: "folder".to_string(),
+                        duration: 0.0,
+                        duration_ms: 0,
+                        width: 0,
+                        height: 0,
+                        codec: String::new(),
+                        fps_num: 0,
+                        fps_den: 1,
+                    });
+                }
+
+                visit_directory(&file_path, root, ffprobe, db_state, results)?;
+                continue;
+            }
+
+            if !file_path.is_file() {
+                continue;
+            }
+
+            let ext = match file_path.extension().and_then(|e| e.to_str()) {
+                Some(e) => e.to_lowercase(),
+                None => continue,
+            };
+
+            if !["mp4","mkv","mov","mxf","avi","webm","ts","m2ts"].contains(&ext.as_str()) {
+                continue;
+            }
+
+            let path_str = file_path.to_string_lossy().into_owned();
+            let path_fwd = path_str.replace('\\', "/"); // normalise for frontend
+
+            // Try cache
+            let cached = {
+                let db = db_state.0.lock().map_err(|e| e.to_string())?;
+                db.get_valid(&path_str)
+            };
+
+            let entry_meta = if let Some(c) = cached {
+                c
+            } else {
+                // Probe and cache
+                match run_ffprobe(ffprobe, &path_str) {
+                    Ok(e) => {
+                        if let Ok(db) = db_state.0.lock() {
+                            let _ = db.upsert(&e);
+                        }
+                        e
+                    }
+                    Err(_) => CachedMediaEntry {
+                        path: path_str.clone(),
+                        duration_ms: 0,
+                        width: 0, height: 0,
+                        codec: String::new(),
+                        fps_num: 25, fps_den: 1,
+                        timecode_start: "00:00:00:00".to_string(),
+                    },
+                }
+            };
+
+            results.push(DiscoveredMedia {
+                filename: file_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                path: path_fwd,
+                entry_kind: "file".to_string(),
+                media_type: "video".to_string(),
+                duration:    entry_meta.duration_ms as f64 / 1000.0,
+                duration_ms: entry_meta.duration_ms,
+                width:        entry_meta.width,
+                height:       entry_meta.height,
+                codec:        entry_meta.codec,
+                fps_num:      entry_meta.fps_num,
+                fps_den:      entry_meta.fps_den,
+            });
         }
 
-        let path_str = file_path.to_string_lossy().into_owned();
-        let path_fwd = path_str.replace('\\', "/"); // normalise for frontend
-
-        // Try cache
-        let cached = {
-            let db = db_state.0.lock().map_err(|e| e.to_string())?;
-            db.get_valid(&path_str)
-        };
-
-        let entry_meta = if let Some(c) = cached {
-            c
-        } else {
-            // Probe and cache
-            match run_ffprobe(&ffprobe, &path_str) {
-                Ok(e) => {
-                    if let Ok(db) = db_state.0.lock() {
-                        let _ = db.upsert(&e);
-                    }
-                    e
-                }
-                Err(_) => CachedMediaEntry {
-                    path: path_str.clone(),
-                    duration_ms: 0,
-                    width: 0, height: 0,
-                    codec: String::new(),
-                    fps_num: 25, fps_den: 1,
-                    timecode_start: "00:00:00:00".to_string(),
-                },
-            }
-        };
-
-        results.push(DiscoveredMedia {
-            filename: file_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-            path: path_fwd,
-            media_type: "video".to_string(),
-            duration:    entry_meta.duration_ms as f64 / 1000.0,
-            duration_ms: entry_meta.duration_ms,
-            width:        entry_meta.width,
-            height:       entry_meta.height,
-            codec:        entry_meta.codec,
-            fps_num:      entry_meta.fps_num,
-            fps_den:      entry_meta.fps_den,
-        });
+        Ok(())
     }
 
-    results.sort_by(|a, b| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()));
+    visit_directory(&target_dir, &target_dir, &ffprobe, &db_state, &mut results)?;
+
+    results.sort_by(|a, b| {
+        match (a.entry_kind.as_str(), b.entry_kind.as_str()) {
+            ("folder", "file") => std::cmp::Ordering::Less,
+            ("file", "folder") => std::cmp::Ordering::Greater,
+            _ => a.path.to_lowercase().cmp(&b.path.to_lowercase()),
+        }
+    });
     Ok(results)
 }

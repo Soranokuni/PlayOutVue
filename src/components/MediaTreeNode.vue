@@ -6,6 +6,11 @@ interface MediaNode {
     path: string;
     type: 'file' | 'folder';
     mediaType?: 'video' | 'live' | 'graphic';
+  width?: number;
+  height?: number;
+  fpsNum?: number;
+  fpsDen?: number;
+  palCompatible?: boolean;
     duration?: number;
     duration_ms?: number;
     children?: MediaNode[];
@@ -49,6 +54,12 @@ const fmtDur = (sec: number) => {
 const handleDragStart = (e: DragEvent) => {
     if (props.node.type === 'file') emit('dragstart', e, props.node);
 };
+
+const formatSpecBadge = (node: MediaNode) => {
+  if (node.type !== 'file' || !node.width || !node.height || !node.fpsNum || !node.fpsDen) return '';
+  const fps = node.fpsNum / node.fpsDen;
+  return `${node.width}×${node.height} · ${Number.isFinite(fps) ? fps.toFixed(fps % 1 === 0 ? 0 : 2) : '0'}fps`;
+};
 </script>
 
 <template>
@@ -69,6 +80,8 @@ const handleDragStart = (e: DragEvent) => {
         {{ typeIcon(node.mediaType, node.type === 'folder', node.expanded) }}
       </span>
       <span class="lib-name" :class="{ 'lib-name-dim': !node.path }" style="flex:1">{{ node.name }}</span>
+      <span v-if="node.type === 'file' && node.mediaType === 'video' && node.palCompatible" class="lib-badge is-pal" :title="formatSpecBadge(node)">PAL</span>
+      <span v-else-if="node.type === 'file' && node.mediaType === 'video'" class="lib-badge is-offspec" :title="formatSpecBadge(node)">CHECK</span>
       <span v-if="node.duration_ms" class="lib-duration">{{ fmtDur(node.duration_ms / 1000) }}</span>
       <span v-else-if="node.type === 'file' && node.duration" class="lib-duration">{{ fmtDur(node.duration) }}</span>
     </div>
@@ -101,6 +114,24 @@ const handleDragStart = (e: DragEvent) => {
 .folder-carat { font-size: 0.55rem; color: rgba(255,255,255,0.4); width: 12px; display:inline-block; text-align:center;}
 .lib-name { font-size:0.7rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .lib-name-dim { color:rgba(255,165,0,0.7); font-size:0.7rem; }
+.lib-badge {
+  font-size:0.55rem;
+  padding:1px 5px;
+  border-radius:999px;
+  border:1px solid transparent;
+  letter-spacing:0.4px;
+  flex-shrink:0;
+}
+.lib-badge.is-pal {
+  color:#9ef6cf;
+  border-color:rgba(158,246,207,0.35);
+  background:rgba(29,185,84,0.15);
+}
+.lib-badge.is-offspec {
+  color:#f8b400;
+  border-color:rgba(248,180,0,0.35);
+  background:rgba(248,180,0,0.14);
+}
 .lib-duration { font-size:0.6rem; color:var(--text-secondary); font-variant-numeric: tabular-nums; flex-shrink:0; }
 .children-wrapper { display: flex; flex-direction: column; }
 </style>

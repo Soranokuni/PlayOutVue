@@ -1,7 +1,5 @@
 /* CasparCG SOTA Client Global Styles */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
 :root {
   /* Core Colors */
   --bg-primary: #111827;
@@ -21,6 +19,7 @@
   --border-radius-base: 12px;
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-bg: rgba(255, 255, 255, 0.03);
+  color-scheme: dark;
 }
 
 .light-theme {
@@ -33,6 +32,7 @@
 
   --glass-border: rgba(0, 0, 0, 0.08);
   --glass-bg: rgba(255, 255, 255, 0.6);
+  color-scheme: light;
 }
 
 *,
@@ -44,7 +44,7 @@
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
@@ -53,6 +53,24 @@ body {
   /* Prevent text selection and context menus in the Tauri desktop app */
   user-select: none;
   -webkit-user-select: none;
+}
+
+html,
+body,
+#app {
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-blue) 78%, white 22%);
+  outline-offset: 2px;
 }
 
 /* Glassmorphism Utilities */
@@ -111,4 +129,15 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

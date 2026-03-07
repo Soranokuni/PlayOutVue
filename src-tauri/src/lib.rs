@@ -4,11 +4,13 @@ mod trimmer;
 mod playlist;
 mod db;
 mod media_server;
+mod filesystem;
 
 use scanner::{scan_media, scan_directory, DbState};
 use stream::extract_web_stream;
 use trimmer::{trim_file, trim_file_smart};
 use playlist::{save_playlist, load_playlist};
+use filesystem::{browse_filesystem, find_default_logos_dir, get_image_dimensions, list_filesystem_roots};
 use db::{MediaDb, default_db_path};
 use std::sync::Mutex;
 
@@ -45,7 +47,11 @@ pub fn run() {
             trim_file_smart,
             get_media_url,
             save_playlist,
-            load_playlist
+            load_playlist,
+            list_filesystem_roots,
+            browse_filesystem,
+            find_default_logos_dir,
+            get_image_dimensions
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
