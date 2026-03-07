@@ -118,10 +118,10 @@ const fireClear = async () => {
 
 <style scoped>
 .inspector-group {
-    background: rgba(0,0,0,0.2);
+    background: var(--bg-secondary);
     padding: 1rem;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
     margin-bottom: 1rem;
 }
 
@@ -151,7 +151,7 @@ label {
 }
 
 input {
-    background: transparent;
+    background: var(--bg-tertiary);
     border: 1px solid var(--glass-border);
     color: var(--text-primary);
     padding: 4px 8px;
@@ -162,7 +162,7 @@ input {
 }
 
 .glass-btn {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--bg-tertiary);
     border: 1px solid var(--glass-border);
     color: var(--text-primary);
     padding: 4px 8px;
@@ -177,7 +177,7 @@ input {
 }
 
 .glass-input {
-    background: rgba(0,0,0,0.5);
+    background: var(--bg-tertiary);
     border: 1px solid var(--glass-border);
     color: var(--text-primary);
     padding: 6px;

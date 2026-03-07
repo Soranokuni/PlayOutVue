@@ -4,14 +4,12 @@ import { useRundownStore } from '../stores/rundown';
 import { draggingItem } from '../composables/useDragState';
 import { PlaybackService, isPlaying, obs, playStartTime, playStartIndex, currentMediaMs } from '../services/obs';
 import Sortable from 'sortablejs';
-import TrimPanel from './TrimPanel.vue';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
 
 const store = useRundownStore();
 const rundownListRef = ref<HTMLElement | null>(null);
 const isDragOver = ref(false);
-const showTrimPanel = ref(false);
 const showLiveDialog = ref(false);
 
 const contextMenu = ref({
@@ -30,8 +28,7 @@ const clockStr = computed(() => {
 });
 
 const itemDurationMs = (item: any): number => {
-    if (item.outPoint > 0 && item.outPoint > item.inPoint) return item.outPoint - item.inPoint;
-    return (item.duration > 0 ? item.duration * 1000 : 60000);
+    return (item.duration || 60) * 1000;
 };
 
 // Scheduled times logic
@@ -54,7 +51,7 @@ const scheduledTimes = computed(() => {
 const calcProgress = (item: any) => {
     const dur = itemDurationMs(item);
     if (!dur || dur <= 0) return 0;
-    const p = ((currentMediaMs.value - (item.inPoint || 0)) / dur) * 100;
+    const p = (currentMediaMs.value / dur) * 100;
     return Math.max(0, Math.min(100, Math.round(p * 100) / 100)); // smooth visual
 };
 
@@ -90,21 +87,9 @@ const ctxDuplicate = () => {
     if (contextMenu.value.item) store.duplicateItem(contextMenu.value.item.id);
     closeContextMenu();
 };
-const ctxResetTrim = () => {
-    if (contextMenu.value.item) {
-        contextMenu.value.item.inPoint = 0;
-        contextMenu.value.item.outPoint = 0;
-    }
-    closeContextMenu();
-};
 const ctxDelete = () => {
     if (contextMenu.value.item) store.removeItem(contextMenu.value.item.id);
     closeContextMenu();
-};
-
-const openTrim = (id: string) => {
-    store.selectedItemId = id;
-    showTrimPanel.value = true;
 };
 
 onMounted(() => {
@@ -225,7 +210,6 @@ const msToDisplay = (ms: number) => {
             borderColor: 'rgba(230,57,70,0.4)'
         } : {}"
         @click="store.selectedItemId = item.id"
-        @dblclick="openTrim(item.id)"
         @contextmenu.prevent="onContextMenu($event, index, item)"
         @dragover.prevent
         @drop.prevent
@@ -234,14 +218,6 @@ const msToDisplay = (ms: number) => {
         <div class="rw-num">{{ index + 1 }}</div>
         <div class="rw-type-icon" :style="{ color: typeColor(item.type) }">{{ typeIcon(item.type) }}</div>
         <div class="rw-name" :title="item.filename">{{ item.filename }}</div>
-
-        <!-- IN→OUT badge -->
-        <div class="rw-inout">
-          <span v-if="item.inPoint || item.outPoint" class="tc-badge">
-            {{ msToDisplay(item.inPoint) }}→{{ msToDisplay(item.outPoint) }}
-          </span>
-          <span v-else class="tc-empty">full</span>
-        </div>
 
         <!-- Duration -->
         <div class="rw-dur">
@@ -258,7 +234,6 @@ const msToDisplay = (ms: number) => {
         <!-- Row actions -->
         <div class="rw-actions">
           <button class="row-btn btn-play" :title="`Play from #${index+1}`" @click.stop="playFrom(index)">▶</button>
-          <button class="row-btn" title="Trim IN/OUT" @click.stop="openTrim(item.id)">✂</button>
           <button class="row-btn row-btn-del" title="Remove (Del)" @click.stop="store.removeItem(item.id)">✕</button>
         </div>
       </div>
@@ -269,17 +244,17 @@ const msToDisplay = (ms: number) => {
     </div>
 
     <!-- Custom Context Menu for Rundown -->
-    <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
-      <div class="menu-item" @click.stop="ctxPlayFrom">▶ Play from here</div>
-      <div class="menu-item" @click.stop="ctxDuplicate">⧉ Duplicate</div>
-      <div class="menu-item" @click.stop="ctxResetTrim">⟲ Reset Trim</div>
-      <div class="menu-divider"></div>
-      <div class="menu-item menu-item-danger" @click.stop="ctxDelete">✕ Delete</div>
-    </div>
+    <Teleport to="body">
+      <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
+        <div class="menu-item" @click.stop="ctxPlayFrom">▶ Play from here</div>
+        <div class="menu-item" @click.stop="ctxDuplicate">⧉ Duplicate</div>
+        <div class="menu-divider"></div>
+        <div class="menu-item menu-item-danger" @click.stop="ctxDelete">✕ Delete</div>
+      </div>
+    </Teleport>
 
     <PlaylistControls />
 
-    <TrimPanel :is-open="showTrimPanel" @close="showTrimPanel = false" />
     <LiveEntryDialog v-if="showLiveDialog" @close="showLiveDialog = false" />
   </div>
 </template>
@@ -288,11 +263,12 @@ const msToDisplay = (ms: number) => {
 .rundown-wrapper { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
 .rw-header {
   padding:5px 10px; border-bottom:1px solid var(--glass-border);
+  background: var(--bg-secondary);
   display:flex; justify-content:space-between; align-items:center; flex-shrink:0;
 }
 .clock-display {
   font-family:'Courier New',monospace; font-size:1.3rem; font-weight:700;
-  letter-spacing:2px; color:#ffffff; text-shadow:0 0 10px rgba(255,255,255,0.7);
+  letter-spacing:2px; color:var(--text-primary); text-shadow:0 0 10px var(--glass-border);
 }
 .playing-badge {
   background:rgba(230,57,70,0.2); border:1px solid rgba(230,57,70,0.5);
@@ -353,16 +329,17 @@ const msToDisplay = (ms: number) => {
 
 .rw-empty {
   display:flex; align-items:center; justify-content:center;
-  height:80px; color:rgba(255,255,255,0.18); font-size:0.78rem;
-  border:2px dashed rgba(255,255,255,0.06); border-radius:6px; margin:4px;
+  height:80px; color:var(--text-secondary); font-size:0.78rem;
+  border:2px dashed var(--glass-border); border-radius:6px; margin:4px;
+  opacity: 0.5;
 }
 .rw-ghost { opacity:0.3; background:rgba(255,255,255,0.06); }
 
 /* Context Menu */
 .context-menu {
     position: absolute;
-    background: rgba(20, 20, 25, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--bg-secondary);
+    border: 1px solid var(--glass-border);
     border-radius: 6px;
     padding: 4px 0;
     min-width: 160px;
@@ -387,7 +364,7 @@ const msToDisplay = (ms: number) => {
 }
 .menu-divider {
     height: 1px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--glass-border);
     margin: 4px 0;
 }
 </style>

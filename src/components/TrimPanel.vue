@@ -3,11 +3,24 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import { invoke } from '@tauri-apps/api/core';
 
+export interface LibraryTrimItem {
+    id?: string;
+    path: string;
+    filename: string;
+    type: string;
+    duration?: number;
+    inPoint?: number;
+    outPoint?: number;
+}
+
 const store = useRundownStore();
-const props = defineProps<{ isOpen: boolean }>();
+const props = defineProps<{ 
+    isOpen: boolean,
+    libraryItem?: LibraryTrimItem | null
+}>();
 const emit  = defineEmits(['close']);
 
-const item = computed(() => store.selectedItem);
+const item = computed(() => props.libraryItem || store.selectedItem);
 
 // ── Video preview via local streaming server ──────────────────────────────────
 // We get a stream URL from our Rust media_server (zero memory overhead)
@@ -199,16 +212,15 @@ onUnmounted(() => {
 
 // ── Save / Trim ───────────────────────────────────────────────────────────────
 const saveNonDestructive = () => {
-    if (!item.value) return;
+    if (!item.value || !item.value.id) return;
     store.updateItem(item.value.id, { inPoint: inMs.value, outPoint: outMs.value });
     trimStatus.value = '✅ Saved to playlist.';
     setTimeout(() => emit('close'), 800);
 };
 
-const buildPaths = (suffix: string) => {
-    const ip   = item.value!.path;
+const buildPaths = (ip: string, suffix: string) => {
     const dot  = ip.lastIndexOf('.');
-    const base = ip.slice(0, dot);
+    const base = dot > -1 ? ip.slice(0, dot) : ip;
     const ext  = ip.split('.').pop() || 'mp4';
     return { inputPath: ip, outputPath: `${base}${suffix}.${ext}` };
 };
@@ -217,8 +229,9 @@ const doDestructiveTrim = async () => {
     if (!item.value?.path || outMs.value <= inMs.value) return;
     isTrimming.value = true; trimStatus.value = 'Stream-copy trim…';
     try {
-        const { inputPath, outputPath } = buildPaths('_trimmed');
-        const r = await invoke<string>('trim_file', { inputPath, outputPath, inMs: inMs.value, outMs: outMs.value });
+        const ip = item.value?.path || '';
+        const { inputPath, outputPath } = buildPaths(ip, '_trimmed');
+        const r = await invoke<string>('trim_file', { inputPath: inputPath as string, outputPath: outputPath as string, inMs: inMs.value, outMs: outMs.value });
         trimStatus.value = `✅ ${r.split(/[/\\]/).pop()} (stream copy)`;
     } catch (e) { trimStatus.value = `❌ ${e}`; }
     finally { isTrimming.value = false; }
@@ -228,8 +241,9 @@ const doSmartTrim = async () => {
     if (!item.value?.path || outMs.value <= inMs.value) return;
     isSmartTrimming.value = true; trimStatus.value = 'Accurate cut…';
     try {
-        const { inputPath, outputPath } = buildPaths('_accurate');
-        const r = await invoke<string>('trim_file_smart', { inputPath, outputPath, inMs: inMs.value, outMs: outMs.value });
+        const ip = item.value?.path || '';
+        const { inputPath, outputPath } = buildPaths(ip, '_accurate');
+        const r = await invoke<string>('trim_file_smart', { inputPath: inputPath as string, outputPath: outputPath as string, inMs: inMs.value, outMs: outMs.value });
         trimStatus.value = `✅ ${r.split(/[/\\]/).pop()} (accurate)`;
     } catch (e) { trimStatus.value = `❌ ${e}`; }
     finally { isSmartTrimming.value = false; }
@@ -317,8 +331,8 @@ const doSmartTrim = async () => {
             </div>
           </div>
 
-          <!-- Non-destructive save -->
-          <div class="trim-actions">
+          <!-- Non-destructive save (Only for Rundown Items) -->
+          <div v-if="!props.libraryItem" class="trim-actions">
             <button class="trim-btn btn-primary" @click="saveNonDestructive">💾 Save to Playlist</button>
             <button class="trim-btn" @click="$emit('close')">Cancel</button>
           </div>
@@ -350,8 +364,8 @@ const doSmartTrim = async () => {
 </template>
 
 <style scoped>
-.modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(6px);display:flex;justify-content:center;align-items:center;z-index:9998; }
-.trim-panel { width:840px;max-width:96vw;padding:1rem;display:flex;flex-direction:column;gap:0.85rem;border:1px solid rgba(255,255,255,0.1);box-shadow:0 24px 48px rgba(0,0,0,0.7); }
+.modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);display:flex;justify-content:center;align-items:center;z-index:10000; }
+.trim-panel { width:840px;max-width:96vw;padding:1rem;display:flex;flex-direction:column;gap:0.85rem;background:var(--bg-secondary,#1B1B1B);border:1px solid rgba(255,255,255,0.1);border-radius:12px;box-shadow:0 30px 60px rgba(0,0,0,0.8); }
 .trim-header { display:flex;justify-content:space-between;align-items:flex-start;gap:12px; }
 .icon-btn { background:transparent;border:none;color:var(--text-secondary);cursor:pointer;font-size:1rem;padding:4px;flex-shrink:0; }
 .shortcut-hint { font-size:0.62rem;color:rgba(255,255,255,0.3);display:flex;align-items:center;flex-wrap:wrap;gap:2px;flex:1;justify-content:center; }
