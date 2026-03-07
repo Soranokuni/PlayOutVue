@@ -12,6 +12,9 @@ export const useSettingsStore = defineStore('settings', {
         // URL for hosting the Greek ESR Graphic Bug (HTML Producer)
         complianceUrl: 'http://localhost/greek_ratings.html',
 
+        // Hardware Output
+        decklinkOutputName: '',
+
         // Station Watermark / Bug - permanent OBS overlay on all content
         watermarkPath: '',          // Absolute path to station logo image (PNG/SVG)
         watermarkEnabled: false,    // Toggle overlay on/off

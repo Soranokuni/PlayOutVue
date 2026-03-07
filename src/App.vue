@@ -12,6 +12,7 @@ import { useRundownStore } from './stores/rundown';
 const settings = useSettingsStore();
 const rundown  = useRundownStore();
 const isStreaming  = ref(false);
+const isSdiActive  = ref(false);
 const showSettings = ref(false);
 
 obs.on('StreamStateChanged', (data: any) => { isStreaming.value = data.outputActive; });
@@ -35,6 +36,17 @@ const stopPlayback = () => PlaybackService.stop();
 const toggleStream = async () => {
     if (isStreaming.value) await ObsService.stopStream();
     else await ObsService.startStream();
+};
+
+const toggleSdi = async () => {
+    if (!settings.decklinkOutputName) return;
+    if (isSdiActive.value) {
+        await ObsService.stopDeckLink(settings.decklinkOutputName);
+        isSdiActive.value = false;
+    } else {
+        await ObsService.startDeckLink(settings.decklinkOutputName);
+        isSdiActive.value = true;
+    }
 };
 </script>
 
@@ -91,12 +103,16 @@ const toggleStream = async () => {
 
       <div class="ctrl-divider"></div>
 
-      <!-- Broadcast Stream -->
+      <!-- Broadcast Stream & SDI -->
       <div class="ctrl-section">
         <div class="status-dot" :class="{ connected: isStreaming }" style="--dot-color:#e63946;"></div>
         <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
         <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isObsConnected" @click="toggleStream" style="font-size:0.7rem;">
           {{ isStreaming ? '■ Stop' : '● Stream' }}
+        </button>
+
+        <button v-if="settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isObsConnected" @click="toggleSdi" style="font-size:0.7rem; margin-left:12px;">
+          {{ isSdiActive ? '■ SDI Stop' : '● SDI OUT' }}
         </button>
       </div>
 

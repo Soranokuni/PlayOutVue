@@ -42,6 +42,50 @@ const seekTo = (ms: number) => {
     v.currentTime = ms / 1000;
 };
 
+// ── Timeline Scrubbing state ──────────────────────────────────────────────────
+const timelineRef = ref<HTMLElement | null>(null);
+const playbackTime = ref(0);
+const draggingTimelineItem = ref<'in' | 'out' | 'playhead' | null>(null);
+
+const onTimeUpdate = () => {
+    if (videoRef.value) playbackTime.value = videoRef.value.currentTime * 1000;
+};
+
+const getMsFromEvent = (e: MouseEvent) => {
+    if (!timelineRef.value || totalDurationMs.value <= 0) return 0;
+    const rect = timelineRef.value.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const percentage = x / rect.width;
+    return Math.round(percentage * totalDurationMs.value);
+};
+
+const onTimelineMouseDown = (e: MouseEvent, target: 'in' | 'out' | 'playhead') => {
+    draggingTimelineItem.value = target;
+    handleTimelineDrag(e);
+};
+
+const handleTimelineDrag = (e: MouseEvent) => {
+    if (!draggingTimelineItem.value) return;
+    const ms = getMsFromEvent(e);
+    if (draggingTimelineItem.value === 'in') {
+        inMs.value = Math.min(ms, outMs.value);
+        seekTo(inMs.value);
+    } else if (draggingTimelineItem.value === 'out') {
+        outMs.value = Math.max(ms, inMs.value);
+        seekTo(outMs.value);
+    } else if (draggingTimelineItem.value === 'playhead') {
+        seekTo(ms);
+    }
+};
+
+const onWindowMouseMove = (e: MouseEvent) => {
+    if (draggingTimelineItem.value) handleTimelineDrag(e);
+};
+
+const onWindowMouseUp = () => {
+    draggingTimelineItem.value = null;
+};
+
 // ── Duration from <video> metadata ────────────────────────────────────────────
 const onVideoLoaded = () => {
     const v = videoRef.value;
@@ -142,8 +186,16 @@ const handleKey = (e: KeyboardEvent) => {
         case 'escape': emit('close'); break;
     }
 };
-onMounted(()  => window.addEventListener('keydown', handleKey));
-onUnmounted(() => window.removeEventListener('keydown', handleKey));
+onMounted(()  => {
+    window.addEventListener('keydown', handleKey);
+    window.addEventListener('mousemove', onWindowMouseMove);
+    window.addEventListener('mouseup', onWindowMouseUp);
+});
+onUnmounted(() => {
+    window.removeEventListener('keydown', handleKey);
+    window.removeEventListener('mousemove', onWindowMouseMove);
+    window.removeEventListener('mouseup', onWindowMouseUp);
+});
 
 // ── Save / Trim ───────────────────────────────────────────────────────────────
 const saveNonDestructive = () => {
@@ -210,7 +262,7 @@ const doSmartTrim = async () => {
         <!-- Left: Video preview -->
         <div class="video-col">
           <video v-if="videoSrc" ref="videoRef" :src="videoSrc" class="trim-video"
-            muted preload="metadata" @loadedmetadata="onVideoLoaded"></video>
+            muted preload="metadata" @loadedmetadata="onVideoLoaded" @timeupdate="onTimeUpdate"></video>
           <div v-else-if="item.type === 'live' || item.path?.startsWith('http')" class="video-placeholder">
             <div style="font-size:2rem;">{{ item.type === 'live' ? '📹' : '🌐' }}</div>
             <small class="text-secondary">No local preview</small>
@@ -227,15 +279,27 @@ const doSmartTrim = async () => {
 
           <!-- Scrub bar -->
           <div class="scrub-area">
-            <div class="scrub-track">
-              <div class="scrub-range" :style="{
+            <div class="unified-timeline" ref="timelineRef" @mousedown.left="onTimelineMouseDown($event, 'playhead')">
+              <div class="tm-bg"></div>
+              <div class="tm-range" :style="{
                 left:  totalDurationMs ? (inMs  / totalDurationMs * 100)+'%' : '0%',
                 width: totalDurationMs ? Math.max(0,(outMs - inMs)/totalDurationMs*100)+'%' : '100%'
               }"></div>
-              <div class="scrub-in"  :style="{ left: totalDurationMs ? (inMs  / totalDurationMs*100)+'%' : '0%' }"></div>
-              <div class="scrub-out" :style="{ left: totalDurationMs ? (outMs / totalDurationMs*100)+'%' : '100%' }"></div>
+              
+              <div class="tm-handle-wrapper" :style="{ left: totalDurationMs ? (inMs / totalDurationMs*100)+'%' : '0%' }" >
+                 <div class="tm-handle tm-handle-in" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'in')">◂</div>
+              </div>
+              
+              <div class="tm-handle-wrapper" :style="{ left: totalDurationMs ? (outMs / totalDurationMs*100)+'%' : '100%' }">
+                 <div class="tm-handle tm-handle-out" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'out')">▸</div>
+              </div>
+
+              <div class="tm-playhead" :style="{ left: totalDurationMs ? (playbackTime / totalDurationMs*100)+'%' : '0%' }" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'playhead')">
+                 <div class="tm-playhead-line"></div>
+              </div>
             </div>
-            <div style="display:flex;justify-content:space-between;margin-top:3px;">
+            
+            <div style="display:flex;justify-content:space-between;margin-top:8px;">
               <span class="text-secondary" style="font-size:0.6rem;">00:00:00:00</span>
               <span class="text-secondary" style="font-size:0.6rem;">{{ msToTC(totalDurationMs) }}</span>
             </div>
@@ -246,14 +310,10 @@ const doSmartTrim = async () => {
             <div class="tc-group">
               <label class="text-secondary" style="font-size:0.68rem;">IN POINT</label>
               <input class="tc-input" :value="msToTC(inMs)" @change="applyInTC" placeholder="00:00:00:00" spellcheck="false">
-              <input v-if="totalDurationMs > 0" type="range" class="scrub-slider" min="0" :max="totalDurationMs" :value="inMs" step="40"
-                @input="inMs = Number(($event.target as HTMLInputElement).value); seekTo(inMs)">
             </div>
             <div class="tc-group">
               <label class="text-secondary" style="font-size:0.68rem;">OUT POINT</label>
               <input class="tc-input" :value="msToTC(outMs)" @change="applyOutTC" placeholder="00:00:00:00" spellcheck="false">
-              <input v-if="totalDurationMs > 0" type="range" class="scrub-slider" min="0" :max="totalDurationMs" :value="outMs" step="40"
-                @input="outMs = Number(($event.target as HTMLInputElement).value); seekTo(outMs)">
             </div>
           </div>
 
@@ -303,14 +363,22 @@ const doSmartTrim = async () => {
 .speed-badge { position:absolute;bottom:6px;right:8px;background:rgba(0,0,0,0.7);color:#e63946;font-size:0.72rem;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:1px; }
 .ctrl-col { display:flex;flex-direction:column;gap:0.7rem; }
 .scrub-area { background:rgba(0,0,0,0.3);border-radius:6px;padding:0.7rem; }
-.scrub-track { position:relative;height:10px;background:rgba(255,255,255,0.08);border-radius:5px; }
-.scrub-range { position:absolute;top:0;height:100%;background:rgba(51,190,204,0.35);border-radius:5px; }
-.scrub-in,.scrub-out { position:absolute;top:-5px;width:3px;height:20px;background:var(--accent-blue,#33becc);border-radius:2px;transform:translateX(-50%); }
+
+.unified-timeline { position:relative;height:30px;background:rgba(255,255,255,0.03);border-radius:4px;cursor:pointer;margin-top:10px;margin-bottom:5px; }
+.tm-bg { position:absolute;top:50%;transform:translateY(-50%);left:0;right:0;height:10px;background:rgba(0,0,0,0.4);border-radius:4px;pointer-events:none; }
+.tm-range { position:absolute;top:50%;transform:translateY(-50%);height:10px;background:rgba(51,190,204,0.3);border-radius:4px;pointer-events:none; }
+.tm-handle-wrapper { position:absolute;top:0;bottom:0;width:0;z-index:10; }
+.tm-handle { position:absolute;top:-5px;bottom:-5px;width:14px;border-radius:3px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;color:#000;font-size:10px;font-weight:bold;box-shadow:0 0 4px rgba(0,0,0,0.5);transform:translateX(-50%); }
+.tm-handle-in { background:var(--accent-blue,#33becc); }
+.tm-handle-out { background:#e63946; }
+.tm-playhead { position:absolute;top:-8px;bottom:-8px;width:12px;cursor:ew-resize;z-index:20;transform:translateX(-50%);display:flex;justify-content:center; }
+.tm-playhead::before { content:'';position:absolute;top:0;width:8px;height:8px;background:#fff;border-radius:50%;box-shadow:0 0 4px rgba(0,0,0,0.5); }
+.tm-playhead-line { width:2px;height:100%;background:#fff;opacity:0.8;pointer-events:none; }
+
 .tc-grid { display:grid;grid-template-columns:1fr 1fr;gap:0.7rem; }
 .tc-group { display:flex;flex-direction:column;gap:3px; }
 .tc-input { font-family:'Courier New',monospace;font-size:1rem;font-weight:700;letter-spacing:3px;text-align:center;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.12);color:var(--accent-blue,#33becc);padding:7px;border-radius:6px;width:100%;transition:border-color 0.15s; }
 .tc-input:focus { outline:none;border-color:rgba(51,190,204,0.6); }
-.scrub-slider { width:100%;accent-color:var(--accent-blue,#33becc);cursor:pointer; }
 .trim-actions { display:flex;gap:0.6rem; }
 .trim-btn { padding:7px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.05);color:var(--text-primary);cursor:pointer;transition:0.15s;font-size:0.82rem; }
 .trim-btn:hover { background:rgba(255,255,255,0.1); }
