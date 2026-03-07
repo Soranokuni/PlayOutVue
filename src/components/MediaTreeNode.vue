@@ -91,7 +91,7 @@ const handleDragStart = (e: DragEvent) => {
 .tree-node-wrapper { display: flex; flex-direction: column; }
 .lib-row {
     display:flex; align-items:center; gap:6px;
-    height:32px; padding:0 6px; border-radius:5px; user-select:none;
+    height:26px; padding:0 6px; border-radius:5px; user-select:none;
     border:1px solid transparent; transition:background 0.12s; cursor:pointer;
 }
 .lib-row:hover { background:rgba(255,255,255,0.06); }
@@ -99,8 +99,8 @@ const handleDragStart = (e: DragEvent) => {
 .lib-row[draggable="true"]:active { cursor:grabbing; }
 .lib-icon { font-size:0.85rem; flex-shrink:0; display:flex; align-items:center; gap:4px; }
 .folder-carat { font-size: 0.55rem; color: rgba(255,255,255,0.4); width: 12px; display:inline-block; text-align:center;}
-.lib-name { font-size:0.78rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-.lib-name-dim { color:rgba(255,165,0,0.7); font-size:0.72rem; }
-.lib-duration { font-size:0.68rem; color:var(--text-secondary); font-variant-numeric: tabular-nums; flex-shrink:0; }
+.lib-name { font-size:0.7rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.lib-name-dim { color:rgba(255,165,0,0.7); font-size:0.7rem; }
+.lib-duration { font-size:0.6rem; color:var(--text-secondary); font-variant-numeric: tabular-nums; flex-shrink:0; }
 .children-wrapper { display: flex; flex-direction: column; }
 </style>
