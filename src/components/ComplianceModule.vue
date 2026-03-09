@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { ObsService } from '../services/obs';
+import { activePlayoutCapabilities, getActivePlayoutService } from '../services/playout';
 import { useRundownStore } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
 
@@ -60,8 +60,12 @@ watch([selectedRating, selectedDescriptors, advisoryText], persistCompliance, { 
 const applyComplianceOverlay = async () => {
     if (!item.value) return;
     persistCompliance();
+    if (!activePlayoutCapabilities.value.compliance) {
+        isOverlayActive.value = false;
+        return;
+    }
     try {
-        await ObsService.applyComplianceForItem({
+        await getActivePlayoutService().applyComplianceForItem?.({
             ...item.value,
             complianceRating: selectedRating.value as 'k' | '8' | '12' | '16' | '18',
             complianceDescriptors: [...selectedDescriptors.value],
@@ -74,8 +78,12 @@ const applyComplianceOverlay = async () => {
 }
 
 const clearComplianceOverlay = async () => {
+    if (!activePlayoutCapabilities.value.compliance) {
+        isOverlayActive.value = false;
+        return;
+    }
     try {
-        await ObsService.clearCompliance();
+        await getActivePlayoutService().clearCompliance?.();
         isOverlayActive.value = false;
     } catch (e) {
         console.error("Failed to clear compliance graphics:", e);
@@ -88,6 +96,7 @@ const clearComplianceOverlay = async () => {
       <h3 class="text-warning" style="margin-bottom: 1rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.5rem;">NCRTV Compliance</h3>
 
       <div v-if="!settings.logosPath" class="info-banner">Select the logos folder in settings to enable local rating PNG overlays.</div>
+    <div v-if="!activePlayoutCapabilities.compliance" class="info-banner">The active playout engine does not yet expose compliance overlays. Settings are still saved per rundown item.</div>
       
       <div class="form-group">
           <label class="text-secondary text-sm">Age Rating Segment</label>

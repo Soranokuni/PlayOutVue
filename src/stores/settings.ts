@@ -1,7 +1,10 @@
 import { defineStore } from 'pinia';
+import type { PlayoutEngine } from '../services/playout';
 
 export const useSettingsStore = defineStore('settings', {
     state: () => ({
+        playoutEngine: 'obs' as PlayoutEngine,
+
         // OBS Studio WebSocket Connection Parameters
         obsUrl: 'ws://127.0.0.1:4455',
         obsPassword: '',

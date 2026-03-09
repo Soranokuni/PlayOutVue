@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useStorage } from '@vueuse/core';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import { useRundownStore } from '../stores/rundown';
 import { invoke } from '@tauri-apps/api/core';
-import FileBrowserModal from './FileBrowserModal.vue';
 
 const store = useRundownStore();
 const emit = defineEmits(['save', 'load', 'append']);
@@ -12,8 +12,6 @@ const isSaving = ref(false);
 const isLoading = ref(false);
 const statusMessage = ref('Ready');
 const statusTone = ref<'info' | 'error'>('info');
-const browserMode = ref<'open-file' | 'save-file' | null>(null);
-const browserAction = ref<'load' | 'append' | 'save'>('load');
 const lastPlaylistDirectory = useStorage('playlist.lastDirectory', 'C:/Playlists');
 const suggestedName = computed(() => 'rundown.playout');
 
@@ -31,14 +29,15 @@ const totalStr = computed(() => {
     return `${h ? h + 'h ' : ''}${m ? m + 'm ' : ''}${s}s`;
 });
 
-const openBrowser = (action: 'load' | 'append' | 'save') => {
-    browserAction.value = action;
-    browserMode.value = action === 'save' ? 'save-file' : 'open-file';
+const joinDialogPath = (base: string, fileName: string) => {
+    if (!base) return fileName;
+    const separator = /[\\/]$/.test(base) ? '' : '/';
+    return `${base}${separator}${fileName}`;
 };
 
-const closeBrowser = () => {
-    browserMode.value = null;
-};
+const ensurePlaylistExtension = (path: string) => (
+    /\.playout$/i.test(path) ? path : `${path}.playout`
+);
 
 const savePlaylist = async (path: string) => {
     isSaving.value = true;
@@ -83,14 +82,28 @@ const clearRundown = () => {
     }
 };
 
-const handleBrowserSelect = async (path: string) => {
-    closeBrowser();
-    if (browserAction.value === 'save') {
-        await savePlaylist(path);
+const pickPlaylistPath = async (action: 'load' | 'append' | 'save') => {
+    if (action === 'save') {
+        const selection = await save({
+            title: 'Save Playlist',
+            defaultPath: joinDialogPath(lastPlaylistDirectory.value, suggestedName.value),
+            filters: [{ name: 'PlayOut Playlist', extensions: ['playout'] }]
+        });
+
+        if (!selection) return;
+        await savePlaylist(ensurePlaylistExtension(selection));
         return;
     }
 
-    await loadPlaylist(path, browserAction.value === 'append');
+    const selection = await open({
+        title: action === 'append' ? 'Append Playlist' : 'Load Playlist',
+        multiple: false,
+        defaultPath: lastPlaylistDirectory.value || undefined,
+        filters: [{ name: 'PlayOut Playlist', extensions: ['playout', 'json'] }]
+    });
+
+    if (!selection || Array.isArray(selection)) return;
+    await loadPlaylist(selection, action === 'append');
 };
 </script>
 
@@ -102,24 +115,11 @@ const handleBrowserSelect = async (path: string) => {
             <span class="pl-status" :class="{ 'is-error': statusTone === 'error' }">{{ statusMessage }}</span>
     </div>
     <div class="pl-buttons">
-            <button class="pl-btn" @click="openBrowser('save')" :disabled="isSaving" title="Save Playlist">💾</button>
-            <button class="pl-btn" @click="openBrowser('load')" :disabled="isLoading" title="Load Playlist">📂</button>
-            <button class="pl-btn" @click="openBrowser('append')" :disabled="isLoading" title="Append Playlist">➕</button>
+            <button class="pl-btn" @click="pickPlaylistPath('save')" :disabled="isSaving" title="Save Playlist">💾</button>
+            <button class="pl-btn" @click="pickPlaylistPath('load')" :disabled="isLoading" title="Load Playlist">📂</button>
+            <button class="pl-btn" @click="pickPlaylistPath('append')" :disabled="isLoading" title="Append Playlist">➕</button>
             <button class="pl-btn btn-danger" @click="clearRundown" title="Clear Rundown">🗑</button>
     </div>
-
-        <FileBrowserModal
-            v-if="browserMode"
-            :is-open="!!browserMode"
-            :title="browserAction === 'save' ? 'Save Playlist' : browserAction === 'append' ? 'Append Playlist' : 'Load Playlist'"
-            :description="browserAction === 'save' ? 'Choose a folder and save a .playout playlist.' : 'Browse playlists stored on disk.'"
-            :mode="browserMode"
-            :start-path="lastPlaylistDirectory"
-            :extensions="['playout', 'json']"
-            :default-file-name="suggestedName"
-            @close="closeBrowser"
-            @select="handleBrowserSelect"
-        />
   </div>
 </template>
 

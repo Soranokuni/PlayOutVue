@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -62,16 +62,63 @@ const isSmartTrimming = ref(false);
 const trimStatus = ref('');
 const speed = ref(0); // for JKL display badge
 const FRAME_MS = 40; // 25fps
+const PLAYHEAD_UI_INTERVAL_MS = 120;
 
 const clampMs = (ms: number) => Math.max(0, Math.min(ms, totalDurationMs.value || ms));
 
 // ── Seek video ────────────────────────────────────────────────────────────────
-const seekTo = (ms: number) => {
-    const v = videoRef.value;
-    if (!v) return;
+const timelineRef = ref<HTMLElement | null>(null);
+const playheadRef = ref<HTMLElement | null>(null);
+const playbackTime = ref(0);
+const draggingTimelineItem = ref<'in' | 'out' | 'playhead' | null>(null);
+
+let pendingSeekMs: number | null = null;
+let seekAnimationFrame = 0;
+let lastPlaybackUiUpdateAt = 0;
+let lastKnownPlaybackMs = 0;
+
+const updatePlayheadPosition = (ms: number) => {
   const clamped = clampMs(ms);
+  lastKnownPlaybackMs = clamped;
+  if (playheadRef.value) {
+    const left = totalDurationMs.value > 0 ? (clamped / totalDurationMs.value) * 100 : 0;
+    playheadRef.value.style.left = `${left}%`;
+  }
+};
+
+const syncPlaybackDisplay = (ms: number, forceReactive = false) => {
+  const clamped = clampMs(ms);
+  updatePlayheadPosition(clamped);
+
+  const now = performance.now();
+  if (forceReactive || now - lastPlaybackUiUpdateAt >= PLAYHEAD_UI_INTERVAL_MS) {
+    playbackTime.value = clamped;
+    lastPlaybackUiUpdateAt = now;
+  }
+};
+
+const flushPendingSeek = () => {
+  seekAnimationFrame = 0;
+  const v = videoRef.value;
+  if (!v || pendingSeekMs == null) return;
+
+  const clamped = clampMs(pendingSeekMs);
+  pendingSeekMs = null;
   v.currentTime = clamped / 1000;
-  playbackTime.value = clamped;
+  syncPlaybackDisplay(clamped, true);
+};
+
+const queueSeek = (ms: number, forceReactive = false) => {
+  const clamped = clampMs(ms);
+  syncPlaybackDisplay(clamped, forceReactive);
+  pendingSeekMs = clamped;
+  if (!seekAnimationFrame) {
+    seekAnimationFrame = requestAnimationFrame(flushPendingSeek);
+  }
+};
+
+const seekTo = (ms: number, forceReactive = true) => {
+  queueSeek(ms, forceReactive);
 };
 
 const syncPlaybackState = () => {
@@ -93,16 +140,15 @@ const togglePlayback = async () => {
 };
 
 // ── Timeline Scrubbing state ──────────────────────────────────────────────────
-const timelineRef = ref<HTMLElement | null>(null);
-const playbackTime = ref(0);
-const draggingTimelineItem = ref<'in' | 'out' | 'playhead' | null>(null);
-
 const onTimeUpdate = () => {
   if (videoRef.value) {
-    playbackTime.value = videoRef.value.currentTime * 1000;
-    if (outMs.value > inMs.value && playbackTime.value > outMs.value) {
+    const currentMs = videoRef.value.currentTime * 1000;
+    if (outMs.value > inMs.value && currentMs > outMs.value) {
       seekTo(outMs.value);
       videoRef.value.pause();
+      syncPlaybackDisplay(outMs.value, true);
+    } else {
+      syncPlaybackDisplay(currentMs);
     }
     syncPlaybackState();
   }
@@ -126,12 +172,12 @@ const handleTimelineDrag = (e: MouseEvent) => {
     const ms = getMsFromEvent(e);
     if (draggingTimelineItem.value === 'in') {
         inMs.value = Math.min(ms, outMs.value);
-        seekTo(inMs.value);
+    queueSeek(inMs.value);
     } else if (draggingTimelineItem.value === 'out') {
         outMs.value = Math.max(ms, inMs.value);
-        seekTo(outMs.value);
+    queueSeek(outMs.value);
     } else if (draggingTimelineItem.value === 'playhead') {
-        seekTo(ms);
+    queueSeek(ms);
     }
 };
 
@@ -140,6 +186,10 @@ const onWindowMouseMove = (e: MouseEvent) => {
 };
 
 const onWindowMouseUp = () => {
+  if (pendingSeekMs != null) {
+    syncPlaybackDisplay(pendingSeekMs, true);
+    flushPendingSeek();
+  }
     draggingTimelineItem.value = null;
 };
 
@@ -151,6 +201,7 @@ const onVideoLoaded = () => {
     if (dur > 0) {
         totalDurationMs.value = dur;
         if (outMs.value === 0 || outMs.value > dur) outMs.value = dur;
+      syncPlaybackDisplay(inMs.value || 0, true);
     }
 };
 
@@ -164,6 +215,7 @@ const probeDuration = async () => {
         if (dur > 0 && totalDurationMs.value === 0) {
             totalDurationMs.value = dur;
             if (outMs.value === 0) outMs.value = dur;
+          syncPlaybackDisplay(inMs.value || 0, true);
         }
     } catch { }
     finally { isProbing.value = false; }
@@ -183,21 +235,19 @@ watch([item, () => props.isOpen], ([val, open]) => {
     inMs.value  = val.inPoint  || 0;
     outMs.value = val.outPoint || (val.duration && val.duration > 0 ? val.duration * 1000 : 0);
     totalDurationMs.value = val.duration && val.duration > 0 ? val.duration * 1000 : 0;
-        trimStatus.value = '';
-        speed.value = 0;
-        isVideoPlaying.value = false;
-        loadVideoSrc(val.path);
-        probeDuration();
+  trimStatus.value = '';
+  speed.value = 0;
+  isVideoPlaying.value = false;
+  pendingSeekMs = null;
+  nextTick(() => syncPlaybackDisplay(inMs.value, true));
+  loadVideoSrc(val.path);
+  probeDuration();
     }
     if (!open) {
         if (videoRef.value) videoRef.value.pause();
         videoSrc.value = '';
     }
 }, { immediate: true });
-
-// Sync sliders with video
-watch(inMs,  (v) => seekTo(v));
-watch(outMs, (v) => seekTo(v));
 
 // ── Timecodes ─────────────────────────────────────────────────────────────────
 const msToTC = (ms: number): string => {
@@ -243,10 +293,9 @@ const jumpToMarker = (marker: 'start' | 'in' | 'out' | 'end') => {
 };
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
-const currentVideoMs = () => (videoRef.value?.currentTime ?? 0) * 1000;
+const currentVideoMs = () => lastKnownPlaybackMs || ((videoRef.value?.currentTime ?? 0) * 1000);
 const nudge = (frames: number) => {
-    if (!videoRef.value) return;
-    videoRef.value.currentTime = Math.max(0, Math.min(currentVideoMs() + frames*FRAME_MS, totalDurationMs.value)) / 1000;
+  seekTo(currentVideoMs() + frames * FRAME_MS);
 };
 const applySpeed = (s: number) => {
     const v = videoRef.value; if (!v) return;
@@ -335,6 +384,7 @@ onUnmounted(() => {
     window.removeEventListener('keydown', handleKey);
     window.removeEventListener('mousemove', onWindowMouseMove);
     window.removeEventListener('mouseup', onWindowMouseUp);
+  if (seekAnimationFrame) cancelAnimationFrame(seekAnimationFrame);
 });
 
 // ── Save / Trim ───────────────────────────────────────────────────────────────
@@ -345,11 +395,70 @@ const saveNonDestructive = () => {
     setTimeout(() => emit('close'), 800);
 };
 
+const splitInputPath = (ip: string) => {
+  const fileName = ip.split(/[/\\]/).pop() || '';
+  const dirPath = fileName ? ip.slice(0, -fileName.length).replace(/[\\/]$/, '') : ip;
+  const dot = fileName.lastIndexOf('.');
+  const ext = dot > -1 ? fileName.slice(dot + 1) : 'mp4';
+  const stem = dot > -1 ? fileName.slice(0, dot) : fileName;
+  return {
+    inputPath: ip,
+    dirPath,
+    ext,
+    stem
+  };
+};
+
+const joinOutputPath = (dirPath: string, fileName: string) => {
+  if (!dirPath) return fileName;
+  const separator = /[\\/]$/.test(dirPath) ? '' : '/';
+  return `${dirPath}${separator}${fileName}`;
+};
+
+const ensureExtension = (fileName: string, ext: string) => {
+  const trimmed = fileName.trim();
+  if (!trimmed) return '';
+  return new RegExp(`\\.${ext}$`, 'i').test(trimmed) ? trimmed : `${trimmed}.${ext}`;
+};
+
 const buildPaths = (ip: string, suffix: string) => {
-    const dot  = ip.lastIndexOf('.');
-    const base = dot > -1 ? ip.slice(0, dot) : ip;
-    const ext  = ip.split('.').pop() || 'mp4';
-    return { inputPath: ip, outputPath: `${base}${suffix}.${ext}` };
+  const { inputPath, dirPath, ext, stem } = splitInputPath(ip);
+  return { inputPath, outputPath: joinOutputPath(dirPath, `${stem}${suffix}.${ext}`) };
+};
+
+const doRenameAndTrim = async () => {
+  if (!item.value?.path) {
+    trimStatus.value = '❌ No source file selected.';
+    return;
+  }
+  if (outMs.value <= inMs.value) {
+    trimStatus.value = '❌ OUT point must be greater than IN point.';
+    return;
+  }
+
+  const { inputPath, dirPath, ext, stem } = splitInputPath(item.value.path);
+  const suggestedName = `${stem}_trimmed.${ext}`;
+  const promptedName = window.prompt('Save trimmed copy as', suggestedName);
+  if (!promptedName) return;
+
+  const finalFileName = ensureExtension(promptedName, ext);
+  if (!finalFileName) {
+    trimStatus.value = '❌ A valid filename is required.';
+    return;
+  }
+
+  isTrimming.value = true;
+  trimStatus.value = 'Saving renamed stream-copy trim…';
+
+  try {
+    const outputPath = joinOutputPath(dirPath, finalFileName);
+    const result = await invoke<string>('trim_file', { inputPath, outputPath, inMs: inMs.value, outMs: outMs.value });
+    trimStatus.value = `✅ ${result.split(/[/\\]/).pop()} saved`;
+  } catch (error) {
+    trimStatus.value = `❌ ${error}`;
+  } finally {
+    isTrimming.value = false;
+  }
 };
 
 const doDestructiveTrim = async () => {
@@ -456,7 +565,7 @@ const doSmartTrim = async () => {
                  <div class="tm-handle tm-handle-out" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'out')">▸</div>
               </div>
 
-              <div class="tm-playhead" :style="{ left: totalDurationMs ? (playbackTime / totalDurationMs*100)+'%' : '0%' }" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'playhead')">
+                <div ref="playheadRef" class="tm-playhead" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'playhead')">
                  <div class="tm-playhead-line"></div>
               </div>
             </div>
@@ -504,6 +613,12 @@ const doSmartTrim = async () => {
               title="Stream copy — instant, ±keyframe accuracy"
               @click="doDestructiveTrim">
               {{ isTrimming ? '⌛ Trimming…' : '✂️ Stream Copy' }}
+            </button>
+            <button class="trim-btn"
+              :disabled="isTrimming || isSmartTrimming || outMs <= inMs"
+              title="Stream copy to a custom filename in the same folder"
+              @click="doRenameAndTrim">
+              {{ isTrimming ? '⌛ Trimming…' : '📝 Rename Copy' }}
             </button>
             <button class="trim-btn btn-accurate"
               :disabled="isTrimming || isSmartTrimming || outMs <= inMs"
