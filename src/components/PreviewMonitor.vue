@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
-import { obs, isObsConnected } from '../services/obs';
+import { obs } from '../services/obs';
+import { activePlayoutCapabilities, activePlayoutLabel, isPlayoutConnected } from '../services/playout';
 
 const previewSrc = ref<string | null>(null);
 const isCapturing = ref(false);
@@ -18,8 +19,15 @@ const scheduleNextPoll = (delay: number) => {
 const captureFrame = async () => {
     if (!keepPolling) return;
 
-    if (!isObsConnected.value || document.visibilityState === 'hidden') {
-        if (!isObsConnected.value) previewSrc.value = null;
+    if (!activePlayoutCapabilities.value.preview) {
+        previewSrc.value = null;
+        lastError.value = '';
+        scheduleNextPoll(IDLE_POLL_MS);
+        return;
+    }
+
+    if (!isPlayoutConnected.value || document.visibilityState === 'hidden') {
+        if (!isPlayoutConnected.value) previewSrc.value = null;
         scheduleNextPoll(IDLE_POLL_MS);
         return;
     }
@@ -88,15 +96,16 @@ onUnmounted(() => {
     <div class="monitor-header">
       <span class="badge-program">● PROGRAM</span>
       <span class="text-secondary" style="font-size:0.68rem;">
-        {{ isObsConnected ? (previewSrc ? 'Live' : 'Waiting…') : 'Not connected' }}
+                {{ activePlayoutCapabilities.preview ? (isPlayoutConnected ? (previewSrc ? 'Live' : 'Waiting…') : 'Not connected') : activePlayoutLabel + ' preview unavailable' }}
       </span>
     </div>
     <div class="monitor-frame">
-      <img v-if="previewSrc" :src="previewSrc" class="monitor-image" alt="OBS Program Output">
+    <img v-if="previewSrc" :src="previewSrc" class="monitor-image" alt="Playout Program Output">
       <div v-else class="monitor-placeholder">
-        <div v-if="!isObsConnected">⬤ NOT CONNECTED</div>
+                <div v-if="!activePlayoutCapabilities.preview">⬤ PREVIEW NOT AVAILABLE</div>
+                <div v-else-if="!isPlayoutConnected">⬤ NOT CONNECTED</div>
         <div v-else-if="lastError" style="font-size:0.65rem; color:rgba(255,100,100,0.6); max-width:180px; text-align:center;">{{ lastError }}</div>
-        <div v-else>⌛ Awaiting OBS…</div>
+                <div v-else>⌛ Awaiting {{ activePlayoutLabel }}…</div>
       </div>
     </div>
   </div>

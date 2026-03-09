@@ -4,8 +4,10 @@ mod trimmer;
 mod playlist;
 mod db;
 mod media_server;
+mod caspar;
 mod filesystem;
 
+use caspar::{caspar_send_command, start_osc_listener};
 use scanner::{scan_media, scan_directory, DbState};
 use stream::extract_web_stream;
 use trimmer::{trim_file, trim_file_smart};
@@ -38,6 +40,7 @@ pub fn run() {
     });
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(DbState(Mutex::new(media_db)))
         .invoke_handler(tauri::generate_handler![
             scan_media,
@@ -48,12 +51,14 @@ pub fn run() {
             get_media_url,
             save_playlist,
             load_playlist,
+            caspar_send_command,
             list_filesystem_roots,
             browse_filesystem,
             find_default_logos_dir,
             get_image_dimensions
         ])
         .setup(|app| {
+            tauri::async_runtime::spawn(start_osc_listener(app.handle().clone()));
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

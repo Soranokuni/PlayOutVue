@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use tokio::fs;
 
 #[derive(Serialize)]
 pub struct FilesystemEntry {
@@ -103,40 +104,50 @@ pub async fn browse_filesystem(
         .map(|ext| ext.trim_start_matches('.').to_lowercase())
         .collect::<Vec<_>>();
 
-    let mut entries = std::fs::read_dir(&current)
-        .map_err(|e| format!("Failed to read directory '{}': {}", path, e))?
-        .flatten()
-        .filter_map(|entry| {
-            let file_type = entry.file_type().ok()?;
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().into_owned();
+    let mut dir = fs::read_dir(&current)
+        .await
+        .map_err(|e| format!("Failed to read directory '{}': {}", path, e))?;
+    let mut entries = Vec::new();
 
-            if file_type.is_dir() {
-                return Some(FilesystemEntry {
-                    name,
-                    path: path.to_string_lossy().into_owned(),
-                    entry_type: "folder".to_string(),
-                });
-            }
+    while let Some(entry) = dir
+        .next_entry()
+        .await
+        .map_err(|e| format!("Failed to iterate directory '{}': {}", path, e))?
+    {
+        let file_type = entry
+            .file_type()
+            .await
+            .map_err(|e| format!("Failed to inspect '{}' entry type: {}", entry.path().to_string_lossy(), e))?;
+        let entry_path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
 
-            if !show_files || !file_type.is_file() {
-                return None;
-            }
-
-            if !normalized_exts.is_empty() {
-                let ext = path.extension()?.to_string_lossy().to_lowercase();
-                if !normalized_exts.iter().any(|allowed| allowed == &ext) {
-                    return None;
-                }
-            }
-
-            Some(FilesystemEntry {
+        if file_type.is_dir() {
+            entries.push(FilesystemEntry {
                 name,
-                path: path.to_string_lossy().into_owned(),
-                entry_type: "file".to_string(),
-            })
-        })
-        .collect::<Vec<_>>();
+                path: entry_path.to_string_lossy().into_owned(),
+                entry_type: "folder".to_string(),
+            });
+            continue;
+        }
+
+        if !show_files || !file_type.is_file() {
+            continue;
+        }
+
+        if !normalized_exts.is_empty() {
+            let Some(ext) = entry_path.extension() else { continue; };
+            let ext = ext.to_string_lossy().to_lowercase();
+            if !normalized_exts.iter().any(|allowed| allowed == &ext) {
+                continue;
+            }
+        }
+
+        entries.push(FilesystemEntry {
+            name,
+            path: entry_path.to_string_lossy().into_owned(),
+            entry_type: "file".to_string(),
+        });
+    }
 
     entries.sort_by(|a, b| match (a.entry_type.as_str(), b.entry_type.as_str()) {
         ("folder", "file") => std::cmp::Ordering::Less,

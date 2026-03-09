@@ -6,7 +6,8 @@ import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import PreviewMonitor from './components/PreviewMonitor.vue';
-import { isObsConnected, ObsService, currentMediaTime, isPlaying, PlaybackService, obs } from './services/obs';
+import { obs } from './services/obs';
+import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
 
@@ -77,8 +78,9 @@ const handleStreamStateChanged = (data: any) => {
 };
 
 const toggleConnection = async () => {
-    if (isObsConnected.value) await ObsService.disconnect();
-    else await ObsService.connect(settings.obsUrl, settings.obsPassword);
+  const service = getActivePlayoutService();
+  if (isPlayoutConnected.value) await service.disconnect();
+  else await service.connect(settings.obsUrl, settings.obsPassword);
 };
 
 const playSelected = async () => {
@@ -87,25 +89,33 @@ const playSelected = async () => {
     const startIdx = rundown.selectedItemId
         ? Math.max(0, items.findIndex(i => i.id === rundown.selectedItemId))
         : 0;
-    await PlaybackService.play(items as any, startIdx);
+  await getActivePlayoutService().play(items as any, startIdx);
 };
 
-const stopPlayback = () => PlaybackService.stop();
+const stopPlayback = () => getActivePlayoutService().stop();
 
 const toggleStream = async () => {
-    if (isStreaming.value) await ObsService.stopStream();
-    else await ObsService.startStream();
+  const service = getActivePlayoutService();
+  if (!service.startStream || !service.stopStream) return;
+  if (isStreaming.value) await service.stopStream();
+  else await service.startStream();
 };
 
 const toggleSdi = async () => {
     if (!settings.decklinkOutputName) return;
+  const service = getActivePlayoutService();
+  if (!service.startDeckLink || !service.stopDeckLink) return;
     if (isSdiActive.value) {
-        await ObsService.stopDeckLink(settings.decklinkOutputName);
+    await service.stopDeckLink(settings.decklinkOutputName);
         isSdiActive.value = false;
     } else {
-        await ObsService.startDeckLink(settings.decklinkOutputName);
+    await service.startDeckLink(settings.decklinkOutputName);
         isSdiActive.value = true;
     }
+};
+
+const cutToLive = async () => {
+  await getActivePlayoutService().cutToLive?.();
 };
 
     onMounted(() => {
@@ -137,10 +147,10 @@ const toggleSdi = async () => {
 
       <!-- Connection -->
       <div class="ctrl-section">
-        <div class="status-dot" :class="{ connected: isObsConnected }"></div>
-        <span class="ctrl-label">{{ isObsConnected ? 'OBS' : 'OFFLINE' }}</span>
+        <div class="status-dot" :class="{ connected: isPlayoutConnected }"></div>
+        <span class="ctrl-label">{{ isPlayoutConnected ? activePlayoutLabel : 'OFFLINE' }}</span>
         <button class="ctrl-btn" @click="toggleConnection" style="font-size:0.7rem;">
-          {{ isObsConnected ? 'Disconnect' : 'Connect' }}
+          {{ isPlayoutConnected ? 'Disconnect' : 'Connect' }}
         </button>
       </div>
 
@@ -149,9 +159,9 @@ const toggleSdi = async () => {
       <!-- PLAY / STOP — the main call-to-action -->
       <div class="ctrl-section ctrl-play-wrap">
         <button
-          v-if="!isPlaying"
+          v-if="!isPlayoutPlaying"
           class="ctrl-btn btn-play"
-          :disabled="!isObsConnected || !rundown.activeItems.length"
+          :disabled="!isPlayoutConnected || !rundown.activeItems.length"
           @click="playSelected"
           title="Play playlist from selected item (or beginning)"
         >
@@ -166,7 +176,7 @@ const toggleSdi = async () => {
           ■ STOP
         </button>
         
-        <button v-if="isObsConnected" class="ctrl-btn btn-live-now" @click="PlaybackService.cutToLive()" title="Cut to Live Scene">
+        <button v-if="isPlayoutConnected" class="ctrl-btn btn-live-now" @click="cutToLive" title="Cut to Live Source">
           🔴 LIVE NOW
         </button>
       </div>
@@ -175,20 +185,20 @@ const toggleSdi = async () => {
 
       <!-- Media Timecode -->
       <div class="ctrl-section">
-        <div class="timecode">{{ currentMediaTime }}</div>
+        <div class="timecode">{{ currentPlayoutTime }}</div>
       </div>
 
       <div class="ctrl-divider"></div>
 
       <!-- Broadcast Stream & SDI -->
-      <div class="ctrl-section">
+      <div v-if="activePlayoutCapabilities.streaming" class="ctrl-section">
         <div class="status-dot" :class="{ connected: isStreaming }" style="--dot-color:#e63946;"></div>
         <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
-        <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isObsConnected" @click="toggleStream" style="font-size:0.7rem;">
+        <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected" @click="toggleStream" style="font-size:0.7rem;">
           {{ isStreaming ? '■ Stop' : '● Stream' }}
         </button>
 
-        <button v-if="settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isObsConnected" @click="toggleSdi" style="font-size:0.7rem; margin-left:12px;">
+        <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected" @click="toggleSdi" style="font-size:0.7rem; margin-left:12px;">
           {{ isSdiActive ? '■ SDI Stop' : '● SDI OUT' }}
         </button>
       </div>

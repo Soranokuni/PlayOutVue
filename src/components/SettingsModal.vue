@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../stores/settings';
-import { ObsService } from '../services/obs';
-import FileBrowserModal from './FileBrowserModal.vue';
+import { casparPlayoutService } from '../services/caspar';
+import { obsPlayoutService } from '../services/obs';
+import type { PlayoutService } from '../services/playout';
 
 const props = defineProps({
   isOpen: Boolean
@@ -14,6 +16,7 @@ const settings = useSettingsStore();
 
 // Local shadow state so we don't mutate Pinia instantly on every keystroke
 const localState = ref({
+    playoutEngine: 'obs' as 'obs' | 'casparcg',
     obsUrl: '',
     obsPassword: '',
     localMediaPath: '',
@@ -33,30 +36,46 @@ const localState = ref({
 
 const availableOutputs = ref<any[]>([]);
 const availableInputs = ref<any[]>([]);
-const browserMode = ref<'directory' | 'open-file' | null>(null);
-const browserTarget = ref<'media' | 'watermark' | 'logos'>('media');
+
+const getModalPlayoutService = (): PlayoutService => (
+    localState.value.playoutEngine === 'casparcg' ? casparPlayoutService : obsPlayoutService
+);
 
 const fetchOutputs = async () => {
     try {
-        availableOutputs.value = await ObsService.getOutputs();
+        availableOutputs.value = await (getModalPlayoutService().getOutputs?.() || Promise.resolve([]));
     } catch {}
 };
 
 const fetchInputs = async () => {
     try {
-        availableInputs.value = await ObsService.getInputs();
+        availableInputs.value = await (getModalPlayoutService().getInputs?.() || Promise.resolve([]));
     } catch {}
 };
 
 watch(() => props.isOpen, (open) => {
     if (open) {
+        if (localState.value.playoutEngine === 'obs') {
+            fetchOutputs();
+            fetchInputs();
+        }
+    }
+});
+
+watch(() => localState.value.playoutEngine, (engine) => {
+    if (engine === 'obs' && props.isOpen) {
         fetchOutputs();
         fetchInputs();
+        return;
     }
+
+    availableOutputs.value = [];
+    availableInputs.value = [];
 });
 
 onMounted(() => {
     localState.value = {
+        playoutEngine: settings.playoutEngine,
         obsUrl: settings.obsUrl,
         obsPassword: settings.obsPassword,
         localMediaPath: settings.localMediaPath,
@@ -86,18 +105,20 @@ onMounted(() => {
 });
 
 const saveSettings = async () => {
+    const service = getModalPlayoutService();
     settings.updateSettings(localState.value);
     try {
-        await ObsService.syncLiveInputScene(localState.value.liveInputSourceName);
+        await service.syncLiveInputScene?.(localState.value.liveInputSourceName);
     } catch {}
     try {
-        await ObsService.syncBrandingAssets();
+        await service.syncBrandingAssets?.();
     } catch {}
     emit('close');
 };
 
 const discardAndClose = () => {
     localState.value = {
+        playoutEngine: settings.playoutEngine,
         obsUrl: settings.obsUrl,
         obsPassword: settings.obsPassword,
         localMediaPath: settings.localMediaPath,
@@ -117,16 +138,33 @@ const discardAndClose = () => {
     emit('close');
 };
 
-const openBrowser = (target: 'media' | 'watermark' | 'logos') => {
-    browserTarget.value = target;
-    browserMode.value = target === 'watermark' ? 'open-file' : 'directory';
-};
+const pickPath = async (target: 'media' | 'watermark' | 'logos') => {
+    const isDirectory = target !== 'watermark';
+    const defaultPath = target === 'media'
+        ? localState.value.localMediaPath
+        : target === 'logos'
+            ? localState.value.logosPath
+            : localState.value.watermarkPath;
 
-const handleBrowserSelect = (path: string) => {
-    if (browserTarget.value === 'media') localState.value.localMediaPath = path;
-    if (browserTarget.value === 'watermark') localState.value.watermarkPath = path;
-    if (browserTarget.value === 'logos') localState.value.logosPath = path;
-    browserMode.value = null;
+    const selection = await open({
+        title: target === 'media'
+            ? 'Choose Media Folder'
+            : target === 'logos'
+                ? 'Choose Logos Folder'
+                : 'Choose Watermark File',
+        multiple: false,
+        directory: isDirectory,
+        defaultPath: defaultPath || undefined,
+        filters: isDirectory
+            ? undefined
+            : [{ name: 'Image Files', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
+    });
+
+    if (!selection || Array.isArray(selection)) return;
+
+    if (target === 'media') localState.value.localMediaPath = selection;
+    if (target === 'watermark') localState.value.watermarkPath = selection;
+    if (target === 'logos') localState.value.logosPath = selection;
 };
 </script>
 
@@ -140,8 +178,33 @@ const handleBrowserSelect = (path: string) => {
         </div>
 
         <div class="modal-body custom-scroll">
-          <!-- OBS Connection Settings -->
           <section class="settings-section">
+              <h3 class="text-secondary section-title">Playout Engine</h3>
+              <div class="form-grid">
+                  <div class="form-group">
+                      <label>Active Engine</label>
+                      <select class="glass-input" v-model="localState.playoutEngine">
+                          <option value="obs">OBS Studio</option>
+                          <option value="casparcg">CasparCG</option>
+                      </select>
+                      <span class="hint-text">Switches the app between OBS WebSocket control and CasparCG AMCP control.</span>
+                  </div>
+                  <div class="form-group">
+                      <label>Engine Notes</label>
+                      <div class="hint-card">
+                          <template v-if="localState.playoutEngine === 'obs'">
+                              OBS mode keeps preview snapshots, streaming, DeckLink output control, and branding sync enabled.
+                          </template>
+                          <template v-else>
+                              CasparCG mode uses localhost AMCP on port 5250 and listens for OSC feedback on port 6250. Preview and OBS-only output controls are disabled for now.
+                          </template>
+                      </div>
+                  </div>
+              </div>
+          </section>
+
+          <!-- OBS Connection Settings -->
+          <section v-if="localState.playoutEngine === 'obs'" class="settings-section">
               <h3 class="text-secondary section-title">OBS WebSocket v5</h3>
               <div class="form-grid">
                   <div class="form-group">
@@ -162,13 +225,12 @@ const handleBrowserSelect = (path: string) => {
                   <label>Local Video Root Directory</label>
                   <div class="input-with-button">
                       <input type="text" class="glass-input" v-model="localState.localMediaPath" placeholder="C:/Media">
-                      <!-- A native OS folder dialog could be hooked here via Tauri -->
-                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse folders" @click="openBrowser('media')">📁</button>
+                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse folders" @click="pickPath('media')">📁</button>
                   </div>
                   <span class="hint-text">Absolute path where raw .mp4/.mxf files reside.</span>
               </div>
               
-              <div class="form-group">
+              <div v-if="localState.playoutEngine === 'obs'" class="form-group">
                   <label>Compliance Overlay Host URL</label>
                   <input type="text" class="glass-input" v-model="localState.complianceUrl" placeholder="http://localhost/greek_ratings.html">
                   <span class="hint-text">The HTTP address OBS will use for the NCRTV graphic Browser Source.</span>
@@ -178,14 +240,14 @@ const handleBrowserSelect = (path: string) => {
                   <label>Logos / Ratings Folder</label>
                   <div class="input-with-button">
                       <input type="text" class="glass-input" v-model="localState.logosPath" placeholder="C:/PlayOut/logos">
-                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse logos folder" @click="openBrowser('logos')">📁</button>
+                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse logos folder" @click="pickPath('logos')">📁</button>
                   </div>
                   <span class="hint-text">Expected assets: logo.png, K.png, 8.png, 12.png, 16.png, 18.png.</span>
               </div>
           </section>
 
           <!-- Hardware Output -->
-          <section class="settings-section">
+          <section v-if="localState.playoutEngine === 'obs'" class="settings-section">
               <h3 class="text-secondary section-title">Hardware Output (DeckLink/NDI)</h3>
               <div class="form-group">
                   <label>Target Hardware Output</label>
@@ -203,8 +265,8 @@ const handleBrowserSelect = (path: string) => {
           </section>
 
           <section class="settings-section">
-              <h3 class="text-secondary section-title">Live Rebroadcast / DeckLink Input</h3>
-              <div class="form-group">
+              <h3 class="text-secondary section-title">{{ localState.playoutEngine === 'obs' ? 'Live Rebroadcast / DeckLink Input' : 'CasparCG Live Route' }}</h3>
+              <div class="form-group" v-if="localState.playoutEngine === 'obs'">
                   <label>OBS Input Source for Live Rebroadcast</label>
                   <div style="display:flex; gap: 8px;">
                       <select class="glass-input" v-model="localState.liveInputSourceName" style="flex:1;">
@@ -216,6 +278,11 @@ const handleBrowserSelect = (path: string) => {
                       <button class="glass-btn" @click="fetchInputs" title="Refresh Inputs" style="flex-shrink:0;">↻</button>
                   </div>
                   <span class="hint-text">Choose the OBS input that represents your DeckLink ingest or live rebroadcast source.</span>
+              </div>
+              <div class="form-group" v-else>
+                  <label>CasparCG source / route</label>
+                  <input type="text" class="glass-input" v-model="localState.liveInputSourceName" placeholder="decklink://device/1 or ROUTE 2-10">
+                  <span class="hint-text">Used by the CasparCG engine for LIVE NOW and live rundown items. Enter the route or source token that your channel expects.</span>
               </div>
           </section>
 
@@ -245,13 +312,13 @@ const handleBrowserSelect = (path: string) => {
           </section>
 
           <!-- TV Station Watermark / Bug -->
-          <section class="settings-section">
+          <section v-if="localState.playoutEngine === 'obs'" class="settings-section">
               <h3 class="text-secondary section-title">📺 Station Watermark / Bug</h3>
               <div class="form-group">
                   <label>Logo Image Path (PNG/SVG on disk)</label>
                   <div class="input-with-button">
                       <input type="text" class="glass-input" v-model="localState.watermarkPath" placeholder="C:/Logos/station_logo.png">
-                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse files" @click="openBrowser('watermark')">📁</button>
+                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse files" @click="pickPath('watermark')">📁</button>
                   </div>
                   <span class="hint-text">OBS will load this as an Image Source overlay on all scenes.</span>
               </div>
@@ -287,18 +354,6 @@ const handleBrowserSelect = (path: string) => {
           <button class="glass-btn" @click="discardAndClose">Cancel</button>
           <button class="glass-btn btn-primary" @click="saveSettings">Save Configuration</button>
         </div>
-
-                <FileBrowserModal
-                    v-if="browserMode"
-                    :is-open="!!browserMode"
-                    :title="browserTarget === 'media' ? 'Choose Media Folder' : browserTarget === 'logos' ? 'Choose Logos Folder' : 'Choose Watermark File'"
-                    :description="browserTarget === 'media' ? 'Select the root folder that contains your playout assets.' : browserTarget === 'logos' ? 'Select the shared logos folder used for watermark and rating PNGs.' : 'Select an image file used as the station bug.'"
-                    :mode="browserMode"
-                    :start-path="browserTarget === 'media' ? localState.localMediaPath : browserTarget === 'logos' ? localState.logosPath : localState.watermarkPath"
-                    :extensions="browserTarget === 'watermark' ? ['png', 'jpg', 'jpeg', 'svg', 'webp'] : []"
-                    @close="browserMode = null"
-                    @select="handleBrowserSelect"
-                />
       </div>
     </div>
   </Teleport>

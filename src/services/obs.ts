@@ -2,6 +2,7 @@ import OBSWebSocket from 'obs-websocket-js';
 import { invoke } from '@tauri-apps/api/core';
 import { ref } from 'vue';
 import { useSettingsStore } from '../stores/settings';
+import type { PlayoutItem, PlayoutService } from './playout';
 
 export const obs = new OBSWebSocket();
 export const isObsConnected = ref(false);
@@ -1002,4 +1003,115 @@ export class ObsService {
         try { await obs.call('StopOutput', { outputName }); } catch { }
     }
 }
+
+export const obsPlayoutService: PlayoutService = {
+    engine: 'obs',
+    label: 'OBS',
+    supports: {
+        preview: true,
+        streaming: true,
+        hardwareOutput: true,
+        compliance: true,
+        cue: true
+    },
+
+    async connect(url?: string, password?: string) {
+        await ObsService.connect(url, password);
+    },
+
+    async disconnect() {
+        await ObsService.disconnect();
+    },
+
+    async play(items: PlayoutItem[], startIndex: number) {
+        await PlaybackService.play(items as any, startIndex);
+    },
+
+    async pause() {
+        try {
+            await obs.call('TriggerMediaInputAction', {
+                inputName: `SOTA_Player_${PlaybackService.activeDeck}`,
+                mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE'
+            });
+            isPlaying.value = false;
+        } catch { }
+    },
+
+    async stop() {
+        await PlaybackService.stop();
+    },
+
+    async cue(item: PlayoutItem) {
+        if (item.type === 'live') {
+            await ObsService.cueDecklink(Number(item.path));
+            return;
+        }
+
+        await ObsService.cueVideo(item.filename, item.path);
+    },
+
+    async take() {
+        await ObsService.take();
+    },
+
+    async clear() {
+        await ObsService.clear();
+    },
+
+    async cutToLive() {
+        await PlaybackService.cutToLive();
+    },
+
+    async refreshQueue(items: PlayoutItem[]) {
+        await PlaybackService.refreshQueue(items as any);
+    },
+
+    onAdvance(callback) {
+        PlaybackService.onAdvance(callback);
+    },
+
+    async getOutputs() {
+        return ObsService.getOutputs();
+    },
+
+    async getInputs() {
+        return ObsService.getInputs();
+    },
+
+    async syncLiveInputScene(preferredSourceName?: string) {
+        await ObsService.syncLiveInputScene(preferredSourceName);
+    },
+
+    async syncBrandingAssets() {
+        await ObsService.syncBrandingAssets();
+    },
+
+    async startStream() {
+        await ObsService.startStream();
+    },
+
+    async stopStream() {
+        await ObsService.stopStream();
+    },
+
+    async startDeckLink(outputName: string) {
+        await ObsService.startDeckLink(outputName);
+    },
+
+    async stopDeckLink(outputName: string) {
+        await ObsService.stopDeckLink(outputName);
+    },
+
+    async seekMedia(inputName: string, timeCursor: number) {
+        await ObsService.seekMedia(inputName, timeCursor);
+    },
+
+    async applyComplianceForItem(item: PlayoutItem) {
+        await ObsService.applyComplianceForItem(item);
+    },
+
+    async clearCompliance() {
+        await ObsService.clearCompliance();
+    }
+};
 

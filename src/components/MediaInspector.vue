@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRundownStore } from '../stores/rundown';
 import ComplianceModule from './ComplianceModule.vue';
-import { ObsService } from '../services/obs';
+import { getActivePlayoutService } from '../services/playout';
 
 const store = useRundownStore();
 
@@ -13,9 +13,9 @@ const adjustTrim = async (field: 'seek' | 'length', val: number) => {
             [field]: newVal
         });
         
-        // Fire precision seek to OBS immediately for visual preview
+        // Fire precision seek immediately for visual preview when supported.
         if (field === 'seek' && store.selectedItem.type === 'video') {
-            await ObsService.seekMedia(store.selectedItem.filename, newVal);
+            await getActivePlayoutService().seekMedia?.(store.selectedItem.filename, newVal);
         }
     }
 }
@@ -23,31 +23,27 @@ const adjustTrim = async (field: 'seek' | 'length', val: number) => {
 const fireCue = async () => {
     if (!store.selectedItem) return;
     try {
-        if (store.selectedItem.type === 'live') {
-            await ObsService.cueDecklink(Number(store.selectedItem.path));
-        } else {
-            await ObsService.cueVideo(store.selectedItem.filename, store.selectedItem.path);
-        }
+        await getActivePlayoutService().cue?.(store.selectedItem as any);
     } catch (e) {
-        console.error("OBS Cue Failed:", e);
+        console.error('Playout cue failed:', e);
     }
 }
 
 const firePlay = async () => {
     if (!store.selectedItem) return;
     try {
-        await ObsService.take();
+        await getActivePlayoutService().take?.();
     } catch (e) {
-        console.error("OBS Take Failed:", e);
+        console.error('Playout take failed:', e);
     }
 }
 
 const fireClear = async () => {
     if (!store.selectedItem) return;
     try {
-        await ObsService.clear();
+        await getActivePlayoutService().clear();
     } catch (e) {
-        console.error("OBS Clear Failed:", e);
+        console.error('Playout clear failed:', e);
     }
 }
 </script>

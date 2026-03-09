@@ -2,7 +2,8 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import { draggingItem } from '../composables/useDragState';
-import { PlaybackService, isPlaying, obs, playStartTime, playStartIndex, currentMediaMs } from '../services/obs';
+import { playStartTime, playStartIndex } from '../services/obs';
+import { currentPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import Sortable from 'sortablejs';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
@@ -64,33 +65,33 @@ const scheduledTimes = computed(() => {
 const calcProgress = (item: any) => {
     const dur = itemDurationMs(item);
     if (!dur || dur <= 0) return 0;
-    const p = (currentMediaMs.value / dur) * 100;
+    const p = (currentPlayoutMs.value / dur) * 100;
     return Math.max(0, Math.min(100, Math.round(p * 100) / 100)); // smooth visual
 };
 
 // ── Playback ─────────────────────────────────────────────────────────────────
-PlaybackService.onAdvance((index) => {
+registerPlayoutAdvanceListener((index) => {
     store.currentPlayingIndex = index;
-    store.selectedItemId = store.activeItems[index]?.id || null;
+    store.selectedItemId = index >= 0 ? store.activeItems[index]?.id || null : null;
 });
 
 const playFrom = async (index: number) => {
     store.currentPlayingIndex = index;
-    await PlaybackService.play(store.activeItems as any, index);
+    await getActivePlayoutService().play(store.activeItems as any, index);
 };
 
 watch(
   () => store.activeItems.map((item) => `${item.id}:${item.path}:${item.inPoint}:${item.outPoint}:${item.plannedDuration}`).join('|'),
   () => {
-    if (!isPlaying.value) return;
-    PlaybackService.refreshQueue(store.activeItems as any).catch((error) => {
+    if (!isPlayoutPlaying.value) return;
+    getActivePlayoutService().refreshQueue?.(store.activeItems as any).catch((error) => {
       console.error('[Playback] Failed to refresh rundown queue', error);
     });
   }
 );
 
 const stopPlayback = async () => {
-    await PlaybackService.stop();
+    await getActivePlayoutService().stop();
     store.currentPlayingIndex = -1;
 };
 
@@ -213,12 +214,12 @@ const trimDisplay = (item: any) => {
     <div class="rw-header">
       <div style="display:flex; align-items:center; gap:10px;">
         <h2 class="text-warning" style="margin:0; font-size:0.9rem;">Rundown</h2>
-        <span v-if="isPlaying" class="playing-badge">▶ ON AIR</span>
+        <span v-if="isPlayoutPlaying" class="playing-badge">▶ ON AIR</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
         <span class="clock-display">{{ clockStr }}</span>
         <button class="icon-action" @click="showLiveDialog = true" title="Add Live Entry">📹 Live</button>
-        <button v-if="isPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">■ Stop</button>
+        <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">■ Stop</button>
       </div>
     </div>
 
@@ -253,7 +254,7 @@ const trimDisplay = (item: any) => {
           'playing': index === store.currentPlayingIndex,
           'played': index < store.currentPlayingIndex
         }"
-        :style="index === store.currentPlayingIndex && isPlaying && item.type !== 'live' ? {
+        :style="index === store.currentPlayingIndex && isPlayoutPlaying && item.type !== 'live' ? {
             background: `linear-gradient(90deg, rgba(230,57,70,0.3) ${calcProgress(item)}%, rgba(230,57,70,0.08) ${calcProgress(item)}%)`,
             borderColor: 'rgba(230,57,70,0.4)'
         } : {}"

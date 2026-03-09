@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
     "@types/sortablejs": "^1.15.9",
     "@types/uuid": "^10.0.0",
     "@vueuse/core": "^14.2.1",
