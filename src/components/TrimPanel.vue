@@ -18,7 +18,10 @@ const props = defineProps<{
     isOpen: boolean,
     libraryItem?: LibraryTrimItem | null
 }>();
-const emit  = defineEmits(['close']);
+const emit  = defineEmits<{
+  (e: 'close'): void;
+  (e: 'saved', payload: { outputPath: string }): void;
+}>();
 
 const activeItem = ref<LibraryTrimItem | null>(null);
 const item = computed(() => activeItem.value);
@@ -509,6 +512,7 @@ const doRenameAndTrim = async () => {
     const outputPath = joinOutputPath(dirPath, finalFileName);
     const result = await invoke<string>('trim_file', { inputPath, outputPath, inMs: inMs.value, outMs: outMs.value });
     trimStatus.value = `✅ ${result.split(/[/\\]/).pop()} saved`;
+    emit('saved', { outputPath: result || outputPath });
   } catch (error) {
     trimStatus.value = `❌ ${error}`;
   } finally {
@@ -524,6 +528,7 @@ const doDestructiveTrim = async () => {
         const { inputPath, outputPath } = buildPaths(ip, '_trimmed');
         const r = await invoke<string>('trim_file', { inputPath: inputPath as string, outputPath: outputPath as string, inMs: inMs.value, outMs: outMs.value });
         trimStatus.value = `✅ ${r.split(/[/\\]/).pop()} (stream copy)`;
+      emit('saved', { outputPath: r || outputPath });
     } catch (e) { trimStatus.value = `❌ ${e}`; }
     finally { isTrimming.value = false; }
 };
@@ -536,6 +541,7 @@ const doSmartTrim = async () => {
         const { inputPath, outputPath } = buildPaths(ip, '_accurate');
         const r = await invoke<string>('trim_file_smart', { inputPath: inputPath as string, outputPath: outputPath as string, inMs: inMs.value, outMs: outMs.value });
         trimStatus.value = `✅ ${r.split(/[/\\]/).pop()} (accurate)`;
+      emit('saved', { outputPath: r || outputPath });
     } catch (e) { trimStatus.value = `❌ ${e}`; }
     finally { isSmartTrimming.value = false; }
 };

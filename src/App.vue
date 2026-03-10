@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
+import { invoke } from '@tauri-apps/api/core';
 import MediaLibrary from './components/MediaLibrary.vue';
 import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
@@ -16,6 +17,34 @@ const rundown  = useRundownStore();
 const isStreaming  = ref(false);
 const isSdiActive  = ref(false);
 const showSettings = ref(false);
+const footerMetaRef = ref<HTMLElement | null>(null);
+const showProductInfo = ref(false);
+const showQuickGuide = ref(false);
+
+const APP_NAME = 'PlayOutOS';
+const APP_VERSION = '2.0.1';
+
+const appHighlights = [
+  'Multi-playlist rundown planning with separate offline prep and on-air control.',
+  'OBS or Caspar playout control with safe handoff, live cuts, and timing feedback.',
+  'Media library scanning, trim workflow, compliance labels, and spot or telemarketing tagging.',
+  'Operator-first rundown editing with drag insert, gap markers, next-up warnings, and persistent selection.'
+];
+
+const shortcutGuide = [
+  'Enter or Space: play from the selected rundown row.',
+  'Delete or Backspace: remove the selected row, except the one currently on air.',
+  'Ctrl + Arrow Up or Arrow Down: move the selected row.',
+  'Shift + Arrow Down: duplicate the selected row.',
+  'F8 in the media library: append the selected library item after the selected rundown row.'
+];
+
+const workflowGuide = [
+  'Drag media from the library into the rundown to insert exactly where the cyan marker appears.',
+  'Double-click a playlist tab to rename it, then keep offline playlists staged until you take them on air.',
+  'Use gap lines plus Day and At to plan hard starts without changing the playout queue until playback begins.',
+  'Use the right panel for preview and inspection, and Settings for connections, media paths, and debug controls.'
+];
 
 const leftWidth = useStorage('layout.leftWidth', 260);
 const rightWidth = useStorage('layout.rightWidth', 300);
@@ -28,6 +57,21 @@ watch(isLightMode, (val) => {
     if (val) document.body.classList.add('light-theme');
     else document.body.classList.remove('light-theme');
 }, { immediate: true });
+
+watch(
+  () => ({
+    debugEnabled: settings.debugMode,
+    ffmpegBinPath: settings.ffmpegBinPath
+  }),
+  (runtimeSettings) => {
+    invoke('apply_runtime_settings', {
+      settings: runtimeSettings
+    }).catch((error) => {
+      console.warn('[RuntimeSettings] Failed to sync backend runtime settings', error);
+    });
+  },
+  { immediate: true, deep: true }
+);
 
 const formatDuration = (seconds: number) => {
   const total = Math.max(0, Math.round(seconds));
@@ -43,8 +87,29 @@ const formatDuration = (seconds: number) => {
 const rundownSummary = computed(() => {
   const itemCount = rundown.activeItems.length;
   if (!itemCount) return 'No items loaded';
-  return `${itemCount} item${itemCount === 1 ? '' : 's'} · ${formatDuration(rundown.totalDuration)}`;
+  return `${rundown.currentPlaylistName} · ${itemCount} item${itemCount === 1 ? '' : 's'} · ${formatDuration(rundown.totalDuration)}`;
 });
+
+const toggleProductInfo = () => {
+  showProductInfo.value = !showProductInfo.value;
+  if (showProductInfo.value) showQuickGuide.value = false;
+};
+
+const toggleQuickGuide = () => {
+  showQuickGuide.value = !showQuickGuide.value;
+  if (showQuickGuide.value) showProductInfo.value = false;
+};
+
+const closeFooterPanels = () => {
+  showProductInfo.value = false;
+  showQuickGuide.value = false;
+};
+
+const handleGlobalPointerDown = (event: PointerEvent) => {
+  const target = event.target as Node | null;
+  if (footerMetaRef.value && target && footerMetaRef.value.contains(target)) return;
+  closeFooterPanels();
+};
 
 const applyResize = () => {
   resizeFrame = 0;
@@ -84,15 +149,29 @@ const toggleConnection = async () => {
 };
 
 const playSelected = async () => {
-    const items = rundown.activeItems;
-    if (!items.length) return;
-    const startIdx = rundown.selectedItemId
-        ? Math.max(0, items.findIndex(i => i.id === rundown.selectedItemId))
-        : 0;
-  await getActivePlayoutService().play(items as any, startIdx);
+  const payload = rundown.buildPlaybackPayload();
+  if (!payload) return;
+
+  const service = getActivePlayoutService();
+  if (isPlayoutPlaying.value && rundown.onAirPlaylistId && rundown.onAirPlaylistId !== payload.playlistId) {
+    await service.stop();
+    rundown.clearOnAirState();
+  }
+
+  rundown.setPlaylistOnAir(payload.playlistId, payload.startVisibleIndex);
+  rundown.selectedItemId = rundown.activeItems[payload.startVisibleIndex]?.id || null;
+  try {
+    await service.play(payload.items as any, payload.startIndex);
+  } catch (error) {
+    rundown.clearOnAirState();
+    throw error;
+  }
 };
 
-const stopPlayback = () => getActivePlayoutService().stop();
+const stopPlayback = async () => {
+  await getActivePlayoutService().stop();
+  rundown.clearOnAirState();
+};
 
 const toggleStream = async () => {
   const service = getActivePlayoutService();
@@ -120,11 +199,13 @@ const cutToLive = async () => {
 
     onMounted(() => {
       obs.on('StreamStateChanged', handleStreamStateChanged);
+      window.addEventListener('pointerdown', handleGlobalPointerDown);
     });
 
     onUnmounted(() => {
       onMouseUp();
       obs.off('StreamStateChanged', handleStreamStateChanged);
+      window.removeEventListener('pointerdown', handleGlobalPointerDown);
     });
 </script>
 
@@ -217,6 +298,58 @@ const cutToLive = async () => {
       </button>
 
       <button class="ctrl-btn" style="font-size:0.78rem;" @click="showSettings = true">⚙ Settings</button>
+
+      <div class="ctrl-meta-dock" ref="footerMetaRef">
+        <button
+          class="ctrl-meta-btn ctrl-meta-brand"
+          :class="{ 'is-open': showProductInfo }"
+          @click.stop="toggleProductInfo"
+          :title="`${APP_NAME} ${APP_VERSION}`"
+        >
+          {{ APP_NAME }} {{ APP_VERSION }}
+        </button>
+        <button
+          class="ctrl-meta-btn ctrl-meta-help"
+          :class="{ 'is-open': showQuickGuide }"
+          @click.stop="toggleQuickGuide"
+          title="Quick guide"
+          aria-label="Quick guide"
+        >
+          ?
+        </button>
+
+        <div v-if="showProductInfo" class="ctrl-meta-popover">
+          <div class="ctrl-meta-heading-row">
+            <div>
+              <div class="ctrl-meta-kicker">System</div>
+              <div class="ctrl-meta-title">{{ APP_NAME }} {{ APP_VERSION }}</div>
+            </div>
+            <button class="ctrl-meta-close" @click.stop="closeFooterPanels" aria-label="Close info">×</button>
+          </div>
+          <p class="ctrl-meta-copy">Broadcast playout control built for rundown-driven operations and rapid operator decisions.</p>
+          <ul class="ctrl-meta-list">
+            <li v-for="item in appHighlights" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+
+        <div v-if="showQuickGuide" class="ctrl-meta-popover ctrl-meta-popover-guide">
+          <div class="ctrl-meta-heading-row">
+            <div>
+              <div class="ctrl-meta-kicker">Quick Guide</div>
+              <div class="ctrl-meta-title">Shortcuts and basics</div>
+            </div>
+            <button class="ctrl-meta-close" @click.stop="closeFooterPanels" aria-label="Close guide">×</button>
+          </div>
+          <div class="ctrl-meta-section-label">Keyboard shortcuts</div>
+          <ul class="ctrl-meta-list">
+            <li v-for="item in shortcutGuide" :key="item">{{ item }}</li>
+          </ul>
+          <div class="ctrl-meta-section-label">Basic workflow</div>
+          <ul class="ctrl-meta-list">
+            <li v-for="item in workflowGuide" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+      </div>
     </footer>
 
     <SettingsModal :is-open="showSettings" @close="showSettings = false" />
@@ -238,7 +371,7 @@ const cutToLive = async () => {
 .panel-right    { grid-area: right; display:flex; flex-direction:column; gap:8px; overflow:hidden; }
 .panel-preview  { flex: 0 0 170px; overflow:hidden; }
 .panel-inspector { flex:1; overflow:hidden; }
-.control-bar    { grid-area: ctrl; display:flex; align-items:center; gap:8px; padding:0 12px; margin-top:5px; }
+.control-bar    { grid-area: ctrl; display:flex; align-items:center; gap:8px; padding:0 12px; margin-top:5px; position:relative; overflow:visible; }
 
 .resizer {
   cursor: ew-resize;
@@ -317,6 +450,132 @@ const cutToLive = async () => {
 }
 .status-dot.connected { background:#4caf50; box-shadow:0 0 6px rgba(76,175,80,0.6); }
 
+.ctrl-meta-dock {
+  margin-left:8px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  position:relative;
+}
+
+.ctrl-meta-btn {
+  height:30px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,0.12);
+  background:rgba(255,255,255,0.04);
+  color:rgba(255,255,255,0.62);
+  cursor:pointer;
+  transition:all 0.15s ease;
+}
+
+.ctrl-meta-btn:hover,
+.ctrl-meta-btn.is-open {
+  color:var(--text-primary);
+  border-color:rgba(51,190,204,0.34);
+  background:rgba(51,190,204,0.1);
+  box-shadow:0 0 16px rgba(51,190,204,0.12);
+}
+
+.ctrl-meta-brand {
+  padding:0 12px;
+  font-size:0.65rem;
+  font-weight:700;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+}
+
+.ctrl-meta-help {
+  width:30px;
+  padding:0;
+  font-size:0.86rem;
+  font-weight:800;
+}
+
+.ctrl-meta-popover {
+  position:absolute;
+  right:0;
+  bottom:calc(100% + 10px);
+  width:340px;
+  padding:14px 14px 12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,0.12);
+  background:color-mix(in srgb, var(--bg-secondary) 94%, rgba(7,12,18,0.88));
+  box-shadow:0 18px 40px rgba(0,0,0,0.38);
+  backdrop-filter:blur(18px);
+  z-index:30;
+}
+
+.ctrl-meta-popover-guide {
+  width:380px;
+}
+
+.ctrl-meta-heading-row {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.ctrl-meta-kicker {
+  font-size:0.58rem;
+  font-weight:800;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  color:rgba(255,255,255,0.4);
+}
+
+.ctrl-meta-title {
+  margin-top:4px;
+  font-size:0.92rem;
+  font-weight:700;
+  color:var(--text-primary);
+}
+
+.ctrl-meta-copy {
+  margin:10px 0 0;
+  font-size:0.72rem;
+  line-height:1.45;
+  color:rgba(255,255,255,0.68);
+}
+
+.ctrl-meta-section-label {
+  margin-top:12px;
+  font-size:0.62rem;
+  font-weight:800;
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  color:rgba(255,255,255,0.46);
+}
+
+.ctrl-meta-list {
+  margin:10px 0 0;
+  padding-left:16px;
+  display:grid;
+  gap:7px;
+}
+
+.ctrl-meta-list li {
+  font-size:0.72rem;
+  line-height:1.42;
+  color:rgba(255,255,255,0.76);
+}
+
+.ctrl-meta-close {
+  width:24px;
+  height:24px;
+  border:none;
+  border-radius:999px;
+  background:rgba(255,255,255,0.06);
+  color:rgba(255,255,255,0.56);
+  cursor:pointer;
+  font-size:0.86rem;
+}
+
+.ctrl-meta-close:hover {
+  background:rgba(255,255,255,0.12);
+  color:var(--text-primary);
+}
+
 @media (max-width: 1280px) {
   .control-bar {
     flex-wrap: wrap;
@@ -330,6 +589,17 @@ const cutToLive = async () => {
 
   .ctrl-value {
     max-width: none;
+  }
+
+  .ctrl-meta-dock {
+    margin-left:0;
+  }
+
+  .ctrl-meta-popover,
+  .ctrl-meta-popover-guide {
+    right:auto;
+    left:0;
+    width:min(380px, calc(100vw - 24px));
   }
 }
 </style>

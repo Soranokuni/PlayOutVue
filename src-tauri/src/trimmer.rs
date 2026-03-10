@@ -2,6 +2,9 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use tauri::{AppHandle, Runtime, State};
+
+use crate::runtime_settings::{resolve_tool_path, RuntimeSettingsState};
 
 fn stable_hash(value: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -9,23 +12,9 @@ fn stable_hash(value: &str) -> u64 {
     hasher.finish()
 }
 
-fn find_tool(name: &str) -> String {
-    let candidates: Vec<PathBuf> = {
-        let sub = ["Requirements", "ffmpeg", "bin", name];
-        let mut v = Vec::new();
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() { v.push(sub.iter().fold(dir.to_path_buf(), |acc, s| acc.join(s))); }
-        }
-        if let Ok(cwd) = std::env::current_dir() {
-            v.push(sub.iter().fold(cwd.clone(), |acc, s| acc.join(s)));
-            if let Some(parent) = cwd.parent() { v.push(sub.iter().fold(parent.to_path_buf(), |acc, s| acc.join(s))); }
-        }
-        v
-    };
-    candidates.into_iter().find(|p| p.exists()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| name.trim_end_matches(".exe").to_string())
+fn get_ffmpeg_path<R: Runtime>(app: Option<&AppHandle<R>>, runtime_settings: Option<&RuntimeSettingsState>) -> String {
+    resolve_tool_path(app, runtime_settings, "ffmpeg.exe")
 }
-
-fn get_ffmpeg_path() -> String { find_tool("ffmpeg.exe") }
 
 fn get_mkvmerge_path() -> String {
     // mkvmerge ships with MKVToolNix — check common install paths
@@ -61,13 +50,12 @@ fn preview_cache_path(input_path: &str) -> Result<PathBuf, String> {
     Ok(cache_dir.join(format!("{}_{}.mp4", extension, hash)))
 }
 
-fn build_preview_proxy(input_path: &str) -> Result<String, String> {
+fn build_preview_proxy(ffmpeg: &str, input_path: &str) -> Result<String, String> {
     let output_path = preview_cache_path(input_path)?;
     if output_path.exists() {
         return Ok(output_path.to_string_lossy().into_owned());
     }
 
-    let ffmpeg = get_ffmpeg_path();
     let output_string = output_path.to_string_lossy().into_owned();
     let status = Command::new(&ffmpeg)
         .args([
@@ -99,8 +87,9 @@ fn build_preview_proxy(input_path: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn get_media_preview_url(input_path: String) -> Result<String, String> {
-    let proxy_path = tauri::async_runtime::spawn_blocking(move || build_preview_proxy(&input_path))
+pub async fn get_media_preview_url<R: Runtime>(input_path: String, app: AppHandle<R>, runtime_settings: State<'_, RuntimeSettingsState>) -> Result<String, String> {
+    let ffmpeg = get_ffmpeg_path(Some(&app), Some(&runtime_settings));
+    let proxy_path = tauri::async_runtime::spawn_blocking(move || build_preview_proxy(&ffmpeg, &input_path))
         .await
         .map_err(|e| format!("Preview task join failed: {}", e))??;
     Ok(crate::media_server::url_for(&proxy_path))
@@ -120,13 +109,15 @@ pub async fn trim_file(
     output_path: String,
     in_ms: i64,
     out_ms: i64,
+    app: AppHandle<impl Runtime>,
+    runtime_settings: State<'_, RuntimeSettingsState>,
 ) -> Result<String, String> {
     if out_ms <= in_ms {
         return Err("OUT must be after IN".to_string());
     }
     let in_secs  = in_ms  as f64 / 1000.0;
     let dur_secs = (out_ms - in_ms) as f64 / 1000.0;
-    let ffmpeg   = get_ffmpeg_path();
+    let ffmpeg   = get_ffmpeg_path(Some(&app), Some(&runtime_settings));
 
     let status = Command::new(&ffmpeg)
         .args([
@@ -166,6 +157,8 @@ pub async fn trim_file_smart(
     output_path: String,
     in_ms:  i64,
     out_ms: i64,
+    app: AppHandle<impl Runtime>,
+    runtime_settings: State<'_, RuntimeSettingsState>,
 ) -> Result<String, String> {
     if out_ms <= in_ms {
         return Err("OUT must be after IN".to_string());
@@ -207,7 +200,7 @@ pub async fn trim_file_smart(
     // minimal CPU — typically <5 seconds for a typical ENG package.
     let in_secs  = in_ms  as f64 / 1000.0;
     let dur_secs = (out_ms - in_ms) as f64 / 1000.0;
-    let ffmpeg   = get_ffmpeg_path();
+    let ffmpeg   = get_ffmpeg_path(Some(&app), Some(&runtime_settings));
 
     let status = Command::new(&ffmpeg)
         .args([

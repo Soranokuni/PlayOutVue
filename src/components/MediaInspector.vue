@@ -7,7 +7,7 @@ const store = useRundownStore();
 
 // Basic non-destructive trim adjustments
 const adjustTrim = async (field: 'seek' | 'length', val: number) => {
-    if (store.selectedItem) {
+    if (store.selectedItem && store.selectedItem.type !== 'gap') {
         const newVal = Math.max(0, store.selectedItem[field] + val);
         store.updateItem(store.selectedItem.id, {
             [field]: newVal
@@ -21,7 +21,7 @@ const adjustTrim = async (field: 'seek' | 'length', val: number) => {
 }
 
 const fireCue = async () => {
-    if (!store.selectedItem) return;
+    if (!store.selectedItem || store.selectedItem.type === 'gap') return;
     try {
         await getActivePlayoutService().cue?.(store.selectedItem as any);
     } catch (e) {
@@ -30,7 +30,7 @@ const fireCue = async () => {
 }
 
 const firePlay = async () => {
-    if (!store.selectedItem) return;
+    if (!store.selectedItem || store.selectedItem.type === 'gap') return;
     try {
         await getActivePlayoutService().take?.();
     } catch (e) {
@@ -39,7 +39,7 @@ const firePlay = async () => {
 }
 
 const fireClear = async () => {
-    if (!store.selectedItem) return;
+    if (!store.selectedItem || store.selectedItem.type === 'gap') return;
     try {
         await getActivePlayoutService().clear();
     } catch (e) {
@@ -59,7 +59,7 @@ const fireClear = async () => {
        <p class="text-secondary text-sm" style="margin-bottom: 2rem;">{{ store.selectedItem.path }}</p>
 
         <!-- Trimming UI Context (only relevant for video) -->
-       <div v-if="store.selectedItem.type === 'video'" class="inspector-group">
+    <div v-if="store.selectedItem.type === 'video'" class="inspector-group">
             <h4 class="text-accent">Non-Destructive Trimming</h4>
             
             <div class="control-row">
@@ -86,7 +86,7 @@ const fireClear = async () => {
        </div>
        
        <!-- Routing Context (only relevant for Live) -->
-       <div v-if="store.selectedItem.type === 'live'" class="inspector-group">
+      <div v-else-if="store.selectedItem.type === 'live'" class="inspector-group">
             <h4 class="text-warning">SDI Routing</h4>
             <div class="control-row">
                 <label>Decklink Interface</label>
@@ -97,13 +97,18 @@ const fireClear = async () => {
             </div>
        </div>
        
-       <div class="execution-controls" style="display: flex; gap: 8px; margin-top: 1rem;">
+       <div v-else-if="store.selectedItem.type === 'gap'" class="inspector-group">
+            <h4 class="text-warning">Gap Line</h4>
+            <p class="text-secondary text-sm">This marker is used only for offline schedule planning. It does not play on air and does not enter the playout queue.</p>
+       </div>
+
+       <div v-if="store.selectedItem.type !== 'gap'" class="execution-controls" style="display: flex; gap: 8px; margin-top: 1rem;">
            <button class="glass-btn btn-primary" style="flex: 1;" @click="fireCue">CUE (BG)</button>
            <button class="glass-btn btn-warning" style="flex: 1;" @click="firePlay">TAKE (ON AIR)</button>
            <button class="glass-btn btn-danger" style="flex: 1;" @click="fireClear">CLEAR</button>
        </div>
        
-       <ComplianceModule />
+       <ComplianceModule v-if="store.selectedItem.type !== 'gap'" />
 
     </div>
     <div v-else class="empty-state">

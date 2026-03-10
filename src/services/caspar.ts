@@ -405,9 +405,11 @@ const buildClipOptions = (item: PlayoutItem) => {
     if (item.inPoint > 0) {
         options.push(`SEEK ${Math.round(item.inPoint / FRAME_MS)}`);
     }
-    const durationMs = itemDurationMs(item);
-    if (durationMs > 0) {
-        options.push(`LENGTH ${Math.round(durationMs / FRAME_MS)}`);
+    if (item.outPoint > item.inPoint) {
+        const durationMs = item.outPoint - item.inPoint;
+        if (durationMs > 0) {
+            options.push(`LENGTH ${Math.round(durationMs / FRAME_MS)}`);
+        }
     }
     return options.join(' ');
 };

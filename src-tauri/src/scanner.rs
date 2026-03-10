@@ -1,10 +1,15 @@
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::path::PathBuf;
 use std::sync::Mutex;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Manager, Runtime, State};
 use crate::db::{MediaDb, CachedMediaEntry};
+use crate::diagnostics::DiagnosticState;
+use crate::runtime_settings::{resolve_tool_path, RuntimeSettingsState};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -15,6 +20,8 @@ pub struct MediaMetadata {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub r_frame_rate: String,
+    pub display_aspect_ratio: String,
+    pub field_order: String,
     pub duration: String, // seconds as string, for backwards compat
 }
 
@@ -32,6 +39,8 @@ pub struct DiscoveredMedia {
     pub codec: String,
     pub fps_num: i64,
     pub fps_den: i64,
+    pub display_aspect_ratio: String,
+    pub field_order: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -41,11 +50,59 @@ pub struct WarmMediaCacheResult {
     pub skipped: i64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaProbeStatus {
+    pub running: bool,
+    pub root_path: String,
+    pub ffprobe_path: String,
+    pub current_file: String,
+    pub checked: i64,
+    pub updated: i64,
+    pub skipped: i64,
+    pub total_candidates: i64,
+    pub started_at_ms: u64,
+    pub finished_at_ms: u64,
+    pub last_error: String,
+}
+
 // ── Managed state wrapper ─────────────────────────────────────────────────────
 
 pub struct DbState(pub Mutex<MediaDb>);
+pub struct MediaProbeState(pub Mutex<MediaProbeStatus>);
+
+impl Default for MediaProbeState {
+    fn default() -> Self {
+        Self(Mutex::new(MediaProbeStatus::default()))
+    }
+}
 
 const CASPAR_ALIAS_DIR_NAME: &str = "__sota_caspar";
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn normalize_display_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn log_scanner(diagnostics: &DiagnosticState, level: &str, message: impl Into<String>) {
+    diagnostics.push(level, "scanner", message);
+}
+
+fn update_probe_status(state: &MediaProbeState, update: impl FnOnce(&mut MediaProbeStatus)) {
+    if let Ok(mut status) = state.0.lock() {
+        update(&mut status);
+    }
+}
+
+fn snapshot_probe_status(state: &MediaProbeState) -> MediaProbeStatus {
+    state.0.lock().map(|status| status.clone()).unwrap_or_default()
+}
 
 fn get_short_path(path: &str) -> String {
     use std::os::windows::ffi::OsStrExt;
@@ -75,33 +132,106 @@ fn get_short_path(path: &str) -> String {
 //   3. <cwd>/../Requirements/ffmpeg/bin/ffprobe.exe           (cwd = src-tauri, dev mode)
 //   4. "ffprobe" (system PATH fallback)
 
-fn find_tool(name: &str) -> String {
-    let candidates: Vec<PathBuf> = {
-        let sub = ["Requirements", "ffmpeg", "bin", name];
-        let mut v = Vec::new();
-        // Exe-relative (production)
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                v.push(sub.iter().fold(dir.to_path_buf(), |acc, s| acc.join(s)));
-            }
-        }
-        // CWD (project root when running `npm run tauri dev`)
-        if let Ok(cwd) = std::env::current_dir() {
-            v.push(sub.iter().fold(cwd.clone(), |acc, s| acc.join(s)));
-            // Parent of CWD (src-tauri dir in dev)
-            if let Some(parent) = cwd.parent() {
-                v.push(sub.iter().fold(parent.to_path_buf(), |acc, s| acc.join(s)));
-            }
-        }
-        v
-    };
-    candidates.into_iter()
-        .find(|p| p.exists())
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| name.trim_end_matches(".exe").to_string())
+fn get_ffprobe_path<R: Runtime>(app: Option<&AppHandle<R>>, runtime_settings: Option<&RuntimeSettingsState>) -> String {
+    resolve_tool_path(app, runtime_settings, "ffprobe.exe")
 }
 
-fn get_ffprobe_path() -> String { find_tool("ffprobe.exe") }
+fn deserialize_optional_string_like<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{Error, Unexpected, Visitor};
+    use std::fmt;
+
+    struct OptionalStringLikeVisitor;
+
+    impl<'de> Visitor<'de> for OptionalStringLikeVisitor {
+        type Value = Option<String>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string, number, boolean, or null")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserialize_optional_string_like(deserializer)
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(Some(value))
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_seq<A>(self, _seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            Err(Error::invalid_type(Unexpected::Seq, &self))
+        }
+
+        fn visit_map<A>(self, _map: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            Err(Error::invalid_type(Unexpected::Map, &self))
+        }
+    }
+
+    deserializer.deserialize_any(OptionalStringLikeVisitor)
+}
 
 #[derive(Deserialize, Debug)]
 struct FfprobeOutput {
@@ -115,17 +245,28 @@ struct StreamInfo {
     codec_name: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_optional_string_like")]
     r_frame_rate: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_string_like")]
     avg_frame_rate: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_string_like")]
     duration: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_string_like")]
     duration_ts: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_string_like")]
     time_base: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_string_like")]
     nb_frames: Option<String>,
+    #[serde(default)]
+    display_aspect_ratio: Option<String>,
+    #[serde(default)]
+    field_order: Option<String>,
     tags: Option<HashMap<String, String>>,
 }
 
 #[derive(Deserialize, Debug)]
 struct FormatInfo {
+    #[serde(default, deserialize_with = "deserialize_optional_string_like")]
     duration: Option<String>,
     tags: Option<HashMap<String, String>>,
 }
@@ -165,6 +306,56 @@ fn parse_ratio_value(value: &str) -> Option<f64> {
     }
 
     parse_float(trimmed)
+}
+
+fn sanitize_display_aspect_ratio(value: Option<String>) -> String {
+    let raw = value.unwrap_or_default();
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let lowered = trimmed.to_ascii_lowercase();
+    if ["unknown", "n/a", "0:1", "0/1"].contains(&lowered.as_str()) {
+        return String::new();
+    }
+
+    let normalized = lowered.replace(' ', "").replace(':', "/");
+    if let Some(ratio) = parse_ratio_value(&normalized) {
+        let near = |left: f64, right: f64| (left - right).abs() < 0.03;
+        if near(ratio, 16.0 / 9.0) {
+            return "16:9".to_string();
+        }
+        if near(ratio, 4.0 / 3.0) {
+            return "4:3".to_string();
+        }
+        if near(ratio, 1.0) {
+            return "1:1".to_string();
+        }
+        if near(ratio, 21.0 / 9.0) {
+            return "21:9".to_string();
+        }
+    }
+
+    normalized.replace('/', ":")
+}
+
+fn sanitize_field_order(value: Option<String>) -> String {
+    let raw = value.unwrap_or_default();
+    let normalized = raw.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return String::new();
+    }
+
+    match normalized.as_str() {
+        "progressive" | "prog" => "progressive".to_string(),
+        "tt" | "tb" | "tff" | "top first" | "top_field_first" => "tff".to_string(),
+        "bb" | "bt" | "bff" | "bottom first" | "bottom_field_first" => "bff".to_string(),
+        _ if normalized.contains("progressive") => "progressive".to_string(),
+        _ if normalized.contains("top") => "tff".to_string(),
+        _ if normalized.contains("bottom") => "bff".to_string(),
+        _ => String::new(),
+    }
 }
 
 fn parse_tag_duration_seconds(value: &str) -> Option<f64> {
@@ -273,7 +464,8 @@ fn resolve_duration_secs(parsed: &FfprobeOutput) -> f64 {
 fn load_cached_or_probe(
     ffprobe: &str,
     filepath: &str,
-    db_state: &State<'_, DbState>,
+    db_state: &DbState,
+    diagnostics: Option<&DiagnosticState>,
 ) -> Result<CachedMediaEntry, String> {
     let cached = {
         let db = db_state.0.lock().map_err(|e| e.to_string())?;
@@ -284,38 +476,85 @@ fn load_cached_or_probe(
         return Ok(valid.clone());
     }
 
-    match run_ffprobe(ffprobe, filepath) {
+    match run_ffprobe(ffprobe, filepath, diagnostics) {
         Ok(entry) => {
             if let Ok(db) = db_state.0.lock() {
                 let _ = db.upsert(&entry);
             }
             Ok(entry)
         }
-        Err(error) => cached.ok_or(error),
+        Err(error) => {
+            if let Some(diagnostics) = diagnostics {
+                log_scanner(diagnostics, "warn", format!("Probe failed for '{}': {}", filepath.replace('\\', "/"), error));
+            }
+            cached.ok_or(error)
+        }
     }
 }
 
-fn run_ffprobe(ffprobe: &str, filepath: &str) -> Result<CachedMediaEntry, String> {
-    let output = Command::new(ffprobe)
-        .args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", filepath])
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticState>) -> Result<CachedMediaEntry, String> {
+    let mut command = Command::new(ffprobe);
+    command.args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", filepath]);
+
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let output = command
         .output()
         .map_err(|e| format!("ffprobe exec failed: {}", e))?;
 
     if !output.status.success() {
-        return Err(format!("ffprobe stderr: {}", String::from_utf8_lossy(&output.stderr)));
+        let error = format!("ffprobe stderr: {}", String::from_utf8_lossy(&output.stderr));
+        if let Some(diagnostics) = diagnostics {
+            log_scanner(diagnostics, "error", format!("ffprobe exited unsuccessfully for '{}': {}", filepath.replace('\\', "/"), error));
+        }
+        return Err(error);
     }
 
     let parsed: FfprobeOutput = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("ffprobe JSON parse: {}", e))?;
+        .map_err(|e| {
+            let error = format!("ffprobe JSON parse: {}", e);
+            if let Some(diagnostics) = diagnostics {
+                log_scanner(diagnostics, "error", format!("ffprobe JSON parse failed for '{}': {}", filepath.replace('\\', "/"), error));
+            }
+            error
+        })?;
 
     let vstream = parsed.streams.iter().find(|s| s.codec_type == "video");
     let duration_secs = resolve_duration_secs(&parsed);
+    let raw_display_aspect_ratio = vstream.and_then(|stream| stream.display_aspect_ratio.clone());
+    let raw_field_order = vstream.and_then(|stream| stream.field_order.clone());
+    let display_aspect_ratio = sanitize_display_aspect_ratio(raw_display_aspect_ratio.clone());
+    let field_order = sanitize_field_order(raw_field_order.clone());
 
     // Parse FPS fraction e.g. "25/1" or "30000/1001"
     let (fps_num, fps_den) = vstream
         .and_then(|s| s.r_frame_rate.as_deref())
         .map(parse_fps)
         .unwrap_or((25, 1));
+
+    if duration_secs <= 0.0 {
+        if let Some(diagnostics) = diagnostics {
+            log_scanner(diagnostics, "warn", format!("ffprobe returned zero duration for '{}'", filepath.replace('\\', "/")));
+        }
+    }
+
+    if let Some(diagnostics) = diagnostics {
+        if vstream.is_none() {
+            log_scanner(diagnostics, "warn", format!("ffprobe returned no video stream for '{}' while extracting extended metadata", filepath.replace('\\', "/")));
+        }
+
+        if raw_display_aspect_ratio.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some() && display_aspect_ratio.is_empty() {
+            log_scanner(diagnostics, "warn", format!("ffprobe display_aspect_ratio could not be normalized for '{}': {:?}", filepath.replace('\\', "/"), raw_display_aspect_ratio));
+        }
+
+        if raw_field_order.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some() && field_order.is_empty() {
+            log_scanner(diagnostics, "warn", format!("ffprobe field_order could not be normalized for '{}': {:?}", filepath.replace('\\', "/"), raw_field_order));
+        }
+    }
 
     Ok(CachedMediaEntry {
         path: filepath.to_string(),
@@ -325,6 +564,8 @@ fn run_ffprobe(ffprobe: &str, filepath: &str) -> Result<CachedMediaEntry, String
         codec:  vstream.and_then(|s| s.codec_name.clone()).unwrap_or_default(),
         fps_num,
         fps_den,
+        display_aspect_ratio,
+        field_order,
         timecode_start: "00:00:00:00".to_string(),
     })
 }
@@ -344,16 +585,232 @@ fn is_supported_media_extension(ext: &str) -> bool {
     ["mp4", "mkv", "mov", "mxf", "avi", "webm", "ts", "m2ts"].contains(&ext)
 }
 
+fn collect_media_files(root: &PathBuf) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    let mut pending = vec![root.clone()];
+
+    while let Some(dir) = pending.pop() {
+        let entries = std::fs::read_dir(&dir)
+            .map_err(|e| format!("Failed to read directory '{}': {}", dir.to_string_lossy(), e))?;
+
+        for entry in entries.flatten() {
+            let file_path = entry.path();
+
+            if file_path.is_dir() {
+                if file_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.eq_ignore_ascii_case(CASPAR_ALIAS_DIR_NAME))
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+
+                pending.push(file_path);
+                continue;
+            }
+
+            if !file_path.is_file() {
+                continue;
+            }
+
+            let Some(ext) = file_path.extension().and_then(|value| value.to_str()) else {
+                continue;
+            };
+
+            if is_supported_media_extension(&ext.to_lowercase()) {
+                files.push(file_path);
+            }
+        }
+    }
+
+    files.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
+    Ok(files)
+}
+
+fn warm_media_files(
+    ffprobe: &str,
+    files: &[PathBuf],
+    db_state: &DbState,
+    diagnostics: &DiagnosticState,
+    mut on_progress: impl FnMut(&Path, &WarmMediaCacheResult),
+) -> Result<WarmMediaCacheResult, String> {
+    let mut stats = WarmMediaCacheResult::default();
+
+    for file_path in files {
+        let path_str = file_path.to_string_lossy().into_owned();
+        stats.checked += 1;
+
+        let existing = {
+            let db = db_state.0.lock().map_err(|e| e.to_string())?;
+            db.get_valid(&path_str)
+        };
+
+        if existing.as_ref().is_some_and(|entry| entry.duration_ms > 0) {
+            stats.skipped += 1;
+            on_progress(file_path, &stats);
+            continue;
+        }
+
+        match load_cached_or_probe(ffprobe, &path_str, db_state, Some(diagnostics)) {
+            Ok(entry) if entry.duration_ms > 0 => {
+                stats.updated += 1;
+            }
+            Ok(_) => {
+                stats.skipped += 1;
+            }
+            Err(_) => {
+                stats.skipped += 1;
+            }
+        }
+
+        on_progress(file_path, &stats);
+    }
+
+    Ok(stats)
+}
+
+fn run_background_probe(
+    root: &PathBuf,
+    ffprobe: &str,
+    db_state: &DbState,
+    probe_state: &MediaProbeState,
+    diagnostics: &DiagnosticState,
+) -> Result<WarmMediaCacheResult, String> {
+    let files = collect_media_files(root)?;
+    update_probe_status(probe_state, |status| {
+        status.total_candidates = files.len() as i64;
+    });
+
+    log_scanner(
+        diagnostics,
+        "info",
+        format!(
+            "Background media probe scanning {} file(s) under '{}' using '{}'",
+            files.len(),
+            normalize_display_path(root),
+            ffprobe
+        ),
+    );
+
+    let stats = warm_media_files(ffprobe, &files, db_state, diagnostics, |file_path, stats| {
+        update_probe_status(probe_state, |status| {
+            status.current_file = normalize_display_path(file_path);
+            status.checked = stats.checked;
+            status.updated = stats.updated;
+            status.skipped = stats.skipped;
+        });
+    })?;
+
+    update_probe_status(probe_state, |status| {
+        status.running = false;
+        status.current_file.clear();
+        status.checked = stats.checked;
+        status.updated = stats.updated;
+        status.skipped = stats.skipped;
+        status.finished_at_ms = now_ms();
+        status.last_error.clear();
+    });
+
+    log_scanner(
+        diagnostics,
+        "info",
+        format!(
+            "Background media probe finished for '{}': checked={}, updated={}, skipped={}",
+            normalize_display_path(root),
+            stats.checked,
+            stats.updated,
+            stats.skipped
+        ),
+    );
+
+    Ok(stats)
+}
+
 // ── Tauri commands ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn get_media_probe_status(probe_state: State<'_, MediaProbeState>) -> MediaProbeStatus {
+    snapshot_probe_status(&probe_state)
+}
+
+#[tauri::command]
+pub async fn start_media_probe<R: Runtime>(
+    path: String,
+    app: AppHandle<R>,
+    probe_state: State<'_, MediaProbeState>,
+    diagnostics: State<'_, DiagnosticState>,
+    runtime_settings: State<'_, RuntimeSettingsState>,
+) -> Result<MediaProbeStatus, String> {
+    let target_dir = PathBuf::from(path.trim());
+    if path.trim().is_empty() {
+        return Ok(snapshot_probe_status(&probe_state));
+    }
+    if !target_dir.exists() || !target_dir.is_dir() {
+        return Err(format!("Directory does not exist: {}", path));
+    }
+
+    let current = snapshot_probe_status(&probe_state);
+    if current.running {
+        return Ok(current);
+    }
+
+    let ffprobe = get_ffprobe_path(Some(&app), Some(&runtime_settings));
+    update_probe_status(&probe_state, |status| {
+        *status = MediaProbeStatus {
+            running: true,
+            root_path: normalize_display_path(&target_dir),
+            ffprobe_path: ffprobe.clone(),
+            current_file: String::new(),
+            checked: 0,
+            updated: 0,
+            skipped: 0,
+            total_candidates: 0,
+            started_at_ms: now_ms(),
+            finished_at_ms: 0,
+            last_error: String::new(),
+        };
+    });
+
+    if Path::new(&ffprobe).exists() {
+        log_scanner(&diagnostics, "info", format!("Resolved ffprobe executable to '{}'", ffprobe));
+    } else {
+        log_scanner(&diagnostics, "warn", format!("ffprobe not bundled at a known path. Falling back to PATH lookup via '{}'", ffprobe));
+    }
+
+    let app_handle = app.clone();
+    let ffprobe_clone = ffprobe.clone();
+    let root_clone = target_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let diagnostics = app_handle.state::<DiagnosticState>();
+        let probe_state = app_handle.state::<MediaProbeState>();
+        let db_state = app_handle.state::<DbState>();
+
+        if let Err(error) = run_background_probe(&root_clone, &ffprobe_clone, &db_state, &probe_state, &diagnostics) {
+            log_scanner(&diagnostics, "error", format!("Background media probe failed for '{}': {}", normalize_display_path(&root_clone), error));
+            update_probe_status(&probe_state, |status| {
+                status.running = false;
+                status.current_file.clear();
+                status.finished_at_ms = now_ms();
+                status.last_error = error;
+            });
+        }
+    });
+
+    Ok(snapshot_probe_status(&probe_state))
+}
 
 /// Probe a single file, using DB cache when valid.
 #[tauri::command]
-pub async fn scan_media(
+pub async fn scan_media<R: Runtime>(
     filepath: String,
+    app: AppHandle<R>,
     db_state: State<'_, DbState>,
+    diagnostics: State<'_, DiagnosticState>,
+    runtime_settings: State<'_, RuntimeSettingsState>,
 ) -> Result<MediaMetadata, String> {
-    let ffprobe = get_ffprobe_path();
-    let entry = load_cached_or_probe(&ffprobe, &filepath, &db_state)?;
+    let ffprobe = get_ffprobe_path(Some(&app), Some(&runtime_settings));
+    let entry = load_cached_or_probe(&ffprobe, &filepath, &db_state, Some(&diagnostics))?;
     let dur_secs = entry.duration_ms as f64 / 1000.0;
     let meta = MediaMetadata {
         filepath: entry.path.clone(),
@@ -361,6 +818,8 @@ pub async fn scan_media(
         width:  Some(entry.width as u32),
         height: Some(entry.height as u32),
         r_frame_rate: format!("{}/{}", entry.fps_num, entry.fps_den),
+        display_aspect_ratio: entry.display_aspect_ratio.clone(),
+        field_order: entry.field_order.clone(),
         duration: dur_secs.to_string(),
     };
 
@@ -373,7 +832,6 @@ pub async fn scan_directory(
     path: String,
     db_state: State<'_, DbState>,
 ) -> Result<Vec<DiscoveredMedia>, String> {
-    let ffprobe = get_ffprobe_path();
     let target_dir = PathBuf::from(&path);
 
     if !target_dir.exists() || !target_dir.is_dir() {
@@ -385,7 +843,6 @@ pub async fn scan_directory(
     fn visit_directory(
         dir: &PathBuf,
         root: &PathBuf,
-        ffprobe: &str,
         db_state: &State<'_, DbState>,
         results: &mut Vec<DiscoveredMedia>,
     ) -> Result<(), String> {
@@ -421,10 +878,12 @@ pub async fn scan_directory(
                         codec: String::new(),
                         fps_num: 0,
                         fps_den: 1,
+                        display_aspect_ratio: String::new(),
+                        field_order: String::new(),
                     });
                 }
 
-                visit_directory(&file_path, root, ffprobe, db_state, results)?;
+                visit_directory(&file_path, root, db_state, results)?;
                 continue;
             }
 
@@ -454,6 +913,8 @@ pub async fn scan_directory(
                     codec: String::new(),
                     fps_num: 25,
                     fps_den: 1,
+                    display_aspect_ratio: String::new(),
+                    field_order: String::new(),
                     timecode_start: "00:00:00:00".to_string(),
                 })
             };
@@ -471,13 +932,15 @@ pub async fn scan_directory(
                 codec:        entry_meta.codec,
                 fps_num:      entry_meta.fps_num,
                 fps_den:      entry_meta.fps_den,
+                display_aspect_ratio: entry_meta.display_aspect_ratio,
+                field_order:  entry_meta.field_order,
             });
         }
 
         Ok(())
     }
 
-    visit_directory(&target_dir, &target_dir, &ffprobe, &db_state, &mut results)?;
+    visit_directory(&target_dir, &target_dir, &db_state, &mut results)?;
 
     results.sort_by(|a, b| {
         match (a.entry_kind.as_str(), b.entry_kind.as_str()) {
@@ -490,11 +953,14 @@ pub async fn scan_directory(
 }
 
 #[tauri::command]
-pub async fn warm_media_cache(
+pub async fn warm_media_cache<R: Runtime>(
     path: String,
+    app: AppHandle<R>,
     db_state: State<'_, DbState>,
+    diagnostics: State<'_, DiagnosticState>,
+    runtime_settings: State<'_, RuntimeSettingsState>,
 ) -> Result<WarmMediaCacheResult, String> {
-    let ffprobe = get_ffprobe_path();
+    let ffprobe = get_ffprobe_path(Some(&app), Some(&runtime_settings));
     let target_dir = PathBuf::from(&path);
 
     if path.trim().is_empty() {
@@ -505,75 +971,28 @@ pub async fn warm_media_cache(
         return Err(format!("Directory does not exist: {}", path));
     }
 
-    fn visit_directory(
-        dir: &PathBuf,
-        ffprobe: &str,
-        db_state: &State<'_, DbState>,
-        stats: &mut WarmMediaCacheResult,
-    ) -> Result<(), String> {
-        let entries = std::fs::read_dir(dir)
-            .map_err(|e| format!("Failed to read directory '{}': {}", dir.to_string_lossy(), e))?;
-
-        for entry in entries.flatten() {
-            let file_path = entry.path();
-
-            if file_path.is_dir() {
-                if file_path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.eq_ignore_ascii_case(CASPAR_ALIAS_DIR_NAME))
-                    .unwrap_or(false)
-                {
-                    continue;
-                }
-
-                visit_directory(&file_path, ffprobe, db_state, stats)?;
-                continue;
-            }
-
-            if !file_path.is_file() {
-                continue;
-            }
-
-            let ext = match file_path.extension().and_then(|e| e.to_str()) {
-                Some(ext) => ext.to_lowercase(),
-                None => continue,
-            };
-
-            if !is_supported_media_extension(&ext) {
-                continue;
-            }
-
-            let path_str = file_path.to_string_lossy().into_owned();
-            stats.checked += 1;
-
-            let existing = {
-                let db = db_state.0.lock().map_err(|e| e.to_string())?;
-                db.get_valid(&path_str)
-            };
-
-            if existing.as_ref().is_some_and(|entry| entry.duration_ms > 0) {
-                stats.skipped += 1;
-                continue;
-            }
-
-            match load_cached_or_probe(ffprobe, &path_str, db_state) {
-                Ok(entry) if entry.duration_ms > 0 => {
-                    stats.updated += 1;
-                }
-                Ok(_) => {
-                    stats.skipped += 1;
-                }
-                Err(_) => {
-                    stats.skipped += 1;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    let mut stats = WarmMediaCacheResult::default();
-    visit_directory(&target_dir, &ffprobe, &db_state, &mut stats)?;
+    let files = collect_media_files(&target_dir)?;
+    log_scanner(
+        &diagnostics,
+        "info",
+        format!(
+            "Synchronous media cache warm-up scanning {} file(s) under '{}' using '{}'",
+            files.len(),
+            normalize_display_path(&target_dir),
+            ffprobe
+        ),
+    );
+    let stats = warm_media_files(&ffprobe, &files, &db_state, &diagnostics, |_file_path, _stats| {})?;
+    log_scanner(
+        &diagnostics,
+        "info",
+        format!(
+            "Synchronous media cache warm-up finished for '{}': checked={}, updated={}, skipped={}",
+            normalize_display_path(&target_dir),
+            stats.checked,
+            stats.updated,
+            stats.skipped
+        ),
+    );
     Ok(stats)
 }
