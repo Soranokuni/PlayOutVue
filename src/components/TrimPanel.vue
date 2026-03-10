@@ -41,14 +41,54 @@ const lockTrimItem = () => {
 const videoRef = ref<HTMLVideoElement | null>(null);
 const videoSrc = ref('');
 const isVideoPlaying = ref(false);
+const isGeneratingProxy = ref(false);
+const previewError = ref('');
+const previewMode = ref<'source' | 'proxy'>('source');
+const proxyAttemptedPath = ref('');
+let previewFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+const clearPreviewFallbackTimer = () => {
+  if (!previewFallbackTimer) return;
+  clearTimeout(previewFallbackTimer);
+  previewFallbackTimer = null;
+};
+
+const loadProxyPreview = async (path: string | undefined, reason: string) => {
+  if (!path || item.value?.type === 'live' || path.startsWith('http')) return;
+  if (proxyAttemptedPath.value === path) return;
+
+  proxyAttemptedPath.value = path;
+  previewMode.value = 'proxy';
+  isGeneratingProxy.value = true;
+  previewError.value = '';
+  videoSrc.value = '';
+  clearPreviewFallbackTimer();
+
+  try {
+    videoSrc.value = await invoke<string>('get_media_preview_url', { inputPath: path });
+  } catch (error) {
+    previewError.value = `Preview proxy failed: ${error}`;
+  } finally {
+    isGeneratingProxy.value = false;
+  }
+};
 
 const loadVideoSrc = async (path: string | undefined) => {
+    clearPreviewFallbackTimer();
     videoSrc.value = '';
+    previewError.value = '';
+    isGeneratingProxy.value = false;
+    previewMode.value = 'source';
+    proxyAttemptedPath.value = '';
     if (!path || item.value?.type === 'live' || path.startsWith('http')) return;
     try {
         videoSrc.value = await invoke<string>('get_media_url', { path });
+        previewFallbackTimer = setTimeout(() => {
+          loadProxyPreview(path, 'metadata timeout').catch(() => {});
+        }, 2500);
     } catch (e) {
         console.warn('[TrimPanel] failed to get streaming URL:', e);
+        await loadProxyPreview(path, 'source url failure');
     }
 };
 
@@ -195,14 +235,27 @@ const onWindowMouseUp = () => {
 
 // ── Duration from <video> metadata ────────────────────────────────────────────
 const onVideoLoaded = () => {
+    clearPreviewFallbackTimer();
     const v = videoRef.value;
     if (!v || isNaN(v.duration)) return;
+    if (!Number.isFinite(v.duration) || v.videoWidth <= 0) {
+      loadProxyPreview(item.value?.path, 'undecodable source').catch(() => {});
+      return;
+    }
     const dur = v.duration * 1000;
     if (dur > 0) {
         totalDurationMs.value = dur;
         if (outMs.value === 0 || outMs.value > dur) outMs.value = dur;
       syncPlaybackDisplay(inMs.value || 0, true);
     }
+};
+
+const onVideoError = () => {
+  if (previewMode.value === 'proxy') {
+    previewError.value = 'Preview is not available for this file in the embedded player.';
+    return;
+  }
+  loadProxyPreview(item.value?.path, 'video decode error').catch(() => {});
 };
 
 // ── Probe via ffprobe (fallback for formats browser can't decode) ─────────────
@@ -244,6 +297,7 @@ watch([item, () => props.isOpen], ([val, open]) => {
   probeDuration();
     }
     if (!open) {
+      clearPreviewFallbackTimer();
         if (videoRef.value) videoRef.value.pause();
         videoSrc.value = '';
     }
@@ -384,6 +438,7 @@ onUnmounted(() => {
     window.removeEventListener('keydown', handleKey);
     window.removeEventListener('mousemove', onWindowMouseMove);
     window.removeEventListener('mouseup', onWindowMouseUp);
+  clearPreviewFallbackTimer();
   if (seekAnimationFrame) cancelAnimationFrame(seekAnimationFrame);
 });
 
@@ -512,10 +567,18 @@ const doSmartTrim = async () => {
         <!-- Left: Video preview -->
         <div class="video-col">
           <video v-if="videoSrc" ref="videoRef" :src="videoSrc" class="trim-video"
-            muted preload="metadata" @loadedmetadata="onVideoLoaded" @timeupdate="onTimeUpdate" @play="syncPlaybackState" @pause="syncPlaybackState"></video>
+            muted preload="metadata" @loadedmetadata="onVideoLoaded" @error="onVideoError" @timeupdate="onTimeUpdate" @play="syncPlaybackState" @pause="syncPlaybackState"></video>
           <div v-else-if="item.type === 'live' || item.path?.startsWith('http')" class="video-placeholder">
             <div style="font-size:2rem;">{{ item.type === 'live' ? '📹' : '🌐' }}</div>
             <small class="text-secondary">No local preview</small>
+          </div>
+          <div v-else-if="isGeneratingProxy" class="video-placeholder">
+            <div style="font-size:1.5rem;">🎞️</div>
+            <small class="text-secondary">Generating proxy preview for large or unsupported media…</small>
+          </div>
+          <div v-else-if="previewError" class="video-placeholder">
+            <div style="font-size:1.5rem;">⚠</div>
+            <small class="text-secondary">{{ previewError }}</small>
           </div>
           <div v-else class="video-placeholder">
             <div style="font-size:1.5rem;">⌛</div>

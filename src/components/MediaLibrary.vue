@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
-import { useRundownStore } from '../stores/rundown';
+import { useRundownStore, type ComplianceRating } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
+import { useMediaDefaultsStore } from '../stores/mediaDefaults';
 import { draggingItem } from '../composables/useDragState';
 import { invoke } from '@tauri-apps/api/core';
 import MediaTreeNode from './MediaTreeNode.vue';
@@ -9,6 +10,7 @@ import TrimPanel from './TrimPanel.vue';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
+const mediaDefaults = useMediaDefaultsStore();
 
 const showTrimPanel = ref(false);
 const trimLibraryItem = ref<{ path: string, filename: string, type: string, duration?: number } | null>(null);
@@ -16,8 +18,10 @@ const trimLibraryItem = ref<{ path: string, filename: string, type: string, dura
 interface MediaNode {
     name: string;
     path: string;
+    shortPath?: string;
     type: 'file' | 'folder';
     mediaType?: 'video' | 'live' | 'graphic';
+    defaultComplianceRating?: ComplianceRating;
     width?: number;
     height?: number;
     fpsNum?: number;
@@ -25,22 +29,63 @@ interface MediaNode {
     palCompatible?: boolean;
     duration?: number;
     duration_ms?: number;
+    probing?: boolean;
     children?: MediaNode[];
     expanded?: boolean;
 }
 
 const tree = ref<MediaNode[]>([]);
 const isScanning = ref(false);
+const isWarmingCatalog = ref(false);
 const streamUrl = ref('');
 const isExtracting = ref(false);
 const libraryQuery = ref('');
 const sortCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const durationProbeInFlight = new Map<string, Promise<number>>();
 
 const contextMenu = ref({
     show: false, x: 0, y: 0, node: null as MediaNode | null
 });
 
 const normalizePath = (value: string) => value.replace(/\\/g, '/');
+const ratingOptions: Array<{ id: ComplianceRating; label: string }> = [
+    { id: 'none', label: 'None' },
+    { id: 'k', label: 'K' },
+    { id: '8', label: '8+' },
+    { id: '12', label: '12+' },
+    { id: '16', label: '16+' },
+    { id: '18', label: '18+' }
+];
+
+const getDefaultCompliance = (path: string) => mediaDefaults.getCompliance(path);
+
+const makeRundownDraft = (node: MediaNode) => ({
+    filename: node.name,
+    path: node.path,
+    shortPath: node.shortPath || '',
+    type: node.mediaType || 'video',
+    duration: getNodeDurationSeconds(node),
+    seek: 0,
+    length: 0,
+    complianceRating: getDefaultCompliance(node.path)
+});
+
+const buildResolvedRundownDraft = async (node: MediaNode) => {
+    const seconds = await ensureNodeDuration(node);
+    return {
+        ...makeRundownDraft(node),
+        duration: seconds || getNodeDurationSeconds(node)
+    };
+};
+
+const applyDefaultRatings = (nodes: MediaNode[]) => {
+    for (const node of nodes) {
+        if (node.type === 'file') {
+            node.defaultComplianceRating = getDefaultCompliance(node.path);
+        }
+        if (node.children?.length) applyDefaultRatings(node.children);
+    }
+};
 
 const snapshotExpandedFolders = (nodes: MediaNode[], snapshot = new Map<string, boolean>()) => {
     for (const node of nodes) {
@@ -78,6 +123,75 @@ const countFiles = (nodes: MediaNode[]): number =>
 
 const visibleTree = computed(() => filterTree(tree.value, libraryQuery.value.trim().toLowerCase()));
 const visibleFileCount = computed(() => countFiles(visibleTree.value));
+const getNodeDurationSeconds = (node: MediaNode) => node.duration || (node.duration_ms ? node.duration_ms / 1000 : 0);
+
+const updateNodeDurationByPath = (nodes: MediaNode[], targetPath: string, durationSeconds: number): boolean => {
+    for (const node of nodes) {
+        if (node.type === 'file' && node.path === targetPath) {
+            node.duration = durationSeconds;
+            node.duration_ms = Math.round(durationSeconds * 1000);
+            node.probing = false;
+            return true;
+        }
+
+        if (node.children?.length && updateNodeDurationByPath(node.children, targetPath, durationSeconds)) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+const updateNodeProbeStateByPath = (nodes: MediaNode[], targetPath: string, probing: boolean): boolean => {
+    for (const node of nodes) {
+        if (node.type === 'file' && node.path === targetPath) {
+            node.probing = probing;
+            return true;
+        }
+
+        if (node.children?.length && updateNodeProbeStateByPath(node.children, targetPath, probing)) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+const ensureNodeDuration = async (node: MediaNode): Promise<number> => {
+    const knownSeconds = getNodeDurationSeconds(node);
+    if (knownSeconds > 0) return knownSeconds;
+    if (node.type !== 'file' || !node.path || node.mediaType !== 'video' || /^https?:/i.test(node.path)) return 0;
+
+    const existing = durationProbeInFlight.get(node.path);
+    if (existing) return existing;
+
+    node.probing = true;
+    updateNodeProbeStateByPath(tree.value, node.path, true);
+
+    const probePromise = invoke<{ duration: string }>('scan_media', { filepath: node.path })
+        .then((metadata) => {
+            const seconds = Number.parseFloat(metadata.duration || '0');
+            if (Number.isFinite(seconds) && seconds > 0) {
+                node.duration = seconds;
+                node.duration_ms = Math.round(seconds * 1000);
+                updateNodeDurationByPath(tree.value, node.path, seconds);
+                return seconds;
+            }
+            return 0;
+        })
+        .catch((error) => {
+            console.warn('[Library] Failed to resolve media duration', node.path, error);
+            return 0;
+        })
+        .finally(() => {
+            node.probing = false;
+            updateNodeProbeStateByPath(tree.value, node.path, false);
+            durationProbeInFlight.delete(node.path);
+        });
+
+    durationProbeInFlight.set(node.path, probePromise);
+    return probePromise;
+};
 
 const ensureFolder = (rootNodes: MediaNode[], folderParts: string[], expandedSnapshot: Map<string, boolean>) => {
     let currentLevel = rootNodes;
@@ -107,7 +221,11 @@ const ensureFolder = (rootNodes: MediaNode[], folderParts: string[], expandedSna
 const isPalCompatible = (entry: { width?: number; height?: number; fps_num?: number; fps_den?: number }) => {
     if (!entry.width || !entry.height || !entry.fps_num || !entry.fps_den) return false;
     const fps = entry.fps_num / entry.fps_den;
-    return entry.width === 1920 && entry.height === 1080 && (Math.abs(fps - 25) < 0.01 || Math.abs(fps - 50) < 0.01);
+    const isPalFps = Math.abs(fps - 25) < 0.01 || Math.abs(fps - 50) < 0.01;
+    const is1080 = (entry.width === 1920 || entry.width === 1440) && entry.height === 1080;
+    const is720 = entry.width === 1280 && entry.height === 720;
+    const is576 = entry.width === 720 && entry.height === 576;
+    return (is1080 || is720 || is576) && isPalFps;
 };
 
 const buildTree = async (dirPath: string): Promise<MediaNode[]> => {
@@ -117,6 +235,7 @@ const buildTree = async (dirPath: string): Promise<MediaNode[]> => {
         const files = await invoke<{
             filename: string,
             path: string,
+            short_path: string,
             entry_kind: 'file' | 'folder',
             media_type: string,
             duration: number,
@@ -155,8 +274,10 @@ const buildTree = async (dirPath: string): Promise<MediaNode[]> => {
             currentLevel.push({
                 name: f.filename || fileName,
                 path: f.path || '',
+                shortPath: f.short_path || '',
                 type: 'file',
                 mediaType: f.media_type as any,
+                defaultComplianceRating: getDefaultCompliance(f.path || ''),
                 duration: f.duration || 0,
                 duration_ms: f.duration_ms || (f.duration ? f.duration * 1000 : 0),
                 width: f.width || 0,
@@ -191,7 +312,7 @@ const rescanLibrary = async () => {
         const nodes = await buildTree(settings.localMediaPath || '');
         nodes.push({
             name: settings.liveInputSourceName || 'Live Rebroadcast',
-            path: settings.liveInputSourceName || 'SOTA_Live',
+            path: settings.liveInputSourceName || '',
             type: 'file',
             mediaType: 'live'
         });
@@ -201,14 +322,33 @@ const rescanLibrary = async () => {
         console.warn('[Library] rescanLibrary failed:', e);
         tree.value = [
             { name: '⚠ Set media folder in ⚙️ Settings', path: '', type: 'file', mediaType: 'video' },
-            { name: settings.liveInputSourceName || 'Live Rebroadcast', path: settings.liveInputSourceName || 'SOTA_Live', type: 'file', mediaType: 'live' }
+            { name: settings.liveInputSourceName || 'Live Rebroadcast', path: settings.liveInputSourceName || '', type: 'file', mediaType: 'live' }
         ];
     } finally {
         isScanning.value = false;
     }
 };
 
+const warmLibraryCache = async () => {
+    const mediaPath = (settings.localMediaPath || '').trim();
+    if (!mediaPath) return;
+
+    try {
+        isWarmingCatalog.value = true;
+        await invoke('warm_media_cache', { path: mediaPath });
+        await rescanLibrary();
+    } catch (error) {
+        console.warn('[Library] Media cache warm-up failed', error);
+    } finally {
+        isWarmingCatalog.value = false;
+    }
+};
+
 watch(() => [settings.localMediaPath, settings.liveInputSourceName], rescanLibrary);
+watch(() => mediaDefaults.complianceByPath, () => applyDefaultRatings(tree.value), { deep: true });
+watch(() => settings.localMediaPath, () => {
+    warmLibraryCache().catch(() => {});
+}, { immediate: true });
 
 const addWebStream = async () => {
     if (!streamUrl.value) return;
@@ -225,17 +365,25 @@ const addWebStream = async () => {
 };
 
 const onDragStart = (event: DragEvent, node: MediaNode) => {
-    draggingItem.value = {
+    const payload = {
         filename: node.name,
         path: node.path,
+        shortPath: node.shortPath || '',
         type: node.mediaType || 'video',
-        duration: node.duration || 0, seek: 0, length: 0
+        duration: getNodeDurationSeconds(node), seek: 0, length: 0,
+        complianceRating: getDefaultCompliance(node.path)
     };
+    draggingItem.value = payload;
+    ensureNodeDuration(node).then((seconds) => {
+        if (draggingItem.value === payload && seconds > 0) {
+            draggingItem.value.duration = seconds;
+        }
+    }).catch(() => {});
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
 };
 
-const addItem = (node: MediaNode) => {
-    store.addItem({ filename: node.name, path: node.path, type: node.mediaType || 'video', duration: node.duration || 0, seek: 0, length: 0 });
+const addItem = async (node: MediaNode) => {
+    store.addItem(await buildResolvedRundownDraft(node));
 };
 
 // --- Context Menu Options ---
@@ -261,20 +409,14 @@ const openTrimPanel = () => {
     closeContextMenu();
 };
 
-const appendNode = () => {
-    if (contextMenu.value.node) addItem(contextMenu.value.node);
+const appendNode = async () => {
+    if (contextMenu.value.node) await addItem(contextMenu.value.node);
     closeContextMenu();
 };
 
-const insertNode = () => {
+const insertNode = async () => {
     if (contextMenu.value.node) {
-        const item = {
-            filename: contextMenu.value.node.name,
-            path: contextMenu.value.node.path,
-            type: contextMenu.value.node.mediaType || 'video',
-            duration: contextMenu.value.node.duration || 0,
-            seek: 0, length: 0
-        };
+        const item = await buildResolvedRundownDraft(contextMenu.value.node);
         if (store.selectedItemId) {
             const idx = store.activeItems.findIndex((i: any) => i.id === store.selectedItemId);
             if (idx >= 0) {
@@ -285,6 +427,13 @@ const insertNode = () => {
         }
         store.addItem(item);
     }
+    closeContextMenu();
+};
+
+const setDefaultRating = (rating: ComplianceRating) => {
+    if (!contextMenu.value.node?.path) return;
+    mediaDefaults.setCompliance(contextMenu.value.node.path, rating);
+    applyDefaultRatings(tree.value);
     closeContextMenu();
 };
 
@@ -303,7 +452,10 @@ onUnmounted(() => {
     <div class="lib-header">
             <div class="lib-header-copy">
                 <span class="text-accent lib-title">Library</span>
-                <span class="lib-subtitle">{{ visibleFileCount }} {{ visibleFileCount === 1 ? 'asset' : 'assets' }}</span>
+                <span class="lib-subtitle">
+                    {{ visibleFileCount }} {{ visibleFileCount === 1 ? 'asset' : 'assets' }}
+                    <template v-if="isWarmingCatalog"> · catalog warming…</template>
+                </span>
             </div>
             <button class="icon-action" @click="rescanLibrary" :disabled="isScanning" :title="isScanning ? 'Scanning…' : 'Rescan'">
                 {{ isScanning ? '⌛' : '↻' }}
@@ -354,6 +506,11 @@ onUnmounted(() => {
         <div class="menu-item" @click.stop="appendNode">Append to Rundown</div>
         <div class="menu-item" @click.stop="insertNode">Insert After Selected</div>
         <div class="menu-divider"></div>
+                <div class="menu-label">Default Rating</div>
+                <div v-for="rating in ratingOptions" :key="rating.id" class="menu-item" @click.stop="setDefaultRating(rating.id)">
+                    {{ getDefaultCompliance(contextMenu.node?.path || '') === rating.id ? '✓ ' : '' }}{{ rating.label }}
+                </div>
+                <div class="menu-divider"></div>
         <div class="menu-item" @click.stop="openTrimPanel">✂️ Trim & Extract...</div>
         <div class="menu-divider"></div>
         <div class="menu-item" @click.stop="closeContextMenu">Cancel</div>
@@ -411,6 +568,13 @@ onUnmounted(() => {
     z-index: 9999;
     box-shadow: 0 8px 24px rgba(0,0,0,0.6);
     backdrop-filter: blur(10px);
+}
+.menu-label {
+    padding: 6px 12px 4px;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
 }
 .menu-item {
     padding: 6px 12px;

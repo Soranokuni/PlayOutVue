@@ -1,0 +1,15 @@
+    Checking app v0.1.0 (D:\PlayOut\src-tauri)
+error[E0425]: cannot find value `path_str` in this scope
+   --> src\scanner.rs:239:31
+    |
+239 |                         path: path_str.clone(),
+    |                               ^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `path_str` in this scope
+   --> src\scanner.rs:240:53
+    |
+240 |                         short_path: get_short_path(&path_str).replace('\\', "/"),
+    |                                                     ^^^^^^^^ not found in this scope
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `app` (lib) due to 2 previous errors

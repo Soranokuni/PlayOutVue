@@ -2,10 +2,13 @@ import { defineStore } from 'pinia';
 import { v4 as uuidv4 } from 'uuid';
 import { ref, computed } from 'vue';
 
+export type ComplianceRating = 'none' | 'k' | '8' | '12' | '16' | '18';
+
 export interface RundownItem {
     id: string;
     type: 'video' | 'live' | 'graphic';
     path: string;
+    shortPath: string;
     filename: string;
     duration: number;       // total duration in seconds (0 = unknown/live)
     seek: number;           // legacy seek field
@@ -14,7 +17,7 @@ export interface RundownItem {
     outPoint: number;       // non-destructive OUT trim point in ms (0 = end/disabled)
     plannedDuration: number; // for live items: operator-planned duration in seconds
     note: string;           // optional operator note per line
-    complianceRating: 'k' | '8' | '12' | '16' | '18';
+    complianceRating: ComplianceRating;
     complianceDescriptors: string[];
     complianceText: string;
 }
@@ -26,7 +29,8 @@ export interface PlaylistFile {
     items: RundownItem[];
 }
 
-type RundownDraft = Omit<RundownItem, 'id' | 'inPoint' | 'outPoint' | 'plannedDuration' | 'note' | 'complianceRating' | 'complianceDescriptors' | 'complianceText'>;
+type RundownDraft = Omit<RundownItem, 'id' | 'inPoint' | 'outPoint' | 'plannedDuration' | 'note' | 'complianceRating' | 'complianceDescriptors' | 'complianceText'>
+    & Partial<Pick<RundownItem, 'complianceRating' | 'complianceDescriptors' | 'complianceText'>>;
 
 export const useRundownStore = defineStore('rundown', () => {
     const activeItems = ref<RundownItem[]>([]);
@@ -39,15 +43,16 @@ export const useRundownStore = defineStore('rundown', () => {
         outPoint: 0,
         plannedDuration: item.duration || 0,
         note: '',
-        complianceRating: 'k',
-        complianceDescriptors: [],
-        complianceText: ''
+        complianceRating: item.complianceRating || 'none',
+        complianceDescriptors: item.complianceDescriptors || [],
+        complianceText: item.complianceText || ''
     });
 
     const hydrateItem = (item: Partial<RundownItem>): RundownItem => ({
         id: uuidv4(),
         type: (item.type as RundownItem['type']) || 'video',
         path: item.path || '',
+        shortPath: item.shortPath || '',
         filename: item.filename || 'Untitled',
         duration: item.duration || 0,
         seek: item.seek || 0,
@@ -56,7 +61,7 @@ export const useRundownStore = defineStore('rundown', () => {
         outPoint: item.outPoint || 0,
         plannedDuration: item.plannedDuration || item.duration || 0,
         note: item.note || '',
-        complianceRating: item.complianceRating || 'k',
+        complianceRating: item.complianceRating || 'none',
         complianceDescriptors: Array.isArray(item.complianceDescriptors) ? item.complianceDescriptors : [],
         complianceText: item.complianceText || ''
     });
@@ -75,6 +80,7 @@ export const useRundownStore = defineStore('rundown', () => {
             id: uuidv4(),
             type: 'live',
             path: '',
+            shortPath: '',
             filename: name,
             duration: durationSec,
             seek: 0,
@@ -83,7 +89,7 @@ export const useRundownStore = defineStore('rundown', () => {
             outPoint: 0,
             plannedDuration: durationSec,
             note: '',
-            complianceRating: 'k',
+            complianceRating: 'none',
             complianceDescriptors: [],
             complianceText: ''
         });

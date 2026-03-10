@@ -1,5 +1,13 @@
 use std::path::PathBuf;
 use std::process::Command;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+fn stable_hash(value: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
 
 fn find_tool(name: &str) -> String {
     let candidates: Vec<PathBuf> = {
@@ -29,6 +37,73 @@ fn get_mkvmerge_path() -> String {
         if std::path::Path::new(c).exists() { return c.to_string(); }
     }
     "mkvmerge".to_string() // fallback to PATH
+}
+
+fn preview_cache_path(input_path: &str) -> Result<PathBuf, String> {
+    let metadata = std::fs::metadata(input_path)
+        .map_err(|e| format!("Failed to inspect preview source '{}': {}", input_path, e))?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|mtime| mtime.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+
+    let cache_dir = std::env::temp_dir().join("playout-preview-cache");
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Failed to create preview cache '{}': {}", cache_dir.display(), e))?;
+
+    let extension = std::path::Path::new(input_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("media");
+    let hash = stable_hash(&format!("{}:{}:{}", input_path, metadata.len(), modified));
+    Ok(cache_dir.join(format!("{}_{}.mp4", extension, hash)))
+}
+
+fn build_preview_proxy(input_path: &str) -> Result<String, String> {
+    let output_path = preview_cache_path(input_path)?;
+    if output_path.exists() {
+        return Ok(output_path.to_string_lossy().into_owned());
+    }
+
+    let ffmpeg = get_ffmpeg_path();
+    let output_string = output_path.to_string_lossy().into_owned();
+    let status = Command::new(&ffmpeg)
+        .args([
+            "-y",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-analyzeduration", "100M",
+            "-probesize", "100M",
+            "-i", input_path,
+            "-map", "0:v:0",
+            "-an",
+            "-vf", "scale=-2:720",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "24",
+            "-pix_fmt", "yuv420p",
+            "-g", "25",
+            "-movflags", "+faststart",
+            &output_string,
+        ])
+        .status()
+        .map_err(|e| format!("ffmpeg preview proxy failed to start: {}", e))?;
+
+    if status.success() {
+        Ok(output_string)
+    } else {
+        Err(format!("ffmpeg preview proxy exited with code {:?}", status.code()))
+    }
+}
+
+#[tauri::command]
+pub async fn get_media_preview_url(input_path: String) -> Result<String, String> {
+    let proxy_path = tauri::async_runtime::spawn_blocking(move || build_preview_proxy(&input_path))
+        .await
+        .map_err(|e| format!("Preview task join failed: {}", e))??;
+    Ok(crate::media_server::url_for(&proxy_path))
 }
 
 // ── Command: stream-copy trim (near-instant, no re-encode) ───────────────────

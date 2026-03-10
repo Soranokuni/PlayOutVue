@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../stores/settings';
+import CasparConfigModal from './CasparConfigModal.vue';
 import { casparPlayoutService } from '../services/caspar';
 import { obsPlayoutService } from '../services/obs';
 import type { PlayoutService } from '../services/playout';
@@ -13,6 +14,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close']);
 const settings = useSettingsStore();
+const showCasparConfigurator = ref(false);
 
 // Local shadow state so we don't mutate Pinia instantly on every keystroke
 const localState = ref({
@@ -24,6 +26,8 @@ const localState = ref({
     logosPath: '',
     decklinkOutputName: '',
     liveInputSourceName: '',
+    casparConfigPath: '',
+    casparOscPort: 6250,
     playoutProfile: 'PAL_1080I50' as 'PAL_1080I50' | 'PAL_1080P25',
     transitionFrames: 2,
     prerollFrames: 2,
@@ -83,6 +87,8 @@ onMounted(() => {
         logosPath: settings.logosPath,
         decklinkOutputName: settings.decklinkOutputName,
         liveInputSourceName: settings.liveInputSourceName,
+        casparConfigPath: settings.casparConfigPath,
+        casparOscPort: settings.casparOscPort,
         playoutProfile: settings.playoutProfile,
         transitionFrames: settings.transitionFrames,
         prerollFrames: settings.prerollFrames,
@@ -107,6 +113,11 @@ onMounted(() => {
 const saveSettings = async () => {
     const service = getModalPlayoutService();
     settings.updateSettings(localState.value);
+    if (localState.value.playoutEngine === 'casparcg') {
+        try {
+            await invoke('configure_caspar_osc_listener', { port: localState.value.casparOscPort });
+        } catch {}
+    }
     try {
         await service.syncLiveInputScene?.(localState.value.liveInputSourceName);
     } catch {}
@@ -126,6 +137,8 @@ const discardAndClose = () => {
         logosPath: settings.logosPath,
         decklinkOutputName: settings.decklinkOutputName,
         liveInputSourceName: settings.liveInputSourceName,
+        casparConfigPath: settings.casparConfigPath,
+        casparOscPort: settings.casparOscPort,
         playoutProfile: settings.playoutProfile,
         transitionFrames: settings.transitionFrames,
         prerollFrames: settings.prerollFrames,
@@ -196,7 +209,7 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos') => {
                               OBS mode keeps preview snapshots, streaming, DeckLink output control, and branding sync enabled.
                           </template>
                           <template v-else>
-                              CasparCG mode uses localhost AMCP on port 5250 and listens for OSC feedback on port 6250. Preview and OBS-only output controls are disabled for now.
+                              CasparCG mode uses localhost AMCP on port 5250 and listens for OSC feedback on the configured UDP port below. That port must match your CasparCG OSC predefined-client entry.
                           </template>
                       </div>
                   </div>
@@ -286,6 +299,30 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos') => {
               </div>
           </section>
 
+          <section v-if="localState.playoutEngine === 'casparcg'" class="settings-section">
+              <h3 class="text-secondary section-title">CasparCG Server Configuration</h3>
+              <div class="form-grid">
+                  <div class="form-group">
+                      <label>OSC Feedback Port</label>
+                      <input type="number" min="1" max="65535" class="glass-input" v-model.number="localState.casparOscPort" placeholder="6250">
+                      <span class="hint-text">Must match the UDP port in CasparCG &lt;predefined-client&gt; for this workstation, for example 5253.</span>
+                  </div>
+                  <div class="form-group">
+                      <label>OSC Wiring</label>
+                      <div class="hint-card">CasparCG sends OSC to the client. The app listens locally on this port, similar to CGTimer, and accepts both classic foreground messages and newer stage/layer timing messages.</div>
+                  </div>
+              </div>
+              <div class="form-group">
+                  <label>casparcg.config Path</label>
+                  <input type="text" class="glass-input" v-model="localState.casparConfigPath" placeholder="C:/CasparCG/casparcg.config">
+                  <span class="hint-text">The configurator can load and save your CasparCG XML file directly.</span>
+              </div>
+              <div class="form-group">
+                  <button class="glass-btn btn-primary" @click="showCasparConfigurator = true">Open CasparCG Configurator</button>
+                  <span class="hint-text">Structured editing covers channels, screen consumers, system audio, DeckLink outputs, OSC, controllers, and paths. Raw XML mode handles everything else.</span>
+              </div>
+          </section>
+
           <section class="settings-section">
               <h3 class="text-secondary section-title">PAL / SOTA Playout Timing</h3>
               <div class="form-grid">
@@ -356,6 +393,13 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos') => {
         </div>
       </div>
     </div>
+
+        <CasparConfigModal
+            :is-open="showCasparConfigurator"
+            :initial-path="localState.casparConfigPath"
+            @close="showCasparConfigurator = false"
+            @update:path="(value) => { localState.casparConfigPath = value; }"
+        />
   </Teleport>
 </template>
 

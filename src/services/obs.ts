@@ -2,12 +2,14 @@ import OBSWebSocket from 'obs-websocket-js';
 import { invoke } from '@tauri-apps/api/core';
 import { ref } from 'vue';
 import { useSettingsStore } from '../stores/settings';
+import type { ComplianceRating } from '../stores/rundown';
 import type { PlayoutItem, PlayoutService } from './playout';
 
 export const obs = new OBSWebSocket();
 export const isObsConnected = ref(false);
 export const currentMediaTime = ref('00:00:00:00');
 export const currentMediaMs = ref(0);
+export const currentMediaDurationMs = ref(0);
 export const isPlaying = ref(false);
 export const currentPlayingSourceName = ref('');
 export const playStartTime = ref(0);   // epoch ms when current playlist segment started
@@ -70,7 +72,7 @@ const DESCRIPTOR_TEXT: Record<string, string> = {
 };
 
 type CompliancePlayItem = {
-    complianceRating?: 'k' | '8' | '12' | '16' | '18';
+    complianceRating?: ComplianceRating;
     complianceDescriptors?: string[];
     complianceText?: string;
 };
@@ -126,9 +128,13 @@ const syncMediaCursor = async () => {
             const status = await obs.call('GetMediaInputStatus', { inputName: currentPlayingSourceName.value });
             if (status.mediaState === 'OBS_MEDIA_STATE_PLAYING') {
                 const ms = status.mediaCursor as number;
+                const totalMs = Number((status as any).mediaDuration ?? 0);
                 // only update if valid backslash difference isn't wildly off, or just trust OBS
                 lastSyncCursor = ms;
                 lastSyncTime = Date.now();
+                if (Number.isFinite(totalMs) && totalMs > 0) {
+                    currentMediaDurationMs.value = totalMs;
+                }
             }
         } catch { }
     }
@@ -164,6 +170,7 @@ obs.on('ConnectionOpened', () => {
 obs.on('ConnectionClosed', () => {
     isObsConnected.value = false;
     isPlaying.value = false;
+    currentMediaDurationMs.value = 0;
     PlaybackService.isActiveSession = false;
     if (syncTimer) clearInterval(syncTimer);
     if (rafId) cancelAnimationFrame(rafId);
@@ -310,6 +317,7 @@ export const PlaybackService = {
         currentPlayingItemId = null;
         this.clearTimers();
         isPlaying.value = false;
+            currentMediaDurationMs.value = 0;
         try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_A', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
         try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_B', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
         await ObsService.clearCompliance();
@@ -330,6 +338,7 @@ export const PlaybackService = {
         currentPlayingItemId = null;
         this.clearTimers();
         isPlaying.value = false;
+        currentMediaDurationMs.value = 0;
         try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_A', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
         try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_B', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
         await ObsService.syncLiveInputScene();
@@ -499,6 +508,7 @@ export const PlaybackService = {
                 try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_A', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
                 try { await obs.call('TriggerMediaInputAction', { inputName: 'SOTA_Player_B', mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' }); } catch { }
                 currentPlayingSourceName.value = item.path || getSettingsSnapshot().liveInputSourceName || 'SOTA_Live';
+                currentMediaDurationMs.value = this.getItemDurationMs(item);
                 this.scheduleItemAdvance(index, item, token);
             } else {
                 const newDeck = this.activeDeck === 'A' ? 'B' : 'A';
@@ -519,6 +529,7 @@ export const PlaybackService = {
                 // Reset rAF sync cursor to the start of this item's play region.
                 lastSyncCursor = item.inPoint || 0;
                 lastSyncTime = Date.now();
+                currentMediaDurationMs.value = this.getItemDurationMs(item);
 
                 this.scheduleItemAdvance(index, item, token);
 
@@ -570,7 +581,7 @@ export const PlaybackService = {
             this.isActiveSession = false;
             currentPlayingItemId = null;
             currentPlayingSourceName.value = '';
-            ObsService.clearCompliance().catch(() => {});
+            ObsService.clearCompliance().catch(() => { });
             console.log('[Playback] Playlist finished.');
         }
     }
@@ -692,7 +703,7 @@ export class ObsService {
 
     private static async buildWatermarkTransform() {
         const settings = getSettingsSnapshot();
-        const position = settings.watermarkPosition || 'top-right';
+        const position = settings.watermarkPosition || 'top-left';
         const watermarkPath = this.getWatermarkAssetPath();
         const dimensions = await getImageDimensions(watermarkPath);
         const sizeMultiplier = clamp((settings.watermarkScale || 15) / 15, 0.65, 2.4);
@@ -715,8 +726,8 @@ export class ObsService {
         return {
             fit,
             transform: {
-                alignment: CORNER_ALIGNMENT_MAP['top-left'],
-                positionX: TITLE_SAFE_MARGIN_X,
+                alignment: CORNER_ALIGNMENT_MAP['top-right'],
+                positionX: FRAME_WIDTH - TITLE_SAFE_MARGIN_X,
                 positionY: TITLE_SAFE_MARGIN_Y,
                 scaleX: fit.scale,
                 scaleY: fit.scale
@@ -726,8 +737,8 @@ export class ObsService {
 
     private static buildComplianceTextTransform(ratingWidth: number, ratingHeight: number) {
         return {
-            alignment: CORNER_ALIGNMENT_MAP['top-left'],
-            positionX: TITLE_SAFE_MARGIN_X + ratingWidth + STANDARD_TEXT_GAP,
+            alignment: CORNER_ALIGNMENT_MAP['top-right'],
+            positionX: FRAME_WIDTH - TITLE_SAFE_MARGIN_X - ratingWidth - STANDARD_TEXT_GAP,
             positionY: TITLE_SAFE_MARGIN_Y + Math.max(0, Math.round((ratingHeight - STANDARD_TEXT_FONT_SIZE) / 2)),
             scaleX: 1,
             scaleY: 1
@@ -755,7 +766,7 @@ export class ObsService {
     }
 
     private static async applyComplianceToScene(sceneName: typeof PLAYOUT_SCENES[number]) {
-        const rating = pendingComplianceState?.complianceRating || 'k';
+        const rating = pendingComplianceState?.complianceRating || 'none';
         const ratingPath = this.getRatingAssetPath(rating);
         const descriptorText = [
             ...((pendingComplianceState?.complianceDescriptors || []).map((descriptor) => DESCRIPTOR_TEXT[descriptor]).filter(Boolean)),
@@ -830,6 +841,7 @@ export class ObsService {
     }
 
     private static getRatingAssetPath(rating: string) {
+        if (rating === 'none') return '';
         const fileName = rating === 'k' ? 'K.png' : `${rating}.png`;
         return this.resolveLogoAsset(fileName);
     }
@@ -945,8 +957,12 @@ export class ObsService {
     static async stopStream() { await obs.call('StopStream'); }
 
     static async queueComplianceForItem(item: CompliancePlayItem) {
+        if (!item.complianceRating || item.complianceRating === 'none') {
+            pendingComplianceState = null;
+            return;
+        }
         pendingComplianceState = {
-            complianceRating: item.complianceRating || 'k',
+            complianceRating: item.complianceRating,
             complianceDescriptors: [...(item.complianceDescriptors || [])],
             complianceText: item.complianceText || ''
         };
