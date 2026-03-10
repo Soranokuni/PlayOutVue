@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { activePlayoutCapabilities, getActivePlayoutService } from '../services/playout';
-import { useRundownStore } from '../stores/rundown';
+import { useRundownStore, type ComplianceRating } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
 
 // Greek Age Rating Definitions (NCRTV Standards)
 const ageRatings = [
+    { id: 'none', label: 'None (Manual only)', visual: 'No automatic overlay' },
   { id: 'k', label: 'K (All Ages)', visual: 'White rhombus on green' },
   { id: '8', label: '8+ (Children restricted)', visual: 'White circle on blue' },
   { id: '12', label: '12+ (Post 9:30 PM)', visual: 'White triangle on orange' },
@@ -23,13 +24,13 @@ const contentDescriptors = [
 const store = useRundownStore();
 const settings = useSettingsStore();
 const item = computed(() => store.selectedItem);
-const selectedRating = ref('k');
+const selectedRating = ref<ComplianceRating>('none');
 const selectedDescriptors = ref<string[]>([]);
 const advisoryText = ref('');
 const isOverlayActive = ref(false);
 
 const syncFromItem = () => {
-    selectedRating.value = item.value?.complianceRating || 'k';
+    selectedRating.value = item.value?.complianceRating || 'none';
     selectedDescriptors.value = [...(item.value?.complianceDescriptors || [])];
     advisoryText.value = item.value?.complianceText || '';
     isOverlayActive.value = false;
@@ -49,9 +50,9 @@ const computedDescriptorText = computed(() => {
 const persistCompliance = () => {
     if (!item.value) return;
     store.updateItem(item.value.id, {
-        complianceRating: selectedRating.value as 'k' | '8' | '12' | '16' | '18',
-        complianceDescriptors: [...selectedDescriptors.value],
-        complianceText: advisoryText.value.trim()
+        complianceRating: selectedRating.value,
+        complianceDescriptors: selectedRating.value === 'none' ? [] : [...selectedDescriptors.value],
+        complianceText: selectedRating.value === 'none' ? '' : advisoryText.value.trim()
     });
 };
 
@@ -64,10 +65,14 @@ const applyComplianceOverlay = async () => {
         isOverlayActive.value = false;
         return;
     }
+    if (selectedRating.value === 'none') {
+        await clearComplianceOverlay();
+        return;
+    }
     try {
         await getActivePlayoutService().applyComplianceForItem?.({
             ...item.value,
-            complianceRating: selectedRating.value as 'k' | '8' | '12' | '16' | '18',
+            complianceRating: selectedRating.value,
             complianceDescriptors: [...selectedDescriptors.value],
             complianceText: computedDescriptorText.value
         });
@@ -107,7 +112,7 @@ const clearComplianceOverlay = async () => {
           </select>
       </div>
       
-      <div class="form-group" v-if="selectedRating !== 'k' && selectedRating !== '8'">
+      <div class="form-group" v-if="selectedRating !== 'none' && selectedRating !== 'k' && selectedRating !== '8'">
           <label class="text-secondary text-sm" style="margin-bottom: 0.5rem; display: block;">Content Descriptors (Mandatory for 12+)</label>
           <div v-for="desc in contentDescriptors" :key="desc.id" class="checkbox-row">
               <input type="checkbox" :id="desc.id" :value="desc.id" v-model="selectedDescriptors">
@@ -115,13 +120,13 @@ const clearComplianceOverlay = async () => {
           </div>
       </div>
 
-      <div class="form-group" v-if="selectedRating !== 'k'">
+      <div class="form-group" v-if="selectedRating !== 'none' && selectedRating !== 'k'">
           <label class="text-secondary text-sm">OBS Advisory Text</label>
           <textarea v-model="advisoryText" class="glass-input full-width text-area" rows="3" placeholder="Π.χ. ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΣΕΞ"></textarea>
           <small class="helper-text">Rendered as a live OBS text source so each playlist item can carry its own advisory message.</small>
       </div>
 
-      <div v-if="selectedRating !== 'k'" class="preview-row">
+      <div v-if="selectedRating !== 'none' && selectedRating !== 'k'" class="preview-row">
           <span class="preview-label">Preview text</span>
           <span class="preview-value">{{ computedDescriptorText || 'No advisory text' }}</span>
       </div>

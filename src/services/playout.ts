@@ -1,8 +1,8 @@
 import { computed } from 'vue';
 import type { RundownItem } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
-import { casparPlayoutService, currentCasparMs, currentCasparTime, isCasparConnected, isCasparPlaying } from './caspar';
-import { currentMediaMs, currentMediaTime, isObsConnected, isPlaying, obsPlayoutService } from './obs';
+import { casparPlayoutService, currentCasparDurationMs, currentCasparMs, currentCasparTime, isCasparConnected, isCasparPlaying } from './caspar';
+import { currentMediaDurationMs, currentMediaMs, currentMediaTime, isObsConnected, isPlaying, obsPlayoutService } from './obs';
 
 export type PlayoutEngine = 'obs' | 'casparcg';
 export type PlayoutItem = RundownItem;
@@ -78,4 +78,8 @@ export const currentPlayoutTime = computed(() => (
 
 export const currentPlayoutMs = computed(() => (
     getConfiguredEngine() === 'casparcg' ? currentCasparMs.value : currentMediaMs.value
+));
+
+export const currentTotalPlayoutMs = computed(() => (
+    getConfiguredEngine() === 'casparcg' ? currentCasparDurationMs.value : currentMediaDurationMs.value
 ));

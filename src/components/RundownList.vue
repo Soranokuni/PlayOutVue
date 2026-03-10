@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import { useRundownStore } from '../stores/rundown';
 import { draggingItem } from '../composables/useDragState';
 import { playStartTime, playStartIndex } from '../services/obs';
-import { currentPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
+import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import Sortable from 'sortablejs';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
@@ -13,6 +14,7 @@ const rundownListRef = ref<HTMLElement | null>(null);
 const isDragOver = ref(false);
 const showLiveDialog = ref(false);
 let sortableInstance: Sortable | null = null;
+const durationHydrationInFlight = new Set<string>();
 
 const contextMenu = ref({
     show: false, x: 0, y: 0, index: -1, item: null as any
@@ -32,7 +34,14 @@ const clockStr = computed(() => {
 const itemDurationMs = (item: any): number => {
   if (item.type === 'live') return (item.plannedDuration || item.duration || 0) * 1000;
   if (item.outPoint > item.inPoint) return item.outPoint - item.inPoint;
-  return (item.plannedDuration || item.duration || 60) * 1000;
+  return (item.plannedDuration || item.duration || 0) * 1000;
+};
+
+const effectiveDurationMs = (item: any, index: number): number => {
+  if (index === store.currentPlayingIndex && currentTotalPlayoutMs.value > 0) {
+    return currentTotalPlayoutMs.value;
+  }
+  return itemDurationMs(item);
 };
 
 const formatClockTime = (epochMs: number) =>
@@ -63,10 +72,61 @@ const scheduledTimes = computed(() => {
 });
 
 const calcProgress = (item: any) => {
-    const dur = itemDurationMs(item);
+  const activeIndex = store.activeItems.findIndex((candidate: any) => candidate.id === item.id);
+  const dur = effectiveDurationMs(item, activeIndex);
     if (!dur || dur <= 0) return 0;
     const p = (currentPlayoutMs.value / dur) * 100;
     return Math.max(0, Math.min(100, Math.round(p * 100) / 100)); // smooth visual
+};
+
+const hydrateMissingDurations = async () => {
+  const candidates = store.activeItems.filter((item: any) =>
+    item.type === 'video' &&
+    item.path &&
+    !/^https?:/i.test(item.path) &&
+    !(item.outPoint > item.inPoint) &&
+    !(item.duration > 0) &&
+    !durationHydrationInFlight.has(item.id)
+  );
+
+  await Promise.all(candidates.map(async (item: any) => {
+    durationHydrationInFlight.add(item.id);
+    try {
+      const meta = await invoke<{ duration: string }>('scan_media', { filepath: item.path });
+      const seconds = Number.parseFloat(meta.duration || '0');
+      if (Number.isFinite(seconds) && seconds > 0) {
+        store.updateItem(item.id, {
+          duration: seconds,
+          plannedDuration: item.plannedDuration || seconds
+        });
+      }
+    } catch (error) {
+      console.warn('[Rundown] Failed to hydrate item duration', item.path, error);
+    } finally {
+      durationHydrationInFlight.delete(item.id);
+    }
+  }));
+};
+
+const hydrateSingleItemDuration = async (itemId: string, filePath: string) => {
+  if (!itemId || !filePath || /^https?:/i.test(filePath)) return;
+  if (durationHydrationInFlight.has(itemId)) return;
+
+  durationHydrationInFlight.add(itemId);
+  try {
+    const meta = await invoke<{ duration: string }>('scan_media', { filepath: filePath });
+    const seconds = Number.parseFloat(meta.duration || '0');
+    if (Number.isFinite(seconds) && seconds > 0) {
+      store.updateItem(itemId, {
+        duration: seconds,
+        plannedDuration: seconds
+      });
+    }
+  } catch (error) {
+    console.warn('[Rundown] Failed to hydrate dropped item duration', filePath, error);
+  } finally {
+    durationHydrationInFlight.delete(itemId);
+  }
 };
 
 // ── Playback ─────────────────────────────────────────────────────────────────
@@ -86,6 +146,31 @@ watch(
     if (!isPlayoutPlaying.value) return;
     getActivePlayoutService().refreshQueue?.(store.activeItems as any).catch((error) => {
       console.error('[Playback] Failed to refresh rundown queue', error);
+    });
+  }
+);
+
+watch(
+  () => store.activeItems.map((item) => `${item.id}:${item.path}:${item.duration}:${item.outPoint}:${item.inPoint}`).join('|'),
+  () => {
+    hydrateMissingDurations().catch((error) => {
+      console.warn('[Rundown] Duration hydration failed', error);
+    });
+  },
+  { immediate: true }
+);
+
+watch(
+  () => `${store.currentPlayingIndex}:${currentTotalPlayoutMs.value}`,
+  () => {
+    const index = store.currentPlayingIndex;
+    if (index < 0 || currentTotalPlayoutMs.value <= 0) return;
+    const item = store.activeItems[index];
+    if (!item || item.type !== 'video' || item.outPoint > item.inPoint || item.duration > 0) return;
+    const seconds = currentTotalPlayoutMs.value / 1000;
+    store.updateItem(item.id, {
+      duration: seconds,
+      plannedDuration: item.plannedDuration || seconds
     });
   }
 );
@@ -117,6 +202,10 @@ const ctxDelete = () => {
 };
 
 onMounted(() => {
+  hydrateMissingDurations().catch((error) => {
+    console.warn('[Rundown] Initial duration hydration failed', error);
+  });
+
     if (rundownListRef.value) {
     sortableInstance = Sortable.create(rundownListRef.value, {
             animation: 120,
@@ -184,26 +273,72 @@ const onDragLeave = (e: DragEvent) => {
     const rel = e.relatedTarget as Node | null;
     if (!(e.currentTarget as HTMLElement)?.contains(rel)) isDragOver.value = false;
 };
-const onDrop = (e: DragEvent) => {
+const onDrop = async (e: DragEvent) => {
     e.preventDefault(); isDragOver.value = false;
-    if (draggingItem.value) { store.addItem(draggingItem.value); draggingItem.value = null; }
+    if (draggingItem.value) {
+      const payload = { ...draggingItem.value };
+      if (payload.type === 'video' && !(payload.duration > 0) && payload.path && !/^https?:/i.test(payload.path)) {
+        try {
+          const meta = await invoke<{ duration: string }>('scan_media', { filepath: payload.path });
+          const seconds = Number.parseFloat(meta.duration || '0');
+          if (Number.isFinite(seconds) && seconds > 0) {
+            payload.duration = seconds;
+          }
+        } catch (error) {
+          console.warn('[Rundown] Failed to resolve dropped item duration before insert', payload.path, error);
+        }
+      }
+      store.addItem(payload);
+      const addedItem = store.activeItems[store.activeItems.length - 1];
+      if (addedItem && payload.type === 'video' && !(payload.duration > 0) && payload.path && !/^https?:/i.test(payload.path)) {
+        hydrateSingleItemDuration(addedItem.id, payload.path).catch(() => {});
+      }
+      draggingItem.value = null;
+    }
 };
 
 const typeIcon  = (t: string) => ({ video: '🎬', live: '📹', graphic: '🎨' }[t] || '📄');
 const typeColor = (t: string) => ({ video: '#33becc', live: '#e63946', graphic: '#a8dadc' }[t] || '#aaa');
 
-const msToDisplay = (ms: number) => {
-    if (!ms) return '--:--';
-    const m = Math.floor(ms / 60000);
-    const s = String(Math.floor((ms % 60000) / 1000)).padStart(2,'0');
-    return `${m}:${s}`;
+const msToClockDisplay = (ms: number) => {
+    if (ms <= 0) return '00:00:00';
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+    const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
 };
+
+const msToShortDisplay = (ms: number) => {
+  if (ms <= 0) return '0:00';
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return `${minutes}:${seconds}`;
+};
+
+const durationLabel = (item: any) => {
+  const durationMs = effectiveDurationMs(item, store.activeItems.findIndex((candidate: any) => candidate.id === item.id));
+  if (durationMs > 0) return `00:00:00 / ${msToClockDisplay(durationMs)}`;
+  if (item.type === 'live') return 'LIVE';
+  return '00:00:00 / 00:00:00';
+};
+
+const activeTimerLabel = (item: any, index: number) => {
+  if (index !== store.currentPlayingIndex || !isPlayoutPlaying.value) return '';
+  const totalMs = effectiveDurationMs(item, index);
+  if (item.type === 'live' && totalMs <= 0) return `${msToClockDisplay(currentPlayoutMs.value)} / LIVE`;
+  if (totalMs <= 0) return `${msToClockDisplay(currentPlayoutMs.value)} / 00:00:00`;
+  return `${msToClockDisplay(currentPlayoutMs.value)} / ${msToClockDisplay(totalMs)}`;
+};
+
+const ratingClass = (rating: string) => `rating-${rating || 'none'}`;
 
 const trimDisplay = (item: any) => {
   if (item.type === 'live') return 'LIVE';
   if (!item.inPoint && !item.outPoint) return 'FULL';
-  const inLabel = item.inPoint ? msToDisplay(item.inPoint) : '0:00';
-  const outLabel = item.outPoint ? msToDisplay(item.outPoint) : 'END';
+  const inLabel = item.inPoint ? msToShortDisplay(item.inPoint) : '0:00';
+  const outLabel = item.outPoint ? msToShortDisplay(item.outPoint) : 'END';
   return `${inLabel}→${outLabel}`;
 };
 </script>
@@ -229,8 +364,9 @@ const trimDisplay = (item: any) => {
       <span style="width:20px; text-align:center;">#</span>
       <span style="width:18px;"></span>
       <span style="flex:1;">File / Source</span>
+      <span style="width:46px; text-align:center;">Rate</span>
       <span style="width:70px; text-align:center;">IN→OUT</span>
-      <span style="width:52px; text-align:right;">Dur</span>
+      <span style="width:168px; text-align:right;">Time</span>
       <span style="width:58px; text-align:center;">At</span>
       <span style="width:62px; text-align:center;">Actions</span>
     </div>
@@ -252,7 +388,8 @@ const trimDisplay = (item: any) => {
         :class="{
           'selected': item.id === store.selectedItemId,
           'playing': index === store.currentPlayingIndex,
-          'played': index < store.currentPlayingIndex
+          'played': index < store.currentPlayingIndex,
+          [ratingClass(item.complianceRating)]: item.complianceRating && item.complianceRating !== 'none'
         }"
         :style="index === store.currentPlayingIndex && isPlayoutPlaying && item.type !== 'live' ? {
             background: `linear-gradient(90deg, rgba(230,57,70,0.3) ${calcProgress(item)}%, rgba(230,57,70,0.08) ${calcProgress(item)}%)`,
@@ -267,11 +404,15 @@ const trimDisplay = (item: any) => {
         <div class="rw-num">{{ index + 1 }}</div>
         <div class="rw-type-icon" :style="{ color: typeColor(item.type) }">{{ typeIcon(item.type) }}</div>
         <div class="rw-name" :title="item.filename">{{ item.filename }}</div>
+        <div class="rw-rating">
+          <span v-if="item.complianceRating && item.complianceRating !== 'none'" class="rw-rating-badge" :class="ratingClass(item.complianceRating)">{{ item.complianceRating.toUpperCase() }}</span>
+          <span v-else class="rw-rating-empty">·</span>
+        </div>
         <div class="rw-inout" :title="trimDisplay(item)">{{ trimDisplay(item) }}</div>
 
         <!-- Duration -->
         <div class="rw-dur">
-          {{ itemDurationMs(item) > 0 ? msToDisplay(itemDurationMs(item)) : '∞' }}
+          {{ activeTimerLabel(item, index) || durationLabel(item) }}
         </div>
 
           <div class="rw-at">
@@ -351,16 +492,34 @@ const trimDisplay = (item: any) => {
 .rw-row.selected { background:rgba(51,190,204,0.08); border-color:rgba(51,190,204,0.3); }
 .rw-row.playing  { background:rgba(230,57,70,0.08); border-color:rgba(230,57,70,0.4); }
 .rw-row.played   { opacity:0.45; }
+.rw-row.rating-k { box-shadow: inset 6px 0 0 rgba(29,185,84,0.85); }
+.rw-row.rating-8 { box-shadow: inset 6px 0 0 rgba(42,111,204,0.9); }
+.rw-row.rating-12 { box-shadow: inset 6px 0 0 rgba(255,153,0,0.9); }
+.rw-row.rating-16 { box-shadow: inset 6px 0 0 rgba(128,90,213,0.9); }
+.rw-row.rating-18 { box-shadow: inset 6px 0 0 rgba(230,57,70,0.95); }
 
 .rw-handle { color:rgba(255,255,255,0.2); cursor:grab; font-size:0.75rem; width:18px; text-align:center; flex-shrink:0; }
 .rw-num     { width:20px; text-align:center; font-size:0.67rem; color:rgba(255,255,255,0.3); flex-shrink:0; }
 .rw-type-icon { width:18px; font-size:0.85rem; text-align:center; flex-shrink:0; }
 .rw-name    { flex:1; font-size:0.78rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.rw-rating  { width:46px; text-align:center; flex-shrink:0; }
+.rw-rating-badge {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:30px; padding:3px 7px; border-radius:999px;
+  font-size:0.62rem; font-weight:800; letter-spacing:0.08em;
+  border:1px solid rgba(255,255,255,0.14);
+}
+.rw-rating-empty { color:rgba(255,255,255,0.16); font-size:0.7rem; }
+.rw-rating-badge.rating-k { color:#9ef6cf; background:rgba(29,185,84,0.16); border-color:rgba(158,246,207,0.28); }
+.rw-rating-badge.rating-8 { color:#8cc9ff; background:rgba(42,111,204,0.16); border-color:rgba(140,201,255,0.28); }
+.rw-rating-badge.rating-12 { color:#ffbf69; background:rgba(255,153,0,0.16); border-color:rgba(255,191,105,0.28); }
+.rw-rating-badge.rating-16 { color:#d0b7ff; background:rgba(128,90,213,0.16); border-color:rgba(208,183,255,0.28); }
+.rw-rating-badge.rating-18 { color:#ff9c9c; background:rgba(230,57,70,0.18); border-color:rgba(255,156,156,0.28); }
 .rw-inout   {
   width:70px; text-align:center; flex-shrink:0;
   font-size:0.6rem; color:rgba(255,255,255,0.42); font-variant-numeric:tabular-nums;
 }
-.rw-dur     { width:52px; text-align:right; font-size:0.68rem; color:rgba(255,255,255,0.4); font-variant-numeric:tabular-nums; flex-shrink:0; }
+.rw-dur     { width:168px; text-align:right; font-size:0.68rem; color:rgba(255,255,255,0.56); font-variant-numeric:tabular-nums; flex-shrink:0; font-family:monospace; }
 .rw-at      { width:58px; text-align:center; flex-shrink:0; }
 .rw-actions { width:62px; display:flex; gap:2px; flex-shrink:0; justify-content:flex-end; }
 

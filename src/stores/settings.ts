@@ -21,6 +21,8 @@ export const useSettingsStore = defineStore('settings', {
         // Hardware Output
         decklinkOutputName: '',
         liveInputSourceName: '',
+        casparConfigPath: '',
+        casparOscPort: 6250,
 
         // PAL / SOTA playout profile
         playoutProfile: 'PAL_1080I50' as 'PAL_1080I50' | 'PAL_1080P25',
