@@ -11,6 +11,8 @@ export const useSettingsStore = defineStore('settings', {
 
         // Media Paths
         localMediaPath: 'C:/Media',
+        ffmpegBinPath: '',
+        debugMode: false,
 
         // URL for hosting the Greek ESR Graphic Bug (HTML Producer)
         complianceUrl: 'http://localhost/greek_ratings.html',

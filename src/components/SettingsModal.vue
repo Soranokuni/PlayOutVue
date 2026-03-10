@@ -22,6 +22,8 @@ const localState = ref({
     obsUrl: '',
     obsPassword: '',
     localMediaPath: '',
+    ffmpegBinPath: '',
+    debugMode: false,
     complianceUrl: '',
     logosPath: '',
     decklinkOutputName: '',
@@ -83,6 +85,8 @@ onMounted(() => {
         obsUrl: settings.obsUrl,
         obsPassword: settings.obsPassword,
         localMediaPath: settings.localMediaPath,
+        ffmpegBinPath: settings.ffmpegBinPath,
+        debugMode: settings.debugMode,
         complianceUrl: settings.complianceUrl,
         logosPath: settings.logosPath,
         decklinkOutputName: settings.decklinkOutputName,
@@ -133,6 +137,8 @@ const discardAndClose = () => {
         obsUrl: settings.obsUrl,
         obsPassword: settings.obsPassword,
         localMediaPath: settings.localMediaPath,
+        ffmpegBinPath: settings.ffmpegBinPath,
+        debugMode: settings.debugMode,
         complianceUrl: settings.complianceUrl,
         logosPath: settings.logosPath,
         decklinkOutputName: settings.decklinkOutputName,
@@ -151,10 +157,12 @@ const discardAndClose = () => {
     emit('close');
 };
 
-const pickPath = async (target: 'media' | 'watermark' | 'logos') => {
+const pickPath = async (target: 'media' | 'watermark' | 'logos' | 'ffmpeg-bin') => {
     const isDirectory = target !== 'watermark';
     const defaultPath = target === 'media'
         ? localState.value.localMediaPath
+        : target === 'ffmpeg-bin'
+            ? localState.value.ffmpegBinPath
         : target === 'logos'
             ? localState.value.logosPath
             : localState.value.watermarkPath;
@@ -162,6 +170,8 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos') => {
     const selection = await open({
         title: target === 'media'
             ? 'Choose Media Folder'
+            : target === 'ffmpeg-bin'
+                ? 'Choose FFmpeg Bin Folder'
             : target === 'logos'
                 ? 'Choose Logos Folder'
                 : 'Choose Watermark File',
@@ -176,6 +186,7 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos') => {
     if (!selection || Array.isArray(selection)) return;
 
     if (target === 'media') localState.value.localMediaPath = selection;
+    if (target === 'ffmpeg-bin') localState.value.ffmpegBinPath = selection;
     if (target === 'watermark') localState.value.watermarkPath = selection;
     if (target === 'logos') localState.value.logosPath = selection;
 };
@@ -242,6 +253,15 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos') => {
                   </div>
                   <span class="hint-text">Absolute path where raw .mp4/.mxf files reside.</span>
               </div>
+
+              <div class="form-group">
+                  <label>FFmpeg Bin Directory</label>
+                  <div class="input-with-button">
+                      <input type="text" class="glass-input" v-model="localState.ffmpegBinPath" placeholder="Requirements/ffmpeg/bin">
+                      <button class="glass-btn" style="flex-shrink: 0;" title="Browse FFmpeg bin folder" @click="pickPath('ffmpeg-bin')">📁</button>
+                  </div>
+                  <span class="hint-text">Optional override. Leave blank to use Requirements/ffmpeg/bin next to the PlayOut installation.</span>
+              </div>
               
               <div v-if="localState.playoutEngine === 'obs'" class="form-group">
                   <label>Compliance Overlay Host URL</label>
@@ -256,6 +276,23 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos') => {
                       <button class="glass-btn" style="flex-shrink: 0;" title="Browse logos folder" @click="pickPath('logos')">📁</button>
                   </div>
                   <span class="hint-text">Expected assets: logo.png, K.png, 8.png, 12.png, 16.png, 18.png.</span>
+              </div>
+          </section>
+
+          <section class="settings-section">
+              <h3 class="text-secondary section-title">Debug & Diagnostics</h3>
+              <div class="form-grid">
+                  <div class="form-group">
+                      <label style="display:flex; align-items:center; gap:8px;">
+                          <input type="checkbox" v-model="localState.debugMode">
+                          <span>Enable debug tools</span>
+                      </label>
+                      <span class="hint-text">Shows the Library debug submenu and captures backend diagnostic logs only when enabled.</span>
+                  </div>
+                  <div class="form-group">
+                      <label>Debug behavior</label>
+                      <div class="hint-card">Debug logging stays off in normal runtime. When enabled, you can manually start a background duration probe, inspect ffprobe resolution, and export logs to a .txt file.</div>
+                  </div>
               </div>
           </section>
 
