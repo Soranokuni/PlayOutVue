@@ -1,7 +1,7 @@
 use serde::Serialize;
+use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::fmt::Write as _;
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
@@ -32,9 +32,7 @@ impl Default for DiagnosticState {
 
 impl DiagnosticState {
     pub fn set_enabled(&self, enabled: bool) {
-        if let Ok(mut flag) = self.enabled.lock() {
-            *flag = enabled;
-        }
+        *self.enabled.lock() = enabled;
 
         if !enabled {
             self.clear();
@@ -42,7 +40,7 @@ impl DiagnosticState {
     }
 
     pub fn is_enabled(&self) -> bool {
-        self.enabled.lock().map(|flag| *flag).unwrap_or(false)
+        *self.enabled.lock()
     }
 
     pub fn push(&self, level: &str, scope: &str, message: impl Into<String>) {
@@ -50,25 +48,22 @@ impl DiagnosticState {
             return;
         }
 
-        if let Ok(mut entries) = self.entries.lock() {
-            if entries.len() >= MAX_DIAGNOSTIC_ENTRIES {
-                entries.pop_front();
-            }
-
-            entries.push_back(DiagnosticEntry {
-                timestamp_ms: now_ms(),
-                level: level.to_string(),
-                scope: scope.to_string(),
-                message: message.into(),
-            });
+        let mut entries = self.entries.lock();
+        if entries.len() >= MAX_DIAGNOSTIC_ENTRIES {
+            entries.pop_front();
         }
+
+        entries.push_back(DiagnosticEntry {
+            timestamp_ms: now_ms(),
+            level: level.to_string(),
+            scope: scope.to_string(),
+            message: message.into(),
+        });
     }
 
     pub fn recent(&self, limit: usize) -> Vec<DiagnosticEntry> {
         let capped_limit = limit.clamp(1, MAX_DIAGNOSTIC_ENTRIES);
-        let Ok(entries) = self.entries.lock() else {
-            return Vec::new();
-        };
+        let entries = self.entries.lock();
 
         let mut result = entries.iter().rev().take(capped_limit).cloned().collect::<Vec<_>>();
         result.reverse();
@@ -76,9 +71,7 @@ impl DiagnosticState {
     }
 
     pub fn clear(&self) {
-        if let Ok(mut entries) = self.entries.lock() {
-            entries.clear();
-        }
+        self.entries.lock().clear();
     }
 }
 

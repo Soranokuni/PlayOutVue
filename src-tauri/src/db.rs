@@ -1,5 +1,9 @@
-use rusqlite::{Connection, params};
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::{params, Connection};
+use std::sync::Arc;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -18,8 +22,15 @@ pub struct CachedMediaEntry {
     pub field_order: String,
 }
 
+#[derive(Clone)]
+enum MediaDbBackend {
+    Pool(Arc<Pool<SqliteConnectionManager>>),
+    Disabled(String),
+}
+
+#[derive(Clone)]
 pub struct MediaDb {
-    conn: Connection,
+    backend: MediaDbBackend,
 }
 
 fn normalize_cache_path(path: &str) -> String {
@@ -28,33 +39,46 @@ fn normalize_cache_path(path: &str) -> String {
 
 impl MediaDb {
     pub fn open(db_path: &Path) -> Result<Self, String> {
-        let conn = Connection::open(db_path)
-            .map_err(|e| format!("Failed to open media cache DB: {}", e))?;
+        let manager = if db_path == Path::new(":memory:") {
+            SqliteConnectionManager::memory()
+        } else {
+            SqliteConnectionManager::file(db_path)
+        };
 
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             CREATE TABLE IF NOT EXISTS media_cache (
-                 path            TEXT    PRIMARY KEY,
-                 mtime           INTEGER NOT NULL,
-                 filesize        INTEGER NOT NULL,
-                 duration_ms     INTEGER NOT NULL DEFAULT 0,
-                 width           INTEGER DEFAULT 0,
-                 height          INTEGER DEFAULT 0,
-                 codec           TEXT    DEFAULT '',
-                 fps_num         INTEGER DEFAULT 25,
-                 fps_den         INTEGER DEFAULT 1,
-                 display_aspect_ratio TEXT DEFAULT '',
-                 field_order     TEXT    DEFAULT '',
-                 timecode_start  TEXT    DEFAULT '00:00:00:00',
-                 scanned_at      INTEGER NOT NULL
-             );",
-        )
-        .map_err(|e| format!("Failed to create media_cache schema: {}", e))?;
+        let pool = Pool::builder()
+            .max_size(8)
+            .build(manager)
+            .map_err(|error| format!("Failed to create media cache pool: {}", error))?;
 
-        ensure_media_cache_columns(&conn)?;
+        let db = Self {
+            backend: MediaDbBackend::Pool(Arc::new(pool)),
+        };
 
-        Ok(Self { conn })
+        db.with_connection(|conn| {
+            initialize_media_cache_schema(conn)?;
+            ensure_media_cache_columns(conn)
+        })?;
+
+        Ok(db)
+    }
+
+    pub fn disabled(reason: impl Into<String>) -> Self {
+        Self {
+            backend: MediaDbBackend::Disabled(reason.into()),
+        }
+    }
+
+    fn with_connection<T>(&self, operation: impl FnOnce(&Connection) -> Result<T, String>) -> Result<T, String> {
+        match &self.backend {
+            MediaDbBackend::Disabled(reason) => Err(reason.clone()),
+            MediaDbBackend::Pool(pool) => {
+                let conn = pool
+                    .get()
+                    .map_err(|error| format!("Failed to get media cache connection: {}", error))?;
+                configure_connection(&conn)?;
+                operation(&conn)
+            }
+        }
     }
 
     /// Returns cached entry if path hasn't changed (mtime + filesize match).
@@ -63,33 +87,35 @@ impl MediaDb {
         let normalized_path = normalize_cache_path(path);
         let (mtime, filesize) = file_identity(path)?;
 
-        let result = self.conn.query_row(
-            "SELECT duration_ms, width, height, codec, fps_num, fps_den, display_aspect_ratio, field_order, timecode_start,
-                    mtime, filesize
-             FROM media_cache WHERE path = ?1",
-            params![normalized_path],
-            |row| {
-                let db_mtime: i64 = row.get(9)?;
-                let db_size: i64  = row.get(10)?;
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, String>(8)?,
-                    db_mtime,
-                    db_size,
-                ))
-            },
-        );
+        self.with_connection(|conn| {
+            let result = conn.query_row(
+                "SELECT duration_ms, width, height, codec, fps_num, fps_den, display_aspect_ratio, field_order, timecode_start,
+                        mtime, filesize
+                 FROM media_cache WHERE path = ?1",
+                params![normalized_path],
+                |row| {
+                    let db_mtime: i64 = row.get(9)?;
+                    let db_size: i64  = row.get(10)?;
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, String>(8)?,
+                        db_mtime,
+                        db_size,
+                    ))
+                },
+            );
 
-        match result {
-            Ok((dur, w, h, codec, fps_n, fps_d, dar, field_order, tc, db_mtime, db_size)) => {
-                if db_mtime == mtime as i64 && db_size == filesize as i64 {
+            let entry = match result {
+                Ok((dur, w, h, codec, fps_n, fps_d, dar, field_order, tc, db_mtime, db_size))
+                    if db_mtime == mtime as i64 && db_size == filesize as i64 =>
+                {
                     Some(CachedMediaEntry {
                         path: normalized_path,
                         duration_ms: dur,
@@ -102,12 +128,12 @@ impl MediaDb {
                         field_order,
                         timecode_start: tc,
                     })
-                } else {
-                    None // stale — needs re-probe
                 }
-            }
-            Err(_) => None, // not in DB
-        }
+                _ => None,
+            };
+
+            Ok(entry)
+        }).ok().flatten()
     }
 
     pub fn upsert(&self, entry: &CachedMediaEntry) -> Result<(), String> {
@@ -118,23 +144,65 @@ impl MediaDb {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        self.conn.execute(
-            "INSERT OR REPLACE INTO media_cache
-             (path, mtime, filesize, duration_ms, width, height, codec, fps_num, fps_den,
-              display_aspect_ratio, field_order, timecode_start, scanned_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            params![
-                normalized_path, mtime as i64, filesize as i64,
-                entry.duration_ms, entry.width, entry.height,
-                entry.codec, entry.fps_num, entry.fps_den,
-                entry.display_aspect_ratio, entry.field_order,
-                entry.timecode_start, now
-            ],
-        )
-        .map_err(|e| format!("DB upsert failed: {}", e))?;
+        self.with_connection(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO media_cache
+                 (path, mtime, filesize, duration_ms, width, height, codec, fps_num, fps_den,
+                  display_aspect_ratio, field_order, timecode_start, scanned_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    normalized_path, mtime as i64, filesize as i64,
+                    entry.duration_ms, entry.width, entry.height,
+                    entry.codec, entry.fps_num, entry.fps_den,
+                    entry.display_aspect_ratio, entry.field_order,
+                    entry.timecode_start, now
+                ],
+            )
+            .map_err(|e| format!("DB upsert failed: {}", e))?;
 
-        Ok(())
+            Ok(())
+        })
     }
+}
+
+fn configure_connection(conn: &Connection) -> Result<(), String> {
+    conn.busy_timeout(Duration::from_secs(5))
+        .map_err(|error| format!("Failed to set SQLite busy timeout: {}", error))?;
+
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;
+         PRAGMA temp_store=MEMORY;
+         PRAGMA foreign_keys=ON;",
+    )
+    .map_err(|error| format!("Failed to configure media cache connection: {}", error))?;
+
+    Ok(())
+}
+
+fn initialize_media_cache_schema(conn: &Connection) -> Result<(), String> {
+    configure_connection(conn)?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS media_cache (
+             path            TEXT    PRIMARY KEY,
+             mtime           INTEGER NOT NULL,
+             filesize        INTEGER NOT NULL,
+             duration_ms     INTEGER NOT NULL DEFAULT 0,
+             width           INTEGER DEFAULT 0,
+             height          INTEGER DEFAULT 0,
+             codec           TEXT    DEFAULT '',
+             fps_num         INTEGER DEFAULT 25,
+             fps_den         INTEGER DEFAULT 1,
+             display_aspect_ratio TEXT DEFAULT '',
+             field_order     TEXT    DEFAULT '',
+             timecode_start  TEXT    DEFAULT '00:00:00:00',
+             scanned_at      INTEGER NOT NULL
+         );",
+    )
+    .map_err(|e| format!("Failed to create media_cache schema: {}", e))?;
+
+    Ok(())
 }
 
 

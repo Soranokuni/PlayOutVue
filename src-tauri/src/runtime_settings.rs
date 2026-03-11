@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
+use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use tauri::{AppHandle, Manager, Runtime, State};
 
 use crate::diagnostics::DiagnosticState;
@@ -31,16 +31,13 @@ impl Default for RuntimeSettingsState {
 
 impl RuntimeSettingsState {
     pub fn snapshot(&self) -> RuntimeSettings {
-        self.0.lock().map(|settings| settings.clone()).unwrap_or_default()
+        self.0.lock().clone()
     }
 
     pub fn update(&self, next: RuntimeSettings) -> RuntimeSettings {
-        if let Ok(mut settings) = self.0.lock() {
-            *settings = next.clone();
-            return settings.clone();
-        }
-
-        next
+        let mut settings = self.0.lock();
+        *settings = next.clone();
+        settings.clone()
     }
 }
 

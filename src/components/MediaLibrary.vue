@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { refDebounced } from '@vueuse/core';
 import { useRundownStore, type ComplianceRating } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
 import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDefaults';
@@ -91,6 +92,7 @@ const probeStatus = ref<MediaProbeStatus>(createDefaultProbeStatus());
 const diagnosticEntries = ref<DiagnosticEntry[]>([]);
 const sortCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 const durationProbeInFlight = new Map<string, Promise<number>>();
+const debouncedLibraryQuery = refDebounced(libraryQuery, 120);
 let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
 let statusTimer: ReturnType<typeof setInterval> | null = null;
 let scheduledWarmupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -201,7 +203,7 @@ const filterTree = (nodes: MediaNode[], query: string): MediaNode[] => {
 const countFiles = (nodes: MediaNode[]): number =>
     nodes.reduce((count, node) => count + (node.type === 'file' ? 1 : countFiles(node.children || [])), 0);
 
-const visibleTree = computed(() => filterTree(tree.value, libraryQuery.value.trim().toLowerCase()));
+const visibleTree = computed(() => filterTree(tree.value, debouncedLibraryQuery.value.trim().toLowerCase()));
 const visibleFileCount = computed(() => countFiles(visibleTree.value));
 const getNodeDurationSeconds = (node: MediaNode) => node.duration || (node.duration_ms ? node.duration_ms / 1000 : 0);
 const shouldPollDiagnostics = computed(() => settings.debugMode && showDebugPanel.value);

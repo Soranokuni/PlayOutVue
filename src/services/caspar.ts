@@ -15,6 +15,8 @@ const PROGRAM_LAYER = 10;
 const LIVE_LAYER = 20;
 const FRAME_MS = 40;
 const PAL_FPS = 25;
+const RECONNECT_BASE_DELAY_MS = 750;
+const RECONNECT_MAX_DELAY_MS = 15_000;
 
 interface CasparOscPayload {
     address: string;
@@ -38,7 +40,12 @@ let playToken = 0;
 let clockTimer: ReturnType<typeof setInterval> | null = null;
 let positionBaseMs = 0;
 let positionBaseAt = 0;
-let feedbackListenerPromise: Promise<(() => void) | void> | null = null;
+let feedbackListenerPromise: Promise<void> | null = null;
+let feedbackUnlisten: (() => void) | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempt = 0;
+let reconnectRequested = false;
+let reconnectInFlight: Promise<void> | null = null;
 
 const isProgramFileTimeAddress = (address: string) => {
     const normalized = (address || '').trim();
@@ -79,6 +86,25 @@ const getConfiguredOscPort = () => {
         return 6250;
     }
     return Math.round(port);
+};
+
+const clearReconnectTimer = () => {
+    if (!reconnectTimer) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+};
+
+const markDisconnected = (reason: string, error?: unknown) => {
+    if (error) {
+        console.warn(`[CasparCG] ${reason}`, error);
+    } else {
+        console.warn(`[CasparCG] ${reason}`);
+    }
+
+    isCasparConnected.value = false;
+    if (reconnectRequested) {
+        scheduleReconnect();
+    }
 };
 
 const normalizeMediaPath = (rawPath: string) => {
@@ -129,6 +155,17 @@ const prepareCasparMediaPath = async (rawPath: string) => {
     } catch (error) {
         console.warn('[CasparCG] Falling back to direct path after prepare failure', rawPath, error);
         return normalizeMediaPath(rawPath);
+    }
+};
+
+const disposeFeedbackListener = async () => {
+    if (!feedbackUnlisten) return;
+    try {
+        feedbackUnlisten();
+    } catch (error) {
+        console.warn('[CasparCG] Failed to detach OSC listener', error);
+    } finally {
+        feedbackUnlisten = null;
     }
 };
 
@@ -305,7 +342,7 @@ const queryActiveLayerDurationMs = async () => {
 };
 
 const queryCasparDurationMs = async (item: PlayoutItem) => {
-    const rawPath = (item.shortPath || item.path || '').trim();
+    const rawPath = (item.path || item.shortPath || '').trim();
     if (!rawPath || /^https?:/i.test(rawPath)) return 0;
 
     try {
@@ -415,7 +452,7 @@ const buildClipOptions = (item: PlayoutItem) => {
 };
 
 const buildVideoCommand = async (item: PlayoutItem, autoPlay: boolean) => {
-    const rawPath = item.shortPath || item.path;
+    const rawPath = item.path || item.shortPath;
     const path = await prepareCasparMediaPath(rawPath);
     const options = buildClipOptions(item);
     const auto = autoPlay ? ' AUTO' : '';
@@ -423,7 +460,7 @@ const buildVideoCommand = async (item: PlayoutItem, autoPlay: boolean) => {
 };
 
 const buildPlayVideoCommand = async (item: PlayoutItem) => {
-    const rawPath = item.shortPath || item.path;
+    const rawPath = item.path || item.shortPath;
     const path = await prepareCasparMediaPath(rawPath);
     const options = buildClipOptions(item);
     return `PLAY ${PROGRAM_CHANNEL}-${PROGRAM_LAYER} "${path}" ${options}`.replace(/\s+/g, ' ').trim();
@@ -435,29 +472,109 @@ const buildLiveCommand = (preferredSource?: string) => {
     return source ? `PLAY ${PROGRAM_CHANNEL}-${LIVE_LAYER} ${source}` : '';
 };
 
-const sendRawCommand = async (cmd: string) => {
+const sendRawCommandCore = async (cmd: string) => {
     return invoke<string>('caspar_send_command', { cmd });
 };
 
 const ensureFeedbackListener = async () => {
-    await invoke<number>('configure_caspar_osc_listener', { port: getConfiguredOscPort() });
-
+    if (feedbackUnlisten) return;
     if (feedbackListenerPromise) return feedbackListenerPromise;
-    feedbackListenerPromise = listen<CasparOscPayload>('caspar-osc', (event) => {
-        const payload = event.payload;
-        if (!isProgramFileTimeAddress(payload.address)) {
-            return;
-        }
-        if (payload.positionMs != null) {
-            syncClockBase(payload.positionMs);
-        }
-        if (payload.durationMs != null) {
-            currentCasparDurationMs.value = Math.max(0, Math.round(payload.durationMs));
-        }
-    }).catch((error) => {
-        console.warn('[CasparCG] Failed to attach OSC listener', error);
-    });
+
+    feedbackListenerPromise = (async () => {
+        await invoke<number>('configure_caspar_osc_listener', { port: getConfiguredOscPort() });
+        feedbackUnlisten = await listen<CasparOscPayload>('caspar-osc', (event) => {
+            const payload = event.payload;
+            if (!isProgramFileTimeAddress(payload.address)) {
+                return;
+            }
+            if (payload.positionMs != null) {
+                syncClockBase(payload.positionMs);
+            }
+            if (payload.durationMs != null) {
+                currentCasparDurationMs.value = Math.max(0, Math.round(payload.durationMs));
+            }
+        });
+    })()
+        .catch((error) => {
+            console.warn('[CasparCG] Failed to attach OSC listener', error);
+            throw error;
+        })
+        .finally(() => {
+            feedbackListenerPromise = null;
+        });
+
     return feedbackListenerPromise;
+};
+
+const performHandshake = async () => {
+    await ensureFeedbackListener();
+    await sendRawCommandCore('INFO');
+    isCasparConnected.value = true;
+    reconnectAttempt = 0;
+    clearReconnectTimer();
+    await casparPlayoutService.syncBrandingAssets?.();
+    await casparPlayoutService.clearCompliance?.();
+};
+
+const runReconnectAttempt = async (foreground: boolean) => {
+    if (reconnectInFlight) return reconnectInFlight;
+
+    reconnectInFlight = (async () => {
+        const attempts = foreground ? 4 : 1;
+        let lastError: unknown;
+
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            try {
+                await performHandshake();
+                return;
+            } catch (error) {
+                lastError = error;
+                isCasparConnected.value = false;
+                if (foreground && attempt < attempts - 1) {
+                    const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** attempt, RECONNECT_MAX_DELAY_MS);
+                    await wait(delay);
+                }
+            }
+        }
+
+        throw lastError;
+    })().finally(() => {
+        reconnectInFlight = null;
+        if (!isCasparConnected.value && reconnectRequested) {
+            scheduleReconnect();
+        }
+    });
+
+    return reconnectInFlight;
+};
+
+function scheduleReconnect() {
+    if (!reconnectRequested || reconnectTimer || reconnectInFlight) return;
+    const delay = reconnectAttempt === 0
+        ? RECONNECT_BASE_DELAY_MS
+        : Math.min(RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempt, RECONNECT_MAX_DELAY_MS);
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        reconnectAttempt += 1;
+        runReconnectAttempt(false).catch((error) => {
+            console.warn('[CasparCG] Reconnect attempt failed', error);
+        });
+    }, delay);
+}
+
+const sendRawCommand = async (cmd: string) => {
+    try {
+        const response = await sendRawCommandCore(cmd);
+        if (!isCasparConnected.value) {
+            isCasparConnected.value = true;
+            reconnectAttempt = 0;
+            clearReconnectTimer();
+        }
+        return response;
+    } catch (error) {
+        markDisconnected(`AMCP command failed: ${cmd.split(' ')[0] || 'UNKNOWN'}`, error);
+        throw error;
+    }
 };
 
 const playAt = async (index: number, token: number) => {
@@ -531,16 +648,17 @@ export const casparPlayoutService: PlayoutService = {
     },
 
     async connect() {
-        await ensureFeedbackListener();
-        await sendRawCommand('INFO');
-        isCasparConnected.value = true;
-        await this.syncBrandingAssets?.();
-        await this.clearCompliance?.();
+        reconnectRequested = true;
+        await runReconnectAttempt(true);
     },
 
     async disconnect() {
+        reconnectRequested = false;
+        clearReconnectTimer();
+        reconnectAttempt = 0;
         await this.stop();
         isCasparConnected.value = false;
+        await disposeFeedbackListener();
     },
 
     async play(items, startIndex) {

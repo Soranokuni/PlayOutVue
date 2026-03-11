@@ -55,8 +55,13 @@ pub async fn get_image_dimensions(path: String) -> Result<ImageDimensions, Strin
         return Err(format!("Path is not a file: {}", path));
     }
 
-    let (width, height) = image::image_dimensions(&image_path)
-        .map_err(|error| format!("Failed to read image dimensions '{}': {}", path, error))?;
+    let path_for_worker = path.clone();
+    let (width, height) = tauri::async_runtime::spawn_blocking(move || {
+        image::image_dimensions(&image_path)
+            .map_err(|error| format!("Failed to read image dimensions '{}': {}", path_for_worker, error))
+    })
+    .await
+    .map_err(|error| format!("Image dimensions worker failed: {}", error))??;
 
     Ok(ImageDimensions { width, height })
 }

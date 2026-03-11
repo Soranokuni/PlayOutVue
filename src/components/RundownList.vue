@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import Sortable from 'sortablejs';
-import { useRundownStore, type RundownItem, type RundownPlaylist } from '../stores/rundown';
+import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
 import { draggingItem } from '../composables/useDragState';
 import { playStartTime } from '../services/obs';
@@ -16,8 +16,10 @@ const isDragOver = ref(false);
 const showLiveDialog = ref(false);
 const dropTargetIndex = ref<number | null>(null);
 const dropTargetSide = ref<'before' | 'after'>('before');
+const SELECTION_REPEAT_INTERVAL_MS = 85;
 let sortableInstance: Sortable | null = null;
 const durationHydrationInFlight = new Set<string>();
+let lastSelectionMoveAt = 0;
 
 const contextMenu = ref({
   show: false,
@@ -26,6 +28,21 @@ const contextMenu = ref({
   index: -1,
   item: null as RundownItem | null
 });
+
+const ratingOptions: Array<{ id: ComplianceRating; label: string }> = [
+  { id: 'none', label: 'None' },
+  { id: 'k', label: 'K' },
+  { id: '8', label: '8+' },
+  { id: '12', label: '12+' },
+  { id: '16', label: '16+' },
+  { id: '18', label: '18+' }
+];
+
+const indicatorOptions: Array<{ id: LibraryIndicator; label: string }> = [
+  { id: 'none', label: 'None' },
+  { id: 'spot', label: 'Spot' },
+  { id: 'telemarketing', label: 'Telemarketing' }
+];
 
 const clockNow = ref(Date.now());
 let clockTick: ReturnType<typeof setInterval> | null = null;
@@ -303,6 +320,48 @@ const ctxDelete = () => {
   closeContextMenu();
 };
 
+const ctxSetRating = (rating: ComplianceRating) => {
+  if (contextMenu.value.item && contextMenu.value.item.type !== 'gap') {
+    store.updateItem(contextMenu.value.item.id, { complianceRating: rating });
+  }
+  closeContextMenu();
+};
+
+const ctxSetIndicator = (indicator: LibraryIndicator) => {
+  if (contextMenu.value.item && contextMenu.value.item.type !== 'gap') {
+    store.updateItem(contextMenu.value.item.id, { libraryIndicator: indicator });
+  }
+  closeContextMenu();
+};
+
+const ensureSelectedRowVisible = (behavior: ScrollBehavior = 'auto') => {
+  const selectedId = store.selectedItemId;
+  if (!selectedId || !rundownListRef.value) return;
+
+  requestAnimationFrame(() => {
+    const row = rundownListRef.value?.querySelector<HTMLElement>(`.rw-row[data-item-id="${selectedId}"]`);
+    row?.scrollIntoView({ block: 'nearest', behavior });
+  });
+};
+
+const moveSelection = (direction: -1 | 1, repeated: boolean) => {
+  const items = store.activeItems;
+  if (!items.length) return;
+
+  const currentIndex = store.selectedItemId
+    ? items.findIndex((item) => item.id === store.selectedItemId)
+    : -1;
+
+  const nextIndex = currentIndex === -1
+    ? (direction > 0 ? 0 : items.length - 1)
+    : Math.max(0, Math.min(items.length - 1, currentIndex + direction));
+
+  if (nextIndex === currentIndex || !items[nextIndex]) return;
+
+  store.selectedItemId = items[nextIndex].id;
+  ensureSelectedRowVisible(repeated ? 'auto' : 'smooth');
+};
+
 const createPlaylistTab = () => {
   store.createPlaylist();
 };
@@ -337,6 +396,19 @@ const handleKey = (event: KeyboardEvent) => {
   if ((event.key === 'Enter' || event.key === ' ') && index !== -1) {
     event.preventDefault();
     runPlaylistFrom(index);
+    return;
+  }
+
+  if (!event.ctrlKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+    const now = performance.now();
+    if (event.repeat && now - lastSelectionMoveAt < SELECTION_REPEAT_INTERVAL_MS) {
+      event.preventDefault();
+      return;
+    }
+
+    lastSelectionMoveAt = now;
+    event.preventDefault();
+    moveSelection(event.key === 'ArrowUp' ? -1 : 1, event.repeat);
     return;
   }
 
@@ -636,6 +708,7 @@ onUnmounted(() => {
         v-for="(item, index) in store.activeItems"
         :key="item.id"
         class="rw-row"
+        :data-item-id="item.id"
         :class="{
           'selected': item.id === store.selectedItemId,
           'playing': index === store.currentPlayingIndex && store.isCurrentPlaylistOnAir,
@@ -705,6 +778,18 @@ onUnmounted(() => {
       <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
         <div class="menu-item" @click.stop="ctxPlayFrom">▶ Play from here</div>
         <div class="menu-item" @click.stop="ctxDuplicate">⧉ Duplicate</div>
+        <template v-if="contextMenu.item && contextMenu.item.type !== 'gap'">
+          <div class="menu-divider"></div>
+          <div class="menu-label">Rating</div>
+          <div v-for="rating in ratingOptions" :key="`rating-${rating.id}`" class="menu-item" @click.stop="ctxSetRating(rating.id)">
+            {{ contextMenu.item.complianceRating === rating.id ? '✓ ' : '' }}{{ rating.label }}
+          </div>
+          <div class="menu-divider"></div>
+          <div class="menu-label">Tag</div>
+          <div v-for="indicator in indicatorOptions" :key="`indicator-${indicator.id}`" class="menu-item" @click.stop="ctxSetIndicator(indicator.id)">
+            {{ (contextMenu.item.libraryIndicator || 'none') === indicator.id ? '✓ ' : '' }}{{ indicator.label }}
+          </div>
+        </template>
         <div class="menu-divider"></div>
         <div v-if="!isProtectedPlayingRow(contextMenu.index)" class="menu-item menu-item-danger" @click.stop="ctxDelete">✕ Delete</div>
       </div>
@@ -820,9 +905,12 @@ onUnmounted(() => {
 .rw-row {
   position:relative;
   display:flex; align-items:center; gap:4px;
-  min-height:38px; padding:0 5px;
+  min-height:40px; padding:0 6px;
   margin:3px 0;
   border-radius:6px; border:1px solid transparent;
+  contain:layout style paint;
+  content-visibility:auto;
+  contain-intrinsic-size:40px;
   cursor:pointer; user-select:none; transition:background 0.12s, border-color 0.12s, transform 0.12s, margin 0.12s;
 }
 .rw-row:hover { background:rgba(255,255,255,0.04); }
@@ -902,8 +990,8 @@ onUnmounted(() => {
   50% { background:rgba(248,180,0,0.18); box-shadow:0 0 0 1px rgba(248,180,0,0.28), 0 0 16px rgba(248,180,0,0.16); }
 }
 
-.rw-handle { color:rgba(255,255,255,0.2); cursor:grab; font-size:0.76rem; width:18px; text-align:center; flex-shrink:0; }
-.rw-num     { width:20px; text-align:center; font-size:0.66rem; color:rgba(255,255,255,0.3); flex-shrink:0; }
+.rw-handle { color:rgba(255,255,255,0.2); cursor:grab; font-size:0.8rem; width:18px; text-align:center; flex-shrink:0; }
+.rw-num     { width:20px; text-align:center; font-size:0.72rem; color:rgba(255,255,255,0.34); flex-shrink:0; }
 .rw-signals { width:18px; display:flex; align-items:center; gap:3px; flex-shrink:0; }
 .rw-signal {
   width:5px;
@@ -912,7 +1000,7 @@ onUnmounted(() => {
   background:rgba(255,255,255,0.12);
   border:1px solid rgba(255,255,255,0.1);
 }
-.rw-type-icon { width:18px; font-size:0.85rem; text-align:center; flex-shrink:0; }
+.rw-type-icon { width:18px; font-size:0.92rem; text-align:center; flex-shrink:0; }
 .rw-name    { flex:1; font-size:0.77rem; font-weight:600; letter-spacing:0.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .rw-rating  { width:46px; text-align:center; flex-shrink:0; }
 .rw-tag     { width:58px; text-align:center; flex-shrink:0; }
@@ -946,22 +1034,22 @@ onUnmounted(() => {
 .rw-tag-badge.tone-tag-telemarketing, .rw-signal.tone-tag-telemarketing { color:#efc8ff; background:rgba(149,76,233,0.24); border-color:rgba(149,76,233,0.42); }
 .rw-inout   {
   width:78px; text-align:center; flex-shrink:0;
-  font-size:0.58rem; color:rgba(255,255,255,0.42); font-variant-numeric:tabular-nums; letter-spacing:0.03em;
+  font-size:0.63rem; color:rgba(255,255,255,0.46); font-variant-numeric:tabular-nums; letter-spacing:0.03em;
 }
-.rw-dur     { width:168px; text-align:right; font-size:0.67rem; color:rgba(255,255,255,0.56); font-variant-numeric:tabular-nums; flex-shrink:0; font-family:monospace; letter-spacing:0.02em; }
+.rw-dur     { width:168px; text-align:right; font-size:0.72rem; color:rgba(255,255,255,0.62); font-variant-numeric:tabular-nums; flex-shrink:0; font-family:monospace; letter-spacing:0.02em; }
 .rw-day     { width:42px; display:flex; align-items:center; justify-content:flex-start; flex-shrink:0; }
 .rw-at      { width:60px; display:flex; align-items:center; justify-content:flex-start; gap:4px; flex-shrink:0; }
 .rw-actions { width:62px; display:flex; gap:2px; flex-shrink:0; justify-content:flex-end; }
 
-.tc-day   { display:inline-block; min-width:2.2em; font-size:0.53rem; font-weight:700; text-transform:uppercase; color:rgba(255,255,255,0.36); letter-spacing:0.08em; text-align:left; }
-.tc-sched { font-size:0.64rem; color:rgba(255,255,255,0.45); font-variant-numeric:tabular-nums; font-family:monospace; text-align:left; }
-.tc-live  { font-size:0.65rem; color:#e63946; font-weight:700; letter-spacing:0.5px; }
+.tc-day   { display:inline-block; min-width:2.2em; font-size:0.58rem; font-weight:700; text-transform:uppercase; color:rgba(255,255,255,0.4); letter-spacing:0.08em; text-align:left; }
+.tc-sched { font-size:0.69rem; color:rgba(255,255,255,0.5); font-variant-numeric:tabular-nums; font-family:monospace; text-align:left; }
+.tc-live  { font-size:0.69rem; color:#e63946; font-weight:700; letter-spacing:0.5px; }
 .tc-done  { font-size:0.7rem; color:rgba(255,255,255,0.2); }
-.tc-gap   { font-size:0.62rem; color:#df8e1d; font-family:monospace; text-align:left; }
+.tc-gap   { font-size:0.66rem; color:#df8e1d; font-family:monospace; text-align:left; }
 
 .row-btn {
   background:transparent; border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.45);
-  border-radius:3px; cursor:pointer; width:18px; height:22px; font-size:0.68rem;
+  border-radius:3px; cursor:pointer; width:20px; height:24px; font-size:0.74rem;
   display:flex; align-items:center; justify-content:center; transition:0.12s; padding:0;
 }
 .row-btn:hover { background:rgba(255,255,255,0.1); color:#fff; }
@@ -995,6 +1083,14 @@ onUnmounted(() => {
     color: var(--text-primary);
     cursor: pointer;
     transition: background 0.1s;
+}
+.menu-label {
+  padding: 6px 12px 4px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.42);
 }
 .menu-item:hover {
     background: rgba(51, 190, 204, 0.2);
