@@ -2,8 +2,8 @@ use rosc::{OscPacket, OscType};
 use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::async_runtime::JoinHandle;
@@ -42,7 +42,9 @@ pub struct CasparOscEvent {
 
 #[tauri::command]
 pub async fn prepare_caspar_media_path(path: String, media_root: String) -> Result<String, String> {
-    resolve_caspar_media_path(&path, &media_root)
+    tauri::async_runtime::spawn_blocking(move || resolve_caspar_media_path(&path, &media_root))
+        .await
+        .map_err(|error| format!("CasparCG path worker failed: {}", error))?
 }
 
 fn resolve_caspar_media_path(path: &str, media_root: &str) -> Result<String, String> {
@@ -231,10 +233,7 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
     }
 
     let (existing_port, existing_stop_tx, existing_task) = {
-        let mut guard = state
-            .0
-            .lock()
-            .map_err(|_| "Failed to lock CasparCG OSC listener state".to_string())?;
+        let mut guard = state.0.lock();
 
         if guard.port == Some(target_port) && guard.task.is_some() {
             return Ok(target_port);
@@ -258,10 +257,7 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
     let (stop_tx, stop_rx) = oneshot::channel();
     let task = tauri::async_runtime::spawn(run_osc_listener(app.clone(), socket, bind_addr.clone(), stop_rx));
 
-    let mut guard = state
-        .0
-        .lock()
-        .map_err(|_| "Failed to lock CasparCG OSC listener state".to_string())?;
+    let mut guard = state.0.lock();
     guard.port = Some(target_port);
     guard.stop_tx = Some(stop_tx);
     guard.task = Some(task);

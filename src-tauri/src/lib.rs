@@ -20,7 +20,6 @@ use trimmer::{get_media_preview_url, trim_file, trim_file_smart};
 use playlist::{save_playlist, load_playlist};
 use filesystem::{browse_filesystem, find_default_logos_dir, get_image_dimensions, list_filesystem_roots};
 use db::{MediaDb, default_db_path};
-use std::sync::Mutex;
 
 /// Return an HTTP URL that streams a local file to <video src="…">
 /// No memory pressure — the media_server streams in 64 KB chunks.
@@ -32,25 +31,46 @@ fn get_media_url(path: String) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Start the local media streaming server (async, random port, no memory overhead)
-    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-    rt.block_on(media_server::start());
+    let _media_server_runtime = match tokio::runtime::Runtime::new() {
+        Ok(rt) => {
+            if let Err(error) = rt.block_on(media_server::start()) {
+                eprintln!("[PlayOut] Media server disabled: {}", error);
+                None
+            } else {
+                Some(rt)
+            }
+        }
+        Err(error) => {
+            eprintln!("[PlayOut] Failed to start bootstrap runtime for media server: {}", error);
+            None
+        }
+    };
 
     // Open (or create) the SQLite media metadata cache
     let db_path = default_db_path();
     if let Some(parent) = db_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let media_db = MediaDb::open(&db_path).unwrap_or_else(|e| {
-        eprintln!("[PlayOut] Media DB open failed: {}. Using in-memory fallback.", e);
-        MediaDb::open(std::path::Path::new(":memory:")).expect("in-memory DB failed")
-    });
+    let media_db = match MediaDb::open(&db_path) {
+        Ok(db) => db,
+        Err(error) => {
+            eprintln!("[PlayOut] Media DB open failed: {}. Using in-memory fallback.", error);
+            match MediaDb::open(std::path::Path::new(":memory:")) {
+                Ok(memory_db) => memory_db,
+                Err(memory_error) => {
+                    eprintln!("[PlayOut] In-memory media DB fallback failed: {}. Media cache disabled.", memory_error);
+                    MediaDb::disabled(format!("Media cache unavailable: {}; fallback failed: {}", error, memory_error))
+                }
+            }
+        }
+    };
     let diagnostics = DiagnosticState::default();
 
-    tauri::Builder::default()
+    if let Err(error) = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(diagnostics)
         .manage(RuntimeSettingsState::default())
-        .manage(DbState(Mutex::new(media_db)))
+        .manage(DbState(media_db))
         .manage(MediaProbeState::default())
         .manage(CasparOscListenerState::default())
         .invoke_handler(tauri::generate_handler![
@@ -93,5 +113,7 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    {
+        eprintln!("[PlayOut] error while running tauri application: {}", error);
+    }
 }

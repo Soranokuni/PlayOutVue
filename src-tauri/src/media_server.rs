@@ -9,11 +9,14 @@ use tokio::net::TcpListener;
 
 static SERVER_PORT: AtomicU16 = AtomicU16::new(0);
 
-pub async fn start() {
+pub async fn start() -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
-        .expect("[MediaServer] Failed to bind");
-    let port = listener.local_addr().unwrap().port();
+        .map_err(|error| format!("[MediaServer] Failed to bind: {}", error))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("[MediaServer] Failed to get local address: {}", error))?
+        .port();
     SERVER_PORT.store(port, Ordering::Relaxed);
     eprintln!("[MediaServer] Listening on 127.0.0.1:{}", port);
 
@@ -25,10 +28,15 @@ pub async fn start() {
             }
         }
     });
+
+    Ok(port)
 }
 
 pub fn url_for(path: &str) -> String {
     let port = SERVER_PORT.load(Ordering::Relaxed);
+    if port == 0 {
+        return String::new();
+    }
     let encoded = percent_encode(path);
     format!("http://127.0.0.1:{}/?file={}", port, encoded)
 }

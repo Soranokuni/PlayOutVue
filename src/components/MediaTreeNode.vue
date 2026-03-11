@@ -219,6 +219,17 @@ const handleDragStart = (event: DragEvent) => {
 <template>
   <div class="tree-node-wrapper">
     <div
+      v-memo="[
+        node.path,
+        node.expanded,
+        node.probing,
+        node.duration_ms,
+        node.duration,
+        node.defaultComplianceRating,
+        node.libraryIndicator,
+        node.showTechnicalMeta,
+        selectedPath
+      ]"
       class="lib-row"
       :class="{ 'is-folder': node.type === 'folder', 'is-selected': isSelected }"
       :style="{ paddingLeft: (currentDepth * 12 + 6) + 'px' }"
@@ -289,7 +300,12 @@ const handleDragStart = (event: DragEvent) => {
 </template>
 
 <style scoped>
-.tree-node-wrapper { display: flex; flex-direction: column; }
+.tree-node-wrapper {
+  display: flex;
+  flex-direction: column;
+  content-visibility: auto;
+  contain-intrinsic-size: 34px;
+}
 .lib-row {
   display:flex;
   align-items:center;

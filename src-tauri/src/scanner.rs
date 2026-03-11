@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
 use std::collections::HashMap;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 use crate::db::{MediaDb, CachedMediaEntry};
@@ -68,7 +68,7 @@ pub struct MediaProbeStatus {
 
 // ── Managed state wrapper ─────────────────────────────────────────────────────
 
-pub struct DbState(pub Mutex<MediaDb>);
+pub struct DbState(pub MediaDb);
 pub struct MediaProbeState(pub Mutex<MediaProbeStatus>);
 
 impl Default for MediaProbeState {
@@ -95,13 +95,12 @@ fn log_scanner(diagnostics: &DiagnosticState, level: &str, message: impl Into<St
 }
 
 fn update_probe_status(state: &MediaProbeState, update: impl FnOnce(&mut MediaProbeStatus)) {
-    if let Ok(mut status) = state.0.lock() {
-        update(&mut status);
-    }
+    let mut status = state.0.lock();
+    update(&mut status);
 }
 
 fn snapshot_probe_status(state: &MediaProbeState) -> MediaProbeStatus {
-    state.0.lock().map(|status| status.clone()).unwrap_or_default()
+    state.0.lock().clone()
 }
 
 fn get_short_path(path: &str) -> String {
@@ -464,13 +463,10 @@ fn resolve_duration_secs(parsed: &FfprobeOutput) -> f64 {
 fn load_cached_or_probe(
     ffprobe: &str,
     filepath: &str,
-    db_state: &DbState,
+    db: &MediaDb,
     diagnostics: Option<&DiagnosticState>,
 ) -> Result<CachedMediaEntry, String> {
-    let cached = {
-        let db = db_state.0.lock().map_err(|e| e.to_string())?;
-        db.get_valid(filepath)
-    };
+    let cached = db.get_valid(filepath);
 
     if let Some(valid) = cached.as_ref().filter(|entry| entry.duration_ms > 0) {
         return Ok(valid.clone());
@@ -478,9 +474,7 @@ fn load_cached_or_probe(
 
     match run_ffprobe(ffprobe, filepath, diagnostics) {
         Ok(entry) => {
-            if let Ok(db) = db_state.0.lock() {
-                let _ = db.upsert(&entry);
-            }
+            let _ = db.upsert(&entry);
             Ok(entry)
         }
         Err(error) => {
@@ -631,7 +625,7 @@ fn collect_media_files(root: &PathBuf) -> Result<Vec<PathBuf>, String> {
 fn warm_media_files(
     ffprobe: &str,
     files: &[PathBuf],
-    db_state: &DbState,
+    db: &MediaDb,
     diagnostics: &DiagnosticState,
     mut on_progress: impl FnMut(&Path, &WarmMediaCacheResult),
 ) -> Result<WarmMediaCacheResult, String> {
@@ -641,10 +635,7 @@ fn warm_media_files(
         let path_str = file_path.to_string_lossy().into_owned();
         stats.checked += 1;
 
-        let existing = {
-            let db = db_state.0.lock().map_err(|e| e.to_string())?;
-            db.get_valid(&path_str)
-        };
+        let existing = db.get_valid(&path_str);
 
         if existing.as_ref().is_some_and(|entry| entry.duration_ms > 0) {
             stats.skipped += 1;
@@ -652,7 +643,7 @@ fn warm_media_files(
             continue;
         }
 
-        match load_cached_or_probe(ffprobe, &path_str, db_state, Some(diagnostics)) {
+        match load_cached_or_probe(ffprobe, &path_str, db, Some(diagnostics)) {
             Ok(entry) if entry.duration_ms > 0 => {
                 stats.updated += 1;
             }
@@ -673,7 +664,7 @@ fn warm_media_files(
 fn run_background_probe(
     root: &PathBuf,
     ffprobe: &str,
-    db_state: &DbState,
+    db: &MediaDb,
     probe_state: &MediaProbeState,
     diagnostics: &DiagnosticState,
 ) -> Result<WarmMediaCacheResult, String> {
@@ -693,7 +684,7 @@ fn run_background_probe(
         ),
     );
 
-    let stats = warm_media_files(ffprobe, &files, db_state, diagnostics, |file_path, stats| {
+    let stats = warm_media_files(ffprobe, &files, db, diagnostics, |file_path, stats| {
         update_probe_status(probe_state, |status| {
             status.current_file = normalize_display_path(file_path);
             status.checked = stats.checked;
@@ -786,7 +777,7 @@ pub async fn start_media_probe<R: Runtime>(
         let probe_state = app_handle.state::<MediaProbeState>();
         let db_state = app_handle.state::<DbState>();
 
-        if let Err(error) = run_background_probe(&root_clone, &ffprobe_clone, &db_state, &probe_state, &diagnostics) {
+        if let Err(error) = run_background_probe(&root_clone, &ffprobe_clone, &db_state.0, &probe_state, &diagnostics) {
             log_scanner(&diagnostics, "error", format!("Background media probe failed for '{}': {}", normalize_display_path(&root_clone), error));
             update_probe_status(&probe_state, |status| {
                 status.running = false;
@@ -805,25 +796,33 @@ pub async fn start_media_probe<R: Runtime>(
 pub async fn scan_media<R: Runtime>(
     filepath: String,
     app: AppHandle<R>,
-    db_state: State<'_, DbState>,
-    diagnostics: State<'_, DiagnosticState>,
+    _db_state: State<'_, DbState>,
+    _diagnostics: State<'_, DiagnosticState>,
     runtime_settings: State<'_, RuntimeSettingsState>,
 ) -> Result<MediaMetadata, String> {
     let ffprobe = get_ffprobe_path(Some(&app), Some(&runtime_settings));
-    let entry = load_cached_or_probe(&ffprobe, &filepath, &db_state, Some(&diagnostics))?;
-    let dur_secs = entry.duration_ms as f64 / 1000.0;
-    let meta = MediaMetadata {
-        filepath: entry.path.clone(),
-        codec_name: entry.codec.clone(),
-        width:  Some(entry.width as u32),
-        height: Some(entry.height as u32),
-        r_frame_rate: format!("{}/{}", entry.fps_num, entry.fps_den),
-        display_aspect_ratio: entry.display_aspect_ratio.clone(),
-        field_order: entry.field_order.clone(),
-        duration: dur_secs.to_string(),
-    };
+    let app_handle = app.clone();
+    let filepath_clone = filepath.clone();
 
-    Ok(meta)
+    tauri::async_runtime::spawn_blocking(move || {
+        let db_state = app_handle.state::<DbState>();
+        let diagnostics = app_handle.state::<DiagnosticState>();
+        let entry = load_cached_or_probe(&ffprobe, &filepath_clone, &db_state.0, Some(&diagnostics))?;
+        let dur_secs = entry.duration_ms as f64 / 1000.0;
+
+        Ok(MediaMetadata {
+            filepath: entry.path.clone(),
+            codec_name: entry.codec.clone(),
+            width:  Some(entry.width as u32),
+            height: Some(entry.height as u32),
+            r_frame_rate: format!("{}/{}", entry.fps_num, entry.fps_den),
+            display_aspect_ratio: entry.display_aspect_ratio.clone(),
+            field_order: entry.field_order.clone(),
+            duration: dur_secs.to_string(),
+        })
+    })
+    .await
+    .map_err(|error| format!("Media scan worker failed: {}", error))?
 }
 
 /// Scan a directory.  Uses cache for known files, runs ffprobe only on new/changed ones.
@@ -832,80 +831,81 @@ pub async fn scan_directory(
     path: String,
     db_state: State<'_, DbState>,
 ) -> Result<Vec<DiscoveredMedia>, String> {
-    let target_dir = PathBuf::from(&path);
+    let db = db_state.0.clone();
 
-    if !target_dir.exists() || !target_dir.is_dir() {
-        return Err(format!("Directory does not exist: {}", path));
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let target_dir = PathBuf::from(&path);
 
-    let mut results = Vec::new();
+        if !target_dir.exists() || !target_dir.is_dir() {
+            return Err(format!("Directory does not exist: {}", path));
+        }
 
-    fn visit_directory(
-        dir: &PathBuf,
-        root: &PathBuf,
-        db_state: &State<'_, DbState>,
-        results: &mut Vec<DiscoveredMedia>,
-    ) -> Result<(), String> {
-        let entries = std::fs::read_dir(dir)
-            .map_err(|e| format!("Failed to read directory '{}': {}", dir.to_string_lossy(), e))?;
+        let mut results = Vec::new();
 
-        for entry in entries.flatten() {
-            let file_path = entry.path();
+        fn visit_directory(
+            dir: &PathBuf,
+            root: &PathBuf,
+            db: &MediaDb,
+            results: &mut Vec<DiscoveredMedia>,
+        ) -> Result<(), String> {
+            let entries = std::fs::read_dir(dir)
+                .map_err(|e| format!("Failed to read directory '{}': {}", dir.to_string_lossy(), e))?;
 
-            if file_path.is_dir() {
-                if file_path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.eq_ignore_ascii_case(CASPAR_ALIAS_DIR_NAME))
-                    .unwrap_or(false)
-                {
+            for entry in entries.flatten() {
+                let file_path = entry.path();
+
+                if file_path.is_dir() {
+                    if file_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map(|name| name.eq_ignore_ascii_case(CASPAR_ALIAS_DIR_NAME))
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
+
+                    if file_path != *root {
+                        let path_str = file_path.to_string_lossy().into_owned();
+                        let path_fwd = path_str.replace('\\', "/");
+                        results.push(DiscoveredMedia {
+                            filename: file_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                            path: path_fwd.clone(),
+                            short_path: get_short_path(&path_str).replace('\\', "/"),
+                            entry_kind: "folder".to_string(),
+                            media_type: "folder".to_string(),
+                            duration: 0.0,
+                            duration_ms: 0,
+                            width: 0,
+                            height: 0,
+                            codec: String::new(),
+                            fps_num: 0,
+                            fps_den: 1,
+                            display_aspect_ratio: String::new(),
+                            field_order: String::new(),
+                        });
+                    }
+
+                    visit_directory(&file_path, root, db, results)?;
                     continue;
                 }
 
-                if file_path != *root {
-                    let path_str = file_path.to_string_lossy().into_owned();
-                    let path_fwd = path_str.replace('\\', "/");
-                    results.push(DiscoveredMedia {
-                        filename: file_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-                        path: path_fwd.clone(),
-                        short_path: get_short_path(&path_str).replace('\\', "/"),
-                        entry_kind: "folder".to_string(),
-                        media_type: "folder".to_string(),
-                        duration: 0.0,
-                        duration_ms: 0,
-                        width: 0,
-                        height: 0,
-                        codec: String::new(),
-                        fps_num: 0,
-                        fps_den: 1,
-                        display_aspect_ratio: String::new(),
-                        field_order: String::new(),
-                    });
+                if !file_path.is_file() {
+                    continue;
                 }
 
-                visit_directory(&file_path, root, db_state, results)?;
-                continue;
-            }
+                let ext = match file_path.extension().and_then(|e| e.to_str()) {
+                    Some(e) => e.to_lowercase(),
+                    None => continue,
+                };
 
-            if !file_path.is_file() {
-                continue;
-            }
+                if !is_supported_media_extension(&ext) {
+                    continue;
+                }
 
-            let ext = match file_path.extension().and_then(|e| e.to_str()) {
-                Some(e) => e.to_lowercase(),
-                None => continue,
-            };
+                let path_str = file_path.to_string_lossy().into_owned();
+                let path_fwd = path_str.replace('\\', "/");
 
-            if !is_supported_media_extension(&ext) {
-                continue;
-            }
-
-            let path_str = file_path.to_string_lossy().into_owned();
-            let path_fwd = path_str.replace('\\', "/"); // normalise for frontend
-
-            let entry_meta = {
-                let db = db_state.0.lock().map_err(|e| e.to_string())?;
-                db.get_valid(&path_str).unwrap_or(CachedMediaEntry {
+                let entry_meta = db.get_valid(&path_str).unwrap_or(CachedMediaEntry {
                     path: path_str.clone(),
                     duration_ms: 0,
                     width: 0,
@@ -916,40 +916,42 @@ pub async fn scan_directory(
                     display_aspect_ratio: String::new(),
                     field_order: String::new(),
                     timecode_start: "00:00:00:00".to_string(),
-                })
-            };
+                });
 
-            results.push(DiscoveredMedia {
-                filename: file_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-                path: path_fwd,
-                short_path: get_short_path(&path_str).replace('\\', "/"),
-                entry_kind: "file".to_string(),
-                media_type: "video".to_string(),
-                duration:    entry_meta.duration_ms as f64 / 1000.0,
-                duration_ms: entry_meta.duration_ms,
-                width:        entry_meta.width,
-                height:       entry_meta.height,
-                codec:        entry_meta.codec,
-                fps_num:      entry_meta.fps_num,
-                fps_den:      entry_meta.fps_den,
-                display_aspect_ratio: entry_meta.display_aspect_ratio,
-                field_order:  entry_meta.field_order,
-            });
+                results.push(DiscoveredMedia {
+                    filename: file_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                    path: path_fwd,
+                    short_path: get_short_path(&path_str).replace('\\', "/"),
+                    entry_kind: "file".to_string(),
+                    media_type: "video".to_string(),
+                    duration:    entry_meta.duration_ms as f64 / 1000.0,
+                    duration_ms: entry_meta.duration_ms,
+                    width:        entry_meta.width,
+                    height:       entry_meta.height,
+                    codec:        entry_meta.codec,
+                    fps_num:      entry_meta.fps_num,
+                    fps_den:      entry_meta.fps_den,
+                    display_aspect_ratio: entry_meta.display_aspect_ratio,
+                    field_order:  entry_meta.field_order,
+                });
+            }
+
+            Ok(())
         }
 
-        Ok(())
-    }
+        visit_directory(&target_dir, &target_dir, &db, &mut results)?;
 
-    visit_directory(&target_dir, &target_dir, &db_state, &mut results)?;
-
-    results.sort_by(|a, b| {
-        match (a.entry_kind.as_str(), b.entry_kind.as_str()) {
-            ("folder", "file") => std::cmp::Ordering::Less,
-            ("file", "folder") => std::cmp::Ordering::Greater,
-            _ => a.path.to_lowercase().cmp(&b.path.to_lowercase()),
-        }
-    });
-    Ok(results)
+        results.sort_by(|a, b| {
+            match (a.entry_kind.as_str(), b.entry_kind.as_str()) {
+                ("folder", "file") => std::cmp::Ordering::Less,
+                ("file", "folder") => std::cmp::Ordering::Greater,
+                _ => a.path.to_lowercase().cmp(&b.path.to_lowercase()),
+            }
+        });
+        Ok(results)
+    })
+    .await
+    .map_err(|error| format!("Directory scan worker failed: {}", error))?
 }
 
 #[tauri::command]
@@ -961,6 +963,7 @@ pub async fn warm_media_cache<R: Runtime>(
     runtime_settings: State<'_, RuntimeSettingsState>,
 ) -> Result<WarmMediaCacheResult, String> {
     let ffprobe = get_ffprobe_path(Some(&app), Some(&runtime_settings));
+    let db = db_state.0.clone();
     let target_dir = PathBuf::from(&path);
 
     if path.trim().is_empty() {
@@ -971,28 +974,38 @@ pub async fn warm_media_cache<R: Runtime>(
         return Err(format!("Directory does not exist: {}", path));
     }
 
-    let files = collect_media_files(&target_dir)?;
     log_scanner(
         &diagnostics,
         "info",
         format!(
-            "Synchronous media cache warm-up scanning {} file(s) under '{}' using '{}'",
-            files.len(),
+            "Synchronous media cache warm-up requested for '{}' using '{}'",
             normalize_display_path(&target_dir),
             ffprobe
         ),
     );
-    let stats = warm_media_files(&ffprobe, &files, &db_state, &diagnostics, |_file_path, _stats| {})?;
+
+    let app_handle = app.clone();
+    let target_dir_for_log = target_dir.clone();
+
+    let stats = tauri::async_runtime::spawn_blocking(move || {
+        let files = collect_media_files(&target_dir)?;
+        let diagnostics = app_handle.state::<DiagnosticState>();
+        warm_media_files(&ffprobe, &files, &db, &diagnostics, |_file_path, _stats| {})
+    })
+    .await
+    .map_err(|error| format!("Media warm-up worker failed: {}", error))??;
+
     log_scanner(
         &diagnostics,
         "info",
         format!(
             "Synchronous media cache warm-up finished for '{}': checked={}, updated={}, skipped={}",
-            normalize_display_path(&target_dir),
+            normalize_display_path(&target_dir_for_log),
             stats.checked,
             stats.updated,
             stats.skipped
         ),
     );
+
     Ok(stats)
 }
