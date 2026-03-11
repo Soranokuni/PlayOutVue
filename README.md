@@ -378,6 +378,10 @@ This is useful when validating ffprobe resolution, duration cache behavior, or b
 - CasparCG AMCP and OSC integration.
 - FFmpeg/FFprobe-powered media utilities.
 
+##Roadmap
+- Decoupled File Ingestor with Short-GOP H.264 / HEVC Support for better trimming and always in broadcast Compliance, UUID file mapping, .json ffprobe metadata.
+  
+
 ## License
 
 No license has been declared yet in this repository.
