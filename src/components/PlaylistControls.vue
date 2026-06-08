@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { useRundownStore } from '../stores/rundown';
+import { useRundownStore, type PlaylistFile, type AnyPlaylistFile } from '../stores/rundown';
 
 const store = useRundownStore();
 
@@ -24,7 +24,7 @@ const weekdayOptions = [
     { value: 0, label: 'Sun' }
 ];
 
-const suggestedName = computed(() => `${store.currentPlaylistName || 'rundown'}.playout`);
+const suggestedName = computed(() => `${store.currentPlaylistName || 'rundown'}.plx`);
 const playlistStateLabel = computed(() => (store.isCurrentPlaylistOnAir ? 'ON AIR' : 'OFFLINE'));
 
 const totalStr = computed(() => {
@@ -80,15 +80,59 @@ const joinDialogPath = (base: string, fileName: string) => {
 };
 
 const ensurePlaylistExtension = (path: string) => (
-    /\.playout$/i.test(path) ? path : `${path}.playout`
+    /\.(plx|playout|json)$/i.test(path) ? path : `${path}.plx`
 );
+
+const parseLegacyPathList = (raw: string, fallbackName: string): PlaylistFile => {
+    const toFilename = (filepath: string) => {
+        const normalized = filepath.replace(/\\/g, '/');
+        return normalized.split('/').pop() || filepath;
+    };
+
+    const lines = raw
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => !!line && !line.startsWith('#') && !line.startsWith(';'));
+
+    return {
+        version: '1.1',
+        name: fallbackName,
+        created: Date.now(),
+        items: lines.map((path) => ({
+            type: 'video',
+            path,
+            shortPath: path,
+            filename: toFilename(path),
+            libraryIndicator: 'none',
+            duration: 0,
+            seek: 0,
+            length: 0,
+            inPoint: 0,
+            outPoint: 0,
+            plannedDuration: 0,
+            note: '',
+            complianceRating: 'none',
+            complianceDescriptors: [],
+            complianceText: ''
+        }))
+    };
+};
+
+const parsePlaylistPayload = (raw: string, path: string): AnyPlaylistFile => {
+    try {
+        return JSON.parse(raw) as AnyPlaylistFile;
+    } catch {
+        const fallbackName = path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') || 'Imported';
+        return parseLegacyPathList(raw, fallbackName);
+    }
+};
 
 const savePlaylist = async (path: string) => {
     isSaving.value = true;
     try {
-        const name = path.split(/[\\/]/).pop()?.replace(/\.playout$/i, '') || store.currentPlaylistName || 'Rundown';
+        const name = path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') || store.currentPlaylistName || 'Rundown';
         const data = store.serializeRundown(name);
-        const json = JSON.stringify(data, null, 2);
+        const json = JSON.stringify(data);
         await invoke('save_playlist', { path, json });
         lastPlaylistDirectory.value = path.replace(/[\\/][^\\/]+$/, '');
         setStatus(`Saved ${store.currentPlaylistName} to ${path}`);
@@ -103,7 +147,7 @@ const loadPlaylist = async (path: string, append = false) => {
     isLoading.value = true;
     try {
         const json = await invoke<string>('load_playlist', { path });
-        const data = JSON.parse(json);
+        const data = parsePlaylistPayload(json, path);
         store.deserializeRundown(data, append);
         lastPlaylistDirectory.value = path.replace(/[\\/][^\\/]+$/, '');
         setStatus(`${append ? 'Appended' : 'Loaded'} playlist from ${path}`);
@@ -153,7 +197,7 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
         const selection = await save({
             title: 'Save Playlist',
             defaultPath: joinDialogPath(lastPlaylistDirectory.value, suggestedName.value),
-            filters: [{ name: 'PlayOut Playlist', extensions: ['playout'] }]
+            filters: [{ name: 'PlayOut Optimized Playlist', extensions: ['plx'] }]
         });
 
         if (!selection) return;
@@ -165,7 +209,7 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
         title: action === 'append' ? 'Append Playlist' : 'Load Playlist',
         multiple: false,
         defaultPath: lastPlaylistDirectory.value || undefined,
-        filters: [{ name: 'PlayOut Playlist', extensions: ['playout', 'json'] }]
+        filters: [{ name: 'PlayOut Playlists', extensions: ['plx', 'playout', 'json', 'txt', 'lst'] }]
     });
 
     if (!selection || Array.isArray(selection)) return;

@@ -7,6 +7,7 @@ import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import PreviewMonitor from './components/PreviewMonitor.vue';
+import IngestShell from './components/IngestShell.vue';
 import { obs } from './services/obs';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying } from './services/playout';
 import { useSettingsStore } from './stores/settings';
@@ -17,6 +18,7 @@ const rundown  = useRundownStore();
 const isStreaming  = ref(false);
 const isSdiActive  = ref(false);
 const showSettings = ref(false);
+const showIngestShell = useStorage('layout.showIngestShell', false);
 const footerMetaRef = ref<HTMLElement | null>(null);
 const showProductInfo = ref(false);
 const showQuickGuide = ref(false);
@@ -212,7 +214,7 @@ const cutToLive = async () => {
 </script>
 
 <template>
-  <main class="app-shell" :style="{
+  <main v-if="!showIngestShell" class="app-shell" :style="{
     '--left-w': `${leftWidth}px`,
     '--right-w': showRightPanel ? `${rightWidth}px` : '0px',
     '--right-resizer-w': showRightPanel ? '8px' : '0px',
@@ -314,6 +316,10 @@ const cutToLive = async () => {
         {{ showRightPanel ? 'Hide Side' : 'Show Side' }}
       </button>
 
+      <button class="ctrl-btn" style="font-size:0.75rem;" @click="showIngestShell = true">
+        Ingest Shell
+      </button>
+
       <button class="ctrl-btn" style="font-size:0.78rem;" @click="showSettings = true">⚙ Settings</button>
 
       <div class="ctrl-meta-dock" ref="footerMetaRef">
@@ -371,6 +377,10 @@ const cutToLive = async () => {
 
     <SettingsModal :is-open="showSettings" @close="showSettings = false" />
   </main>
+
+  <main v-else class="ingest-shell-host">
+    <IngestShell @close="showIngestShell = false" />
+  </main>
 </template>
 
 <style scoped>
@@ -382,6 +392,10 @@ const cutToLive = async () => {
   height: 100vh; gap: 0; padding: 5px; overflow: hidden;
   background: var(--bg-dark,#0d0d0d);
   user-select: none;
+}
+
+.ingest-shell-host {
+  min-height: 100vh;
 }
 .panel-library  { grid-area: library; overflow:hidden; }
 .panel-rundown  { grid-area: rundown; overflow:hidden; }

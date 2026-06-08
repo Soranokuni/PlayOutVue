@@ -12,12 +12,15 @@ use std::collections::HashSet;
 pub struct CachedMediaEntry {
     pub path: String,
     pub duration_ms: i64,
+    pub trim_in_ms: i64,
+    pub trim_out_ms: i64,
     pub width: i64,
     pub height: i64,
     pub codec: String,
     pub fps_num: i64,
     pub fps_den: i64,
     pub timecode_start: String,
+    pub playoutvue_id: String,
     pub display_aspect_ratio: String,
     pub field_order: String,
 }
@@ -89,23 +92,27 @@ impl MediaDb {
 
         self.with_connection(|conn| {
             let result = conn.query_row(
-                "SELECT duration_ms, width, height, codec, fps_num, fps_den, display_aspect_ratio, field_order, timecode_start,
+                "SELECT duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
+                        display_aspect_ratio, field_order, timecode_start, playoutvue_id,
                         mtime, filesize
                  FROM media_cache WHERE path = ?1",
                 params![normalized_path],
                 |row| {
-                    let db_mtime: i64 = row.get(9)?;
-                    let db_size: i64  = row.get(10)?;
+                    let db_mtime: i64 = row.get(12)?;
+                    let db_size: i64  = row.get(13)?;
                     Ok((
                         row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(3)?,
                         row.get::<_, i64>(4)?,
-                        row.get::<_, i64>(5)?,
-                        row.get::<_, String>(6)?,
-                        row.get::<_, String>(7)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
                         row.get::<_, String>(8)?,
+                        row.get::<_, String>(9)?,
+                        row.get::<_, String>(10)?,
+                        row.get::<_, String>(11)?,
                         db_mtime,
                         db_size,
                     ))
@@ -113,12 +120,14 @@ impl MediaDb {
             );
 
             let entry = match result {
-                Ok((dur, w, h, codec, fps_n, fps_d, dar, field_order, tc, db_mtime, db_size))
+                Ok((dur, trim_in_ms, trim_out_ms, w, h, codec, fps_n, fps_d, dar, field_order, tc, playoutvue_id, db_mtime, db_size))
                     if db_mtime == mtime as i64 && db_size == filesize as i64 =>
                 {
                     Some(CachedMediaEntry {
                         path: normalized_path,
                         duration_ms: dur,
+                        trim_in_ms,
+                        trim_out_ms,
                         width: w,
                         height: h,
                         codec,
@@ -127,6 +136,7 @@ impl MediaDb {
                         display_aspect_ratio: dar,
                         field_order,
                         timecode_start: tc,
+                        playoutvue_id,
                     })
                 }
                 _ => None,
@@ -147,15 +157,16 @@ impl MediaDb {
         self.with_connection(|conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO media_cache
-                 (path, mtime, filesize, duration_ms, width, height, codec, fps_num, fps_den,
-                  display_aspect_ratio, field_order, timecode_start, scanned_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                 (path, mtime, filesize, duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
+                  display_aspect_ratio, field_order, timecode_start, playoutvue_id, scanned_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 params![
                     normalized_path, mtime as i64, filesize as i64,
-                    entry.duration_ms, entry.width, entry.height,
+                    entry.duration_ms, entry.trim_in_ms, entry.trim_out_ms,
+                    entry.width, entry.height,
                     entry.codec, entry.fps_num, entry.fps_den,
                     entry.display_aspect_ratio, entry.field_order,
-                    entry.timecode_start, now
+                    entry.timecode_start, entry.playoutvue_id, now
                 ],
             )
             .map_err(|e| format!("DB upsert failed: {}", e))?;
@@ -189,6 +200,8 @@ fn initialize_media_cache_schema(conn: &Connection) -> Result<(), String> {
              mtime           INTEGER NOT NULL,
              filesize        INTEGER NOT NULL,
              duration_ms     INTEGER NOT NULL DEFAULT 0,
+             trim_in_ms      INTEGER DEFAULT 0,
+             trim_out_ms     INTEGER DEFAULT 0,
              width           INTEGER DEFAULT 0,
              height          INTEGER DEFAULT 0,
              codec           TEXT    DEFAULT '',
@@ -197,6 +210,7 @@ fn initialize_media_cache_schema(conn: &Connection) -> Result<(), String> {
              display_aspect_ratio TEXT DEFAULT '',
              field_order     TEXT    DEFAULT '',
              timecode_start  TEXT    DEFAULT '00:00:00:00',
+             playoutvue_id   TEXT    DEFAULT '',
              scanned_at      INTEGER NOT NULL
          );",
     )
@@ -227,6 +241,18 @@ fn ensure_media_cache_columns(conn: &Connection) -> Result<(), String> {
         (
             "field_order",
             "ALTER TABLE media_cache ADD COLUMN field_order TEXT DEFAULT ''",
+        ),
+        (
+            "playoutvue_id",
+            "ALTER TABLE media_cache ADD COLUMN playoutvue_id TEXT DEFAULT ''",
+        ),
+        (
+            "trim_in_ms",
+            "ALTER TABLE media_cache ADD COLUMN trim_in_ms INTEGER DEFAULT 0",
+        ),
+        (
+            "trim_out_ms",
+            "ALTER TABLE media_cache ADD COLUMN trim_out_ms INTEGER DEFAULT 0",
         ),
     ] {
         if existing.contains(name) {

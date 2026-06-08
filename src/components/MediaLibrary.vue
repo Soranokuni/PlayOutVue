@@ -15,7 +15,17 @@ const settings = useSettingsStore();
 const mediaDefaults = useMediaDefaultsStore();
 
 const showTrimPanel = ref(false);
-const trimLibraryItem = ref<{ path: string, filename: string, type: string, duration?: number } | null>(null);
+const trimLibraryItem = ref<{ path: string, filename: string, type: string, duration?: number, inPoint?: number, outPoint?: number } | null>(null);
+
+interface RelinkCandidate {
+    playoutvueId: string;
+    path: string;
+    shortPath?: string;
+    filename?: string;
+    duration?: number;
+    trimInMs?: number;
+    trimOutMs?: number;
+}
 
 interface MediaNode {
     name: string;
@@ -23,8 +33,11 @@ interface MediaNode {
     shortPath?: string;
     type: 'file' | 'folder';
     mediaType?: 'video' | 'live' | 'graphic';
+    playoutvueId?: string;
     defaultComplianceRating?: ComplianceRating;
     libraryIndicator?: LibraryIndicator;
+    inPoint?: number;
+    outPoint?: number;
     width?: number;
     height?: number;
     fpsNum?: number;
@@ -121,12 +134,18 @@ const getDefaultCompliance = (path: string) => mediaDefaults.getCompliance(path)
 const getDefaultIndicator = (path: string) => mediaDefaults.getIndicator(path);
 
 const makeRundownDraft = (node: MediaNode) => ({
+    playoutvueId: node.playoutvueId || undefined,
+    inPoint: node.inPoint || 0,
+    outPoint: node.outPoint || 0,
     filename: node.name,
     path: node.path,
     shortPath: node.shortPath || '',
     type: node.mediaType || 'video',
     libraryIndicator: getDefaultIndicator(node.path),
     duration: getNodeDurationSeconds(node),
+    plannedDuration: node.outPoint && (node.outPoint > (node.inPoint || 0))
+        ? (node.outPoint - (node.inPoint || 0)) / 1000
+        : getNodeDurationSeconds(node),
     seek: 0,
     length: 0,
     complianceRating: getDefaultCompliance(node.path)
@@ -202,6 +221,28 @@ const filterTree = (nodes: MediaNode[], query: string): MediaNode[] => {
 
 const countFiles = (nodes: MediaNode[]): number =>
     nodes.reduce((count, node) => count + (node.type === 'file' ? 1 : countFiles(node.children || [])), 0);
+
+const collectRelinkCandidates = (nodes: MediaNode[], acc: RelinkCandidate[] = []): RelinkCandidate[] => {
+    for (const node of nodes) {
+        if (node.type === 'file' && node.playoutvueId && node.path) {
+            acc.push({
+                playoutvueId: node.playoutvueId,
+                path: node.path,
+                shortPath: node.shortPath || node.path,
+                filename: node.name,
+                duration: getNodeDurationSeconds(node),
+                trimInMs: node.inPoint || 0,
+                trimOutMs: node.outPoint || 0
+            });
+        }
+
+        if (node.children?.length) {
+            collectRelinkCandidates(node.children, acc);
+        }
+    }
+
+    return acc;
+};
 
 const visibleTree = computed(() => filterTree(tree.value, debouncedLibraryQuery.value.trim().toLowerCase()));
 const visibleFileCount = computed(() => countFiles(visibleTree.value));
@@ -424,6 +465,9 @@ const buildTree = async (dirPath: string): Promise<MediaNode[]> => {
             short_path: string,
             entry_kind: 'file' | 'folder',
             media_type: string,
+            playoutvue_id?: string,
+            trim_in_ms?: number,
+            trim_out_ms?: number,
             duration: number,
             duration_ms?: number,
             width?: number,
@@ -465,6 +509,9 @@ const buildTree = async (dirPath: string): Promise<MediaNode[]> => {
                 shortPath: f.short_path || '',
                 type: 'file',
                 mediaType: f.media_type as any,
+                playoutvueId: f.playoutvue_id || '',
+                inPoint: f.trim_in_ms || 0,
+                outPoint: f.trim_out_ms || 0,
                 defaultComplianceRating: getDefaultCompliance(f.path || ''),
                 libraryIndicator: getDefaultIndicator(f.path || ''),
                 duration: f.duration || 0,
@@ -578,6 +625,11 @@ const rescanLibrary = async (options: RescanOptions = {}) => {
         });
         nodes.push({ name: 'External_Network_Stream.m3u8', path: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', type: 'file', mediaType: 'video' });
         tree.value = nodes;
+
+        const relinkedCount = store.relinkItemsByStableId(collectRelinkCandidates(nodes));
+        if (relinkedCount > 0) {
+            console.info(`[Library] Relinked ${relinkedCount} rundown item(s) by stable media id.`);
+        }
     } catch (e) {
         console.warn('[Library] rescanLibrary failed:', e);
         tree.value = [
@@ -686,11 +738,14 @@ const addWebStream = async () => {
 const onDragStart = (event: DragEvent, node: MediaNode) => {
     selectLibraryNode(node);
     const payload = {
+        playoutvueId: node.playoutvueId || undefined,
         filename: node.name,
         path: node.path,
         shortPath: node.shortPath || '',
         type: node.mediaType || 'video',
         libraryIndicator: getDefaultIndicator(node.path),
+        inPoint: node.inPoint || 0,
+        outPoint: node.outPoint || 0,
         duration: getNodeDurationSeconds(node), seek: 0, length: 0,
         complianceRating: getDefaultCompliance(node.path)
     };
@@ -742,7 +797,9 @@ const openTrimPanel = () => {
             path: contextMenu.value.node.path,
             filename: contextMenu.value.node.name,
             type: contextMenu.value.node.mediaType || 'video',
-            duration: contextMenu.value.node.duration || 0
+            duration: contextMenu.value.node.duration || 0,
+            inPoint: contextMenu.value.node.inPoint || 0,
+            outPoint: contextMenu.value.node.outPoint || 0
         };
         showTrimPanel.value = true;
     }

@@ -17,6 +17,10 @@ const FRAME_MS = 40;
 const PAL_FPS = 25;
 const RECONNECT_BASE_DELAY_MS = 750;
 const RECONNECT_MAX_DELAY_MS = 15_000;
+const RECONNECT_FOREGROUND_ATTEMPTS = 6;
+const HEARTBEAT_INTERVAL_MS = 5_000;
+
+const jitter = () => Math.floor(Math.random() * 201) - 100;
 
 interface CasparOscPayload {
     address: string;
@@ -46,6 +50,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
 let reconnectRequested = false;
 let reconnectInFlight: Promise<void> | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 const isProgramFileTimeAddress = (address: string) => {
     const normalized = (address || '').trim();
@@ -94,6 +99,20 @@ const clearReconnectTimer = () => {
     reconnectTimer = null;
 };
 
+const startHeartbeat = () => {
+    if (heartbeatTimer) return;
+    heartbeatTimer = setInterval(() => {
+        if (!isCasparConnected.value || reconnectInFlight) return;
+        sendRawCommandCore('INFO').catch(() => {});
+    }, HEARTBEAT_INTERVAL_MS);
+};
+
+const stopHeartbeat = () => {
+    if (!heartbeatTimer) return;
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+};
+
 const markDisconnected = (reason: string, error?: unknown) => {
     if (error) {
         console.warn(`[CasparCG] ${reason}`, error);
@@ -102,6 +121,7 @@ const markDisconnected = (reason: string, error?: unknown) => {
     }
 
     isCasparConnected.value = false;
+    stopHeartbeat();
     if (reconnectRequested) {
         scheduleReconnect();
     }
@@ -468,7 +488,7 @@ const buildPlayVideoCommand = async (item: PlayoutItem) => {
 
 const buildLiveCommand = (preferredSource?: string) => {
     const source = (preferredSource || getSettingsSnapshot().liveInputSourceName || '').trim();
-    if (!source || source === 'SOTA_Live') return '';
+    if (!source) return '';
     return source ? `PLAY ${PROGRAM_CHANNEL}-${LIVE_LAYER} ${source}` : '';
 };
 
@@ -512,6 +532,7 @@ const performHandshake = async () => {
     isCasparConnected.value = true;
     reconnectAttempt = 0;
     clearReconnectTimer();
+    startHeartbeat();
     await casparPlayoutService.syncBrandingAssets?.();
     await casparPlayoutService.clearCompliance?.();
 };
@@ -520,19 +541,23 @@ const runReconnectAttempt = async (foreground: boolean) => {
     if (reconnectInFlight) return reconnectInFlight;
 
     reconnectInFlight = (async () => {
-        const attempts = foreground ? 4 : 1;
+        const attempts = foreground ? RECONNECT_FOREGROUND_ATTEMPTS : 1;
         let lastError: unknown;
 
         for (let attempt = 0; attempt < attempts; attempt += 1) {
             try {
+                stopHeartbeat();
                 await performHandshake();
                 return;
             } catch (error) {
                 lastError = error;
                 isCasparConnected.value = false;
                 if (foreground && attempt < attempts - 1) {
-                    const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** attempt, RECONNECT_MAX_DELAY_MS);
-                    await wait(delay);
+                    const delay = Math.min(
+                        RECONNECT_BASE_DELAY_MS * 2 ** attempt + jitter(),
+                        RECONNECT_MAX_DELAY_MS
+                    );
+                    await wait(Math.max(RECONNECT_BASE_DELAY_MS, delay));
                 }
             }
         }
@@ -550,9 +575,10 @@ const runReconnectAttempt = async (foreground: boolean) => {
 
 function scheduleReconnect() {
     if (!reconnectRequested || reconnectTimer || reconnectInFlight) return;
-    const delay = reconnectAttempt === 0
+    const baseDelay = reconnectAttempt === 0
         ? RECONNECT_BASE_DELAY_MS
         : Math.min(RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempt, RECONNECT_MAX_DELAY_MS);
+    const delay = Math.max(RECONNECT_BASE_DELAY_MS, baseDelay + jitter());
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         reconnectAttempt += 1;
@@ -569,10 +595,18 @@ const sendRawCommand = async (cmd: string) => {
             isCasparConnected.value = true;
             reconnectAttempt = 0;
             clearReconnectTimer();
+            startHeartbeat();
         }
         return response;
     } catch (error) {
-        markDisconnected(`AMCP command failed: ${cmd.split(' ')[0] || 'UNKNOWN'}`, error);
+        const message = String(error || '');
+        const isTransportError =
+            /timed out|connect|econnreset|econnrefused|broken pipe|connection refused/i.test(message);
+        if (isTransportError) {
+            markDisconnected(`AMCP transport error: ${cmd.split(' ')[0] || 'UNKNOWN'}`, error);
+        } else {
+            console.warn(`[CasparCG] AMCP application error on ${cmd.split(' ')[0] || 'UNKNOWN'}:`, error);
+        }
         throw error;
     }
 };
@@ -593,6 +627,7 @@ const playAt = async (index: number, token: number) => {
             throw new Error('No CasparCG live source configured. Set a Live Input Source in Settings.');
         }
         const durationMs = itemDurationMs(item);
+        await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${LIVE_LAYER}`);
         await sendRawCommand(liveCommand);
         isCasparPlaying.value = true;
         syncClockBase(0);
@@ -655,6 +690,7 @@ export const casparPlayoutService: PlayoutService = {
     async disconnect() {
         reconnectRequested = false;
         clearReconnectTimer();
+        stopHeartbeat();
         reconnectAttempt = 0;
         await this.stop();
         isCasparConnected.value = false;
@@ -744,6 +780,7 @@ export const casparPlayoutService: PlayoutService = {
         if (!liveCommand) {
             throw new Error('No CasparCG live source configured. Set a Live Input Source in Settings.');
         }
+        await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${LIVE_LAYER}`);
         await sendRawCommand(liveCommand);
         isCasparPlaying.value = true;
         syncClockBase(0);
@@ -836,13 +873,27 @@ export const casparPlayoutService: PlayoutService = {
         if (!isCasparConnected.value) await this.connect();
         const deviceMatch = outputName.match(/\d+/);
         const deviceId = deviceMatch ? deviceMatch[0] : '1';
-        await sendRawCommand(`ADD 1 DECKLINK ${deviceId}`);
+        const settings = getSettingsSnapshot();
+        const cmdParts = [`ADD ${PROGRAM_CHANNEL} DECKLINK ${deviceId}`];
+        if (settings.decklinkEmbeddedAudio) cmdParts.push('EMBEDDED_AUDIO');
+        if (settings.decklinkLatency && settings.decklinkLatency !== 'normal') cmdParts.push(`LATENCY_${settings.decklinkLatency.toUpperCase()}`);
+        if (settings.decklinkKeyer && settings.decklinkKeyer !== 'external') cmdParts.push(`KEYER_${settings.decklinkKeyer.toUpperCase()}`);
+        if (settings.decklinkBufferDepth && settings.decklinkBufferDepth !== 3) cmdParts.push(`BUFFER_DEPTH ${settings.decklinkBufferDepth}`);
+        if (settings.decklinkKeyDevice && settings.decklinkKeyDevice > 0) cmdParts.push(`KEY_DEVICE ${settings.decklinkKeyDevice}`);
+        await sendRawCommand(`REMOVE ${PROGRAM_CHANNEL} DECKLINK ${deviceId}`);
+        await sendRawCommand(cmdParts.join(' '));
     },
 
     async stopDeckLink(outputName: string) {
         if (!isCasparConnected.value) await this.connect();
         const deviceMatch = outputName.match(/\d+/);
         const deviceId = deviceMatch ? deviceMatch[0] : '1';
-        await sendRawCommand(`REMOVE 1 DECKLINK ${deviceId}`);
+        await sendRawCommand(`REMOVE ${PROGRAM_CHANNEL} DECKLINK ${deviceId}`);
+        try {
+            const info = await sendRawCommand(`INFO ${PROGRAM_CHANNEL}`);
+            if (info.toLowerCase().includes(`decklink ${deviceId}`)) {
+                console.warn(`[CasparCG] DeckLink ${deviceId} may still be active after REMOVE`);
+            }
+        } catch {}
     }
 };

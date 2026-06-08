@@ -2,10 +2,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::collections::HashMap;
 use parking_lot::Mutex;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 use crate::db::{MediaDb, CachedMediaEntry};
 use crate::diagnostics::DiagnosticState;
+use crate::media_index;
 use crate::runtime_settings::{resolve_tool_path, RuntimeSettingsState};
 
 #[cfg(target_os = "windows")]
@@ -17,6 +19,9 @@ use std::os::windows::process::CommandExt;
 pub struct MediaMetadata {
     pub filepath: String,
     pub codec_name: String,
+    pub playoutvue_id: String,
+    pub trim_in_ms: i64,
+    pub trim_out_ms: i64,
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub r_frame_rate: String,
@@ -32,6 +37,9 @@ pub struct DiscoveredMedia {
     pub short_path: String,
     pub entry_kind: String,
     pub media_type: String,
+    pub playoutvue_id: String,
+    pub trim_in_ms: i64,
+    pub trim_out_ms: i64,
     pub duration: f64,      // seconds
     pub duration_ms: i64,
     pub width: i64,
@@ -460,20 +468,111 @@ fn resolve_duration_secs(parsed: &FfprobeOutput) -> f64 {
         .unwrap_or(0.0)
 }
 
+fn extract_playoutvue_id(candidate: &str) -> Option<String> {
+    let expression = Regex::new(r"playoutvue_id:([0-9a-fA-F-]{36})").ok()?;
+    expression
+        .captures(candidate)
+        .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+}
+
+fn resolve_playoutvue_id(parsed: &FfprobeOutput) -> String {
+    let mut candidates = Vec::new();
+
+    if let Some(tags) = &parsed.format.tags {
+        if let Some(comment) = tags
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("comment"))
+            .map(|(_, value)| value.as_str())
+        {
+            candidates.push(comment.to_string());
+        }
+    }
+
+    for stream in &parsed.streams {
+        if let Some(tags) = &stream.tags {
+            if let Some(comment) = tags
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("comment"))
+                .map(|(_, value)| value.as_str())
+            {
+                candidates.push(comment.to_string());
+            }
+        }
+    }
+
+    candidates
+        .iter()
+        .find_map(|value| extract_playoutvue_id(value))
+        .unwrap_or_default()
+}
+
 fn load_cached_or_probe(
     ffprobe: &str,
     filepath: &str,
     db: &MediaDb,
     diagnostics: Option<&DiagnosticState>,
+    media_root: Option<&Path>,
 ) -> Result<CachedMediaEntry, String> {
+    let resolved_media_root = media_root
+        .map(|path| path.to_path_buf())
+        .or_else(|| media_index::find_media_root_for_path(Path::new(filepath)));
+
     let cached = db.get_valid(filepath);
 
     if let Some(valid) = cached.as_ref().filter(|entry| entry.duration_ms > 0) {
-        return Ok(valid.clone());
+        let mut enriched = valid.clone();
+        if let Some(root) = resolved_media_root.as_deref() {
+            if let Ok(changed) = media_index::enrich_entry_from_index_by_alias(root, Path::new(filepath), &mut enriched) {
+                if changed {
+                    let _ = db.upsert(&enriched);
+                }
+            }
+        }
+        return Ok(enriched);
+    }
+
+    if let Some(root) = resolved_media_root.as_deref() {
+        match media_index::hydrate_entry_from_index(root, Path::new(filepath)) {
+            Ok(Some(indexed_entry)) => {
+                let _ = db.upsert(&indexed_entry);
+                if let Some(diagnostics) = diagnostics {
+                    log_scanner(
+                        diagnostics,
+                        "info",
+                        format!(
+                            "Resolved metadata from portable JSON index for '{}'",
+                            filepath.replace('\\', "/")
+                        ),
+                    );
+                }
+                return Ok(indexed_entry);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                if let Some(diagnostics) = diagnostics {
+                    log_scanner(
+                        diagnostics,
+                        "warn",
+                        format!(
+                            "Portable JSON metadata lookup failed for '{}': {}",
+                            filepath.replace('\\', "/"),
+                            error
+                        ),
+                    );
+                }
+            }
+        }
     }
 
     match run_ffprobe(ffprobe, filepath, diagnostics) {
-        Ok(entry) => {
+        Ok(mut entry) => {
+            if let Some(root) = resolved_media_root.as_deref() {
+                if let Ok(stable_id) = media_index::upsert_entry(root, Path::new(filepath), &entry) {
+                    if !stable_id.trim().is_empty() {
+                        entry.playoutvue_id = stable_id;
+                    }
+                }
+            }
             let _ = db.upsert(&entry);
             Ok(entry)
         }
@@ -519,6 +618,7 @@ fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticSta
 
     let vstream = parsed.streams.iter().find(|s| s.codec_type == "video");
     let duration_secs = resolve_duration_secs(&parsed);
+    let playoutvue_id = resolve_playoutvue_id(&parsed);
     let raw_display_aspect_ratio = vstream.and_then(|stream| stream.display_aspect_ratio.clone());
     let raw_field_order = vstream.and_then(|stream| stream.field_order.clone());
     let display_aspect_ratio = sanitize_display_aspect_ratio(raw_display_aspect_ratio.clone());
@@ -553,6 +653,8 @@ fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticSta
     Ok(CachedMediaEntry {
         path: filepath.to_string(),
         duration_ms: (duration_secs * 1000.0).round() as i64,
+        trim_in_ms: 0,
+        trim_out_ms: 0,
         width:  vstream.and_then(|s| s.width).unwrap_or(0) as i64,
         height: vstream.and_then(|s| s.height).unwrap_or(0) as i64,
         codec:  vstream.and_then(|s| s.codec_name.clone()).unwrap_or_default(),
@@ -561,6 +663,7 @@ fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticSta
         display_aspect_ratio,
         field_order,
         timecode_start: "00:00:00:00".to_string(),
+        playoutvue_id,
     })
 }
 
@@ -626,6 +729,7 @@ fn warm_media_files(
     ffprobe: &str,
     files: &[PathBuf],
     db: &MediaDb,
+    media_root: &Path,
     diagnostics: &DiagnosticState,
     mut on_progress: impl FnMut(&Path, &WarmMediaCacheResult),
 ) -> Result<WarmMediaCacheResult, String> {
@@ -643,7 +747,7 @@ fn warm_media_files(
             continue;
         }
 
-        match load_cached_or_probe(ffprobe, &path_str, db, Some(diagnostics)) {
+        match load_cached_or_probe(ffprobe, &path_str, db, Some(diagnostics), Some(media_root)) {
             Ok(entry) if entry.duration_ms > 0 => {
                 stats.updated += 1;
             }
@@ -684,7 +788,7 @@ fn run_background_probe(
         ),
     );
 
-    let stats = warm_media_files(ffprobe, &files, db, diagnostics, |file_path, stats| {
+    let stats = warm_media_files(ffprobe, &files, db, root.as_path(), diagnostics, |file_path, stats| {
         update_probe_status(probe_state, |status| {
             status.current_file = normalize_display_path(file_path);
             status.checked = stats.checked;
@@ -807,12 +911,22 @@ pub async fn scan_media<R: Runtime>(
     tauri::async_runtime::spawn_blocking(move || {
         let db_state = app_handle.state::<DbState>();
         let diagnostics = app_handle.state::<DiagnosticState>();
-        let entry = load_cached_or_probe(&ffprobe, &filepath_clone, &db_state.0, Some(&diagnostics))?;
+        let media_root = media_index::find_media_root_for_path(Path::new(&filepath_clone));
+        let entry = load_cached_or_probe(
+            &ffprobe,
+            &filepath_clone,
+            &db_state.0,
+            Some(&diagnostics),
+            media_root.as_deref(),
+        )?;
         let dur_secs = entry.duration_ms as f64 / 1000.0;
 
         Ok(MediaMetadata {
             filepath: entry.path.clone(),
             codec_name: entry.codec.clone(),
+            playoutvue_id: entry.playoutvue_id.clone(),
+            trim_in_ms: entry.trim_in_ms,
+            trim_out_ms: entry.trim_out_ms,
             width:  Some(entry.width as u32),
             height: Some(entry.height as u32),
             r_frame_rate: format!("{}/{}", entry.fps_num, entry.fps_den),
@@ -823,6 +937,65 @@ pub async fn scan_media<R: Runtime>(
     })
     .await
     .map_err(|error| format!("Media scan worker failed: {}", error))?
+}
+
+#[tauri::command]
+pub fn save_media_trim_profile(
+    path: String,
+    in_ms: i64,
+    out_ms: i64,
+    db_state: State<'_, DbState>,
+) -> Result<(), String> {
+    let trimmed_path = path.trim();
+    if trimmed_path.is_empty() {
+        return Err("Path is required".to_string());
+    }
+
+    if in_ms < 0 || out_ms < 0 {
+        return Err("Trim points must be non-negative".to_string());
+    }
+
+    if out_ms > 0 && out_ms <= in_ms {
+        return Err("OUT must be greater than IN when provided".to_string());
+    }
+
+    let file_path = PathBuf::from(trimmed_path);
+    if !file_path.is_file() {
+        return Err(format!("File does not exist: {}", trimmed_path));
+    }
+
+    let media_root = media_index::find_media_root_for_path(&file_path)
+        .or_else(|| file_path.parent().map(|parent| parent.to_path_buf()))
+        .ok_or_else(|| format!("Failed to resolve media root for '{}'", trimmed_path))?;
+
+    media_index::save_trim_profile(&media_root, &file_path, in_ms, out_ms)?;
+
+    let normalized_path = file_path.to_string_lossy().into_owned();
+    let mut entry = db_state
+        .0
+        .get_valid(&normalized_path)
+        .or_else(|| media_index::hydrate_entry_from_index(&media_root, &file_path).ok().flatten())
+        .unwrap_or(CachedMediaEntry {
+            path: normalized_path.clone(),
+            duration_ms: 0,
+            trim_in_ms: 0,
+            trim_out_ms: 0,
+            width: 0,
+            height: 0,
+            codec: String::new(),
+            fps_num: 25,
+            fps_den: 1,
+            display_aspect_ratio: String::new(),
+            field_order: String::new(),
+            timecode_start: "00:00:00:00".to_string(),
+            playoutvue_id: String::new(),
+        });
+
+    entry.path = normalized_path;
+    entry.trim_in_ms = in_ms;
+    entry.trim_out_ms = out_ms;
+    let _ = db_state.0.upsert(&entry);
+    Ok(())
 }
 
 /// Scan a directory.  Uses cache for known files, runs ffprobe only on new/changed ones.
@@ -873,6 +1046,9 @@ pub async fn scan_directory(
                             short_path: get_short_path(&path_str).replace('\\', "/"),
                             entry_kind: "folder".to_string(),
                             media_type: "folder".to_string(),
+                            playoutvue_id: String::new(),
+                            trim_in_ms: 0,
+                            trim_out_ms: 0,
                             duration: 0.0,
                             duration_ms: 0,
                             width: 0,
@@ -905,9 +1081,11 @@ pub async fn scan_directory(
                 let path_str = file_path.to_string_lossy().into_owned();
                 let path_fwd = path_str.replace('\\', "/");
 
-                let entry_meta = db.get_valid(&path_str).unwrap_or(CachedMediaEntry {
+                let mut entry_meta = db.get_valid(&path_str).unwrap_or(CachedMediaEntry {
                     path: path_str.clone(),
                     duration_ms: 0,
+                    trim_in_ms: 0,
+                    trim_out_ms: 0,
                     width: 0,
                     height: 0,
                     codec: String::new(),
@@ -916,7 +1094,23 @@ pub async fn scan_directory(
                     display_aspect_ratio: String::new(),
                     field_order: String::new(),
                     timecode_start: "00:00:00:00".to_string(),
+                    playoutvue_id: String::new(),
                 });
+
+                if entry_meta.duration_ms <= 0 {
+                    let index_root = media_index::find_media_root_for_path(&file_path).unwrap_or_else(|| root.clone());
+                    if let Ok(Some(indexed_entry)) = media_index::hydrate_entry_from_index(index_root.as_path(), &file_path) {
+                        let _ = db.upsert(&indexed_entry);
+                        entry_meta = indexed_entry;
+                    }
+                }
+
+                let index_root = media_index::find_media_root_for_path(&file_path).unwrap_or_else(|| root.clone());
+                if let Ok(changed) = media_index::enrich_entry_from_index_by_alias(index_root.as_path(), &file_path, &mut entry_meta) {
+                    if changed {
+                        let _ = db.upsert(&entry_meta);
+                    }
+                }
 
                 results.push(DiscoveredMedia {
                     filename: file_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
@@ -924,6 +1118,9 @@ pub async fn scan_directory(
                     short_path: get_short_path(&path_str).replace('\\', "/"),
                     entry_kind: "file".to_string(),
                     media_type: "video".to_string(),
+                    playoutvue_id: entry_meta.playoutvue_id.clone(),
+                    trim_in_ms: entry_meta.trim_in_ms,
+                    trim_out_ms: entry_meta.trim_out_ms,
                     duration:    entry_meta.duration_ms as f64 / 1000.0,
                     duration_ms: entry_meta.duration_ms,
                     width:        entry_meta.width,
@@ -990,7 +1187,7 @@ pub async fn warm_media_cache<R: Runtime>(
     let stats = tauri::async_runtime::spawn_blocking(move || {
         let files = collect_media_files(&target_dir)?;
         let diagnostics = app_handle.state::<DiagnosticState>();
-        warm_media_files(&ffprobe, &files, &db, &diagnostics, |_file_path, _stats| {})
+        warm_media_files(&ffprobe, &files, &db, target_dir.as_path(), &diagnostics, |_file_path, _stats| {})
     })
     .await
     .map_err(|error| format!("Media warm-up worker failed: {}", error))??;

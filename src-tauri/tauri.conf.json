@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg.ps1 && powershell -ExecutionPolicy Bypass -File scripts/download-vcredist.ps1 && npm run build"
   },
   "app": {
     "windows": [
@@ -35,6 +35,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "../Requirements/ffmpeg/bin/*": "Requirements/ffmpeg/bin/",
+      "../Requirements/vcredist/*": "Requirements/vcredist/"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    }
   }
 }

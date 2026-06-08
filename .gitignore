@@ -39,5 +39,12 @@ __screenshots__/
 *.timestamp-*-*.mjs
 
 # PlayOut Specific
-Requirements/
-/Requirements
+Requirements/OBS STUDIO/
+/Requirements/OBS STUDIO
+Requirements/ffmpeg/bin/ffmpeg.exe
+Requirements/ffmpeg/bin/ffprobe.exe
+Requirements/ffmpeg/bin/ffplay.exe
+Requirements/ffmpeg/doc/
+Requirements/ffmpeg/presets/
+Requirements/ffmpeg/LICENSE.txt
+Requirements/vcredist/VC_redist.x64.exe
