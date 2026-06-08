@@ -1,6 +1,7 @@
 use quick_xml::{de::from_str, se::to_string};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "configuration")]
@@ -288,6 +289,27 @@ pub struct CasparConfigLoadResult {
     pub config: CasparConfiguration,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckLinkApplyPayload {
+    pub path: String,
+    pub channel_index: usize,
+    pub output_device: i32,
+    pub key_device: Option<i32>,
+    pub embedded_audio: Option<bool>,
+    pub buffer_depth: Option<i32>,
+    pub latency: Option<String>,
+    pub keyer: Option<String>,
+    pub video_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DeckLinkApplyResult {
+    pub backup_path: String,
+    pub raw_xml: String,
+    pub channel_index: usize,
+    pub output_device: i32,
+}
+
 #[tauri::command]
 pub async fn find_default_caspar_config() -> Option<String> {
     default_config_candidates()
@@ -338,14 +360,135 @@ pub async fn save_caspar_config_structured(path: String, config: CasparConfigura
     Ok(xml)
 }
 
-fn write_config_file(path: &Path, contents: String) -> Result<(), String> {
+#[tauri::command]
+pub async fn apply_caspar_decklink_config(payload: DeckLinkApplyPayload) -> Result<DeckLinkApplyResult, String> {
+    let target_path = resolve_requested_path(Some(payload.path))?;
+    let mut config = if target_path.exists() {
+        let raw_xml = std::fs::read_to_string(&target_path)
+            .map_err(|error| format!("Failed to read CasparCG config '{}': {}", target_path.display(), error))?;
+        from_str::<CasparConfiguration>(&raw_xml)
+            .map_err(|error| format!("Failed to parse CasparCG config '{}': {}", target_path.display(), error))?
+    } else {
+        CasparConfiguration::default()
+    };
+
+    while config.channels.channels.len() <= payload.channel_index {
+        config.channels.channels.push(CasparChannel::default());
+    }
+
+    let channel = &mut config.channels.channels[payload.channel_index];
+
+    if let Some(ref video_mode) = payload.video_mode {
+        if !video_mode.trim().is_empty() {
+            channel.video_mode = Some(video_mode.trim().to_string());
+        }
+    }
+
+    let decklink = CasparDecklinkConsumer {
+        device: Some(payload.output_device),
+        key_device: payload.key_device,
+        embedded_audio: payload.embedded_audio,
+        buffer_depth: payload.buffer_depth,
+        latency: payload.latency,
+        keyer: payload.keyer,
+        key_only: Some(false),
+    };
+
+    channel.consumers.decklinks = vec![decklink];
+
+    let backup_path = backup_config(&target_path)?;
+    let xml = serialize_config(&config)?;
+    write_config_file_atomic(&target_path, xml.clone())?;
+
+    Ok(DeckLinkApplyResult {
+        backup_path: backup_path.to_string_lossy().into_owned(),
+        raw_xml: xml,
+        channel_index: payload.channel_index,
+        output_device: payload.output_device,
+    })
+}
+
+#[tauri::command]
+pub async fn caspar_test_connection() -> Result<String, String> {
+    use tokio::net::TcpStream;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::time::timeout;
+    use std::time::Duration;
+
+    let mut stream = timeout(
+        Duration::from_millis(1500),
+        TcpStream::connect("127.0.0.1:5250"),
+    )
+    .await
+    .map_err(|_| "Connection to CasparCG timed out".to_string())?
+    .map_err(|error| format!("Failed to connect to CasparCG: {}", error))?;
+
+    timeout(
+        Duration::from_millis(1500),
+        stream.write_all(b"INFO\r\n"),
+    )
+    .await
+    .map_err(|_| "Timed out sending test command".to_string())?
+    .map_err(|error| format!("Failed to send test command: {}", error))?;
+
+    let mut response = Vec::new();
+    let mut chunk = [0_u8; 4096];
+
+    loop {
+        match timeout(Duration::from_millis(500), stream.read(&mut chunk)).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(read)) => {
+                response.extend_from_slice(&chunk[..read]);
+                if read < chunk.len() {
+                    break;
+                }
+            }
+            Ok(Err(error)) => return Err(format!("Read error: {}", error)),
+            Err(_) => break,
+        }
+    }
+
+    Ok(String::from_utf8_lossy(&response).trim().to_string())
+}
+
+fn backup_config(path: &Path) -> Result<PathBuf, String> {
+    if !path.exists() {
+        return Ok(path.to_path_buf());
+    }
+
+    let timestamp = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("casparcg");
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("config");
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+
+    let backup_name = format!("{}.{}.{}.bak", stem, timestamp, ext);
+    let backup_path = parent.join(backup_name);
+
+    std::fs::copy(path, &backup_path)
+        .map_err(|error| format!("Failed to backup config to '{}': {}", backup_path.display(), error))?;
+
+    Ok(backup_path)
+}
+
+fn write_config_file_atomic(path: &Path, contents: String) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("Failed to create config directory '{}': {}", parent.display(), error))?;
     }
 
-    std::fs::write(path, contents)
-        .map_err(|error| format!("Failed to save CasparCG config '{}': {}", path.display(), error))
+    let tmp_path = path.with_extension("config.tmp");
+    std::fs::write(&tmp_path, contents)
+        .map_err(|error| format!("Failed to write temp config '{}': {}", tmp_path.display(), error))?;
+    std::fs::rename(&tmp_path, path)
+        .map_err(|error| format!("Failed to finalize config '{}': {}", path.display(), error))
+}
+
+fn write_config_file(path: &Path, contents: String) -> Result<(), String> {
+    write_config_file_atomic(path, contents)
 }
 
 fn serialize_config(config: &CasparConfiguration) -> Result<String, String> {

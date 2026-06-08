@@ -9,6 +9,7 @@ export type RundownItemType = 'video' | 'live' | 'graphic' | 'gap';
 export interface RundownItem {
     id: string;
     type: RundownItemType;
+    playoutvueId?: string;
     path: string;
     shortPath: string;
     filename: string;
@@ -47,10 +48,68 @@ export interface PlaylistFile {
     startFromWeekday?: number;
 }
 
+export interface OptimizedPlaylistItem {
+    t: 'v' | 'l' | 'g' | 'x';
+    pid?: string;
+    p?: string;
+    s?: string;
+    f?: string;
+    i?: LibraryIndicator;
+    d?: number;
+    k?: number;
+    l?: number;
+    in?: number;
+    out?: number;
+    pd?: number;
+    n?: string;
+    cr?: ComplianceRating;
+    cd?: string[];
+    ct?: string;
+    hs?: string;
+}
+
+export interface OptimizedPlaylistFile {
+    format: 'playout-list';
+    version: 2;
+    playlist: {
+        name: string;
+        created: number;
+        startFromTime?: string;
+        startFromWeekday?: number;
+    };
+    items: OptimizedPlaylistItem[];
+}
+
+export type AnyPlaylistFile = PlaylistFile | OptimizedPlaylistFile;
+
+export interface MediaRelinkEntry {
+    playoutvueId: string;
+    path: string;
+    shortPath?: string;
+    filename?: string;
+    duration?: number;
+    trimInMs?: number;
+    trimOutMs?: number;
+}
+
 type RundownDraft = Omit<RundownItem, 'id' | 'inPoint' | 'outPoint' | 'plannedDuration' | 'note' | 'complianceRating' | 'complianceDescriptors' | 'complianceText' | 'hardStartTime'>
-    & Partial<Pick<RundownItem, 'complianceRating' | 'complianceDescriptors' | 'complianceText'>>;
+    & Partial<Pick<RundownItem, 'inPoint' | 'outPoint' | 'plannedDuration' | 'note' | 'complianceRating' | 'complianceDescriptors' | 'complianceText' | 'hardStartTime'>>;
 
 const defaultPlaylistName = (index: number) => `Playlist ${index}`;
+
+const toCompactType = (type: RundownItemType): OptimizedPlaylistItem['t'] => {
+    if (type === 'video') return 'v';
+    if (type === 'live') return 'l';
+    if (type === 'graphic') return 'g';
+    return 'x';
+};
+
+const fromCompactType = (type: OptimizedPlaylistItem['t']): RundownItemType => {
+    if (type === 'v') return 'video';
+    if (type === 'l') return 'live';
+    if (type === 'g') return 'graphic';
+    return 'gap';
+};
 
 const normalizeWeekday = (value: number) => {
     if (!Number.isInteger(value)) {
@@ -76,6 +135,11 @@ const normalizeTimeString = (value: string) => {
     }
 
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}${seconds ? `:${String(seconds).padStart(2, '0')}` : ''}`;
+};
+
+const filenameFromPath = (value: string) => {
+    const normalized = value.replace(/\\/g, '/');
+    return normalized.split('/').pop() || value;
 };
 
 const makePlaylistRecord = (index: number, name?: string): RundownPlaylist => ({
@@ -181,18 +245,26 @@ export const useRundownStore = defineStore('rundown', () => {
         }, 0)
     );
 
-    const makeItem = (item: RundownDraft): RundownItem => ({
-        ...item,
-        id: uuidv4(),
-        inPoint: 0,
-        outPoint: 0,
-        plannedDuration: item.duration || 0,
-        note: '',
-        complianceRating: item.complianceRating || 'none',
-        complianceDescriptors: item.complianceDescriptors || [],
-        complianceText: item.complianceText || '',
-        hardStartTime: ''
-    });
+    const makeItem = (item: RundownDraft): RundownItem => {
+        const inPoint = item.inPoint && item.inPoint > 0 ? item.inPoint : 0;
+        const outPoint = item.outPoint && item.outPoint > inPoint ? item.outPoint : 0;
+        const plannedDuration = item.plannedDuration && item.plannedDuration > 0
+            ? item.plannedDuration
+            : (outPoint > inPoint ? (outPoint - inPoint) / 1000 : (item.duration || 0));
+
+        return {
+            ...item,
+            id: uuidv4(),
+            inPoint,
+            outPoint,
+            plannedDuration,
+            note: item.note || '',
+            complianceRating: item.complianceRating || 'none',
+            complianceDescriptors: item.complianceDescriptors || [],
+            complianceText: item.complianceText || '',
+            hardStartTime: item.hardStartTime || ''
+        };
+    };
 
     const hydrateItem = (item: Partial<RundownItem>): RundownItem => {
         if (item.type === 'gap') {
@@ -208,6 +280,7 @@ export const useRundownStore = defineStore('rundown', () => {
         return {
             id: uuidv4(),
             type: (item.type as RundownItemType) || 'video',
+            playoutvueId: item.playoutvueId || undefined,
             path: item.path || '',
             shortPath: item.shortPath || '',
             filename: item.filename || 'Untitled',
@@ -388,19 +461,84 @@ export const useRundownStore = defineStore('rundown', () => {
         }
     };
 
-    const serializeRundown = (name?: string): PlaylistFile => ({
-        version: '1.1',
-        name: name || currentPlaylist.value?.name || 'Rundown',
-        created: Date.now(),
-        startFromTime: currentPlaylist.value?.startFromTime || '',
-        startFromWeekday: currentPlaylist.value?.startFromWeekday ?? new Date().getDay(),
-        items: JSON.parse(JSON.stringify(currentPlaylist.value?.items || []))
-    });
+    const serializeRundown = (name?: string): OptimizedPlaylistFile => {
+        const playlistName = name || currentPlaylist.value?.name || 'Rundown';
+        const startFromTime = currentPlaylist.value?.startFromTime || '';
+        const startFromWeekday = currentPlaylist.value?.startFromWeekday ?? new Date().getDay();
+        const items = (currentPlaylist.value?.items || []).map((item): OptimizedPlaylistItem => ({
+            t: toCompactType(item.type),
+            pid: item.playoutvueId || undefined,
+            p: item.path || undefined,
+            s: item.shortPath || undefined,
+            f: item.filename || undefined,
+            i: item.libraryIndicator !== 'none' ? item.libraryIndicator : undefined,
+            d: item.duration > 0 ? item.duration : undefined,
+            k: item.seek > 0 ? item.seek : undefined,
+            l: item.length > 0 ? item.length : undefined,
+            in: item.inPoint > 0 ? item.inPoint : undefined,
+            out: item.outPoint > 0 ? item.outPoint : undefined,
+            pd: item.plannedDuration > 0 ? item.plannedDuration : undefined,
+            n: item.note || undefined,
+            cr: item.complianceRating !== 'none' ? item.complianceRating : undefined,
+            cd: item.complianceDescriptors.length ? item.complianceDescriptors : undefined,
+            ct: item.complianceText || undefined,
+            hs: item.hardStartTime || undefined
+        }));
 
-    const deserializeRundown = (playlistData: PlaylistFile, append = false) => {
+        return {
+            format: 'playout-list',
+            version: 2,
+            playlist: {
+                name: playlistName,
+                created: Date.now(),
+                startFromTime: startFromTime || undefined,
+                startFromWeekday
+            },
+            items
+        };
+    };
+
+    const deserializeRundown = (playlistData: AnyPlaylistFile, append = false) => {
         const playlist = currentPlaylist.value;
         if (!playlist) return;
-        const hydrated = (playlistData.items || []).map((item) => hydrateItem(item));
+
+        const isOptimized = (playlistData as OptimizedPlaylistFile)?.format === 'playout-list'
+            && (playlistData as OptimizedPlaylistFile)?.version === 2;
+
+        const sourceItems: Partial<RundownItem>[] = isOptimized
+            ? ((playlistData as OptimizedPlaylistFile).items || []).map((item) => ({
+                type: fromCompactType(item.t),
+                playoutvueId: item.pid || undefined,
+                path: item.p || '',
+                shortPath: item.s || '',
+                filename: item.f || 'Untitled',
+                libraryIndicator: item.i || 'none',
+                duration: item.d || 0,
+                seek: item.k || 0,
+                length: item.l || 0,
+                inPoint: item.in || 0,
+                outPoint: item.out || 0,
+                plannedDuration: item.pd || item.d || 0,
+                note: item.n || '',
+                complianceRating: item.cr || 'none',
+                complianceDescriptors: item.cd || [],
+                complianceText: item.ct || '',
+                hardStartTime: item.hs || ''
+            }))
+            : ((playlistData as PlaylistFile).items || []);
+
+        const hydrated = sourceItems.map((item) => hydrateItem(item));
+
+        const payloadName = isOptimized
+            ? (playlistData as OptimizedPlaylistFile).playlist?.name
+            : (playlistData as PlaylistFile).name;
+        const payloadStartFromTime = isOptimized
+            ? (playlistData as OptimizedPlaylistFile).playlist?.startFromTime
+            : (playlistData as PlaylistFile).startFromTime;
+        const payloadStartFromWeekday = isOptimized
+            ? (playlistData as OptimizedPlaylistFile).playlist?.startFromWeekday
+            : (playlistData as PlaylistFile).startFromWeekday;
+
         if (append) {
             playlist.items.push(...hydrated);
         } else {
@@ -408,12 +546,85 @@ export const useRundownStore = defineStore('rundown', () => {
             playlist.selectedItemId = null;
             playlist.currentPlayingIndex = -1;
             playlist.playStartVisibleIndex = -1;
-            playlist.startFromTime = normalizeTimeString(playlistData.startFromTime || '');
-            playlist.startFromWeekday = normalizeWeekday(playlistData.startFromWeekday ?? playlist.startFromWeekday ?? new Date().getDay());
-            if (playlistData.name) {
-                playlist.name = playlistData.name;
+            playlist.startFromTime = normalizeTimeString(payloadStartFromTime || '');
+            playlist.startFromWeekday = normalizeWeekday(payloadStartFromWeekday ?? playlist.startFromWeekday ?? new Date().getDay());
+            if (payloadName) {
+                playlist.name = payloadName;
             }
         }
+    };
+
+    const relinkItemsByStableId = (entries: MediaRelinkEntry[]) => {
+        if (!entries.length) return 0;
+
+        const byId = new Map<string, MediaRelinkEntry>();
+        for (const entry of entries) {
+            const key = (entry.playoutvueId || '').trim();
+            if (!key || !entry.path) continue;
+            byId.set(key, entry);
+        }
+
+        let relinkedCount = 0;
+
+        for (const playlist of playlists.value) {
+            for (const item of playlist.items) {
+                if (item.type === 'gap') continue;
+
+                const key = (item.playoutvueId || '').trim();
+                if (!key) continue;
+
+                const match = byId.get(key);
+                if (!match) continue;
+
+                let changed = false;
+
+                if (match.path && item.path !== match.path) {
+                    item.path = match.path;
+                    changed = true;
+                }
+
+                const nextShortPath = match.shortPath || match.path;
+                if (nextShortPath && item.shortPath !== nextShortPath) {
+                    item.shortPath = nextShortPath;
+                    changed = true;
+                }
+
+                const nextFilename = match.filename || filenameFromPath(match.path);
+                if (nextFilename && item.type !== 'live' && item.filename !== nextFilename) {
+                    item.filename = nextFilename;
+                    changed = true;
+                }
+
+                const duration = Number(match.duration || 0);
+                if (duration > 0 && item.duration <= 0) {
+                    item.duration = duration;
+                    if (item.plannedDuration <= 0 && item.outPoint <= item.inPoint) {
+                        item.plannedDuration = duration;
+                    }
+                    changed = true;
+                }
+
+                const trimInMs = Math.max(0, Number(match.trimInMs || 0));
+                const trimOutMs = Math.max(0, Number(match.trimOutMs || 0));
+
+                if (trimInMs > 0 && item.inPoint === 0) {
+                    item.inPoint = trimInMs;
+                    changed = true;
+                }
+
+                if (trimOutMs > 0 && trimOutMs > item.inPoint && item.outPoint === 0) {
+                    item.outPoint = trimOutMs;
+                    item.plannedDuration = (item.outPoint - item.inPoint) / 1000;
+                    changed = true;
+                }
+
+                if (changed) {
+                    relinkedCount += 1;
+                }
+            }
+        }
+
+        return relinkedCount;
     };
 
     const duplicateItem = (id: string) => {
@@ -524,6 +735,7 @@ export const useRundownStore = defineStore('rundown', () => {
         reorderItems,
         clearRundown,
         updateItem,
+        relinkItemsByStableId,
         serializeRundown,
         deserializeRundown,
         setPlaylistOnAir,

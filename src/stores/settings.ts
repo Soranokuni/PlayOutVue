@@ -22,9 +22,18 @@ export const useSettingsStore = defineStore('settings', {
 
         // Hardware Output
         decklinkOutputName: '',
+        decklinkOutputDevice: 0,     // Blackmagic DeckLink device number for SDI output (0 = unset)
+        decklinkInputDevice: 0,      // Blackmagic DeckLink device number for SDI ingest / live rebroadcast
         liveInputSourceName: '',
         casparConfigPath: '',
         casparOscPort: 6250,
+
+        // DeckLink consumer settings
+        decklinkEmbeddedAudio: false,
+        decklinkBufferDepth: 3,
+        decklinkLatency: 'normal' as 'normal' | 'low' | 'default',
+        decklinkKeyer: 'external' as 'external' | 'external_separate_device' | 'internal' | 'default',
+        decklinkKeyDevice: 0,
 
         // PAL / SOTA playout profile
         playoutProfile: 'PAL_1080I50' as 'PAL_1080I50' | 'PAL_1080P25',

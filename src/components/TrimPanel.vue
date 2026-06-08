@@ -108,6 +108,7 @@ const FRAME_MS = 40; // 25fps
 const PLAYHEAD_UI_INTERVAL_MS = 120;
 
 const clampMs = (ms: number) => Math.max(0, Math.min(ms, totalDurationMs.value || ms));
+const isLocalFilePath = (path?: string) => !!path && !/^https?:/i.test(path);
 
 // ── Seek video ────────────────────────────────────────────────────────────────
 const timelineRef = ref<HTMLElement | null>(null);
@@ -447,10 +448,38 @@ onUnmounted(() => {
 
 // ── Save / Trim ───────────────────────────────────────────────────────────────
 const saveNonDestructive = () => {
-    if (!item.value || !item.value.id) return;
-    store.updateItem(item.value.id, { inPoint: inMs.value, outPoint: outMs.value });
-    trimStatus.value = '✅ Saved to playlist.';
-    setTimeout(() => emit('close'), 800);
+    if (!item.value) return;
+    if (outMs.value > 0 && outMs.value <= inMs.value) {
+      trimStatus.value = '❌ OUT point must be greater than IN point.';
+      return;
+    }
+
+    const saveTask = async () => {
+      if (item.value?.id) {
+        store.updateItem(item.value.id, { inPoint: inMs.value, outPoint: outMs.value });
+      }
+
+      if (isLocalFilePath(item.value?.path)) {
+        await invoke('save_media_trim_profile', {
+          path: item.value!.path,
+          inMs: inMs.value,
+          outMs: outMs.value
+        });
+      }
+
+      trimStatus.value = item.value?.id
+        ? '✅ Saved to playlist and media index JSON.'
+        : '✅ Saved to media index JSON.';
+
+      if (item.value?.path) {
+        emit('saved', { outputPath: item.value.path });
+      }
+      setTimeout(() => emit('close'), 800);
+    };
+
+    saveTask().catch((error) => {
+      trimStatus.value = `❌ ${error}`;
+    });
 };
 
 const splitInputPath = (ip: string) => {
@@ -666,8 +695,10 @@ const doSmartTrim = async () => {
           </div>
 
           <!-- Non-destructive save (Only for Rundown Items) -->
-          <div v-if="!props.libraryItem" class="trim-actions">
-            <button class="trim-btn btn-primary" @click="saveNonDestructive">💾 Save to Playlist</button>
+          <div class="trim-actions">
+            <button class="trim-btn btn-primary" @click="saveNonDestructive">
+              {{ props.libraryItem ? '💾 Save Markers to Library JSON' : '💾 Save to Playlist + Library JSON' }}
+            </button>
             <button class="trim-btn" @click="$emit('close')">Cancel</button>
           </div>
 

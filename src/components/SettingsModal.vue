@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../stores/settings';
 import CasparConfigModal from './CasparConfigModal.vue';
+import DeckLinkWizard from './DeckLinkWizard.vue';
 import { casparPlayoutService } from '../services/caspar';
 import { obsPlayoutService } from '../services/obs';
 import type { PlayoutService } from '../services/playout';
@@ -15,6 +16,7 @@ const props = defineProps({
 const emit = defineEmits(['close']);
 const settings = useSettingsStore();
 const showCasparConfigurator = ref(false);
+const showDecklinkWizard = ref(false);
 
 // Local shadow state so we don't mutate Pinia instantly on every keystroke
 const localState = ref({
@@ -355,8 +357,12 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos' | 'ffmpeg-bin') 
                   <span class="hint-text">The configurator can load and save your CasparCG XML file directly.</span>
               </div>
               <div class="form-group">
-                  <button class="glass-btn btn-primary" @click="showCasparConfigurator = true">Open CasparCG Configurator</button>
-                  <span class="hint-text">Structured editing covers channels, screen consumers, system audio, DeckLink outputs, OSC, controllers, and paths. Raw XML mode handles everything else.</span>
+                  <button class="glass-btn btn-primary" @click="showDecklinkWizard = true">DeckLink Output Wizard</button>
+                  <span class="hint-text">Step-by-step wizard to configure DeckLink output (SDI), live input (SDI), and video standard.</span>
+              </div>
+              <div class="form-group">
+                  <button class="glass-btn" @click="showCasparConfigurator = true">Advanced Configurator</button>
+                  <span class="hint-text">Full structured editing for channels, consumers, OSC, controllers, and raw XML mode.</span>
               </div>
           </section>
 
@@ -436,6 +442,11 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos' | 'ffmpeg-bin') 
             :initial-path="localState.casparConfigPath"
             @close="showCasparConfigurator = false"
             @update:path="(value) => { localState.casparConfigPath = value; }"
+        />
+
+        <DeckLinkWizard
+            :is-open="showDecklinkWizard"
+            @close="showDecklinkWizard = false"
         />
   </Teleport>
 </template>
