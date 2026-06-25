@@ -23,6 +23,9 @@ pub struct CachedMediaEntry {
     pub playoutvue_id: String,
     pub display_aspect_ratio: String,
     pub field_order: String,
+    pub transcode_profile: String,
+    pub transcoded_at: String,
+    pub original_source_path: String,
 }
 
 #[derive(Clone)]
@@ -94,12 +97,13 @@ impl MediaDb {
             let result = conn.query_row(
                 "SELECT duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
                         display_aspect_ratio, field_order, timecode_start, playoutvue_id,
+                        transcode_profile, transcoded_at, original_source_path,
                         mtime, filesize
                  FROM media_cache WHERE path = ?1",
                 params![normalized_path],
                 |row| {
-                    let db_mtime: i64 = row.get(12)?;
-                    let db_size: i64  = row.get(13)?;
+                    let db_mtime: i64 = row.get(15)?;
+                    let db_size: i64  = row.get(16)?;
                     Ok((
                         row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
@@ -113,6 +117,9 @@ impl MediaDb {
                         row.get::<_, String>(9)?,
                         row.get::<_, String>(10)?,
                         row.get::<_, String>(11)?,
+                        row.get::<_, String>(12)?,
+                        row.get::<_, String>(13)?,
+                        row.get::<_, String>(14)?,
                         db_mtime,
                         db_size,
                     ))
@@ -120,7 +127,7 @@ impl MediaDb {
             );
 
             let entry = match result {
-                Ok((dur, trim_in_ms, trim_out_ms, w, h, codec, fps_n, fps_d, dar, field_order, tc, playoutvue_id, db_mtime, db_size))
+                Ok((dur, trim_in_ms, trim_out_ms, w, h, codec, fps_n, fps_d, dar, field_order, tc, playoutvue_id, tprofile, tcat, osrc, db_mtime, db_size))
                     if db_mtime == mtime as i64 && db_size == filesize as i64 =>
                 {
                     Some(CachedMediaEntry {
@@ -137,6 +144,9 @@ impl MediaDb {
                         field_order,
                         timecode_start: tc,
                         playoutvue_id,
+                        transcode_profile: tprofile,
+                        transcoded_at: tcat,
+                        original_source_path: osrc,
                     })
                 }
                 _ => None,
@@ -158,15 +168,18 @@ impl MediaDb {
             conn.execute(
                 "INSERT OR REPLACE INTO media_cache
                  (path, mtime, filesize, duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
-                  display_aspect_ratio, field_order, timecode_start, playoutvue_id, scanned_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                  display_aspect_ratio, field_order, timecode_start, playoutvue_id,
+                  transcode_profile, transcoded_at, original_source_path, scanned_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                 params![
                     normalized_path, mtime as i64, filesize as i64,
                     entry.duration_ms, entry.trim_in_ms, entry.trim_out_ms,
                     entry.width, entry.height,
                     entry.codec, entry.fps_num, entry.fps_den,
                     entry.display_aspect_ratio, entry.field_order,
-                    entry.timecode_start, entry.playoutvue_id, now
+                    entry.timecode_start, entry.playoutvue_id,
+                    entry.transcode_profile, entry.transcoded_at, entry.original_source_path,
+                    now
                 ],
             )
             .map_err(|e| format!("DB upsert failed: {}", e))?;
@@ -253,6 +266,18 @@ fn ensure_media_cache_columns(conn: &Connection) -> Result<(), String> {
         (
             "trim_out_ms",
             "ALTER TABLE media_cache ADD COLUMN trim_out_ms INTEGER DEFAULT 0",
+        ),
+        (
+            "transcoded_at",
+            "ALTER TABLE media_cache ADD COLUMN transcoded_at TEXT DEFAULT ''",
+        ),
+        (
+            "transcode_profile",
+            "ALTER TABLE media_cache ADD COLUMN transcode_profile TEXT DEFAULT ''",
+        ),
+        (
+            "original_source_path",
+            "ALTER TABLE media_cache ADD COLUMN original_source_path TEXT DEFAULT ''",
         ),
     ] {
         if existing.contains(name) {

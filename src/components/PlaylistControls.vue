@@ -263,7 +263,11 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
     gap: 10px;
     padding: 4px 8px;
     background: rgba(0, 0, 0, 0.2);
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    pointer-events: auto;
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
 }
 
 .pl-info {

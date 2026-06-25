@@ -3,19 +3,15 @@ import type { PlayoutEngine } from '../services/playout';
 
 export const useSettingsStore = defineStore('settings', {
     state: () => ({
-        playoutEngine: 'obs' as PlayoutEngine,
+        playoutEngine: 'casparcg' as PlayoutEngine,
 
-        // OBS Studio WebSocket Connection Parameters
-        obsUrl: 'ws://127.0.0.1:4455',
-        obsPassword: '',
+        // Ingestor API
+        ingestorApiBaseUrl: 'http://127.0.0.1:4353',
 
         // Media Paths
-        localMediaPath: 'C:/Media',
+        localMediaPath: 'C:\\Users\\toutountzaki\\Desktop\\casparcg-server-v2.5.0-stable-windows\\media',
         ffmpegBinPath: '',
         debugMode: false,
-
-        // URL for hosting the Greek ESR Graphic Bug (HTML Producer)
-        complianceUrl: 'http://localhost/greek_ratings.html',
 
         // Local logo and ratings asset folder
         logosPath: '',
@@ -40,12 +36,35 @@ export const useSettingsStore = defineStore('settings', {
         transitionFrames: 2,
         prerollFrames: 2,
 
-        // Station Watermark / Bug - permanent OBS overlay on all content
+        // Station Watermark / Bug - permanent CasparCG overlay
         watermarkPath: '',          // Absolute path to station logo image (PNG/SVG)
         watermarkEnabled: false,    // Toggle overlay on/off
         watermarkPosition: 'top-right' as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
         watermarkOpacity: 80,       // 0-100 percent
         watermarkScale: 15,         // percent of frame width
+
+        // New Character Generator (CG) Assets & Layouts settings
+        cgStationLogoPath: '',
+        cgRatingKPath: '',
+        cgRating8Path: '',
+        cgRating12Path: '',
+        cgRating16Path: '',
+        cgRating18Path: '',
+        cgRatingTPPath: '',
+
+        // CG Positions (Percentages)
+        cgStationLogoPos: { left: 5, top: 5, width: 12, height: 12 },
+        cgRatingBadgePos: { left: 88, top: 5, width: 7, height: 7 },
+        cgTPPos: { left: 88, top: 13, width: 7, height: 7 },
+        cgExplanationBannerPos: { left: 60, top: 5, width: 27, height: 7 },
+        cgCrawlPos: { left: 0, top: 90, width: 100, height: 8 },
+
+        // CG Templates & Crawl state
+        cgCrawlTemplate: 'playout/crawl',
+        cgCrawlPosition: 'bottom' as 'top' | 'bottom',
+        cgCrawlText: '',
+        cgCrawlActive: false,
+        cgExplanationTemplate: 'playout/explanation',
     }),
 
     actions: {
