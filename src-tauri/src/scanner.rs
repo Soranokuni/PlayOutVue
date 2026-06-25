@@ -664,6 +664,9 @@ fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticSta
         field_order,
         timecode_start: "00:00:00:00".to_string(),
         playoutvue_id,
+        transcode_profile: String::new(),
+        transcoded_at: String::new(),
+        original_source_path: String::new(),
     })
 }
 
@@ -901,14 +904,16 @@ pub async fn scan_media<R: Runtime>(
     filepath: String,
     app: AppHandle<R>,
     _db_state: State<'_, DbState>,
-    _diagnostics: State<'_, DiagnosticState>,
+    diagnostics: State<'_, DiagnosticState>,
     runtime_settings: State<'_, RuntimeSettingsState>,
 ) -> Result<MediaMetadata, String> {
+    let start_time = std::time::Instant::now();
+    diagnostics.push("info", "scanner", format!("Scanning media file: {}", filepath));
     let ffprobe = get_ffprobe_path(Some(&app), Some(&runtime_settings));
     let app_handle = app.clone();
     let filepath_clone = filepath.clone();
 
-    tauri::async_runtime::spawn_blocking(move || {
+    let res = tauri::async_runtime::spawn_blocking(move || {
         let db_state = app_handle.state::<DbState>();
         let diagnostics = app_handle.state::<DiagnosticState>();
         let media_root = media_index::find_media_root_for_path(Path::new(&filepath_clone));
@@ -936,14 +941,22 @@ pub async fn scan_media<R: Runtime>(
         })
     })
     .await
-    .map_err(|error| format!("Media scan worker failed: {}", error))?
+    .map_err(|error| format!("Media scan worker failed: {}", error))?;
+
+    let elapsed = start_time.elapsed().as_millis();
+    match &res {
+        Ok(meta) => diagnostics.push("info", "scanner", format!("Successfully scanned media file: {} in {}ms (codec: {}, duration: {}s)", filepath, elapsed, meta.codec_name, meta.duration)),
+        Err(err) => diagnostics.push("error", "scanner", format!("Failed scanning media file: {} in {}ms: {}", filepath, elapsed, err)),
+    }
+    res
 }
 
 #[tauri::command]
-pub fn save_media_trim_profile(
+pub fn save_media_trim_profile<R: Runtime>(
     path: String,
     in_ms: i64,
     out_ms: i64,
+    app: AppHandle<R>,
     db_state: State<'_, DbState>,
 ) -> Result<(), String> {
     let trimmed_path = path.trim();
@@ -989,24 +1002,35 @@ pub fn save_media_trim_profile(
             field_order: String::new(),
             timecode_start: "00:00:00:00".to_string(),
             playoutvue_id: String::new(),
+            transcode_profile: String::new(),
+            transcoded_at: String::new(),
+            original_source_path: String::new(),
         });
 
     entry.path = normalized_path;
     entry.trim_in_ms = in_ms;
     entry.trim_out_ms = out_ms;
     let _ = db_state.0.upsert(&entry);
+    if let Some(diagnostics) = app.try_state::<DiagnosticState>() {
+        diagnostics.push("info", "db", format!("Saved trim profile for '{}' (in: {}ms, out: {}ms)", trimmed_path, in_ms, out_ms));
+    }
     Ok(())
 }
 
 /// Scan a directory.  Uses cache for known files, runs ffprobe only on new/changed ones.
 #[tauri::command]
-pub async fn scan_directory(
+pub async fn scan_directory<R: Runtime>(
     path: String,
+    app: AppHandle<R>,
     db_state: State<'_, DbState>,
+    diagnostics: State<'_, DiagnosticState>,
 ) -> Result<Vec<DiscoveredMedia>, String> {
     let db = db_state.0.clone();
+    let start_time = std::time::Instant::now();
+    diagnostics.push("info", "db", format!("Starting directory scan for: {}", path));
 
-    tauri::async_runtime::spawn_blocking(move || {
+    let path_clone = path.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || {
         let target_dir = PathBuf::from(&path);
 
         if !target_dir.exists() || !target_dir.is_dir() {
@@ -1095,6 +1119,9 @@ pub async fn scan_directory(
                     field_order: String::new(),
                     timecode_start: "00:00:00:00".to_string(),
                     playoutvue_id: String::new(),
+                    transcode_profile: String::new(),
+                    transcoded_at: String::new(),
+                    original_source_path: String::new(),
                 });
 
                 if entry_meta.duration_ms <= 0 {
@@ -1148,7 +1175,14 @@ pub async fn scan_directory(
         Ok(results)
     })
     .await
-    .map_err(|error| format!("Directory scan worker failed: {}", error))?
+    .map_err(|error| format!("Directory scan worker failed: {}", error))?;
+
+    let elapsed = start_time.elapsed().as_millis();
+    match &res {
+        Ok(list) => diagnostics.push("info", "db", format!("Completed directory scan for: {} in {}ms (found {} items)", path_clone, elapsed, list.len())),
+        Err(err) => diagnostics.push("error", "db", format!("Directory scan failed for: {} in {}ms: {}", path_clone, elapsed, err)),
+    }
+    res
 }
 
 #[tauri::command]

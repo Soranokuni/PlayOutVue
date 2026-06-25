@@ -351,6 +351,9 @@ fn to_cached_entry(record: &MediaIndexRecord, path: String) -> CachedMediaEntry 
         field_order: record.metadata.field_order.clone(),
         timecode_start: record.metadata.timecode_start.clone(),
         playoutvue_id: record.stable_media_id.clone(),
+        transcode_profile: String::new(),
+        transcoded_at: String::new(),
+        original_source_path: String::new(),
     }
 }
 

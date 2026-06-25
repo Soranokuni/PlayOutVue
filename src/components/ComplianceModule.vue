@@ -27,12 +27,54 @@ const item = computed(() => store.selectedItem);
 const selectedRating = ref<ComplianceRating>('none');
 const selectedDescriptors = ref<string[]>([]);
 const advisoryText = ref('');
+const tpFlag = ref(false);
 const isOverlayActive = ref(false);
+
+const timelineFields = ref([
+    { start: '0:00', end: '0:30', text: '' },
+    { start: '1:00', end: '1:30', text: '' }
+]);
+
+function parseTimeToMs(t: string | number): number {
+    if (typeof t === 'number') return t * 1000;
+    const parts = String(t).split(':').map(Number);
+    if (parts.length === 2) {
+        return ((parts[0] || 0) * 60 + (parts[1] || 0)) * 1000;
+    } else if (parts.length === 3) {
+        return (((parts[0] || 0) * 60 + (parts[1] || 0)) * 60 + (parts[2] || 0)) * 1000;
+    }
+    const parsed = parseFloat(t);
+    return isNaN(parsed) ? 0 : parsed * 1000;
+}
+
+function formatMsToTime(ms: number | string): string {
+    const totalSecs = Math.floor(Number(ms) / 1000);
+    if (isNaN(totalSecs) || totalSecs <= 0) return '0:00';
+    const m = Math.floor(totalSecs / 60);
+    const s = totalSecs % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 const syncFromItem = () => {
     selectedRating.value = item.value?.complianceRating || 'none';
     selectedDescriptors.value = [...(item.value?.complianceDescriptors || [])];
     advisoryText.value = item.value?.complianceText || '';
+    tpFlag.value = item.value?.tp_flag || false;
+    
+    const itemTimeline = (item.value as any)?.timeline || [];
+    timelineFields.value = [
+        { 
+            start: itemTimeline[0]?.start != null ? formatMsToTime(itemTimeline[0].start) : '0:00', 
+            end: itemTimeline[0]?.end != null ? formatMsToTime(itemTimeline[0].end) : '0:30', 
+            text: itemTimeline[0]?.text || '' 
+        },
+        { 
+            start: itemTimeline[1]?.start != null ? formatMsToTime(itemTimeline[1].start) : '1:00', 
+            end: itemTimeline[1]?.end != null ? formatMsToTime(itemTimeline[1].end) : '1:30', 
+            text: itemTimeline[1]?.text || '' 
+        }
+    ];
+    
     isOverlayActive.value = false;
 };
 
@@ -49,14 +91,33 @@ const computedDescriptorText = computed(() => {
 
 const persistCompliance = () => {
     if (!item.value) return;
+    
+    // Save locally
     store.updateItem(item.value.id, {
         complianceRating: selectedRating.value,
         complianceDescriptors: selectedRating.value === 'none' ? [] : [...selectedDescriptors.value],
-        complianceText: selectedRating.value === 'none' ? '' : advisoryText.value.trim()
+        complianceText: selectedRating.value === 'none' ? '' : advisoryText.value.trim(),
+        tp_flag: tpFlag.value
+    });
+
+    const parsedTimeline = timelineFields.value
+        .filter(field => field.text.trim() !== '')
+        .map(field => ({
+            start: parseTimeToMs(field.start),
+            end: parseTimeToMs(field.end),
+            text: field.text.trim()
+        }));
+
+    // Update metadata and push to db
+    store.updateItemMetadata(item.value.id, item.value.playoutvueId, {
+        complianceRating: selectedRating.value,
+        tp_flag: tpFlag.value,
+        content_type: item.value.content_type || 'none',
+        timeline: parsedTimeline
     });
 };
 
-watch([selectedRating, selectedDescriptors, advisoryText], persistCompliance, { deep: true });
+watch([selectedRating, selectedDescriptors, advisoryText, tpFlag, timelineFields], persistCompliance, { deep: true });
 
 const applyComplianceOverlay = async () => {
     if (!item.value) return;
@@ -100,8 +161,8 @@ const clearComplianceOverlay = async () => {
   <div class="compliance-module">
       <h3 class="text-warning" style="margin-bottom: 1rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.5rem;">NCRTV Compliance</h3>
 
-      <div v-if="!settings.logosPath" class="info-banner">Select the logos folder in settings to enable local rating PNG overlays.</div>
-    <div v-if="!activePlayoutCapabilities.compliance" class="info-banner">The active playout engine does not yet expose compliance overlays. Settings are still saved per rundown item.</div>
+      <div v-if="!settings.logosPath && !settings.cgStationLogoPath" class="info-banner">Select the logos folder in settings to enable local rating PNG overlays.</div>
+      <div v-if="!activePlayoutCapabilities.compliance" class="info-banner">The active playout engine does not yet expose compliance overlays. Settings are still saved per rundown item.</div>
       
       <div class="form-group">
           <label class="text-secondary text-sm">Age Rating Segment</label>
@@ -110,6 +171,14 @@ const clearComplianceOverlay = async () => {
                   {{ rating.label }}
               </option>
           </select>
+      </div>
+
+      <!-- TP Checkbox -->
+      <div class="form-group">
+          <label style="display:flex; gap:8px; align-items:center; cursor:pointer; font-size:0.85rem; padding: 4px 0;">
+              <input type="checkbox" v-model="tpFlag" style="accent-color:var(--accent-blue);">
+              <span>Product Placement (TP) Active</span>
+          </label>
       </div>
       
       <div class="form-group" v-if="selectedRating !== 'none' && selectedRating !== 'k' && selectedRating !== '8'">
@@ -121,14 +190,31 @@ const clearComplianceOverlay = async () => {
       </div>
 
       <div class="form-group" v-if="selectedRating !== 'none' && selectedRating !== 'k'">
-          <label class="text-secondary text-sm">OBS Advisory Text</label>
+          <label class="text-secondary text-sm">Playout Advisory Text</label>
           <textarea v-model="advisoryText" class="glass-input full-width text-area" rows="3" placeholder="Π.χ. ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΣΕΞ"></textarea>
-          <small class="helper-text">Rendered as a live OBS text source so each playlist item can carry its own advisory message.</small>
+          <small class="helper-text">Rendered on the playout engine compliance layer so each playlist item can carry its own advisory message.</small>
       </div>
 
       <div v-if="selectedRating !== 'none' && selectedRating !== 'k'" class="preview-row">
           <span class="preview-label">Preview text</span>
           <span class="preview-value">{{ computedDescriptorText || 'No advisory text' }}</span>
+      </div>
+
+      <!-- Timed Explanations (Timeline Fields) -->
+      <div class="form-group" v-if="selectedRating !== 'none'" style="margin-top: 1rem; border-top: 1px solid var(--glass-border); padding-top: 1rem;">
+          <label class="text-secondary text-sm" style="margin-bottom: 0.5rem; display: block; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">Timed Explanation Banner (Timeline)</label>
+          
+          <div v-for="(field, index) in timelineFields" :key="index" class="timeline-field-row" style="margin-bottom: 1rem; background:rgba(0,0,0,0.15); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--glass-border);">
+              <div style="font-size:0.75rem; font-weight: 600; color: var(--accent-blue); margin-bottom: 0.5rem; text-transform: uppercase;">
+                  Field {{ index + 1 }}
+              </div>
+              <div style="display:flex; gap: 8px; align-items:center; margin-bottom: 0.5rem;">
+                  <input type="text" class="glass-input" style="width: 70px; font-size: 0.76rem;" v-model="field.start" placeholder="0:00" title="Start Time (e.g. 0:00)">
+                  <span style="font-size: 0.76rem; color: var(--text-secondary);">to</span>
+                  <input type="text" class="glass-input" style="width: 70px; font-size: 0.76rem;" v-model="field.end" placeholder="0:30" title="End Time (e.g. 0:30)">
+              </div>
+              <input type="text" class="glass-input full-width" style="font-size: 0.8rem;" v-model="field.text" placeholder="e.g. ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8 ΕΤΩΝ" title="Explanation Text">
+          </div>
       </div>
       
       <div class="actions">
@@ -136,7 +222,7 @@ const clearComplianceOverlay = async () => {
               Push Current Item Overlay
           </button>
           <button v-else class="glass-btn btn-danger full-width" @click="clearComplianceOverlay">
-              Clear Overlay (L20)
+              Clear Overlay (L31/32/34)
           </button>
       </div>
   </div>

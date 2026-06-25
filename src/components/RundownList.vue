@@ -5,12 +5,14 @@ import Sortable from 'sortablejs';
 import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
 import { draggingItem } from '../composables/useDragState';
-import { playStartTime } from '../services/obs';
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
+import { useSettingsStore } from '../stores/settings';
+import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 
 const store = useRundownStore();
+const settings = useSettingsStore();
 const rundownListRef = ref<HTMLElement | null>(null);
 const isDragOver = ref(false);
 const showLiveDialog = ref(false);
@@ -134,39 +136,11 @@ const isNextUpRow = (index: number) => index === nextPlayableVisibleIndex.value;
 const isNextUpImminent = (index: number) => isNextUpRow(index) && currentRemainingMs.value > 0 && currentRemainingMs.value <= 10_000;
 
 const scheduledTimes = computed(() => {
-  const playlist = store.currentPlaylist;
-  if (!playlist) return [];
-  const playingCurrentPlaylist = store.isCurrentPlaylistOnAir && store.currentPlayingIndex >= 0;
-  const startVisibleIndex = playingCurrentPlaylist ? Math.max(0, playlist.playStartVisibleIndex) : 0;
-  let accumulatedTime = playingCurrentPlaylist
-    ? playStartTime.value
-    : (playlist.startFromTime
-      ? applyWeekdayAnchor(parseClockAnchor(playlist.startFromTime, clockNow.value), playlist.startFromWeekday)
-      : clockNow.value);
-
-  return store.activeItems.map((item, index) => {
-    if (item.type === 'gap') {
-      const gapLabel = item.hardStartTime || item.filename.replace(/^Start @\s*/, '');
-      if (!playingCurrentPlaylist && gapLabel) {
-        accumulatedTime = parseClockAnchor(gapLabel, accumulatedTime);
-      }
-      return { kind: 'gap', text: gapLabel || 'Gap line', dayLabel: weekdayLabel(accumulatedTime) };
-    }
-
-    if (playingCurrentPlaylist && index < startVisibleIndex) return { kind: 'skip' };
-    if (playingCurrentPlaylist && index < store.currentPlayingIndex) {
-      accumulatedTime += itemDurationMs(item);
-      return { kind: 'done' };
-    }
-    if (playingCurrentPlaylist && index === store.currentPlayingIndex) {
-      accumulatedTime += itemDurationMs(item);
-      return { kind: 'now', dayLabel: weekdayLabel(clockNow.value) };
-    }
-
-    const nextStart = accumulatedTime;
-    accumulatedTime += itemDurationMs(item);
-    return { kind: 'time', text: formatClockTime(nextStart), dayLabel: weekdayLabel(nextStart) };
-  });
+  return store.activeItemsETAs.map(eta => ({
+    kind: eta.kind,
+    text: eta.kind === 'gap' ? eta.label : eta.formatted,
+    dayLabel: eta.dayLabel
+  }));
 });
 
 const calcProgress = (item: RundownItem) => {
@@ -275,6 +249,17 @@ watch(
 );
 
 watch(
+  () => settings.cgCrawlText,
+  () => {
+    if (settings.cgCrawlActive) {
+      updateCrawlTickerText().catch((err) => {
+        console.error('[RundownList] Failed to update crawl text:', err);
+      });
+    }
+  }
+);
+
+watch(
   () => `${store.currentPlayingIndex}:${currentTotalPlayoutMs.value}:${store.isCurrentPlaylistOnAir}`,
   () => {
     const index = store.currentPlayingIndex;
@@ -320,9 +305,40 @@ const ctxDelete = () => {
   closeContextMenu();
 };
 
-const ctxSetRating = (rating: ComplianceRating) => {
-  if (contextMenu.value.item && contextMenu.value.item.type !== 'gap') {
-    store.updateItem(contextMenu.value.item.id, { complianceRating: rating });
+const saveMetadata = async (playoutvueId: string | undefined, updates: { complianceRating?: ComplianceRating; tp_flag?: boolean; content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none' }, localItemId?: string) => {
+  if (localItemId) {
+    await store.updateItemMetadata(localItemId, playoutvueId, updates);
+  }
+};
+
+const contentTypeOptions = [
+  { id: 'none', label: 'None' },
+  { id: 'movie', label: 'Movie' },
+  { id: 'show', label: 'Show' },
+  { id: 'documentary', label: 'Documentary' },
+  { id: 'news', label: 'News' }
+] as const;
+
+const ctxSetAgeRating = async (rating: ComplianceRating) => {
+  const item = contextMenu.value.item;
+  if (item && item.type !== 'gap') {
+    await saveMetadata(item.playoutvueId, { complianceRating: rating }, item.id);
+  }
+  closeContextMenu();
+};
+
+const ctxToggleTP = async () => {
+  const item = contextMenu.value.item;
+  if (item && item.type !== 'gap') {
+    await saveMetadata(item.playoutvueId, { tp_flag: !item.tp_flag }, item.id);
+  }
+  closeContextMenu();
+};
+
+const ctxSetContentType = async (cType: 'movie' | 'show' | 'documentary' | 'news' | 'none') => {
+  const item = contextMenu.value.item;
+  if (item && item.type !== 'gap') {
+    await saveMetadata(item.playoutvueId, { content_type: cType }, item.id);
   }
   closeContextMenu();
 };
@@ -604,10 +620,26 @@ const completeExternalDrop = async (insertIndex?: number) => {
 const trimDisplay = (item: RundownItem) => {
   if (item.type === 'gap') return item.hardStartTime || 'GAP';
   if (item.type === 'live') return 'LIVE';
-  if (!item.inPoint && !item.outPoint) return 'FULL';
-  const inLabel = item.inPoint ? msToShortDisplay(item.inPoint) : '0:00';
-  const outLabel = item.outPoint ? msToShortDisplay(item.outPoint) : 'END';
+  const trimIn = item.trim_in_ms !== undefined ? item.trim_in_ms : item.inPoint;
+  const trimOut = item.trim_out_ms !== undefined ? item.trim_out_ms : (item.duration_ms && item.outPoint ? item.duration_ms - item.outPoint : 0);
+  if (!trimIn && !trimOut) return 'FULL';
+  const inLabel = trimIn ? msToShortDisplay(trimIn) : '0:00';
+  const outLabel = (item.duration_ms && trimOut) ? msToShortDisplay(item.duration_ms - trimOut) : (item.duration && trimOut ? msToShortDisplay(item.duration * 1000 - trimOut) : 'END');
   return `${inLabel}→${outLabel}`;
+};
+
+const getDisplayName = (item: RundownItem) => {
+  if (item.display_name) return item.display_name;
+  if (item.current_path) {
+    const filename = item.current_path.split(/[/\\]/).pop();
+    if (filename && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filename)) {
+      return filename;
+    }
+  }
+  if (item.filename && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.filename)) {
+    return item.filename;
+  }
+  return 'Untitled Asset';
 };
 
 onMounted(() => {
@@ -617,12 +649,14 @@ onMounted(() => {
 
   if (rundownListRef.value) {
     sortableInstance = Sortable.create(rundownListRef.value, {
-      animation: 120,
+      animation: 200,
       ghostClass: 'rw-ghost',
       handle: '.rw-handle',
-      onEnd: (evt) => {
+      onEnd: (evt: any) => {
         if (evt.oldIndex !== undefined && evt.newIndex !== undefined && evt.oldIndex !== evt.newIndex) {
-          store.reorderItems(evt.oldIndex, evt.newIndex);
+          setTimeout(() => {
+            store.reorderItems(evt.oldIndex, evt.newIndex);
+          }, 200);
         }
       }
     });
@@ -644,11 +678,32 @@ onUnmounted(() => {
   <div class="rundown-wrapper">
     <!-- Header with clock -->
     <div class="rw-header">
-      <div style="display:flex; align-items:center; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
         <h2 class="text-warning" style="margin:0; font-size:0.9rem;">{{ store.currentPlaylistName }}</h2>
         <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge">▶ ON AIR</span>
       </div>
-      <div style="display:flex; align-items:center; gap:8px;">
+
+      <!-- On-Demand Crawl Ticker Input/Toggle in Header -->
+      <div class="crawl-controls" style="display:flex; align-items:center; gap:8px; flex:1; max-width:400px; margin:0 15px;">
+        <input 
+          type="text" 
+          v-model="settings.cgCrawlText" 
+          placeholder="Enter news crawl ticker text..." 
+          class="crawl-input"
+          title="On-Demand Crawl Text (live update on type)"
+        />
+        <button 
+          class="crawl-btn" 
+          :class="{ 'is-active': settings.cgCrawlActive }"
+          @click="toggleCrawlTicker"
+          title="Toggle On-Demand Ticker Overlay"
+        >
+          <span class="crawl-btn-dot"></span>
+          ON-DEMAND CRAWL
+        </button>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
         <span class="clock-display">{{ clockStr }}</span>
         <button class="icon-action" @click="showLiveDialog = true" title="Add Live Entry">📹 Live</button>
         <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">■ Stop</button>
@@ -711,19 +766,26 @@ onUnmounted(() => {
         :data-item-id="item.id"
         :class="{
           'selected': item.id === store.selectedItemId,
-          'playing': index === store.currentPlayingIndex && store.isCurrentPlaylistOnAir,
+          'playing': (index === store.currentPlayingIndex && store.isCurrentPlaylistOnAir) || item.id === store.activePlayingUuid || (item.playoutvueId && item.playoutvueId === store.activePlayingUuid),
           'played': store.isCurrentPlaylistOnAir && index < store.currentPlayingIndex,
           'next-up': isNextUpRow(index),
           'next-up-imminent': isNextUpImminent(index),
           'drop-target-before': dropTargetIndex === index && dropTargetSide === 'before',
           'drop-target-after': dropTargetIndex === index && dropTargetSide === 'after',
           'gap-line': item.type === 'gap',
-          [ratingClass(item.complianceRating)]: item.complianceRating && item.complianceRating !== 'none'
+          [ratingClass(item.complianceRating)]: item.complianceRating && item.complianceRating !== 'none',
+          'ct-movie': item.content_type === 'movie',
+          'ct-show': item.content_type === 'show',
+          'ct-documentary': item.content_type === 'documentary',
+          'ct-news': item.content_type === 'news'
         }"
-        :style="index === store.currentPlayingIndex && isPlayoutPlaying && store.isCurrentPlaylistOnAir && item.type !== 'live' && item.type !== 'gap' ? {
+        :style="item.id === store.activePlayingUuid || (item.playoutvueId && item.playoutvueId === store.activePlayingUuid) ? {
+            background: `linear-gradient(90deg, rgba(46,204,113,0.22) ${store.playbackProgressPct}%, rgba(46,204,113,0.06) ${store.playbackProgressPct}%)`,
+            borderColor: 'rgba(46,204,113,0.4)'
+        } : (index === store.currentPlayingIndex && isPlayoutPlaying && store.isCurrentPlaylistOnAir && item.type !== 'live' && item.type !== 'gap' ? {
             background: `linear-gradient(90deg, rgba(230,57,70,0.3) ${calcProgress(item)}%, rgba(230,57,70,0.08) ${calcProgress(item)}%)`,
             borderColor: 'rgba(230,57,70,0.4)'
-        } : {}"
+        } : {})"
         @click="store.selectedItemId = item.id"
         @contextmenu.prevent="onContextMenu($event, index, item)"
         @dragover="onRowDragOver($event, index)"
@@ -735,7 +797,18 @@ onUnmounted(() => {
           <span v-for="signal in rowSignals(item)" :key="signal.key" class="rw-signal" :class="signal.className" :title="signal.title"></span>
         </div>
         <div class="rw-type-icon" :style="{ color: typeColor(item.type) }">{{ typeIcon(item.type) }}</div>
-        <div class="rw-name" :title="item.filename">{{ item.filename }}</div>
+        <div class="rw-name" :title="getDisplayName(item)">
+          <span class="rw-name-text">{{ getDisplayName(item) }}</span>
+          <span class="rw-meta-badges">
+            <span v-if="item.complianceRating && item.complianceRating !== 'none'" class="mcr-badge badge-age" :class="`age-${item.complianceRating}`">
+              {{ item.complianceRating.toUpperCase() }}
+            </span>
+            <span v-if="item.tp_flag" class="mcr-badge badge-tp">TP</span>
+            <span v-if="item.content_type && item.content_type !== 'none'" class="mcr-badge badge-content" :class="`content-${item.content_type}`">
+              {{ item.content_type.toUpperCase() }}
+            </span>
+          </span>
+        </div>
         <div class="rw-rating">
           <span v-if="item.complianceRating && item.complianceRating !== 'none'" class="rw-rating-badge" :class="ratingClass(item.complianceRating)">{{ item.complianceRating.toUpperCase() }}</span>
           <span v-else class="rw-rating-empty">·</span>
@@ -747,16 +820,23 @@ onUnmounted(() => {
         <div class="rw-inout" :title="trimDisplay(item)">{{ trimDisplay(item) }}</div>
 
         <!-- Duration -->
-        <div class="rw-dur">{{ activeTimerLabel(item, index) || durationLabel(item) }}</div>
+        <div class="rw-dur">
+          <span v-if="item.id === store.activePlayingUuid || (item.playoutvueId && item.playoutvueId === store.activePlayingUuid)" style="color:#2ecc71; font-weight:bold; margin-right:8px; font-family:monospace;">
+            {{ store.playbackCountdownStr }}
+          </span>
+          <span>{{ activeTimerLabel(item, index) || durationLabel(item) }}</span>
+          <span v-if="store.activeItemsETAs[index] && store.activeItemsETAs[index].formatted" class="rw-eta-hint">
+            ({{ store.activeItemsETAs[index].formatted }})
+          </span>
+        </div>
 
         <div class="rw-day">
           <span class="tc-day">{{ scheduledTimes[index]?.dayLabel || '·' }}</span>
         </div>
 
         <div class="rw-at">
-          <span v-if="scheduledTimes[index]?.kind === 'skip'" class="tc-done">–</span>
-          <span v-else-if="scheduledTimes[index]?.kind === 'done'" class="tc-done">✓</span>
-          <span v-else-if="scheduledTimes[index]?.kind === 'now'" class="tc-live">NOW</span>
+          <span v-if="scheduledTimes[index]?.kind === 'done'" class="tc-done">PLAYED</span>
+          <span v-else-if="scheduledTimes[index]?.kind === 'now'" class="tc-now">ON AIR</span>
           <span v-else-if="scheduledTimes[index]?.kind === 'gap'" class="tc-gap">{{ scheduledTimes[index]?.text }}</span>
           <span v-else-if="scheduledTimes[index]?.kind === 'time'" class="tc-sched">{{ scheduledTimes[index]?.text }}</span>
         </div>
@@ -780,12 +860,25 @@ onUnmounted(() => {
         <div class="menu-item" @click.stop="ctxDuplicate">⧉ Duplicate</div>
         <template v-if="contextMenu.item && contextMenu.item.type !== 'gap'">
           <div class="menu-divider"></div>
-          <div class="menu-label">Rating</div>
-          <div v-for="rating in ratingOptions" :key="`rating-${rating.id}`" class="menu-item" @click.stop="ctxSetRating(rating.id)">
+          <div class="menu-label">Age Rating</div>
+          <div v-for="rating in ratingOptions" :key="`rating-${rating.id}`" class="menu-item" @click.stop="ctxSetAgeRating(rating.id)">
             {{ contextMenu.item.complianceRating === rating.id ? '✓ ' : '' }}{{ rating.label }}
           </div>
+          
           <div class="menu-divider"></div>
-          <div class="menu-label">Tag</div>
+          <div class="menu-label">Product Placement</div>
+          <div class="menu-item" @click.stop="ctxToggleTP">
+            {{ contextMenu.item.tp_flag ? '✓ TP (Active)' : '□ TP (None)' }}
+          </div>
+          
+          <div class="menu-divider"></div>
+          <div class="menu-label">Content Type</div>
+          <div v-for="cType in contentTypeOptions" :key="`content-${cType.id}`" class="menu-item" @click.stop="ctxSetContentType(cType.id)">
+            {{ (contextMenu.item.content_type || 'none') === cType.id ? '✓ ' : '' }}{{ cType.label }}
+          </div>
+
+          <div class="menu-divider"></div>
+          <div class="menu-label">Legacy Tag</div>
           <div v-for="indicator in indicatorOptions" :key="`indicator-${indicator.id}`" class="menu-item" @click.stop="ctxSetIndicator(indicator.id)">
             {{ (contextMenu.item.libraryIndicator || 'none') === indicator.id ? '✓ ' : '' }}{{ indicator.label }}
           </div>
@@ -1104,5 +1197,152 @@ onUnmounted(() => {
     height: 1px;
     background: var(--glass-border);
     margin: 4px 0;
+}
+
+/* Content Type subtle row tints */
+.rw-row.ct-movie {
+  background: color-mix(in srgb, var(--accent-blue, #3498db) 6%, transparent);
+}
+.rw-row.ct-show {
+  background: color-mix(in srgb, #9b59b6 6%, transparent);
+}
+.rw-row.ct-documentary {
+  background: color-mix(in srgb, #f39c12 6%, transparent);
+}
+.rw-row.ct-news {
+  background: color-mix(in srgb, #1abc9c 6%, transparent);
+}
+
+.rw-row.ct-movie:hover,
+.rw-row.ct-show:hover,
+.rw-row.ct-documentary:hover,
+.rw-row.ct-news:hover {
+  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-secondary)) !important;
+}
+
+/* Badges styling */
+.rw-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rw-name-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+.rw-meta-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mcr-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.badge-age.age-k { background: #2ecc71; color: #fff; }
+.badge-age.age-8 { background: #f1c40f; color: #000; }
+.badge-age.age-12 { background: #e67e22; color: #fff; }
+.badge-age.age-16 { background: #d35400; color: #fff; }
+.badge-age.age-18 { background: #c0392b; color: #fff; }
+
+.badge-tp {
+  background: #e74c3c;
+  color: #fff;
+  border: 1px solid #c0392b;
+}
+
+.badge-content.content-movie { background: #3498db; color: #fff; }
+.badge-content.content-show { background: #9b59b6; color: #fff; }
+.badge-content.content-documentary { background: #f39c12; color: #000; }
+.badge-content.content-news { background: #1abc9c; color: #fff; }
+
+.rw-eta-hint {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.35);
+  margin-left: 5px;
+}
+
+.tc-now {
+  font-size: 0.69rem;
+  color: #e63946;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* On-Demand Crawl Styling */
+.crawl-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-width: 120px;
+}
+.crawl-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 8px rgba(51, 190, 204, 0.2);
+}
+.crawl-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+.crawl-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+.crawl-btn.is-active {
+  background: rgba(230, 57, 70, 0.15);
+  border-color: rgba(230, 57, 70, 0.5);
+  color: #ff4d5a;
+  box-shadow: 0 0 12px rgba(230, 57, 70, 0.3);
+  text-shadow: 0 0 8px rgba(230, 57, 70, 0.5);
+}
+.crawl-btn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: all 0.3s ease;
+}
+.crawl-btn:hover .crawl-btn-dot {
+  background: var(--text-primary);
+}
+.crawl-btn.is-active .crawl-btn-dot {
+  background: #ff4d5a;
+  box-shadow: 0 0 8px #ff4d5a;
+  animation: pulse-dot 1.2s infinite;
+}
+@keyframes pulse-dot {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+  100% { transform: scale(1); opacity: 1; }
 }
 </style>

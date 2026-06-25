@@ -2,23 +2,91 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import MediaLibrary from './components/MediaLibrary.vue';
 import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import PreviewMonitor from './components/PreviewMonitor.vue';
-import IngestShell from './components/IngestShell.vue';
-import { obs } from './services/obs';
+import IngestorStatusLight from './components/IngestorStatusLight.vue';
+import ClientDiagnosticsLog from './components/ClientDiagnosticsLog.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
+import { useIngestorStatusStore } from './stores/ingestorStatus';
 
 const settings = useSettingsStore();
 const rundown  = useRundownStore();
 const isStreaming  = ref(false);
 const isSdiActive  = ref(false);
 const showSettings = ref(false);
-const showIngestShell = useStorage('layout.showIngestShell', false);
+const showDiagnostics = ref(false);
+const ingestorStatus = useIngestorStatusStore();
+let unlistenHeartbeat: (() => void) | null = null;
+
+// Performance / Jank Monitor
+let jankFrameId: number | null = null;
+let lastFrameTime = performance.now();
+let frameTimes: number[] = [];
+let jankCount = 0;
+let lastReportTime = performance.now();
+
+const startJankMonitor = () => {
+  if (jankFrameId) return;
+  lastFrameTime = performance.now();
+  lastReportTime = performance.now();
+  frameTimes = [];
+  jankCount = 0;
+
+  const runLoop = () => {
+    const now = performance.now();
+    const delta = now - lastFrameTime;
+    lastFrameTime = now;
+    frameTimes.push(delta);
+
+    // a delta > 33ms is a dropped frame (jank)
+    if (delta > 33) {
+      jankCount++;
+    }
+
+    if (now - lastReportTime >= 5000) {
+      const avgFrameTime = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
+      const fps = 1000 / avgFrameTime;
+      const heapMemory = (performance as any).memory
+        ? Math.round((performance as any).memory.usedJSHeapSize / (1024 * 1024))
+        : null;
+      
+      const memoryStr = heapMemory !== null ? `${heapMemory}MB` : 'N/A';
+      invoke('push_diagnostic_log', {
+        level: 'info',
+        scope: 'ui-performance',
+        message: `FPS: ${fps.toFixed(1)} | Jank frames: ${jankCount} | JS Heap: ${memoryStr}`
+      }).catch(() => {});
+
+      frameTimes = [];
+      jankCount = 0;
+      lastReportTime = now;
+    }
+
+    jankFrameId = requestAnimationFrame(runLoop);
+  };
+  jankFrameId = requestAnimationFrame(runLoop);
+};
+
+const stopJankMonitor = () => {
+  if (jankFrameId) {
+    cancelAnimationFrame(jankFrameId);
+    jankFrameId = null;
+  }
+};
+
+watch(() => settings.debugMode, (enabled) => {
+  if (enabled) {
+    startJankMonitor();
+  } else {
+    stopJankMonitor();
+  }
+}, { immediate: true });
 const footerMetaRef = ref<HTMLElement | null>(null);
 const showProductInfo = ref(false);
 const showQuickGuide = ref(false);
@@ -28,7 +96,7 @@ const APP_VERSION = '2.0.1';
 
 const appHighlights = [
   'Multi-playlist rundown planning with separate offline prep and on-air control.',
-  'OBS or Caspar playout control with safe handoff, live cuts, and timing feedback.',
+  'CasparCG playout control with safe handoff, live cuts, and timing feedback.',
   'Media library scanning, trim workflow, compliance labels, and spot or telemarketing tagging.',
   'Operator-first rundown editing with drag insert, gap markers, next-up warnings, and persistent selection.'
 ];
@@ -65,7 +133,8 @@ watch(isLightMode, (val) => {
 watch(
   () => ({
     debugEnabled: settings.debugMode,
-    ffmpegBinPath: settings.ffmpegBinPath
+    ffmpegBinPath: settings.ffmpegBinPath,
+    ingestorApiBaseUrl: settings.ingestorApiBaseUrl
   }),
   (runtimeSettings) => {
     invoke('apply_runtime_settings', {
@@ -142,14 +211,10 @@ const onMouseUp = () => {
   }
 };
 
-const handleStreamStateChanged = (data: any) => {
-  isStreaming.value = data.outputActive;
-};
-
 const toggleConnection = async () => {
   const service = getActivePlayoutService();
   if (isPlayoutConnected.value) await service.disconnect();
-  else await service.connect(settings.obsUrl, settings.obsPassword);
+  else await service.connect();
 };
 
 const playSelected = async () => {
@@ -201,20 +266,48 @@ const cutToLive = async () => {
   await getActivePlayoutService().cutToLive?.();
 };
 
-    onMounted(() => {
-      obs.on('StreamStateChanged', handleStreamStateChanged);
-      window.addEventListener('pointerdown', handleGlobalPointerDown);
-    });
+onMounted(async () => {
+  window.addEventListener('pointerdown', handleGlobalPointerDown);
+  try {
+    unlistenHeartbeat = await listen('ingestor-heartbeat',
+      (event: { payload: { online: boolean; last_seen_at: number; error?: string } }) => {
+        const payload = event.payload;
+        ingestorStatus.setOnline(payload.online, payload.last_seen_at);
+        if (!payload.online && payload.error) {
+          ingestorStatus.logWarning('ingestor-heartbeat', `Connection lost: ${payload.error}`);
+        }
+      }
+    );
+  } catch (err) {
+    console.error('[Heartbeat] Failed to listen to heartbeat events:', err);
+  }
+  if (settings.debugMode) {
+    startJankMonitor();
+  }
 
-    onUnmounted(() => {
-      onMouseUp();
-      obs.off('StreamStateChanged', handleStreamStateChanged);
-      window.removeEventListener('pointerdown', handleGlobalPointerDown);
+  // Bug 3 Fix 3: Restore connection and playback state on F5 refresh
+  if (settings.playoutEngine === 'casparcg') {
+    const service = getActivePlayoutService();
+    service.connect().catch((error) => {
+      console.warn('[Playout] Auto-connect to CasparCG failed:', error);
     });
+  }
+  rundown.restorePlaybackState();
+});
+
+onUnmounted(() => {
+  onMouseUp();
+  window.removeEventListener('pointerdown', handleGlobalPointerDown);
+  if (unlistenHeartbeat) {
+    unlistenHeartbeat();
+    unlistenHeartbeat = null;
+  }
+  stopJankMonitor();
+});
 </script>
 
 <template>
-  <main v-if="!showIngestShell" class="app-shell" :style="{
+  <main class="app-shell" :style="{
     '--left-w': `${leftWidth}px`,
     '--right-w': showRightPanel ? `${rightWidth}px` : '0px',
     '--right-resizer-w': showRightPanel ? '8px' : '0px',
@@ -316,11 +409,17 @@ const cutToLive = async () => {
         {{ showRightPanel ? 'Hide Side' : 'Show Side' }}
       </button>
 
-      <button class="ctrl-btn" style="font-size:0.75rem;" @click="showIngestShell = true">
-        Ingest Shell
+      <IngestorStatusLight />
+
+      <button class="ctrl-btn" style="font-size:0.75rem; position:relative;" :class="{ active: showDiagnostics }" @click="showDiagnostics = !showDiagnostics">
+        Diagnostics
       </button>
 
       <button class="ctrl-btn" style="font-size:0.78rem;" @click="showSettings = true">⚙ Settings</button>
+
+      <ClientDiagnosticsLog v-model="showDiagnostics">
+        <div style="display: none;"></div>
+      </ClientDiagnosticsLog>
 
       <div class="ctrl-meta-dock" ref="footerMetaRef">
         <button
@@ -376,10 +475,6 @@ const cutToLive = async () => {
     </footer>
 
     <SettingsModal :is-open="showSettings" @close="showSettings = false" />
-  </main>
-
-  <main v-else class="ingest-shell-host">
-    <IngestShell @close="showIngestShell = false" />
   </main>
 </template>
 

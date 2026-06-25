@@ -1,56 +1,30 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
-import { refDebounced } from '@vueuse/core';
-import { useRundownStore, type ComplianceRating } from '../stores/rundown';
-import { useSettingsStore } from '../stores/settings';
-import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDefaults';
-import { draggingItem } from '../composables/useDragState';
+import { refDebounced, useVirtualList } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
-import MediaTreeNode from './MediaTreeNode.vue';
+import { useRundownStore, parseBroadcastRating, serializeBroadcastRating, getMetadataFromAssetResponse, type ComplianceRating } from '../stores/rundown';
+import { useSettingsStore } from '../stores/settings';
+import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDefaults';
+import { useIngestorStatusStore } from '../stores/ingestorStatus';
+import { useMediaLibraryStore, type LibraryAsset, type TreeNode } from '../stores/mediaLibrary';
+import { draggingItem } from '../composables/useDragState';
 import TrimPanel from './TrimPanel.vue';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
 const mediaDefaults = useMediaDefaultsStore();
+const mediaLibrary = useMediaLibraryStore();
+const ingestorStatus = useIngestorStatusStore();
 
 const showTrimPanel = ref(false);
-const trimLibraryItem = ref<{ path: string, filename: string, type: string, duration?: number, inPoint?: number, outPoint?: number } | null>(null);
-
-interface RelinkCandidate {
-    playoutvueId: string;
-    path: string;
-    shortPath?: string;
-    filename?: string;
-    duration?: number;
-    trimInMs?: number;
-    trimOutMs?: number;
-}
-
-interface MediaNode {
-    name: string;
-    path: string;
-    shortPath?: string;
-    type: 'file' | 'folder';
-    mediaType?: 'video' | 'live' | 'graphic';
-    playoutvueId?: string;
-    defaultComplianceRating?: ComplianceRating;
-    libraryIndicator?: LibraryIndicator;
-    inPoint?: number;
-    outPoint?: number;
-    width?: number;
-    height?: number;
-    fpsNum?: number;
-    fpsDen?: number;
-    displayAspectRatio?: string;
-    fieldOrder?: string;
-    palCompatible?: boolean;
-    duration?: number;
-    duration_ms?: number;
-    probing?: boolean;
-    children?: MediaNode[];
-    expanded?: boolean;
-}
+const trimAsset = ref<LibraryAsset | null>(null);
+const isScanning = ref(false);
+const isWarmingCatalog = ref(false);
+const libraryQuery = ref('');
+const showDebugMenu = ref(false);
+const showDebugPanel = ref(false);
+const diagnosticEntries = ref<DiagnosticEntry[]>([]);
 
 interface DiagnosticEntry {
     timestampMs: number;
@@ -78,6 +52,40 @@ interface RescanOptions {
     probeDelayMs?: number;
 }
 
+interface DiscoveredMedia {
+    filename: string;
+    path: string;
+    short_path: string;
+    entry_kind: string;
+    media_type: string;
+    playoutvue_id: string;
+    duration: number;
+    duration_ms: number;
+    trim_in_ms: number;
+    trim_out_ms: number;
+    width: number;
+    height: number;
+    codec: string;
+    fps_num: number;
+    fps_den: number;
+    display_aspect_ratio: string;
+    field_order: string;
+    display_name: string;
+    virtual_folder: string;
+}
+
+const ROW_HEIGHT = 34;
+const libTreeRef = ref<HTMLElement | null>(null);
+const contextMenu = ref({
+    show: false, x: 0, y: 0, node: null as TreeNode | null
+});
+
+const debouncedLibraryQuery = refDebounced(libraryQuery, 120);
+let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
+let statusTimer: ReturnType<typeof setInterval> | null = null;
+let scheduledWarmupTimer: ReturnType<typeof setTimeout> | null = null;
+let periodicWarmupTimer: ReturnType<typeof setInterval> | null = null;
+
 const createDefaultProbeStatus = (): MediaProbeStatus => ({
     running: false,
     rootPath: '',
@@ -91,475 +99,481 @@ const createDefaultProbeStatus = (): MediaProbeStatus => ({
     finishedAtMs: 0,
     lastError: ''
 });
-
-const tree = ref<MediaNode[]>([]);
-const isScanning = ref(false);
-const isWarmingCatalog = ref(false);
-const streamUrl = ref('');
-const isExtracting = ref(false);
-const libraryQuery = ref('');
-const selectedLibraryPath = ref('');
-const showDebugMenu = ref(false);
-const showDebugPanel = ref(false);
 const probeStatus = ref<MediaProbeStatus>(createDefaultProbeStatus());
-const diagnosticEntries = ref<DiagnosticEntry[]>([]);
-const sortCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-const durationProbeInFlight = new Map<string, Promise<number>>();
-const debouncedLibraryQuery = refDebounced(libraryQuery, 120);
-let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
-let statusTimer: ReturnType<typeof setInterval> | null = null;
-let scheduledWarmupTimer: ReturnType<typeof setTimeout> | null = null;
-let periodicWarmupTimer: ReturnType<typeof setInterval> | null = null;
 
-const contextMenu = ref({
-    show: false, x: 0, y: 0, node: null as MediaNode | null
+const virtualConfig = useVirtualList(
+    computed(() => mediaLibrary.allTreeNodes),
+    { itemHeight: ROW_HEIGHT, overscan: 8 }
+);
+const virtualItems = computed(() => virtualConfig.list.value);
+
+watch(debouncedLibraryQuery, (query) => {
+    mediaLibrary.searchQuery = query.trim().toLowerCase();
+}, { immediate: true });
+
+const visibleFileCount = computed(() =>
+    mediaLibrary.assets.filter((a) => !mediaLibrary.deletedUuids.includes(a.uuid)).length
+);
+
+const formatDuration = (seconds: number) => {
+    const total = Math.max(0, Math.round(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const remainingSeconds = total % 60;
+    return [
+        hours ? `${hours}h` : '',
+        minutes ? `${minutes}m` : '',
+        `${remainingSeconds}s`
+    ].filter(Boolean).join(' ');
+};
+
+const totalLibraryDuration = computed(() => {
+    let ms = 0;
+    for (const asset of mediaLibrary.assets) {
+        if (!mediaLibrary.deletedUuids.includes(asset.uuid)) {
+            ms += Math.max(0, asset.duration_ms);
+        }
+    }
+    return formatDuration(ms / 1000);
 });
 
-const normalizePath = (value: string) => value.replace(/\\/g, '/');
-const ratingOptions: Array<{ id: ComplianceRating; label: string }> = [
-    { id: 'none', label: 'None' },
-    { id: 'k', label: 'K' },
-    { id: '8', label: '8+' },
-    { id: '12', label: '12+' },
-    { id: '16', label: '16+' },
-    { id: '18', label: '18+' }
-];
-const indicatorOptions: Array<{ id: LibraryIndicator; label: string }> = [
-    { id: 'none', label: 'None' },
-    { id: 'spot', label: 'Spot' },
-    { id: 'telemarketing', label: 'Telemarketing' }
-];
+function logIngestor(scope: string, message: string, level: 'warn' | 'error' = 'warn') {
+    ingestorStatus.log(scope, message, level);
+}
 
-const getDefaultCompliance = (path: string) => mediaDefaults.getCompliance(path);
-const getDefaultIndicator = (path: string) => mediaDefaults.getIndicator(path);
-
-const makeRundownDraft = (node: MediaNode) => ({
-    playoutvueId: node.playoutvueId || undefined,
-    inPoint: node.inPoint || 0,
-    outPoint: node.outPoint || 0,
-    filename: node.name,
-    path: node.path,
-    shortPath: node.shortPath || '',
-    type: node.mediaType || 'video',
-    libraryIndicator: getDefaultIndicator(node.path),
-    duration: getNodeDurationSeconds(node),
-    plannedDuration: node.outPoint && (node.outPoint > (node.inPoint || 0))
-        ? (node.outPoint - (node.inPoint || 0)) / 1000
-        : getNodeDurationSeconds(node),
-    seek: 0,
-    length: 0,
-    complianceRating: getDefaultCompliance(node.path)
-});
-
-const buildResolvedRundownDraft = async (node: MediaNode) => {
-    const seconds = await ensureNodeDuration(node);
-    return {
-        ...makeRundownDraft(node),
-        duration: seconds || getNodeDurationSeconds(node)
-    };
-};
-
-const findNodeByPath = (nodes: MediaNode[], path: string): MediaNode | null => {
-    for (const node of nodes) {
-        if (node.type === 'file' && node.path === path) return node;
-        const childMatch = node.children?.length ? findNodeByPath(node.children, path) : null;
-        if (childMatch) return childMatch;
-    }
-    return null;
-};
-
-const selectLibraryNode = (node: MediaNode) => {
-    if (node.type !== 'file') return;
-    selectedLibraryPath.value = node.path;
-};
-
-const getSelectedLibraryNode = () => {
-    if (!selectedLibraryPath.value) return null;
-    return findNodeByPath(tree.value, selectedLibraryPath.value);
-};
-
-const applyLibraryDefaults = (nodes: MediaNode[]) => {
-    for (const node of nodes) {
-        if (node.type === 'file') {
-            node.defaultComplianceRating = getDefaultCompliance(node.path);
-            node.libraryIndicator = getDefaultIndicator(node.path);
-        }
-        if (node.children?.length) applyLibraryDefaults(node.children);
-    }
-};
-
-const snapshotExpandedFolders = (nodes: MediaNode[], snapshot = new Map<string, boolean>()) => {
-    for (const node of nodes) {
-        if (node.type === 'folder') {
-            snapshot.set(node.path, !!node.expanded);
-            if (node.children?.length) snapshotExpandedFolders(node.children, snapshot);
-        }
-    }
-    return snapshot;
-};
-
-const filterTree = (nodes: MediaNode[], query: string): MediaNode[] => {
-    if (!query) return nodes;
-
-    return nodes.flatMap((node) => {
-        const label = `${node.name} ${node.path} ${node.defaultComplianceRating || ''} ${node.libraryIndicator || ''}`.toLowerCase();
-        const isMatch = label.includes(query);
-
-        if (node.type === 'folder') {
-            const filteredChildren = filterTree(node.children || [], query);
-            if (!isMatch && filteredChildren.length === 0) return [];
-            return [{
-                ...node,
-                expanded: true,
-                children: filteredChildren
-            }];
-        }
-
-        return isMatch ? [node] : [];
-    });
-};
-
-const countFiles = (nodes: MediaNode[]): number =>
-    nodes.reduce((count, node) => count + (node.type === 'file' ? 1 : countFiles(node.children || [])), 0);
-
-const collectRelinkCandidates = (nodes: MediaNode[], acc: RelinkCandidate[] = []): RelinkCandidate[] => {
-    for (const node of nodes) {
-        if (node.type === 'file' && node.playoutvueId && node.path) {
-            acc.push({
-                playoutvueId: node.playoutvueId,
-                path: node.path,
-                shortPath: node.shortPath || node.path,
-                filename: node.name,
-                duration: getNodeDurationSeconds(node),
-                trimInMs: node.inPoint || 0,
-                trimOutMs: node.outPoint || 0
-            });
-        }
-
-        if (node.children?.length) {
-            collectRelinkCandidates(node.children, acc);
-        }
-    }
-
-    return acc;
-};
-
-const visibleTree = computed(() => filterTree(tree.value, debouncedLibraryQuery.value.trim().toLowerCase()));
-const visibleFileCount = computed(() => countFiles(visibleTree.value));
-const getNodeDurationSeconds = (node: MediaNode) => node.duration || (node.duration_ms ? node.duration_ms / 1000 : 0);
-const shouldPollDiagnostics = computed(() => settings.debugMode && showDebugPanel.value);
-const probeProgressLabel = computed(() => {
-    if (!probeStatus.value.running) return '';
-    if (probeStatus.value.totalCandidates > 0) {
-        return `probing ${probeStatus.value.checked}/${probeStatus.value.totalCandidates}`;
-    }
-    return 'probing…';
-});
-
-const parseFrameRateString = (value: string) => {
-    const [numRaw = '25', denRaw = '1'] = value.split('/');
-    const fpsNum = Number.parseInt(numRaw, 10);
-    const fpsDen = Number.parseInt(denRaw, 10);
-    return {
-        fpsNum: Number.isFinite(fpsNum) && fpsNum > 0 ? fpsNum : 25,
-        fpsDen: Number.isFinite(fpsDen) && fpsDen > 0 ? fpsDen : 1
-    };
-};
-
-const applyMetadataToNode = (node: MediaNode, metadata: {
-    duration?: string;
-    width?: number;
-    height?: number;
-    r_frame_rate?: string;
-    display_aspect_ratio?: string;
-    field_order?: string;
-}) => {
-    const seconds = Number.parseFloat(metadata.duration || '0');
-    if (Number.isFinite(seconds) && seconds > 0) {
-        node.duration = seconds;
-        node.duration_ms = Math.round(seconds * 1000);
-    }
-    if (typeof metadata.width === 'number') node.width = metadata.width;
-    if (typeof metadata.height === 'number') node.height = metadata.height;
-    if (metadata.r_frame_rate) {
-        const { fpsNum, fpsDen } = parseFrameRateString(metadata.r_frame_rate);
-        node.fpsNum = fpsNum;
-        node.fpsDen = fpsDen;
-    }
-    if (typeof metadata.display_aspect_ratio === 'string') node.displayAspectRatio = metadata.display_aspect_ratio;
-    if (typeof metadata.field_order === 'string') node.fieldOrder = metadata.field_order;
-    node.palCompatible = isPalCompatible({
-        width: node.width,
-        height: node.height,
-        fps_num: node.fpsNum,
-        fps_den: node.fpsDen
-    });
-};
-
-const formatDiagnosticTime = (timestampMs: number) => {
-    if (!timestampMs) return '--:--:--';
-    return new Date(timestampMs).toLocaleTimeString([], {
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-    });
-};
-
-const updateNodeDurationByPath = (nodes: MediaNode[], targetPath: string, durationSeconds: number): boolean => {
-    for (const node of nodes) {
-        if (node.type === 'file' && node.path === targetPath) {
-            node.duration = durationSeconds;
-            node.duration_ms = Math.round(durationSeconds * 1000);
-            node.probing = false;
-            return true;
-        }
-
-        if (node.children?.length && updateNodeDurationByPath(node.children, targetPath, durationSeconds)) {
-            return true;
-        }
-    }
-
-    return false;
-};
-
-const updateNodeMetadataByPath = (nodes: MediaNode[], targetPath: string, metadata: {
-    duration?: string;
-    width?: number;
-    height?: number;
-    r_frame_rate?: string;
-    display_aspect_ratio?: string;
-    field_order?: string;
-}): boolean => {
-    for (const node of nodes) {
-        if (node.type === 'file' && node.path === targetPath) {
-            applyMetadataToNode(node, metadata);
-            node.probing = false;
-            return true;
-        }
-
-        if (node.children?.length && updateNodeMetadataByPath(node.children, targetPath, metadata)) {
-            return true;
-        }
-    }
-
-    return false;
-};
-
-const nodeNeedsBackgroundProbe = (node: MediaNode): boolean => {
-    if (node.type !== 'file' || node.mediaType !== 'video' || !node.path || /^https?:/i.test(node.path)) return false;
-    return getNodeDurationSeconds(node) <= 0 || !node.width || !node.height;
-};
-
-const countPendingMetadata = (nodes: MediaNode[]): number =>
-    nodes.reduce((count, node) => count
-        + (nodeNeedsBackgroundProbe(node) ? 1 : 0)
-        + countPendingMetadata(node.children || []), 0);
-
-const clearScheduledWarmup = () => {
-    if (!scheduledWarmupTimer) return;
-    clearTimeout(scheduledWarmupTimer);
-    scheduledWarmupTimer = null;
-};
-
-const updateNodeProbeStateByPath = (nodes: MediaNode[], targetPath: string, probing: boolean): boolean => {
-    for (const node of nodes) {
-        if (node.type === 'file' && node.path === targetPath) {
-            node.probing = probing;
-            return true;
-        }
-
-        if (node.children?.length && updateNodeProbeStateByPath(node.children, targetPath, probing)) {
-            return true;
-        }
-    }
-
-    return false;
-};
-
-const ensureNodeDuration = async (node: MediaNode): Promise<number> => {
-    const knownSeconds = getNodeDurationSeconds(node);
-    if (knownSeconds > 0) return knownSeconds;
-    if (node.type !== 'file' || !node.path || node.mediaType !== 'video' || /^https?:/i.test(node.path)) return 0;
-
-    const existing = durationProbeInFlight.get(node.path);
-    if (existing) return existing;
-
-    node.probing = true;
-    updateNodeProbeStateByPath(tree.value, node.path, true);
-
-    const probePromise = invoke<{
-        duration: string;
-        width?: number;
-        height?: number;
-        r_frame_rate?: string;
-        display_aspect_ratio?: string;
-        field_order?: string;
-    }>('scan_media', { filepath: node.path })
-        .then((metadata) => {
-            const seconds = Number.parseFloat(metadata.duration || '0');
-            applyMetadataToNode(node, metadata);
-            updateNodeMetadataByPath(tree.value, node.path, metadata);
-            if (Number.isFinite(seconds) && seconds > 0) {
-                updateNodeDurationByPath(tree.value, node.path, seconds);
-                return seconds;
-            }
-            return 0;
-        })
-        .catch((error) => {
-            console.warn('[Library] Failed to resolve media duration', node.path, error);
-            return 0;
-        })
-        .finally(() => {
-            node.probing = false;
-            updateNodeProbeStateByPath(tree.value, node.path, false);
-            durationProbeInFlight.delete(node.path);
-        });
-
-    durationProbeInFlight.set(node.path, probePromise);
-    return probePromise;
-};
-
-const ensureFolder = (rootNodes: MediaNode[], folderParts: string[], expandedSnapshot: Map<string, boolean>) => {
-    let currentLevel = rootNodes;
-    let currentFolderPath = '';
-
-    for (const rawPart of folderParts) {
-        const partName = rawPart || 'Folder';
-        currentFolderPath = currentFolderPath ? `${currentFolderPath}/${partName}` : partName;
-        let folder = currentLevel.find((node) => node.type === 'folder' && node.path === currentFolderPath);
-        if (!folder) {
-            folder = {
-                name: partName,
-                path: currentFolderPath,
-                type: 'folder',
-                children: [],
-                expanded: expandedSnapshot.get(currentFolderPath) ?? false
-            };
-            currentLevel.push(folder);
-        }
-        if (!folder.children) folder.children = [];
-        currentLevel = folder.children;
-    }
-
-    return currentLevel;
-};
-
-const isPalCompatible = (entry: { width?: number; height?: number; fps_num?: number; fps_den?: number }) => {
-    if (!entry.width || !entry.height || !entry.fps_num || !entry.fps_den) return false;
-    const fps = entry.fps_num / entry.fps_den;
-    const isPalFps = Math.abs(fps - 25) < 0.01 || Math.abs(fps - 50) < 0.01;
-    const is1080 = (entry.width === 1920 || entry.width === 1440) && entry.height === 1080;
-    const is720 = entry.width === 1280 && entry.height === 720;
-    const is576 = entry.width === 720 && entry.height === 576;
-    return (is1080 || is720 || is576) && isPalFps;
-};
-
-const buildTree = async (dirPath: string): Promise<MediaNode[]> => {
-    const rootNodes: MediaNode[] = [];
+async function ingestorInvoke<T>(
+    cmd: string,
+    args: Record<string, unknown>,
+    scope: string
+): Promise<T | null> {
     try {
-        const expandedSnapshot = snapshotExpandedFolders(tree.value);
-        const files = await invoke<{
-            filename: string,
-            path: string,
-            short_path: string,
-            entry_kind: 'file' | 'folder',
-            media_type: string,
-            playoutvue_id?: string,
-            trim_in_ms?: number,
-            trim_out_ms?: number,
-            duration: number,
-            duration_ms?: number,
-            width?: number,
-            height?: number,
-            fps_num?: number,
-            fps_den?: number,
-            display_aspect_ratio?: string,
-            field_order?: string
-        }[]>(
-            'scan_directory', { path: dirPath }
+        return await invoke<T>(cmd, args);
+    } catch (error) {
+        logIngestor(scope, `${error}`, 'error');
+        return null;
+    }
+}
+
+function mapApiRating(rating: string): ComplianceRating {
+    const lower = (rating || '').toLowerCase();
+    if (['k', '8', '12', '16', '18'].includes(lower)) {
+        return lower as ComplianceRating;
+    }
+    return 'none';
+}
+
+function normalizeVirtualFolder(value?: string | null): string {
+    if (!value) return '/';
+    const normalized = value.replace(/\\/g, '/').replace(/\/$/, '');
+    if (normalized === '') return '/';
+    return normalized.startsWith('/') ? normalized : `/${normalized}`;
+}
+
+function libraryAssetFromApi(asset: any): LibraryAsset {
+    const meta = getMetadataFromAssetResponse(asset);
+    const serializedRating = serializeBroadcastRating(meta);
+    return {
+        uuid: asset.uuid || '',
+        current_path: asset.current_path || '',
+        display_name: asset.display_name || asset.current_path?.split(/[/\\]/).pop() || 'Untitled',
+        virtual_folder: normalizeVirtualFolder(asset.virtual_folder),
+        duration_ms: asset.duration_ms || 0,
+        trim_in_ms: asset.trim_in_ms || 0,
+        trim_out_ms: asset.trim_out_ms || 0,
+        rating: serializedRating,
+        tp: asset.tp || 'None',
+        status: asset.status || 'idle',
+        width: asset.width,
+        height: asset.height,
+        fpsNum: asset.fps_num || asset.fpsNum,
+        fpsDen: asset.fps_den || asset.fpsDen,
+        displayAspectRatio: asset.display_aspect_ratio || asset.displayAspectRatio,
+        fieldOrder: asset.field_order || asset.fieldOrder,
+        codec: asset.codec,
+    };
+}
+
+async function fetchAssetsFromApi(): Promise<LibraryAsset[] | null> {
+    const response = await ingestorInvoke<any[]>(
+        'list_ingestor_assets',
+        { apiBaseUrlOverride: null },
+        'ingestor-list'
+    );
+    if (!response) return null;
+    return response.map(libraryAssetFromApi);
+}
+
+async function fetchAssetsFromLocalFallback(): Promise<LibraryAsset[]> {
+    const root = (settings.localMediaPath || '').trim();
+    if (!root) return [];
+
+    try {
+        const files = await invoke<DiscoveredMedia[]>('scan_directory', { path: root }
         );
+        return files
+            .filter((f) => f.entry_kind === 'file')
+            .map((f) => ({
+                uuid: f.playoutvue_id || `local:${f.path}`,
+                current_path: f.path,
+                display_name: f.display_name || f.filename,
+                virtual_folder: normalizeVirtualFolder(
+                    f.virtual_folder ? `/Unmanaged/${f.virtual_folder}` : '/Unmanaged'
+                ),
+                duration_ms: f.duration_ms || 0,
+                trim_in_ms: f.trim_in_ms || 0,
+                trim_out_ms: f.trim_out_ms || 0,
+                rating: '',
+                tp: 'None',
+                status: 'ready',
+                width: f.width,
+                height: f.height,
+                fpsNum: f.fps_num,
+                fpsDen: f.fps_den,
+                displayAspectRatio: f.display_aspect_ratio,
+                fieldOrder: f.field_order,
+                codec: f.codec,
+            }));
+    } catch (error) {
+        logIngestor('ingestor-list', `Local fallback scan failed: ${error}`, 'error');
+        return [];
+    }
+}
 
-        const normalizedDir = normalizePath(dirPath);
-
-        for (const f of files) {
-            const normalizedFilePath = normalizePath(f.path);
-            let relPath = normalizedFilePath;
-            
-            if (normalizedFilePath.startsWith(normalizedDir)) {
-                relPath = normalizedFilePath.substring(normalizedDir.length);
+async function fetchAssets(options: { force?: boolean } = {}) {
+    isScanning.value = true;
+    try {
+        const apiAssets = await fetchAssetsFromApi();
+        if (apiAssets) {
+            mediaLibrary.setAssets(apiAssets);
+            ingestorStatus.setOnline(true);
+            if (!options.force) {
+                return;
             }
-            relPath = relPath.replace(/^\/+/, '');
-            if (!relPath) continue;
-
-            const parts = relPath.split('/').filter(Boolean);
-            const isFolder = f.entry_kind === 'folder';
-            const folderParts = isFolder ? parts : parts.slice(0, -1);
-            const currentLevel = ensureFolder(rootNodes, folderParts, expandedSnapshot);
-            
-            if (isFolder) {
-                ensureFolder(rootNodes, parts, expandedSnapshot);
-                continue;
+        } else {
+            ingestorStatus.setOnline(false);
+            if (!ingestorStatus.lastSeenAt) {
+                logIngestor(
+                    'ingestor-list',
+                    'Ingestor API is unreachable; falling back to local directory scan.',
+                    'warn'
+                );
             }
-
-            const fileName = parts[parts.length - 1] || f.filename || 'Untitled';
-            currentLevel.push({
-                name: f.filename || fileName,
-                path: f.path || '',
-                shortPath: f.short_path || '',
-                type: 'file',
-                mediaType: f.media_type as any,
-                playoutvueId: f.playoutvue_id || '',
-                inPoint: f.trim_in_ms || 0,
-                outPoint: f.trim_out_ms || 0,
-                defaultComplianceRating: getDefaultCompliance(f.path || ''),
-                libraryIndicator: getDefaultIndicator(f.path || ''),
-                duration: f.duration || 0,
-                duration_ms: f.duration_ms || (f.duration ? f.duration * 1000 : 0),
-                width: f.width || 0,
-                height: f.height || 0,
-                fpsNum: f.fps_num || 0,
-                fpsDen: f.fps_den || 1,
-                displayAspectRatio: f.display_aspect_ratio || '',
-                fieldOrder: f.field_order || '',
-                palCompatible: isPalCompatible(f)
-            });
         }
-        
-        const sortNodes = (nodes: MediaNode[]) => {
-            nodes.sort((a, b) => {
-                if (!a || !b) return 0;
-                if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
-                return sortCollator.compare(a.name || '', b.name || '');
-            });
-            nodes.forEach((n: MediaNode) => {
-                if (n && n.children) sortNodes(n.children as MediaNode[]);
-            });
-        };
-        sortNodes(rootNodes);
 
-    } catch (e) {
-        console.warn('[Library] buildTree scan failed:', e);
+        // Fallback when offline or during forced refresh
+        if (!ingestorStatus.isIngestorOnline) {
+            const fallbackAssets = await fetchAssetsFromLocalFallback();
+            const merged = mergeAssets(mediaLibrary.assets, fallbackAssets);
+            mediaLibrary.setAssets(merged);
+        }
+    } finally {
+        isScanning.value = false;
     }
-    return rootNodes;
+}
+
+function mergeAssets(
+    existing: LibraryAsset[],
+    fallback: LibraryAsset[]
+): LibraryAsset[] {
+    const byUuid = new Map(existing.map((a) => [a.uuid, a]));
+    for (const asset of fallback) {
+        if (!byUuid.has(asset.uuid)) {
+            byUuid.set(asset.uuid, asset);
+        }
+    }
+    return Array.from(byUuid.values());
+}
+
+function assetDurationSeconds(asset?: LibraryAsset): number {
+    return asset && asset.duration_ms > 0 ? asset.duration_ms / 1000 : 0;
+}
+
+function makeRundownDraftFromAsset(asset: LibraryAsset) {
+    const duration = assetDurationSeconds(asset);
+    const meta = parseBroadcastRating(asset.rating);
+    const compliance = meta.ageRating ||
+        mediaDefaults.getCompliance(asset.uuid, asset.current_path);
+    return {
+        playoutvueId: asset.uuid.startsWith('local:') ? undefined : asset.uuid,
+        inPoint: asset.trim_in_ms,
+        outPoint: asset.duration_ms > 0
+            ? asset.duration_ms - (asset.trim_out_ms || 0)
+            : 0,
+        filename: asset.display_name,
+        path: asset.current_path,
+        shortPath: '',
+        type: 'video' as const,
+        libraryIndicator: mediaDefaults.getIndicator(asset.uuid, asset.current_path),
+        duration,
+        plannedDuration: duration,
+        seek: 0,
+        length: 0,
+        complianceRating: compliance,
+        tp_flag: meta.tpFlag,
+        content_type: meta.contentType,
+        display_name: asset.display_name,
+        virtual_folder: asset.virtual_folder,
+        current_path: asset.current_path,
+        duration_ms: asset.duration_ms,
+        trim_in_ms: asset.trim_in_ms,
+        trim_out_ms: asset.trim_out_ms,
+    };
+}
+
+async function addSelectedAssetToRundown() {
+    const asset = mediaLibrary.selectedAsset;
+    if (!asset) return;
+    store.addItem(makeRundownDraftFromAsset(asset));
+}
+
+function onDragStart(event: DragEvent, node: TreeNode) {
+    if (node.type !== 'asset' || !node.asset) return;
+    const asset = node.asset;
+    mediaLibrary.selectedNodeId = node.id;
+    const meta = parseBroadcastRating(asset.rating);
+    const payload = {
+        playoutvueId: asset.uuid.startsWith('local:') ? undefined : asset.uuid,
+        filename: asset.display_name,
+        path: asset.current_path,
+        shortPath: '',
+        type: 'video' as const,
+        libraryIndicator: mediaDefaults.getIndicator(asset.uuid, asset.current_path),
+        inPoint: asset.trim_in_ms,
+        outPoint: asset.duration_ms > 0 ? asset.duration_ms - (asset.trim_out_ms || 0) : 0,
+        duration: assetDurationSeconds(asset),
+        seek: 0,
+        length: 0,
+        complianceRating: meta.ageRating ||
+            mediaDefaults.getCompliance(asset.uuid, asset.current_path),
+        tp_flag: meta.tpFlag,
+        content_type: meta.contentType,
+        display_name: asset.display_name,
+        virtual_folder: asset.virtual_folder,
+        current_path: asset.current_path,
+        duration_ms: asset.duration_ms,
+        trim_in_ms: asset.trim_in_ms,
+        trim_out_ms: asset.trim_out_ms,
+    };
+    draggingItem.value = payload;
+    if (event.dataTransfer) {
+        event.dataTransfer.setData('text/plain', asset.uuid);
+        event.dataTransfer.effectAllowed = 'copy';
+    }
+}
+
+function onNodeClick(node: TreeNode) {
+    mediaLibrary.selectedNodeId = node.id;
+    if (node.type === 'folder') {
+        mediaLibrary.currentFolderPath = node.virtualFolder;
+        mediaLibrary.toggleFolder(node.virtualFolder);
+    }
+}
+
+function onFolderToggle(node: TreeNode) {
+    if (node.type !== 'folder') return;
+    mediaLibrary.selectedNodeId = node.id;
+    mediaLibrary.currentFolderPath = node.virtualFolder;
+    mediaLibrary.toggleFolder(node.virtualFolder);
+}
+
+function onNodeDoubleClick(node: TreeNode) {
+    if (node.type === 'asset' && node.asset) {
+        store.addItem(makeRundownDraftFromAsset(node.asset));
+    } else if (node.type === 'folder') {
+        mediaLibrary.toggleFolder(node.virtualFolder);
+    }
+}
+
+function onContextMenu(event: MouseEvent, node: TreeNode) {
+    if (node.type === 'asset' && !node.asset) return;
+    mediaLibrary.selectedNodeId = node.id;
+    contextMenu.value = { show: true, x: event.clientX, y: event.clientY, node };
+}
+
+function closeContextMenu() {
+    contextMenu.value = { ...contextMenu.value, show: false, node: null };
+}
+
+function ctxAppend() {
+    const node = contextMenu.value.node;
+    if (node?.type === 'asset' && node.asset) {
+        store.addItem(makeRundownDraftFromAsset(node.asset));
+    }
+    closeContextMenu();
+}
+
+function ctxInsertAfter() {
+    const node = contextMenu.value.node;
+    if (node?.type !== 'asset' || !node.asset) {
+        closeContextMenu();
+        return;
+    }
+    const draft = makeRundownDraftFromAsset(node.asset);
+    if (store.selectedItemId) {
+        const idx = store.activeItems.findIndex((i) => i.id === store.selectedItemId);
+        if (idx >= 0) {
+            store.insertItemAt(idx + 1, draft);
+            closeContextMenu();
+            return;
+        }
+    }
+    store.addItem(draft);
+    closeContextMenu();
+}
+
+function ctxRename() {
+    closeContextMenu();
+    doRenameSelected();
+}
+
+function ctxDelete() {
+    const node = contextMenu.value.node;
+    if (node?.type === 'asset' && node.asset) {
+        doDeleteAsset(node.asset.uuid);
+    }
+    closeContextMenu();
+}
+
+function ctxPurge() {
+    const node = contextMenu.value.node;
+    if (node?.type === 'asset' && node.asset) {
+        doPurgeAsset(node.asset);
+    }
+    closeContextMenu();
+}
+
+function ctxMove() {
+    closeContextMenu();
+    doMoveSelected();
+}
+
+function ctxTrim() {
+    const node = contextMenu.value.node;
+    if (node?.type === 'asset' && node.asset) {
+        trimAsset.value = node.asset;
+        showTrimPanel.value = true;
+    }
+    closeContextMenu();
+}
+
+function doNewVirtualFolder() {
+    const name = window.prompt('New virtual folder name');
+    if (!name) return;
+    mediaLibrary.createVirtualFolder(name);
+}
+
+async function doRenameSelected() {
+    const asset = mediaLibrary.selectedAsset;
+    if (!asset) return;
+    const newName = window.prompt('Rename asset', asset.display_name);
+    if (!newName || newName === asset.display_name) return;
+
+    const result = await ingestorInvoke<void>(
+        'rename_ingestor_asset',
+        { uuid: asset.uuid, display_name: newName, apiBaseUrlOverride: null },
+        'ingestor-rename'
+    );
+    if (result === null) return;
+    mediaLibrary.renameAsset(asset.uuid, newName);
+}
+
+async function doMoveSelected() {
+    const asset = mediaLibrary.selectedAsset;
+    if (!asset) return;
+    const current = mediaLibrary.currentFolderPath || '/';
+    const target = window.prompt('Move to virtual folder', current);
+    if (target === null) return;
+
+    const normalized = normalizeVirtualFolder(target);
+    if (asset.uuid.startsWith('local:')) {
+        mediaLibrary.moveAssetToFolder(asset.uuid, normalized);
+    } else {
+        const result = await ingestorInvoke<void>(
+            'move_ingestor_asset',
+            { uuid: asset.uuid, virtual_folder: normalized, apiBaseUrlOverride: null },
+            'ingestor-move'
+        );
+        if (result === null) return;
+        mediaLibrary.moveAssetToFolder(asset.uuid, normalized);
+        await fetchAssets({ force: true });
+    }
+}
+
+function doDeleteSelected() {
+    const asset = mediaLibrary.selectedAsset;
+    if (!asset) return;
+    doDeleteAsset(asset.uuid);
+}
+
+function doDeleteAsset(uuid: string) {
+    if (uuid.startsWith('local:')) {
+        // Local fallback assets can be hidden immediately.
+        mediaLibrary.deleteAsset(uuid);
+        return;
+    }
+    // Ingestor-managed delete is client-side only until API support arrives.
+    if (!window.confirm('Hide this asset from the library?\n(The Ingestor API does not yet support deletion.) ')) return;
+    mediaLibrary.deleteAsset(uuid);
+}
+
+async function doPurgeAsset(asset: LibraryAsset) {
+    if (asset.uuid.startsWith('local:')) {
+        window.alert("Cannot purge local fallback assets.");
+        return;
+    }
+    const confirmed = window.confirm(
+        `WARNING: Are you absolutely sure you want to permanently delete and purge "${asset.display_name}"?\n\nThis will:\n1. Permanently DELETE the physical file on disk.\n2. Delete all database records and virtual sub-clips matching this asset's file path or fingerprint.\n\nTHIS ACTION CANNOT BE UNDONE!`
+    );
+    if (!confirmed) return;
+
+    try {
+        await invoke('purge_ingestor_asset', {
+            uuid: asset.uuid,
+            apiBaseUrlOverride: null
+        });
+        mediaLibrary.deleteAsset(asset.uuid);
+        await fetchAssets({ force: true });
+    } catch (error) {
+        window.alert(`Failed to purge asset: ${error}`);
+    }
+}
+
+function openTrimPanelForSelected() {
+    const asset = mediaLibrary.selectedAsset;
+    if (!asset) return;
+    trimAsset.value = asset;
+    showTrimPanel.value = true;
+}
+
+const handleTrimSaved = async ({ uuid }: { uuid?: string }) => {
+    if (!uuid) return;
+    // Refresh the changed asset from the API in the background.
+    const response = await ingestorInvoke<{
+        uuid?: string;
+        current_path: string;
+        display_name?: string;
+        virtual_folder?: string;
+        duration_ms: number;
+        trim_in_ms: number;
+        trim_out_ms: number;
+        rating: string;
+        status: string;
+    }>(
+        'resolve_ingestor_asset',
+        { uuid, apiBaseUrlOverride: null },
+        'ingestor-resolve'
+    );
+    if (response) {
+        mediaLibrary.updateAsset(uuid, libraryAssetFromApi(response));
+    }
 };
 
-const handleProbeStatusUpdate = async (status: MediaProbeStatus) => {
-    const previousFinishedAt = probeStatus.value.finishedAtMs;
-    probeStatus.value = status;
-    isWarmingCatalog.value = status.running;
-
-    const normalizedCurrentRoot = normalizePath(settings.localMediaPath || '').replace(/\/+$/, '');
-    const normalizedProbeRoot = normalizePath(status.rootPath || '').replace(/\/+$/, '');
-    if (!status.running && status.finishedAtMs && status.finishedAtMs !== previousFinishedAt && normalizedProbeRoot === normalizedCurrentRoot) {
-        await rescanLibrary({ scheduleProbe: false });
-    }
-};
+// --- Legacy local-file debug/probe panel (kept separate from client diagnostics) ---
 
 const refreshProbeStatus = async () => {
     try {
         const status = await invoke<MediaProbeStatus>('get_media_probe_status');
-        await handleProbeStatusUpdate(status);
+        probeStatus.value = status;
     } catch (error) {
         console.warn('[Library] Failed to refresh probe status', error);
     }
@@ -567,7 +581,6 @@ const refreshProbeStatus = async () => {
 
 const refreshDiagnostics = async () => {
     if (!settings.debugMode) return;
-
     try {
         diagnosticEntries.value = await invoke<DiagnosticEntry[]>('get_diagnostic_logs', { limit: 80 });
     } catch (error) {
@@ -584,15 +597,13 @@ const startBackgroundProbe = async (_reason = 'manual') => {
     clearScheduledWarmup();
     const mediaPath = (settings.localMediaPath || '').trim();
     if (!mediaPath) return;
-
     if (probeStatus.value.running) {
         await refreshProbeStatus();
         return;
     }
-
     try {
         const status = await invoke<MediaProbeStatus>('start_media_probe', { path: mediaPath });
-        await handleProbeStatusUpdate(status);
+        probeStatus.value = status;
         if (settings.debugMode && showDebugPanel.value) {
             await refreshDiagnostics();
         }
@@ -605,7 +616,7 @@ const startBackgroundProbe = async (_reason = 'manual') => {
 const scheduleLibraryWarmup = (delayMs = 1400) => {
     clearScheduledWarmup();
     const mediaPath = (settings.localMediaPath || '').trim();
-    if (!mediaPath || probeStatus.value.running || countPendingMetadata(tree.value) === 0) return;
+    if (!mediaPath || probeStatus.value.running || mediaLibrary.assets.length === 0) return;
 
     scheduledWarmupTimer = setTimeout(() => {
         scheduledWarmupTimer = null;
@@ -613,35 +624,10 @@ const scheduleLibraryWarmup = (delayMs = 1400) => {
     }, delayMs);
 };
 
-const rescanLibrary = async (options: RescanOptions = {}) => {
-    isScanning.value = true;
-    try {
-        const nodes = await buildTree(settings.localMediaPath || '');
-        nodes.push({
-            name: settings.liveInputSourceName || 'Live Rebroadcast',
-            path: settings.liveInputSourceName || '',
-            type: 'file',
-            mediaType: 'live'
-        });
-        nodes.push({ name: 'External_Network_Stream.m3u8', path: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', type: 'file', mediaType: 'video' });
-        tree.value = nodes;
-
-        const relinkedCount = store.relinkItemsByStableId(collectRelinkCandidates(nodes));
-        if (relinkedCount > 0) {
-            console.info(`[Library] Relinked ${relinkedCount} rundown item(s) by stable media id.`);
-        }
-    } catch (e) {
-        console.warn('[Library] rescanLibrary failed:', e);
-        tree.value = [
-            { name: '⚠ Set media folder in ⚙️ Settings', path: '', type: 'file', mediaType: 'video' },
-            { name: settings.liveInputSourceName || 'Live Rebroadcast', path: settings.liveInputSourceName || '', type: 'file', mediaType: 'live' }
-        ];
-    } finally {
-        isScanning.value = false;
-        if (options.scheduleProbe !== false) {
-            scheduleLibraryWarmup(options.probeDelayMs ?? 1500);
-        }
-    }
+const clearScheduledWarmup = () => {
+    if (!scheduledWarmupTimer) return;
+    clearTimeout(scheduledWarmupTimer);
+    scheduledWarmupTimer = null;
 };
 
 const clearDiagnostics = async () => {
@@ -661,7 +647,6 @@ const exportDiagnostics = async () => {
             defaultPath: 'playout-debug-log.txt',
             filters: [{ name: 'Text Files', extensions: ['txt'] }]
         });
-
         if (!outputPath || Array.isArray(outputPath)) return;
         await invoke('export_diagnostic_logs', { outputPath });
     } catch (error) {
@@ -669,47 +654,27 @@ const exportDiagnostics = async () => {
     }
 };
 
-const handleTrimSaved = async ({ outputPath }: { outputPath: string }) => {
-    if (!outputPath) return;
-    try {
-        await invoke('scan_media', { filepath: outputPath });
-    } catch (error) {
-        console.warn('[Library] Failed to pre-prime trimmed media metadata', outputPath, error);
+const probeProgressLabel = computed(() => {
+    if (!probeStatus.value.running) return '';
+    if (probeStatus.value.totalCandidates > 0) {
+        return `probing ${probeStatus.value.checked}/${probeStatus.value.totalCandidates}`;
     }
-    await rescanLibrary({ scheduleProbe: true, probeDelayMs: 350 });
+    return 'probing…';
+});
+
+const formatDiagnosticTime = (timestampMs: number) => {
+    if (!timestampMs) return '--:--:--';
+    return new Date(timestampMs).toLocaleTimeString([], {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+    });
 };
 
-watch(() => [settings.localMediaPath, settings.liveInputSourceName], () => {
-    rescanLibrary({ scheduleProbe: true, probeDelayMs: 1800 });
-});
-watch(() => mediaDefaults.complianceByPath, () => applyLibraryDefaults(tree.value), { deep: true });
-watch(() => mediaDefaults.indicatorByPath, () => applyLibraryDefaults(tree.value), { deep: true });
-watch(shouldPollDiagnostics, (enabled) => {
-    if (diagnosticsTimer) {
-        clearInterval(diagnosticsTimer);
-        diagnosticsTimer = null;
-    }
-
-    if (!enabled) return;
-
-    refreshDiagnostics().catch(() => {});
-    diagnosticsTimer = setInterval(() => {
-        refreshDiagnostics().catch(() => {});
-    }, 1500);
-}, { immediate: true });
-
-watch(() => probeStatus.value.running, (running) => {
-    if (statusTimer) {
-        clearInterval(statusTimer);
-        statusTimer = null;
-    }
-
-    if (!running) return;
-
-    statusTimer = setInterval(() => {
-        refreshProbeStatus().catch(() => {});
-    }, 1500);
-}, { immediate: true });
+watch(() => [settings.ingestorApiBaseUrl, settings.localMediaPath], () => {
+    fetchAssets();
+}, { deep: true });
 
 watch(() => settings.debugMode, (enabled) => {
     if (!enabled) {
@@ -721,152 +686,24 @@ watch(() => settings.debugMode, (enabled) => {
     }
 });
 
-const addWebStream = async () => {
-    if (!streamUrl.value) return;
-    isExtracting.value = true;
-    try {
-        const rawUrl = await invoke<string>('extract_web_stream', { url: streamUrl.value });
-        tree.value = [
-            ...tree.value,
-            { name: 'Web Stream', path: rawUrl, type: 'file', mediaType: 'video' }
-        ];
-        streamUrl.value = '';
-    } catch (e) { console.error('Stream extraction failed:', e); }
-    finally { isExtracting.value = false; }
-};
-
-const onDragStart = (event: DragEvent, node: MediaNode) => {
-    selectLibraryNode(node);
-    const payload = {
-        playoutvueId: node.playoutvueId || undefined,
-        filename: node.name,
-        path: node.path,
-        shortPath: node.shortPath || '',
-        type: node.mediaType || 'video',
-        libraryIndicator: getDefaultIndicator(node.path),
-        inPoint: node.inPoint || 0,
-        outPoint: node.outPoint || 0,
-        duration: getNodeDurationSeconds(node), seek: 0, length: 0,
-        complianceRating: getDefaultCompliance(node.path)
-    };
-    draggingItem.value = payload;
-    ensureNodeDuration(node).then((seconds) => {
-        if (draggingItem.value === payload && seconds > 0) {
-            draggingItem.value.duration = seconds;
-        }
-    }).catch(() => {});
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
-};
-
-const addItem = async (node: MediaNode) => {
-    selectLibraryNode(node);
-    store.addItem(await buildResolvedRundownDraft(node));
-};
-
-const appendSelectedLibraryNode = async () => {
-    const node = getSelectedLibraryNode();
-    if (!node || node.type !== 'file' || !node.path) return;
-
-    const item = await buildResolvedRundownDraft(node);
-    if (store.selectedItemId) {
-        const index = store.activeItems.findIndex((entry) => entry.id === store.selectedItemId);
-        if (index >= 0) {
-            store.insertItemAt(index + 1, item);
-            return;
-        }
-    }
-
-    store.addItem(item);
-};
-
-// --- Context Menu Options ---
-const onContextMenu = (event: MouseEvent, node: MediaNode) => {
-    if (node.type !== 'file' || !node.path) return;
-    selectLibraryNode(node);
-    contextMenu.value = { show: true, x: event.clientX, y: event.clientY, node };
-};
-
-const closeContextMenu = () => {
-    showDebugMenu.value = false;
-    contextMenu.value = { ...contextMenu.value, show: false, node: null };
-};
-
-const openTrimPanel = () => {
-    if (contextMenu.value.node) {
-        trimLibraryItem.value = {
-            path: contextMenu.value.node.path,
-            filename: contextMenu.value.node.name,
-            type: contextMenu.value.node.mediaType || 'video',
-            duration: contextMenu.value.node.duration || 0,
-            inPoint: contextMenu.value.node.inPoint || 0,
-            outPoint: contextMenu.value.node.outPoint || 0
-        };
-        showTrimPanel.value = true;
-    }
-    closeContextMenu();
-};
-
-const appendNode = async () => {
-    if (contextMenu.value.node) await addItem(contextMenu.value.node);
-    closeContextMenu();
-};
-
-const insertNode = async () => {
-    if (contextMenu.value.node) {
-        const item = await buildResolvedRundownDraft(contextMenu.value.node);
-        if (store.selectedItemId) {
-            const idx = store.activeItems.findIndex((i: any) => i.id === store.selectedItemId);
-            if (idx >= 0) {
-                store.insertItemAt(idx + 1, item);
-                closeContextMenu();
-                return;
-            }
-        }
-        store.addItem(item);
-    }
-    closeContextMenu();
-};
-
-const setDefaultRating = (rating: ComplianceRating) => {
-    if (!contextMenu.value.node?.path) return;
-    mediaDefaults.setCompliance(contextMenu.value.node.path, rating);
-    applyLibraryDefaults(tree.value);
-    closeContextMenu();
-};
-
-const setLibraryIndicator = (indicator: LibraryIndicator) => {
-    if (!contextMenu.value.node?.path) return;
-    mediaDefaults.setIndicator(contextMenu.value.node.path, indicator);
-    applyLibraryDefaults(tree.value);
-    closeContextMenu();
-};
-
-const handleLibraryKey = (event: KeyboardEvent) => {
-    const target = event.target as HTMLElement | null;
-    if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
-    if (event.key !== 'F8') return;
-    if (!getSelectedLibraryNode()) return;
-
-    event.preventDefault();
-    appendSelectedLibraryNode().catch((error) => {
-        console.warn('[Library] Failed to append selected library item via F8', error);
-    });
-};
+watch(
+    probeProgressLabel,
+    () => {},
+    { immediate: true }
+);
 
 onMounted(() => {
     refreshProbeStatus().catch(() => {});
-    rescanLibrary({ scheduleProbe: true, probeDelayMs: 1100 });
-    if (settings.debugMode) {
-        refreshDebugPanel().catch(() => {});
-    }
+    fetchAssets();
+    if (settings.debugMode) refreshDebugPanel().catch(() => {});
     periodicWarmupTimer = setInterval(() => {
         if (!probeStatus.value.running) {
             scheduleLibraryWarmup(0);
         }
     }, 300000);
     window.addEventListener('click', closeContextMenu);
-    window.addEventListener('keydown', handleLibraryKey);
 });
+
 onUnmounted(() => {
     if (diagnosticsTimer) {
         clearInterval(diagnosticsTimer);
@@ -882,330 +719,645 @@ onUnmounted(() => {
     }
     clearScheduledWarmup();
     window.removeEventListener('click', closeContextMenu);
-    window.removeEventListener('keydown', handleLibraryKey);
 });
+
+function onFolderDragOver(event: DragEvent, node: TreeNode) {
+    if (node.type !== 'folder') return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'copy';
+    }
+}
+
+async function onFolderDrop(event: DragEvent, node: TreeNode) {
+    if (node.type !== 'folder') return;
+    event.preventDefault();
+    
+    let uuid = '';
+    if (event.dataTransfer) {
+        uuid = event.dataTransfer.getData('text/plain');
+    }
+    if (!uuid && draggingItem.value) {
+        uuid = draggingItem.value.playoutvueId || `local:${draggingItem.value.path}`;
+    }
+    if (!uuid) return;
+    
+    const targetFolder = node.virtualFolder;
+    const isLocal = uuid.startsWith('local:');
+    
+    if (!isLocal) {
+        const result = await ingestorInvoke<void>(
+            'move_ingestor_asset',
+            { uuid: uuid, virtual_folder: targetFolder, apiBaseUrlOverride: null },
+            'ingestor-move'
+        );
+        if (result !== null) {
+            mediaLibrary.moveAssetToFolder(uuid, targetFolder);
+            await fetchAssets({ force: true });
+        }
+    } else {
+        mediaLibrary.moveAssetToFolder(uuid, targetFolder);
+    }
+    
+    draggingItem.value = null;
+}
+
+const ratingOptions = [
+  { id: 'none', label: 'None' },
+  { id: 'k', label: 'K' },
+  { id: '8', label: '8+' },
+  { id: '12', label: '12+' },
+  { id: '16', label: '16+' },
+  { id: '18', label: '18+' }
+] as const;
+
+const contentTypeOptions = [
+  { id: 'none', label: 'None' },
+  { id: 'movie', label: 'Movie' },
+  { id: 'show', label: 'Show' },
+  { id: 'documentary', label: 'Documentary' },
+  { id: 'news', label: 'News' }
+] as const;
+
+async function ctxSetAgeRating(rating: ComplianceRating) {
+  const asset = contextMenu.value.node?.asset;
+  if (asset) {
+    await mediaLibrary.updateAssetMetadata(asset.uuid, { complianceRating: rating });
+  }
+  closeContextMenu();
+}
+
+async function ctxToggleTP() {
+  const asset = contextMenu.value.node?.asset;
+  if (asset) {
+    const meta = parseBroadcastRating(asset.rating);
+    await mediaLibrary.updateAssetMetadata(asset.uuid, { tp_flag: !meta.tpFlag });
+  }
+  closeContextMenu();
+}
+
+async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id']) {
+  const asset = contextMenu.value.node?.asset;
+  if (asset) {
+    await mediaLibrary.updateAssetMetadata(asset.uuid, { content_type: cType });
+  }
+  closeContextMenu();
+}
 </script>
 
 <template>
   <div class="lib-wrap">
     <!-- Header -->
     <div class="lib-header">
-            <div class="lib-header-copy">
-                <span class="text-accent lib-title">Library</span>
-                <span class="lib-subtitle">
-                    {{ visibleFileCount }} {{ visibleFileCount === 1 ? 'asset' : 'assets' }}
-                    <template v-if="probeProgressLabel"> · {{ probeProgressLabel }}</template>
-                </span>
-            </div>
-            <div class="lib-header-actions">
-                <div v-if="settings.debugMode" class="debug-menu-wrap">
-                    <button class="icon-action" @click.stop="showDebugMenu = !showDebugMenu" :title="showDebugMenu ? 'Close debug menu' : 'Open debug menu'">
-                        Debug
-                    </button>
-                    <div v-if="showDebugMenu" class="debug-menu">
-                        <button class="debug-menu-item" @click.stop="startBackgroundProbe('manual'); showDebugMenu = false" :disabled="isWarmingCatalog">
-                            {{ isWarmingCatalog ? 'Background probe running…' : 'Start background probe' }}
-                        </button>
-                        <button class="debug-menu-item" @click.stop="refreshDebugPanel(); showDebugPanel = true; showDebugMenu = false">
-                            Show debug log
-                        </button>
-                        <button class="debug-menu-item" @click.stop="exportDiagnostics(); showDebugMenu = false" :disabled="!diagnosticEntries.length">
-                            Export log to .txt
-                        </button>
-                        <button class="debug-menu-item" @click.stop="clearDiagnostics(); showDebugMenu = false" :disabled="!diagnosticEntries.length">
-                            Clear debug log
-                        </button>
-                    </div>
-                </div>
-                <button class="icon-action" @click="rescanLibrary({ scheduleProbe: true, probeDelayMs: 350 })" :disabled="isScanning" :title="isScanning ? 'Scanning…' : 'Rescan'">
-                    {{ isScanning ? '⌛' : '↻' }}
-                </button>
-            </div>
-    </div>
-
-        <div class="lib-toolbar">
-            <input
-                v-model="libraryQuery"
-                class="glass-input lib-search"
-                type="search"
-                placeholder="Search files, folders, or paths"
-            >
-            <button v-if="libraryQuery" class="icon-action" @click="libraryQuery = ''" title="Clear search">✕</button>
+      <div class="lib-header-copy">
+        <span class="text-accent lib-title">Library</span>
+        <span class="lib-subtitle">
+          {{ visibleFileCount }} {{ visibleFileCount === 1 ? 'asset' : 'assets' }}
+          <template v-if="totalLibraryDuration"> · {{ totalLibraryDuration }}</template>
+          <template v-if="probeProgressLabel"> · {{ probeProgressLabel }}</template>
+        </span>
+      </div>
+      <div class="lib-header-actions">
+        <div v-if="settings.debugMode" class="debug-menu-wrap">
+          <button class="icon-action" @click.stop="showDebugMenu = !showDebugMenu" :title="showDebugMenu ? 'Close debug menu' : 'Open debug menu'">
+            Debug
+          </button>
+          <div v-if="showDebugMenu" class="debug-menu">
+            <button class="debug-menu-item" @click.stop="startBackgroundProbe('manual'); showDebugMenu = false" :disabled="isWarmingCatalog">
+              {{ isWarmingCatalog ? 'Background probe running…' : 'Start background probe' }}
+            </button>
+            <button class="debug-menu-item" @click.stop="refreshDebugPanel(); showDebugPanel = true; showDebugMenu = false">
+              Show debug log
+            </button>
+            <button class="debug-menu-item" @click.stop="exportDiagnostics(); showDebugMenu = false" :disabled="!diagnosticEntries.length">
+              Export log to .txt
+            </button>
+            <button class="debug-menu-item" @click.stop="clearDiagnostics(); showDebugMenu = false" :disabled="!diagnosticEntries.length">
+              Clear debug log
+            </button>
+          </div>
         </div>
-
-        <div v-if="settings.debugMode && showDebugPanel" class="lib-debug-panel">
-            <div class="debug-toolbar">
-                <div class="debug-summary">
-                    <strong>{{ probeStatus.running ? 'Background probe active' : 'Background probe idle' }}</strong>
-                    <span>
-                        {{ probeStatus.checked }} checked · {{ probeStatus.updated }} updated · {{ probeStatus.skipped }} skipped
-                        <template v-if="probeStatus.totalCandidates"> · {{ probeStatus.totalCandidates }} total</template>
-                    </span>
-                </div>
-                <div class="debug-actions">
-                    <button class="icon-action" @click="refreshDebugPanel">Refresh</button>
-                    <button class="icon-action" @click="exportDiagnostics" :disabled="!diagnosticEntries.length">Export</button>
-                    <button class="icon-action" @click="clearDiagnostics" :disabled="!diagnosticEntries.length">Clear</button>
-                    <button class="icon-action" @click="showDebugPanel = false">Close</button>
-                </div>
-            </div>
-
-            <div class="debug-meta">
-                <div>ffprobe: {{ probeStatus.ffprobePath || 'not resolved yet' }}</div>
-                <div v-if="probeStatus.currentFile">Current: {{ probeStatus.currentFile }}</div>
-                <div v-else-if="probeStatus.rootPath">Root: {{ probeStatus.rootPath }}</div>
-                <div v-if="probeStatus.lastError" class="debug-error">Last error: {{ probeStatus.lastError }}</div>
-            </div>
-
-            <div class="debug-log custom-scroll">
-                <div v-if="!diagnosticEntries.length" class="debug-empty">No diagnostic entries yet.</div>
-                <div v-for="(entry, index) in diagnosticEntries" :key="`${entry.timestampMs}-${entry.scope}-${index}`" class="debug-entry" :class="`level-${entry.level}`">
-                    <span class="debug-time">{{ formatDiagnosticTime(entry.timestampMs) }}</span>
-                    <span class="debug-level">{{ entry.level.toUpperCase() }}</span>
-                    <span class="debug-scope">{{ entry.scope }}</span>
-                    <span class="debug-message">{{ entry.message }}</span>
-                </div>
-            </div>
-        </div>
-
-    <!-- File Tree -->
-    <div class="lib-tree custom-scroll" @contextmenu.prevent>
-      <div v-if="isScanning" class="lib-empty">⌛ Scanning…</div>
-            <div v-else-if="visibleTree.length === 0" class="lib-empty">
-                {{ libraryQuery ? 'No matching media found.' : '📂 No media found.' }}
-                <br>
-                <small>{{ libraryQuery ? 'Try a broader search.' : 'Set folder in ⚙️ Settings' }}</small>
-            </div>
-
-      <MediaTreeNode
-                v-for="node in visibleTree"
-        :key="node.path || node.name"
-        :node="node"
-                :selected-path="selectedLibraryPath"
-        @dragstart="onDragStart"
-        @dblclick="addItem"
-        @contextmenu="onContextMenu"
-                @select="selectLibraryNode"
-      />
-    </div>
-
-    <!-- Web Stream Ingest -->
-    <div class="lib-stream-bar">
-      <label class="text-secondary" style="font-size:0.7rem; margin-bottom:3px; display:block;">Web Stream (HLS / YouTube)</label>
-      <div style="display:flex; gap:6px;">
-                <input class="glass-input" v-model="streamUrl" placeholder="https://…" style="flex:1; font-size:0.78rem; padding:4px 8px;" @keydown.enter.prevent="addWebStream">
-        <button class="icon-action" @click="addWebStream" :disabled="isExtracting">{{ isExtracting ? '⌛' : '＋' }}</button>
+        <button
+          class="icon-action"
+          :disabled="isScanning"
+          :title="isScanning ? 'Refreshing…' : 'Refresh from Ingestor'"
+          @click="fetchAssets({ force: true })"
+        >
+          {{ isScanning ? '⌛' : '↻' }}
+        </button>
       </div>
     </div>
 
-    <!-- Custom Context Menu -->
+    <!-- Toolbar -->
+    <div class="lib-toolbar">
+      <input
+        v-model="libraryQuery"
+        class="glass-input lib-search"
+        type="search"
+        placeholder="Search assets…"
+      >
+      <button v-if="libraryQuery" class="icon-action" @click="libraryQuery = ''" title="Clear search">✕</button>
+      <div class="toolbar-spacer" />
+      <button
+        class="icon-action"
+        title="New virtual folder in current folder"
+        :disabled="!mediaLibrary.currentFolderPath"
+        @click="doNewVirtualFolder"
+      >
+        📁 New
+      </button>
+      <button
+        class="icon-action"
+        title="Rename selected asset"
+        :disabled="!mediaLibrary.selectedAsset"
+        @click="doRenameSelected"
+      >
+        ✏️ Rename
+      </button>
+      <button
+        class="icon-action"
+        title="Move selected asset"
+        :disabled="!mediaLibrary.selectedAsset"
+        @click="doMoveSelected"
+      >
+        ➡️ Move
+      </button>
+      <button
+        class="icon-action"
+        title="Hide selected asset"
+        :disabled="!mediaLibrary.selectedAsset"
+        @click="doDeleteSelected"
+      >
+        🗑 Delete
+      </button>
+    </div>
+
+    <!-- Debug panel -->
+    <div v-if="settings.debugMode && showDebugPanel" class="lib-debug-panel">
+      <div class="debug-toolbar">
+        <div class="debug-summary">
+          <strong>{{ probeStatus.running ? 'Background probe active' : 'Background probe idle' }}</strong>
+          <span>
+            {{ probeStatus.checked }} checked · {{ probeStatus.updated }} updated · {{ probeStatus.skipped }} skipped
+            <template v-if="probeStatus.totalCandidates"> · {{ probeStatus.totalCandidates }} total</template>
+          </span>
+        </div>
+        <div class="debug-actions">
+          <button class="icon-action" @click="refreshDebugPanel">Refresh</button>
+          <button class="icon-action" @click="exportDiagnostics" :disabled="!diagnosticEntries.length">Export</button>
+          <button class="icon-action" @click="clearDiagnostics" :disabled="!diagnosticEntries.length">Clear</button>
+          <button class="icon-action" @click="showDebugPanel = false">Close</button>
+        </div>
+      </div>
+
+      <div class="debug-meta">
+        <div>ffprobe: {{ probeStatus.ffprobePath || 'not resolved yet' }}</div>
+        <div v-if="probeStatus.currentFile">Current: {{ probeStatus.currentFile }}</div>
+        <div v-else-if="probeStatus.rootPath">Root: {{ probeStatus.rootPath }}</div>
+        <div v-if="probeStatus.lastError" class="debug-error">Last error: {{ probeStatus.lastError }}</div>
+      </div>
+
+      <div class="debug-log custom-scroll">
+        <div v-if="!diagnosticEntries.length" class="debug-empty">No diagnostic entries yet.</div>
+        <div
+          v-for="(entry, index) in diagnosticEntries"
+          :key="`${entry.timestampMs}-${entry.scope}-${index}`"
+          class="debug-entry"
+          :class="`level-${entry.level}`"
+        >
+          <span class="debug-time">{{ formatDiagnosticTime(entry.timestampMs) }}</span>
+          <span class="debug-level">{{ entry.level.toUpperCase() }}</span>
+          <span class="debug-scope">{{ entry.scope }}</span>
+          <span class="debug-message">{{ entry.message }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tree List -->
+    <div ref="libTreeRef" class="lib-tree" @contextmenu.prevent
+    >
+      <div v-if="isScanning && !mediaLibrary.allTreeNodes.length" class="lib-empty">⌛ Loading…</div>
+      <div v-else-if="mediaLibrary.allTreeNodes.length === 0" class="lib-empty">
+        {{ libraryQuery ? 'No matching assets found.' : '📂 No media found.\nSet the Ingestor API or media folder in ⚙️ Settings.' }}
+      </div>
+      <div v-else v-bind="virtualConfig.containerProps" style="min-height: 0;">
+        <div v-bind="virtualConfig.wrapperProps">
+          <div
+            v-for="{ data: node, index } in virtualItems"
+            :key="node.id"
+            class="lib-row"
+            :class="{
+              'is-folder': node.type === 'folder',
+              'is-asset': node.type === 'asset',
+              'is-selected': mediaLibrary.selectedNodeId === node.id,
+              'is-transient': node.isTransient,
+            }"
+            :draggable="node.type === 'asset'"
+            :style="{ paddingLeft: `${node.depth * 18 + 8}px` }"
+            @click="onNodeClick(node)"
+            @dblclick="onNodeDoubleClick(node)"
+            @contextmenu.prevent="onContextMenu($event, node)"
+            @dragstart="onDragStart($event, node)"
+            @dragover="onFolderDragOver($event, node)"
+            @drop="onFolderDrop($event, node)"
+          >
+            <span class="lib-icon" @click.stop="onFolderToggle(node)">
+              <span v-if="node.type === 'folder'">{{ node.expanded ? '📂' : '📁' }}</span>
+              <span v-else-if="node.asset?.status === 'ready'">🎬</span>
+              <span v-else-if="node.asset?.status === 'processing'">⏳</span>
+              <span v-else>📄</span>
+            </span>
+            <span class="lib-text"
+              :class="{ 'is-managed': node.type === 'asset' && !node.asset?.uuid.startsWith('local:') }"
+            >
+              <span class="lib-name-wrap">
+                <span class="lib-name">{{ node.name }}</span>
+                <span v-if="node.type === 'asset' && node.asset" class="mcr-badges">
+                  <span v-if="parseBroadcastRating(node.asset.rating).ageRating !== 'none'" class="mcr-badge badge-age" :class="`age-${parseBroadcastRating(node.asset.rating).ageRating}`">
+                    {{ parseBroadcastRating(node.asset.rating).ageRating.toUpperCase() }}
+                  </span>
+                  <span v-if="parseBroadcastRating(node.asset.rating).tpFlag" class="mcr-badge badge-tp">TP</span>
+                  <span v-if="parseBroadcastRating(node.asset.rating).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${parseBroadcastRating(node.asset.rating).contentType}`">
+                    {{ parseBroadcastRating(node.asset.rating).contentType.toUpperCase() }}
+                  </span>
+                </span>
+              </span>
+            </span>
+            <span v-if="node.type === 'asset' && assetDurationSeconds(node.asset) > 0" class="lib-time-pill">
+              {{ formatDuration(assetDurationSeconds(node.asset || {} as any)) }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Context Menu -->
     <Teleport to="body">
-      <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
-        <div class="menu-item" @click.stop="appendNode">Append to Rundown</div>
-        <div class="menu-item" @click.stop="insertNode">Insert After Selected</div>
-        <div class="menu-divider"></div>
-                <div class="menu-label">Default Rating</div>
-                <div v-for="rating in ratingOptions" :key="rating.id" class="menu-item" @click.stop="setDefaultRating(rating.id)">
-                    {{ getDefaultCompliance(contextMenu.node?.path || '') === rating.id ? '✓ ' : '' }}{{ rating.label }}
-                </div>
-                <div class="menu-divider"></div>
-                                <div class="menu-label">Library Tag</div>
-                                <div v-for="indicator in indicatorOptions" :key="indicator.id" class="menu-item" @click.stop="setLibraryIndicator(indicator.id)">
-                                        {{ getDefaultIndicator(contextMenu.node?.path || '') === indicator.id ? '✓ ' : '' }}{{ indicator.label }}
-                                </div>
-                                <div class="menu-divider"></div>
-        <div class="menu-item" @click.stop="openTrimPanel">✂️ Trim & Extract...</div>
-        <div class="menu-divider"></div>
-        <div class="menu-item" @click.stop="closeContextMenu">Cancel</div>
+      <div
+        v-if="contextMenu.show"
+        class="context-menu context-menu-container"
+        :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+      >
+        <template v-if="contextMenu.node?.type === 'asset' && contextMenu.node.asset">
+          <div class="menu-item" @click.stop="ctxAppend">Append to Rundown</div>
+          <div class="menu-item" @click.stop="ctxInsertAfter">Insert After Selected</div>
+          
+          <div class="menu-divider" />
+          <div class="menu-label">Age Rating</div>
+          <div v-for="rating in ratingOptions" :key="`lib-rating-${rating.id}`" class="menu-item" @click.stop="ctxSetAgeRating(rating.id)">
+            {{ parseBroadcastRating(contextMenu.node.asset.rating).ageRating === rating.id ? '✓ ' : '' }}{{ rating.label }}
+          </div>
+          
+          <div class="menu-divider" />
+          <div class="menu-label">Product Placement</div>
+          <div class="menu-item" @click.stop="ctxToggleTP">
+            {{ parseBroadcastRating(contextMenu.node.asset.rating).tpFlag ? '✓ TP (Active)' : '□ TP (None)' }}
+          </div>
+          
+          <div class="menu-divider" />
+          <div class="menu-label">Content Type</div>
+          <div v-for="cType in contentTypeOptions" :key="`lib-content-${cType.id}`" class="menu-item" @click.stop="ctxSetContentType(cType.id)">
+            {{ parseBroadcastRating(contextMenu.node.asset.rating).contentType === cType.id ? '✓ ' : '' }}{{ cType.label }}
+          </div>
+
+          <div class="menu-divider" />
+          <div class="menu-item" @click.stop="ctxRename">✏️ Rename</div>
+          <div class="menu-item" @click.stop="ctxMove">➡️ Move to…</div>
+          <div class="menu-item" @click.stop="ctxTrim">✂️ Trim…</div>
+          <div class="menu-divider" />
+          <div class="menu-item" @click.stop="ctxDelete">🗑 Hide</div>
+          <div class="menu-item" style="color: #e63946;" @click.stop="ctxPurge">💥 Delete & Purge</div>
+        </template>
+        <template v-else-if="contextMenu.node?.type === 'folder'">
+          <div class="menu-item" @click.stop="doNewVirtualFolder">📁 New Virtual Folder here</div>
+          <div v-if="contextMenu.node.isTransient" class="menu-item" @click.stop="mediaLibrary.removeTransientFolder(contextMenu.node.virtualFolder)">
+            Remove empty placeholder
+          </div>
+        </template>
       </div>
     </Teleport>
 
-    <!-- Trim Panel Modal -->
+    <!-- Trim Panel -->
     <Teleport to="body">
-      <TrimPanel 
-        :is-open="showTrimPanel" 
-        :library-item="trimLibraryItem"
-                @saved="handleTrimSaved"
-        @close="showTrimPanel = false; trimLibraryItem = null" 
+      <TrimPanel
+        :is-open="showTrimPanel"
+        :library-item="trimAsset
+          ? {
+              id: trimAsset.uuid,
+              path: trimAsset.current_path,
+              filename: trimAsset.display_name,
+              type: 'video',
+              duration: assetDurationSeconds(trimAsset),
+              inPoint: trimAsset.trim_in_ms,
+              outPoint: trimAsset.duration_ms > 0 ? trimAsset.duration_ms - trimAsset.trim_out_ms : 0,
+            }
+          : null"
+        @saved="handleTrimSaved"
+        @close="showTrimPanel = false; trimAsset = null"
       />
     </Teleport>
   </div>
 </template>
 
 <style scoped>
-.lib-wrap { height:100%; display:flex; flex-direction:column; overflow:hidden; position: relative; }
+.lib-wrap { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
 .lib-header {
-    display:flex; justify-content:space-between; align-items:center;
-    padding:6px 10px; border-bottom:1px solid var(--glass-border); flex-shrink:0;
+  display:flex; justify-content:space-between; align-items:center;
+  padding:6px 10px; border-bottom:1px solid var(--glass-border); flex-shrink:0;
 }
 .lib-header-actions { display:flex; align-items:center; gap:6px; }
-.debug-menu-wrap { position:relative; }
-.debug-menu {
-    position:absolute;
-    right:0;
-    top:calc(100% + 6px);
-    min-width:190px;
-    display:flex;
-    flex-direction:column;
-    padding:6px;
-    gap:4px;
-    background:color-mix(in srgb, var(--bg-secondary) 96%, transparent);
-    border:1px solid var(--glass-border);
-    border-radius:8px;
-    box-shadow:0 8px 24px rgba(0,0,0,0.35);
-    z-index:20;
-}
-.debug-menu-item {
-    background:transparent;
-    border:none;
-    color:var(--text-primary);
-    text-align:left;
-    padding:8px 10px;
-    border-radius:6px;
-    cursor:pointer;
-    font-size:0.78rem;
-}
-.debug-menu-item:hover:not(:disabled) {
-    background:color-mix(in srgb, var(--accent-blue) 10%, transparent);
-}
-.debug-menu-item:disabled {
-    opacity:0.45;
-    cursor:not-allowed;
-}
 .lib-header-copy { display:flex; flex-direction:column; gap:2px; }
 .lib-title { font-size:0.9rem; font-weight:600; }
 .lib-subtitle { color:var(--text-secondary); font-size:0.7rem; }
+
 .lib-toolbar {
-    display:flex; align-items:center; gap:6px;
-    padding:8px 8px 6px;
-    border-bottom:1px solid var(--glass-border);
+  display:flex; align-items:center; gap:6px;
+  padding:8px; border-bottom:1px solid var(--glass-border);
+  flex-shrink:0;
 }
 .lib-search { flex:1; }
+.toolbar-spacer { flex:1; }
+
 .lib-debug-panel {
-    padding:8px;
-    border-bottom:1px solid var(--glass-border);
-    background:color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
-    display:flex;
-    flex-direction:column;
-    gap:8px;
+  padding:8px;
+  border-bottom:1px solid var(--glass-border);
+  background:color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  flex-shrink:0;
 }
 .debug-toolbar {
-    display:flex;
-    justify-content:space-between;
-    gap:8px;
-    align-items:flex-start;
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  align-items:flex-start;
 }
 .debug-summary {
-    display:flex;
-    flex-direction:column;
-    gap:2px;
-    font-size:0.72rem;
-    color:var(--text-secondary);
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  font-size:0.72rem;
+  color:var(--text-secondary);
 }
 .debug-actions {
-    display:flex;
-    gap:6px;
+  display:flex;
+  gap:6px;
 }
 .debug-meta {
-    display:flex;
-    flex-direction:column;
-    gap:4px;
-    font-size:0.7rem;
-    color:var(--text-secondary);
-    word-break:break-all;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:0.7rem;
+  color:var(--text-secondary);
+  word-break:break-all;
 }
 .debug-error {
-    color:#f4a261;
+  color:#f4a261;
 }
 .debug-log {
-    max-height:180px;
-    overflow:auto;
-    border:1px solid var(--glass-border);
-    border-radius:6px;
-    background:color-mix(in srgb, var(--bg-primary) 30%, var(--bg-secondary));
+  max-height:180px;
+  overflow:auto;
+  border:1px solid var(--glass-border);
+  border-radius:6px;
+  background:color-mix(in srgb, var(--bg-primary) 30%, var(--bg-secondary));
 }
 .debug-empty {
-    color:var(--text-secondary);
-    font-size:0.72rem;
-    padding:10px;
+  color:var(--text-secondary);
+  font-size:0.72rem;
+  padding:10px;
 }
 .debug-entry {
-    display:grid;
-    grid-template-columns:60px 48px 54px 1fr;
-    gap:8px;
-    padding:6px 8px;
-    font-size:0.7rem;
-    border-bottom:1px solid rgba(255,255,255,0.04);
-    align-items:start;
+  display:grid;
+  grid-template-columns:60px 48px 54px 1fr;
+  gap:8px;
+  padding:6px 8px;
+  font-size:0.7rem;
+  border-bottom:1px solid rgba(255,255,255,0.04);
+  align-items:start;
 }
 .debug-entry:last-child {
-    border-bottom:none;
+  border-bottom:none;
 }
 .debug-time,
 .debug-level,
 .debug-scope {
-    color:var(--text-secondary);
+  color:var(--text-secondary);
 }
 .debug-message {
-    color:var(--text-primary);
-    word-break:break-word;
+  color:var(--text-primary);
+  word-break:break-word;
 }
 .level-error .debug-level {
-    color:#e76f51;
+  color:#e76f51;
 }
 .level-warn .debug-level {
-    color:#f4a261;
+  color:#f4a261;
 }
 .level-info .debug-level {
-    color:#7bdff2;
+  color:#7bdff2;
 }
-.lib-tree { flex:1; overflow-y:auto; padding:4px; min-height:0; }
-.lib-empty { color:var(--text-secondary); font-size:0.78rem; text-align:center; padding:20px 10px; line-height:1.6; }
-.lib-stream-bar { padding:8px; border-top:1px solid var(--glass-border); flex-shrink:0; }
+
+.lib-tree {
+  flex:1;
+  position:relative;
+  min-height:0;
+  overflow:hidden;
+}
+.lib-empty { color:var(--text-secondary); font-size:0.78rem; text-align:center; padding:20px 10px; line-height:1.6; white-space:pre-line; }
+
 .glass-input {
-    background:var(--bg-tertiary); border:1px solid var(--glass-border);
-    color:var(--text-primary); border-radius:4px; font-size:0.8rem; padding:5px 8px;
+  background:var(--bg-tertiary); border:1px solid var(--glass-border);
+  color:var(--text-primary); border-radius:4px; font-size:0.8rem; padding:5px 8px;
 }
 .icon-action {
-    background:color-mix(in srgb, var(--bg-tertiary) 84%, transparent); border:1px solid var(--glass-border);
-    color:var(--text-primary); border-radius:4px; cursor:pointer; padding:4px 8px; font-size:0.82rem; transition:0.15s;
+  background:color-mix(in srgb, var(--bg-tertiary) 84%, transparent); border:1px solid var(--glass-border);
+  color:var(--text-primary); border-radius:4px; cursor:pointer; padding:4px 8px; font-size:0.78rem; transition:0.15s;
 }
-.icon-action:hover { background:color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary)); }
+.icon-action:hover:not(:disabled) { background:color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary)); }
 .icon-action:disabled { opacity:0.4; cursor:not-allowed; }
+
+.lib-row {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:34px;
+  height:34px;
+  padding:5px 8px;
+  padding-left:8px;
+  border-radius:8px;
+  user-select:none;
+  border:1px solid transparent;
+  transition:background 0.12s, border-color 0.12s;
+  cursor:pointer;
+}
+.lib-row:hover {
+  background:color-mix(in srgb, var(--accent-blue) 10%, transparent);
+  border-color:color-mix(in srgb, var(--accent-blue) 18%, transparent);
+}
+.lib-row.is-selected {
+  background:color-mix(in srgb, var(--accent-blue) 14%, transparent);
+  border-color:color-mix(in srgb, var(--accent-blue) 34%, transparent);
+}
+.lib-row.is-transient .lib-name {
+  font-style:italic;
+  opacity:0.7;
+}
+.lib-row[draggable="true"] { cursor:grab; }
+.lib-row[draggable="true"]:active { cursor:grabbing; }
+.lib-icon { font-size:0.85rem; flex-shrink:0; display:flex; align-items:center; gap:4px; cursor:pointer; }
+.lib-text { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; }
+.lib-name { font-size:0.76rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; font-weight:600; }
+.is-managed .lib-name { color:var(--accent-blue); }
+.lib-time-pill {
+  font-size:0.72rem;
+  line-height:1;
+  padding:5px 8px;
+  border-radius:999px;
+  background:color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary));
+  border:1px solid color-mix(in srgb, var(--accent-red) 26%, transparent);
+  color:var(--text-primary);
+  font-variant-numeric:tabular-nums;
+  font-family:'Courier New', monospace;
+  font-weight:700;
+  letter-spacing:0.04em;
+  flex-shrink:0;
+}
+
+/* Debug menu */
+.debug-menu-wrap { position:relative; }
+.debug-menu {
+  position:absolute;
+  right:0;
+  top:calc(100% + 6px);
+  min-width:190px;
+  display:flex;
+  flex-direction:column;
+  padding:6px;
+  gap:4px;
+  background:color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+  border:1px solid var(--glass-border);
+  border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.35);
+  z-index:20;
+}
+.debug-menu-item {
+  background:transparent;
+  border:none;
+  color:var(--text-primary);
+  text-align:left;
+  padding:8px 10px;
+  border-radius:6px;
+  cursor:pointer;
+  font-size:0.78rem;
+}
+.debug-menu-item:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--accent-blue) 10%, transparent);
+}
+.debug-menu-item:disabled {
+  opacity:0.45;
+  cursor:not-allowed;
+}
 
 /* Context Menu */
 .context-menu {
-    position: fixed;
-    background: var(--bg-secondary);
-    border: 1px solid var(--glass-border);
-    border-radius: 6px;
-    padding: 4px 0;
-    min-width: 160px;
-    z-index: 9999;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-    backdrop-filter: blur(10px);
+  position: fixed;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 170px;
+  z-index: 9999;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  backdrop-filter: blur(10px);
+}
+.context-menu-container {
+  max-height: min(450px, calc(100vh - 40px));
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #4a5568 #1a202c;
+}
+.context-menu-container::-webkit-scrollbar {
+  width: 6px;
+}
+.context-menu-container::-webkit-scrollbar-track {
+  background: #1a202c;
+}
+.context-menu-container::-webkit-scrollbar-thumb {
+  background-color: #4a5568;
+  border-radius: 3px;
 }
 .menu-label {
-    padding: 6px 12px 4px;
-    font-size: 0.68rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
+  padding: 6px 12px 4px;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 .menu-item {
-    padding: 6px 12px;
-    font-size: 0.8rem;
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: background 0.1s;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.1s;
 }
 .menu-item:hover {
-    background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
-    color: var(--accent-blue);
+  background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
+  color: var(--accent-blue);
 }
 .menu-divider {
-    height: 1px;
-    background: var(--glass-border);
-    margin: 4px 0;
+  height: 1px;
+  background: var(--glass-border);
+  margin: 4px 0;
 }
+
+@media (max-width: 1280px) {
+  .lib-toolbar {
+    flex-wrap: wrap;
+  }
+  .toolbar-spacer { display:none; }
+}
+
+.lib-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mcr-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mcr-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.badge-age.age-k { background: #2ecc71; color: #fff; }
+.badge-age.age-8 { background: #f1c40f; color: #000; }
+.badge-age.age-12 { background: #e67e22; color: #fff; }
+.badge-age.age-16 { background: #d35400; color: #fff; }
+.badge-age.age-18 { background: #c0392b; color: #fff; }
+
+.badge-tp {
+  background: #e74c3c;
+  color: #fff;
+  border: 1px solid #c0392b;
+}
+
+.badge-content.content-movie { background: #3498db; color: #fff; }
+.badge-content.content-show { background: #9b59b6; color: #fff; }
+.badge-content.content-documentary { background: #f39c12; color: #000; }
+.badge-content.content-news { background: #1abc9c; color: #fff; }
 </style>

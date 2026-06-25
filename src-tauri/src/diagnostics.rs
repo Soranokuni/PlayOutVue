@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
+use std::io::Write as _;
 
 const MAX_DIAGNOSTIC_ENTRIES: usize = 250;
 
@@ -48,17 +49,45 @@ impl DiagnosticState {
             return;
         }
 
-        let mut entries = self.entries.lock();
-        if entries.len() >= MAX_DIAGNOSTIC_ENTRIES {
-            entries.pop_front();
-        }
-
-        entries.push_back(DiagnosticEntry {
-            timestamp_ms: now_ms(),
+        let msg_str = message.into();
+        let timestamp = now_ms();
+        let entry = DiagnosticEntry {
+            timestamp_ms: timestamp,
             level: level.to_string(),
             scope: scope.to_string(),
-            message: message.into(),
-        });
+            message: msg_str.clone(),
+        };
+
+        // 1. In-memory circular buffer for frontend diagnostics panel
+        {
+            let mut entries = self.entries.lock();
+            if entries.len() >= MAX_DIAGNOSTIC_ENTRIES {
+                entries.pop_front();
+            }
+            entries.push_back(entry);
+        }
+
+        // 2. Real-time file logging to playout.log
+        let log_line = format!(
+            "{} [{}] {} {}\n",
+            format_timestamp(timestamp),
+            level.to_uppercase(),
+            scope,
+            msg_str
+        );
+
+        if let Some(mut path) = dirs_next::data_dir() {
+            path.push("com.playout.client");
+            let _ = std::fs::create_dir_all(&path);
+            path.push("playout.log");
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
+                let _ = file.write_all(log_line.as_bytes());
+            }
+        }
     }
 
     pub fn recent(&self, limit: usize) -> Vec<DiagnosticEntry> {
@@ -73,6 +102,16 @@ impl DiagnosticState {
     pub fn clear(&self) {
         self.entries.lock().clear();
     }
+}
+
+#[tauri::command]
+pub fn push_diagnostic_log(
+    level: String,
+    scope: String,
+    message: String,
+    diagnostics: State<'_, DiagnosticState>,
+) {
+    diagnostics.push(&level, &scope, message);
 }
 
 #[tauri::command]

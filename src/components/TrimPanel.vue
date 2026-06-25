@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 export interface LibraryTrimItem {
     id?: string;
+    uuid?: string;
     path: string;
     filename: string;
     type: string;
@@ -20,7 +21,7 @@ const props = defineProps<{
 }>();
 const emit  = defineEmits<{
   (e: 'close'): void;
-  (e: 'saved', payload: { outputPath: string }): void;
+  (e: 'saved', payload: { uuid?: string; outputPath: string }): void;
 }>();
 
 const activeItem = ref<LibraryTrimItem | null>(null);
@@ -30,6 +31,7 @@ const lockTrimItem = () => {
   const source = props.libraryItem || store.selectedItem;
   activeItem.value = source ? {
     id: source.id,
+    uuid: (props.libraryItem?.uuid) || (store.selectedItem?.playoutvueId) || source.id,
     path: source.path,
     filename: source.filename,
     type: source.type,
@@ -459,7 +461,14 @@ const saveNonDestructive = () => {
         store.updateItem(item.value.id, { inPoint: inMs.value, outPoint: outMs.value });
       }
 
-      if (isLocalFilePath(item.value?.path)) {
+      if (item.value?.uuid && !item.value.uuid.startsWith('local:')) {
+        await invoke('update_ingestor_trim', {
+          uuid: item.value.uuid,
+          trimInMs: inMs.value,
+          trimOutMs: outMs.value,
+          apiBaseUrlOverride: null
+        });
+      } else if (isLocalFilePath(item.value?.path)) {
         await invoke('save_media_trim_profile', {
           path: item.value!.path,
           inMs: inMs.value,
@@ -467,14 +476,12 @@ const saveNonDestructive = () => {
         });
       }
 
-      trimStatus.value = item.value?.id
-        ? '✅ Saved to playlist and media index JSON.'
-        : '✅ Saved to media index JSON.';
+      trimStatus.value = '✅ Trim saved.';
 
       if (item.value?.path) {
-        emit('saved', { outputPath: item.value.path });
+        emit('saved', { uuid: item.value.uuid, outputPath: item.value.path });
       }
-      setTimeout(() => emit('close'), 800);
+      setTimeout(() => emit('close'), 600);
     };
 
     saveTask().catch((error) => {
@@ -482,97 +489,45 @@ const saveNonDestructive = () => {
     });
 };
 
-const splitInputPath = (ip: string) => {
-  const fileName = ip.split(/[/\\]/).pop() || '';
-  const dirPath = fileName ? ip.slice(0, -fileName.length).replace(/[\\/]$/, '') : ip;
-  const dot = fileName.lastIndexOf('.');
-  const ext = dot > -1 ? fileName.slice(dot + 1) : 'mp4';
-  const stem = dot > -1 ? fileName.slice(0, dot) : fileName;
-  return {
-    inputPath: ip,
-    dirPath,
-    ext,
-    stem
-  };
-};
-
-const joinOutputPath = (dirPath: string, fileName: string) => {
-  if (!dirPath) return fileName;
-  const separator = /[\\/]$/.test(dirPath) ? '' : '/';
-  return `${dirPath}${separator}${fileName}`;
-};
-
-const ensureExtension = (fileName: string, ext: string) => {
-  const trimmed = fileName.trim();
-  if (!trimmed) return '';
-  return new RegExp(`\\.${ext}$`, 'i').test(trimmed) ? trimmed : `${trimmed}.${ext}`;
-};
-
-const buildPaths = (ip: string, suffix: string) => {
-  const { inputPath, dirPath, ext, stem } = splitInputPath(ip);
-  return { inputPath, outputPath: joinOutputPath(dirPath, `${stem}${suffix}.${ext}`) };
-};
-
-const doRenameAndTrim = async () => {
-  if (!item.value?.path) {
-    trimStatus.value = '❌ No source file selected.';
-    return;
-  }
-  if (outMs.value <= inMs.value) {
-    trimStatus.value = '❌ OUT point must be greater than IN point.';
-    return;
-  }
-
-  const { inputPath, dirPath, ext, stem } = splitInputPath(item.value.path);
-  const suggestedName = `${stem}_trimmed.${ext}`;
-  const promptedName = window.prompt('Save trimmed copy as', suggestedName);
-  if (!promptedName) return;
-
-  const finalFileName = ensureExtension(promptedName, ext);
-  if (!finalFileName) {
-    trimStatus.value = '❌ A valid filename is required.';
-    return;
-  }
-
-  isTrimming.value = true;
-  trimStatus.value = 'Saving renamed stream-copy trim…';
-
-  try {
-    const outputPath = joinOutputPath(dirPath, finalFileName);
-    const result = await invoke<string>('trim_file', { inputPath, outputPath, inMs: inMs.value, outMs: outMs.value });
-    trimStatus.value = `✅ ${result.split(/[/\\]/).pop()} saved`;
-    emit('saved', { outputPath: result || outputPath });
-  } catch (error) {
-    trimStatus.value = `❌ ${error}`;
-  } finally {
-    isTrimming.value = false;
-  }
-};
-
-const doDestructiveTrim = async () => {
-    if (!item.value?.path || outMs.value <= inMs.value) return;
-    isTrimming.value = true; trimStatus.value = 'Stream-copy trim…';
-    try {
-        const ip = item.value?.path || '';
-        const { inputPath, outputPath } = buildPaths(ip, '_trimmed');
-        const r = await invoke<string>('trim_file', { inputPath: inputPath as string, outputPath: outputPath as string, inMs: inMs.value, outMs: outMs.value });
-        trimStatus.value = `✅ ${r.split(/[/\\]/).pop()} (stream copy)`;
-      emit('saved', { outputPath: r || outputPath });
-    } catch (e) { trimStatus.value = `❌ ${e}`; }
-    finally { isTrimming.value = false; }
-};
-
-const doSmartTrim = async () => {
-    if (!item.value?.path || outMs.value <= inMs.value) return;
-    isSmartTrimming.value = true; trimStatus.value = 'Accurate cut…';
-    try {
-        const ip = item.value?.path || '';
-        const { inputPath, outputPath } = buildPaths(ip, '_accurate');
-        const r = await invoke<string>('trim_file_smart', { inputPath: inputPath as string, outputPath: outputPath as string, inMs: inMs.value, outMs: outMs.value });
-        trimStatus.value = `✅ ${r.split(/[/\\]/).pop()} (accurate)`;
-      emit('saved', { outputPath: r || outputPath });
-    } catch (e) { trimStatus.value = `❌ ${e}`; }
-    finally { isSmartTrimming.value = false; }
+const saveAsSubclip = () => {
+    const currentItem = item.value;
+    if (!currentItem) return;
+    if (outMs.value > 0 && outMs.value <= inMs.value) {
+      trimStatus.value = '❌ OUT point must be greater than IN point.';
+      return;
+    }
+    
+    const defaultName = `${currentItem.filename} (Sub-clip)`;
+    const newName = window.prompt("Enter a name for the new virtual sub-clip:", defaultName);
+    if (newName === null) {
+      return;
+    }
+    const trimmedName = newName.trim();
+    if (!trimmedName) {
+      trimStatus.value = '❌ Display name must not be empty.';
+      return;
+    }
+    
+    if (currentItem.uuid && !currentItem.uuid.startsWith('local:')) {
+      const saveTask = async () => {
+        trimStatus.value = 'Creating virtual sub-clip...';
+        const response = await invoke<any>('create_ingestor_subclip', {
+          uuid: currentItem.uuid,
+          displayName: trimmedName,
+          trimInMs: inMs.value,
+          trimOutMs: outMs.value,
+          apiBaseUrlOverride: null
+        });
+        trimStatus.value = '✅ Virtual sub-clip created successfully!';
+        emit('saved', { uuid: response.uuid, outputPath: response.current_path });
+        setTimeout(() => emit('close'), 1000);
+      };
+      saveTask().catch((error) => {
+        trimStatus.value = `❌ Failed to create sub-clip: ${error}`;
+      });
+    } else {
+      trimStatus.value = '❌ Sub-clipping is only supported for server-side managed assets.';
+    }
 };
 </script>
 
@@ -697,35 +652,12 @@ const doSmartTrim = async () => {
           <!-- Non-destructive save (Only for Rundown Items) -->
           <div class="trim-actions">
             <button class="trim-btn btn-primary" @click="saveNonDestructive">
-              {{ props.libraryItem ? '💾 Save Markers to Library JSON' : '💾 Save to Playlist + Library JSON' }}
+              💾 Save Trim Points
+            </button>
+            <button v-if="item && item.uuid && !item.uuid.startsWith('local:')" class="trim-btn btn-accurate" @click="saveAsSubclip">
+              🎬 Save as Virtual Sub-clip
             </button>
             <button class="trim-btn" @click="$emit('close')">Cancel</button>
-          </div>
-
-          <!-- Destructive -->
-          <div class="section-divider">
-            <span class="text-secondary" style="font-size:0.62rem;background:var(--bg-dark,#0d0d0d);padding:0 8px;">DESTRUCTIVE FILE TRIM</span>
-          </div>
-          <div class="warning-badge">⚠️ Writes a new file alongside original — original is untouched</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="trim-btn btn-danger"
-              :disabled="isTrimming || isSmartTrimming || outMs <= inMs"
-              title="Stream copy — instant, ±keyframe accuracy"
-              @click="doDestructiveTrim">
-              {{ isTrimming ? '⌛ Trimming…' : '✂️ Stream Copy' }}
-            </button>
-            <button class="trim-btn"
-              :disabled="isTrimming || isSmartTrimming || outMs <= inMs"
-              title="Stream copy to a custom filename in the same folder"
-              @click="doRenameAndTrim">
-              {{ isTrimming ? '⌛ Trimming…' : '📝 Rename Copy' }}
-            </button>
-            <button class="trim-btn btn-accurate"
-              :disabled="isTrimming || isSmartTrimming || outMs <= inMs"
-              title="Frame-accurate: mkvmerge (MKV) or libx264 ultrafast fallback"
-              @click="doSmartTrim">
-              {{ isSmartTrimming ? '⌛ Cutting…' : '🎯 Accurate Cut' }}
-            </button>
           </div>
           <div v-if="trimStatus" class="trim-status">{{ trimStatus }}</div>
         </div>
@@ -742,8 +674,8 @@ const doSmartTrim = async () => {
 .shortcut-hint { font-size:0.62rem;color:rgba(255,255,255,0.3);display:flex;align-items:center;flex-wrap:wrap;gap:2px;flex:1;justify-content:center; }
 .shortcut-hint span { background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:3px;padding:1px 5px;color:rgba(255,255,255,0.6);font-family:monospace;font-size:0.65rem; }
 .trim-body { display:grid;grid-template-columns:1.15fr 0.95fr;gap:1rem; }
-.video-col { position:relative;background:#000;border-radius:8px;overflow:hidden;min-height:200px;display:flex;align-items:center;justify-content:center; }
-.trim-video { width:100%;max-height:300px;object-fit:contain;display:block; }
+.video-col { aspect-ratio: 16/9; max-height: 40vh; width: 100%; height: auto; background: #000; position: relative; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.trim-video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .video-placeholder { text-align:center;padding:2rem;color:rgba(255,255,255,0.25); }
 .speed-badge { position:absolute;bottom:6px;right:8px;background:rgba(0,0,0,0.7);color:#e63946;font-size:0.72rem;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:1px; }
 .transport-bar {

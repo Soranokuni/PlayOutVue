@@ -1,10 +1,8 @@
 import { computed } from 'vue';
 import type { RundownItem } from '../stores/rundown';
-import { useSettingsStore } from '../stores/settings';
 import { casparPlayoutService, currentCasparDurationMs, currentCasparMs, currentCasparTime, isCasparConnected, isCasparPlaying } from './caspar';
-import { currentMediaDurationMs, currentMediaMs, currentMediaTime, isObsConnected, isPlaying, obsPlayoutService } from './obs';
 
-export type PlayoutEngine = 'obs' | 'casparcg';
+export type PlayoutEngine = 'casparcg';
 export type PlayoutItem = RundownItem;
 export type PlayoutAdvanceCallback = (index: number) => void;
 
@@ -20,7 +18,7 @@ export interface PlayoutService {
     readonly engine: PlayoutEngine;
     readonly label: string;
     readonly supports: PlayoutServiceCapabilities;
-    connect(url?: string, password?: string): Promise<void>;
+    connect(): Promise<void>;
     disconnect(): Promise<void>;
     play(items: PlayoutItem[], startIndex: number): Promise<void>;
     pause?(): Promise<void>;
@@ -44,42 +42,17 @@ export interface PlayoutService {
     clearCompliance?(): Promise<void>;
 }
 
-const getConfiguredEngine = (): PlayoutEngine => {
-    try {
-        return useSettingsStore().playoutEngine || 'obs';
-    } catch {
-        return 'obs';
-    }
-};
-
-export const getActivePlayoutService = (): PlayoutService => (
-    getConfiguredEngine() === 'casparcg' ? casparPlayoutService : obsPlayoutService
-);
+export const getActivePlayoutService = (): PlayoutService => casparPlayoutService;
 
 export const registerPlayoutAdvanceListener = (callback: PlayoutAdvanceCallback) => {
-    obsPlayoutService.onAdvance?.(callback);
     casparPlayoutService.onAdvance?.(callback);
 };
 
 export const activePlayoutLabel = computed(() => getActivePlayoutService().label);
 export const activePlayoutCapabilities = computed(() => getActivePlayoutService().supports);
 
-export const isPlayoutConnected = computed(() => (
-    getConfiguredEngine() === 'casparcg' ? isCasparConnected.value : isObsConnected.value
-));
-
-export const isPlayoutPlaying = computed(() => (
-    getConfiguredEngine() === 'casparcg' ? isCasparPlaying.value : isPlaying.value
-));
-
-export const currentPlayoutTime = computed(() => (
-    getConfiguredEngine() === 'casparcg' ? currentCasparTime.value : currentMediaTime.value
-));
-
-export const currentPlayoutMs = computed(() => (
-    getConfiguredEngine() === 'casparcg' ? currentCasparMs.value : currentMediaMs.value
-));
-
-export const currentTotalPlayoutMs = computed(() => (
-    getConfiguredEngine() === 'casparcg' ? currentCasparDurationMs.value : currentMediaDurationMs.value
-));
+export const isPlayoutConnected = computed(() => isCasparConnected.value);
+export const isPlayoutPlaying = computed(() => isCasparPlaying.value);
+export const currentPlayoutTime = computed(() => currentCasparTime.value);
+export const currentPlayoutMs = computed(() => currentCasparMs.value);
+export const currentTotalPlayoutMs = computed(() => currentCasparDurationMs.value);

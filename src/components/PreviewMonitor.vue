@@ -1,94 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
-import { obs } from '../services/obs';
+import { ref } from 'vue';
 import { activePlayoutCapabilities, activePlayoutLabel, isPlayoutConnected } from '../services/playout';
 
 const previewSrc = ref<string | null>(null);
-const isCapturing = ref(false);
 const lastError = ref('');
-let pollTimer: ReturnType<typeof setTimeout> | null = null;
-let keepPolling = true;
-const ACTIVE_POLL_MS = 700;
-const IDLE_POLL_MS = 2200;
-
-const scheduleNextPoll = (delay: number) => {
-    if (pollTimer) clearTimeout(pollTimer);
-    if (keepPolling) pollTimer = setTimeout(captureFrame, delay);
-};
-
-const captureFrame = async () => {
-    if (!keepPolling) return;
-
-    if (!activePlayoutCapabilities.value.preview) {
-        previewSrc.value = null;
-        lastError.value = '';
-        scheduleNextPoll(IDLE_POLL_MS);
-        return;
-    }
-
-    if (!isPlayoutConnected.value || document.visibilityState === 'hidden') {
-        if (!isPlayoutConnected.value) previewSrc.value = null;
-        scheduleNextPoll(IDLE_POLL_MS);
-        return;
-    }
-    
-    if (!isCapturing.value) {
-        isCapturing.value = true;
-        try {
-            const { imageData } = await (obs as any).call('GetVideoMixSnapshot', {
-                videoMixType: 'OBS_WEBSOCKET_VIDEO_MIX_TYPE_PROGRAM',
-                imageFormat: 'jpeg',
-                imageWidth: 320,
-                imageHeight: 180,
-                imageCompressionQuality: 50
-            });
-            previewSrc.value = imageData;
-            lastError.value = '';
-        } catch (e: any) {
-            if (!lastError.value) {
-                try {
-                    const sceneResp = await (obs as any).call('GetCurrentProgramScene');
-                    const sceneName = sceneResp?.currentProgramSceneName || sceneResp?.sceneName;
-                    if (sceneName) {
-                        const { imageData } = await (obs as any).call('GetSourceScreenshot', {
-                            sourceName: sceneName,
-                            imageFormat: 'jpeg',
-                            imageWidth: 320,
-                            imageHeight: 180,
-                            imageCompressionQuality: 50
-                        });
-                        previewSrc.value = imageData;
-                        lastError.value = '';
-                    }
-                } catch {
-                    lastError.value = e?.message || String(e);
-                }
-            }
-        } finally {
-            isCapturing.value = false;
-        }
-    }
-    
-    scheduleNextPoll(lastError.value ? IDLE_POLL_MS : ACTIVE_POLL_MS);
-};
-
-const handleVisibilityChange = () => {
-    if (document.visibilityState === 'visible') {
-        captureFrame();
-    }
-};
-
-onMounted(() => {
-    keepPolling = true;
-    captureFrame();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-});
-
-onUnmounted(() => {
-    keepPolling = false;
-    if (pollTimer) clearTimeout(pollTimer);
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-});
 </script>
 
 <template>
@@ -96,16 +11,13 @@ onUnmounted(() => {
     <div class="monitor-header">
       <span class="badge-program">● PROGRAM</span>
       <span class="text-secondary" style="font-size:0.68rem;">
-                {{ activePlayoutCapabilities.preview ? (isPlayoutConnected ? (previewSrc ? 'Live' : 'Waiting…') : 'Not connected') : activePlayoutLabel + ' preview unavailable' }}
+        {{ activePlayoutCapabilities.preview ? (isPlayoutConnected ? (previewSrc ? 'Live' : 'Waiting…') : 'Not connected') : activePlayoutLabel + ' preview unavailable' }}
       </span>
     </div>
     <div class="monitor-frame">
-    <img v-if="previewSrc" :src="previewSrc" class="monitor-image" alt="Playout Program Output">
+      <img v-if="previewSrc" :src="previewSrc" class="monitor-image" alt="Playout Program Output">
       <div v-else class="monitor-placeholder">
-                <div v-if="!activePlayoutCapabilities.preview">⬤ PREVIEW NOT AVAILABLE</div>
-                <div v-else-if="!isPlayoutConnected">⬤ NOT CONNECTED</div>
-        <div v-else-if="lastError" style="font-size:0.65rem; color:rgba(255,100,100,0.6); max-width:180px; text-align:center;">{{ lastError }}</div>
-                <div v-else>⌛ Awaiting {{ activePlayoutLabel }}…</div>
+        <div>⬤ PREVIEW NOT AVAILABLE</div>
       </div>
     </div>
   </div>

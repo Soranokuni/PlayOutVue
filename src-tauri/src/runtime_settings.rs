@@ -3,13 +3,12 @@ use parking_lot::Mutex;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime, State};
 
-use crate::diagnostics::DiagnosticState;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeSettings {
     pub debug_enabled: bool,
     pub ffmpeg_bin_path: String,
+    pub ingestor_api_base_url: String,
 }
 
 impl Default for RuntimeSettings {
@@ -17,6 +16,7 @@ impl Default for RuntimeSettings {
         Self {
             debug_enabled: false,
             ffmpeg_bin_path: String::new(),
+            ingestor_api_base_url: "http://127.0.0.1:4353".to_string(),
         }
     }
 }
@@ -25,7 +25,11 @@ pub struct RuntimeSettingsState(pub Mutex<RuntimeSettings>);
 
 impl Default for RuntimeSettingsState {
     fn default() -> Self {
-        Self(Mutex::new(RuntimeSettings::default()))
+        let mut settings = RuntimeSettings::default();
+        if let Some(loaded) = load_settings_from_disk() {
+            settings = loaded;
+        }
+        Self(Mutex::new(settings))
     }
 }
 
@@ -34,7 +38,7 @@ impl RuntimeSettingsState {
         self.0.lock().clone()
     }
 
-    pub fn update(&self, next: RuntimeSettings) -> RuntimeSettings {
+pub fn update(&self, next: RuntimeSettings) -> RuntimeSettings {
         let mut settings = self.0.lock();
         *settings = next.clone();
         settings.clone()
@@ -45,25 +49,43 @@ impl RuntimeSettingsState {
 pub fn apply_runtime_settings(
     settings: RuntimeSettings,
     state: State<'_, RuntimeSettingsState>,
-    diagnostics: State<'_, DiagnosticState>,
-) -> RuntimeSettings {
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<(), String> {
+    save_settings_to_disk(&settings);
+    state.update(settings.clone());
     diagnostics.set_enabled(settings.debug_enabled);
-    let snapshot = state.update(settings.clone());
-    if snapshot.debug_enabled {
-        diagnostics.push(
-            "info",
-            "runtime-settings",
-            format!(
-                "Debug tools enabled. ffmpeg bin override: {}",
-                if snapshot.ffmpeg_bin_path.trim().is_empty() {
-                    "default Requirements/ffmpeg/bin".to_string()
-                } else {
-                    snapshot.ffmpeg_bin_path.clone()
-                }
-            ),
-        );
+    Ok(())
+}
+
+pub fn get_ingestor_api_base_url<R: Runtime>(app: &AppHandle<R>) -> String {
+    app.try_state::<RuntimeSettingsState>()
+        .map(|s| s.snapshot().ingestor_api_base_url)
+        .unwrap_or_else(|| RuntimeSettings::default().ingestor_api_base_url)
+}
+
+fn config_path() -> PathBuf {
+    dirs_next::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("com.playout.client")
+        .join("runtime_config.json")
+}
+
+fn load_settings_from_disk() -> Option<RuntimeSettings> {
+    let path = config_path();
+    let content = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str::<RuntimeSettings>(&content).ok()
+}
+
+fn save_settings_to_disk(settings: &RuntimeSettings) {
+    let path = config_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
     }
-    snapshot
+
+    let json = serde_json::to_string_pretty(settings).unwrap_or_default();
+    let tmp = path.with_extension("json.tmp");
+    let _ = std::fs::write(&tmp, &json);
+    let _ = std::fs::rename(&tmp, &path);
 }
 
 pub fn resolve_tool_path<R: Runtime>(app: Option<&AppHandle<R>>, state: Option<&RuntimeSettingsState>, name: &str) -> String {
