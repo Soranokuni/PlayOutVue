@@ -368,7 +368,7 @@ fn arg_to_seconds(arg: &OscType) -> Option<f64> {
 // ---------------------------------------------------------------------------
 
 /// Advance fires when position is within this many ms of duration.
-const ADVANCE_THRESHOLD_MS: u64 = 300;
+const ADVANCE_THRESHOLD_MS: u64 = 200;
 /// Throttle `caspar://playback-tick` to at most one emission per this interval.
 const TICK_THROTTLE_MS: u64 = 100;
 /// If no OSC packet arrives for this long while playing, the watchdog emits
@@ -452,6 +452,7 @@ pub fn playback_should_advance(
     is_playing
         && !is_paused
         && !advance_fired
+        && position_ms > 0
         && duration_ms > 0
         && position_ms >= duration_ms.saturating_sub(ADVANCE_THRESHOLD_MS)
 }
@@ -528,15 +529,18 @@ pub fn spawn_playback_watchdog<R: Runtime>(
         loop {
             tokio::time::sleep(Duration::from_millis(WATCHDOG_TICK_MS)).await;
             let now = now_ms();
-            let (emit_stall, emit_advance) = {
+            let (emit_stall, emit_advance_reason) = {
                 let mut s = state.lock();
                 if !s.is_playing || s.is_paused || s.current_uuid.is_none() || s.advance_fired {
                     continue;
                 }
                 let gap = now.saturating_sub(s.last_osc_at_ms);
                 let mut stall = false;
-                let mut advance = false;
-                if gap >= PLAYBACK_WATCHDOG_MS {
+                let mut advance_reason = None;
+                if gap >= 1500 {
+                    s.advance_fired = true;
+                    advance_reason = Some("eof-watchdog".to_string());
+                } else if gap >= PLAYBACK_WATCHDOG_MS {
                     if !s.stall_emitted {
                         s.stall_emitted = true;
                         stall = true;
@@ -547,10 +551,10 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     let deadline = s.last_osc_at_ms.saturating_add(remaining);
                     if now >= deadline {
                         s.advance_fired = true;
-                        advance = true;
+                        advance_reason = Some("watchdog-deadline".to_string());
                     }
                 }
-                (stall, advance)
+                (stall, advance_reason)
             };
 
             if emit_stall {
@@ -566,13 +570,13 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     },
                 );
             }
-            if emit_advance {
+            if let Some(reason) = emit_advance_reason {
                 let uuid = state.lock().current_uuid.clone();
                 let _ = app.emit(
                     "caspar://advance",
                     PlaybackAdvance {
                         current_uuid: uuid,
-                        reason: "watchdog-deadline".to_string(),
+                        reason,
                     },
                 );
             }

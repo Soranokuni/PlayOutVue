@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
-import { refDebounced, useVirtualList } from '@vueuse/core';
+import { refDebounced } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useRundownStore, parseBroadcastRating, serializeBroadcastRating, getMetadataFromAssetResponse, type ComplianceRating } from '../stores/rundown';
@@ -10,6 +10,7 @@ import { useIngestorStatusStore } from '../stores/ingestorStatus';
 import { useMediaLibraryStore, type LibraryAsset, type TreeNode } from '../stores/mediaLibrary';
 import { draggingItem } from '../composables/useDragState';
 import TrimPanel from './TrimPanel.vue';
+import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -99,11 +100,65 @@ const createDefaultProbeStatus = (): MediaProbeStatus => ({
 });
 const probeStatus = ref<MediaProbeStatus>(createDefaultProbeStatus());
 
-const virtualConfig = useVirtualList(
-    computed(() => mediaLibrary.allTreeNodes),
-    { itemHeight: ROW_HEIGHT, overscan: 8 }
-);
-const virtualItems = computed(() => virtualConfig.list.value);
+const expandedFolders = ref<Record<string, boolean>>({});
+
+function getFolderName(path: string): string {
+    if (path === '/') return 'All Media';
+    const parts = path.split('/').filter(Boolean);
+    return parts[parts.length - 1] || 'Unknown';
+}
+
+const folderGroups = computed(() => {
+    const query = mediaLibrary.searchQuery.trim().toLowerCase();
+    const groups: Record<string, LibraryAsset[]> = {};
+
+    groups['/'] = [];
+
+    for (const asset of mediaLibrary.assets) {
+        if (mediaLibrary.deletedUuids.includes(asset.uuid)) continue;
+
+        if (query) {
+            const displayName = asset.display_name || asset.current_path?.split(/[/\\]/).pop() || 'Untitled';
+            if (!displayName.toLowerCase().includes(query)) {
+                continue;
+            }
+        }
+
+        const folder = normalizeVirtualFolder(asset.virtual_folder);
+        if (!groups[folder]) {
+            groups[folder] = [];
+        }
+        groups[folder].push(asset);
+    }
+
+    if (!query) {
+        for (const folder of Object.keys(mediaLibrary.transientFolders)) {
+            const normalized = normalizeVirtualFolder(folder);
+            if (!groups[normalized]) {
+                groups[normalized] = [];
+            }
+        }
+    }
+
+    const sortedFolderNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+    return sortedFolderNames.map(folderPath => {
+        const sortedAssets = [...(groups[folderPath] || [])].sort((a, b) =>
+            (a.display_name || '').localeCompare(b.display_name || '')
+        );
+        return {
+            folderName: folderPath,
+            assets: sortedAssets
+        };
+    }).filter(group => {
+        if (query) {
+            const nameMatch = getFolderName(group.folderName).toLowerCase().includes(query);
+            return group.assets.length > 0 || nameMatch;
+        }
+        return true;
+    });
+});
+
 
 watch(debouncedLibraryQuery, (query) => {
     mediaLibrary.searchQuery = query.trim().toLowerCase();
@@ -332,10 +387,28 @@ async function addSelectedAssetToRundown() {
     store.addItem(makeRundownDraftFromAsset(asset));
 }
 
-function onDragStart(event: DragEvent, node: TreeNode) {
-    if (node.type !== 'asset' || !node.asset) return;
-    const asset = node.asset;
-    mediaLibrary.selectedNodeId = node.id;
+const FOLDER_DRAG_MIME = 'application/x-playout-folder';
+const folderDropTargetId = ref<string | null>(null);
+
+function onFolderClick(folderPath: string) {
+    mediaLibrary.selectedNodeId = `folder:${folderPath}`;
+    mediaLibrary.currentFolderPath = folderPath;
+}
+
+function onFolderDoubleClick(folderPath: string) {
+    expandedFolders.value[folderPath] = !expandedFolders.value[folderPath];
+}
+
+function onAssetClick(asset: LibraryAsset) {
+    mediaLibrary.selectedNodeId = `asset:${asset.uuid}`;
+}
+
+function onAssetDoubleClick(asset: LibraryAsset) {
+    store.addItem(makeRundownDraftFromAsset(asset));
+}
+
+function onAssetDragStart(event: DragEvent, asset: LibraryAsset) {
+    mediaLibrary.selectedNodeId = `asset:${asset.uuid}`;
     const meta = parseBroadcastRating(asset.rating);
     const payload = {
         playoutvueId: asset.uuid.startsWith('local:') ? undefined : asset.uuid,
@@ -368,43 +441,38 @@ function onDragStart(event: DragEvent, node: TreeNode) {
     }
 }
 
-const FOLDER_DRAG_MIME = 'application/x-playout-folder';
-const folderDropTargetId = ref<string | null>(null);
-
-function onFolderDragStart(event: DragEvent, node: TreeNode) {
-    if (node.type !== 'folder') return;
-    mediaLibrary.selectedNodeId = node.id;
+function onFolderDragStart(event: DragEvent, folderPath: string) {
+    mediaLibrary.selectedNodeId = `folder:${folderPath}`;
     if (event.dataTransfer) {
-        event.dataTransfer.setData(FOLDER_DRAG_MIME, node.virtualFolder);
-        event.dataTransfer.setData('text/plain', node.virtualFolder);
+        event.dataTransfer.setData(FOLDER_DRAG_MIME, folderPath);
+        event.dataTransfer.setData('text/plain', folderPath);
         event.dataTransfer.effectAllowed = 'move';
     }
 }
 
-function onNodeClick(node: TreeNode) {
+function onAssetContextMenu(event: MouseEvent, asset: LibraryAsset) {
+    const node: TreeNode = {
+        id: `asset:${asset.uuid}`,
+        type: 'asset',
+        name: asset.display_name,
+        virtualFolder: asset.virtual_folder,
+        depth: 1,
+        asset
+    };
     mediaLibrary.selectedNodeId = node.id;
-    if (node.type === 'folder') {
-        mediaLibrary.currentFolderPath = node.virtualFolder;
-    }
+    contextMenu.value = { show: true, x: event.clientX, y: event.clientY, node };
 }
 
-function onFolderToggle(node: TreeNode) {
-    if (node.type !== 'folder') return;
-    mediaLibrary.selectedNodeId = node.id;
-    mediaLibrary.currentFolderPath = node.virtualFolder;
-    mediaLibrary.toggleFolder(node.virtualFolder);
-}
-
-function onNodeDoubleClick(node: TreeNode) {
-    if (node.type === 'asset' && node.asset) {
-        store.addItem(makeRundownDraftFromAsset(node.asset));
-    } else if (node.type === 'folder') {
-        mediaLibrary.toggleFolder(node.virtualFolder);
-    }
-}
-
-function onContextMenu(event: MouseEvent, node: TreeNode) {
-    if (node.type === 'asset' && !node.asset) return;
+function onFolderContextMenu(event: MouseEvent, folderPath: string) {
+    const node: TreeNode = {
+        id: `folder:${folderPath}`,
+        type: 'folder',
+        name: getFolderName(folderPath),
+        virtualFolder: folderPath,
+        depth: 0,
+        expanded: expandedFolders.value[folderPath],
+        color: mediaLibrary.folderColors[folderPath] || ''
+    };
     mediaLibrary.selectedNodeId = node.id;
     contextMenu.value = { show: true, x: event.clientX, y: event.clientY, node };
 }
@@ -755,26 +823,23 @@ onUnmounted(() => {
     window.removeEventListener('click', closeContextMenu);
 });
 
-function onFolderDragOver(event: DragEvent, node: TreeNode) {
-    if (node.type !== 'folder') return;
+function onFolderDragOverPath(event: DragEvent, folderPath: string) {
     event.preventDefault();
-    folderDropTargetId.value = node.id;
+    folderDropTargetId.value = `folder:${folderPath}`;
     if (event.dataTransfer) {
         const isFolderDrag = event.dataTransfer.types.includes(FOLDER_DRAG_MIME);
         event.dataTransfer.dropEffect = isFolderDrag ? 'move' : 'copy';
     }
 }
 
-async function onFolderDrop(event: DragEvent, node: TreeNode) {
-    if (node.type !== 'folder') return;
+async function onFolderDropPath(event: DragEvent, folderPath: string) {
     event.preventDefault();
     folderDropTargetId.value = null;
 
-    // Folder-into-folder nesting (plan §3.2): re-prefix child virtual_folders.
     if (event.dataTransfer) {
         const sourceFolder = event.dataTransfer.getData(FOLDER_DRAG_MIME);
         if (sourceFolder) {
-            mediaLibrary.moveFolderInto(sourceFolder, node.virtualFolder);
+            mediaLibrary.moveFolderInto(sourceFolder, folderPath);
             draggingItem.value = null;
             return;
         }
@@ -787,27 +852,24 @@ async function onFolderDrop(event: DragEvent, node: TreeNode) {
     if (!uuid && draggingItem.value) {
         uuid = draggingItem.value.playoutvueId || `local:${draggingItem.value.path}`;
     }
-    // Don't treat a dropped folder path (no asset uuid) as an asset move.
     if (!uuid || uuid.startsWith('/') || uuid.startsWith('application/')) {
         draggingItem.value = null;
         return;
     }
 
-    const targetFolder = node.virtualFolder;
     const isLocal = uuid.startsWith('local:');
 
     if (!isLocal) {
         const result = await ingestorInvoke<void>(
             'move_ingestor_asset',
-            { uuid: uuid, virtual_folder: targetFolder, api_base_url_override: null },
+            { uuid: uuid, virtual_folder: folderPath, api_base_url_override: null },
             'ingestor-move'
         );
         if (result !== null) {
-            // Source of truth stays local; no force-refresh (plan §3.2 desync fix).
-            mediaLibrary.moveAssetToFolder(uuid, targetFolder);
+            mediaLibrary.moveAssetToFolder(uuid, folderPath);
         }
     } else {
-        mediaLibrary.moveAssetToFolder(uuid, targetFolder);
+        mediaLibrary.moveAssetToFolder(uuid, folderPath);
     }
 
     draggingItem.value = null;
@@ -875,6 +937,143 @@ async function ctxSetFolderColor(color: string) {
   }
   closeContextMenu();
 }
+
+const topActionItems = computed<TopAction[]>(() => {
+  const node = contextMenu.value.node;
+  if (!node || node.type !== 'asset' || !node.asset) return [];
+  
+  return [
+    {
+      id: 'trim',
+      tooltip: 'Trim Asset',
+      action: ctxTrim,
+      disabled: false
+    },
+    {
+      id: 'rename',
+      tooltip: 'Rename Asset',
+      action: ctxRename,
+      disabled: false
+    },
+    {
+      id: 'purge',
+      tooltip: 'Delete & Purge',
+      action: ctxPurge,
+      disabled: false
+    },
+    {
+      id: 'delete',
+      tooltip: 'Hide Asset',
+      action: ctxDelete,
+      disabled: false
+    }
+  ];
+});
+
+const menuItems = computed<MenuItem[]>(() => {
+  const node = contextMenu.value.node;
+  if (!node) return [];
+  
+  if (node.type === 'asset' && node.asset) {
+    const asset = node.asset;
+    const ratingMeta = parseBroadcastRating(asset.rating);
+    
+    return [
+      {
+        type: 'action',
+        label: 'Append to Rundown',
+        action: ctxAppend
+      },
+      {
+        type: 'action',
+        label: 'Insert After Selected',
+        action: ctxInsertAfter
+      },
+      { type: 'divider' },
+      {
+        type: 'submenu',
+        label: 'Age Ratings (Σήματα Καταλληλότητας)',
+        children: ratingOptions.map(r => ({
+          type: 'action',
+          label: r.label,
+          checked: ratingMeta.ageRating === r.id,
+          action: () => ctxSetAgeRating(r.id)
+        }))
+      },
+      { type: 'divider' },
+      {
+        type: 'toggle',
+        label: ratingMeta.tpFlag ? '✓ TP (Active)' : '□ TP (None)',
+        checked: ratingMeta.tpFlag,
+        action: ctxToggleTP
+      },
+      { type: 'divider' },
+      {
+        type: 'submenu',
+        label: 'Categories/Tags',
+        children: contentTypeOptions.map(ct => ({
+          type: 'action',
+          label: ct.label,
+          checked: ratingMeta.contentType === ct.id,
+          action: () => ctxSetContentType(ct.id)
+        }))
+      },
+      { type: 'divider' },
+      {
+        type: 'action',
+        label: '➡️ Move to…',
+        action: ctxMove
+      }
+    ];
+  } else if (node.type === 'folder') {
+    const folderItems: MenuItem[] = [
+      {
+        type: 'action',
+        label: '📁 New Virtual Folder here',
+        action: doNewVirtualFolder
+      },
+      {
+        type: 'action',
+        label: '✏️ Rename folder',
+        action: doRenameFolder
+      }
+    ];
+    
+    if (node.isTransient) {
+      folderItems.push({
+        type: 'action',
+        label: 'Remove empty placeholder',
+        action: doRemoveFolder
+      });
+    }
+    
+    folderItems.push({ type: 'divider' });
+    folderItems.push({
+      type: 'submenu',
+      label: 'Folder Colors',
+      children: [
+        ...folderColorsPreset.map(c => ({
+          type: 'action' as const,
+          label: c.label,
+          checked: node.color === c.hex,
+          action: () => ctxSetFolderColor(c.hex)
+        })),
+        { type: 'divider' as const },
+        {
+          type: 'action' as const,
+          label: 'Reset Color',
+          checked: !node.color,
+          action: () => ctxSetFolderColor('')
+        }
+      ] as MenuItem[]
+    });
+    
+    return folderItems;
+  }
+  
+  return [];
+});
+
 </script>
 
 <template>
@@ -1006,79 +1205,93 @@ async function ctxSetFolderColor(color: string) {
     </div>
 
     <!-- Tree List -->
-    <div ref="libTreeRef" class="lib-tree" @contextmenu.prevent
-    >
-      <div v-if="isScanning && !mediaLibrary.allTreeNodes.length" class="lib-empty">⌛ Loading…</div>
-      <div v-else-if="mediaLibrary.allTreeNodes.length === 0" class="lib-empty">
+    <div ref="libTreeRef" class="lib-tree custom-scroll" @contextmenu.prevent style="overflow-y: auto;">
+      <div v-if="isScanning && !folderGroups.length" class="lib-empty">⌛ Loading…</div>
+      <div v-else-if="folderGroups.length === 0" class="lib-empty">
         {{ libraryQuery ? 'No matching assets found.' : '📂 No media found.\nSet the Ingestor API or media folder in ⚙️ Settings.' }}
       </div>
-      <div v-else v-bind="virtualConfig.containerProps" style="min-height: 0;">
-        <div v-bind="virtualConfig.wrapperProps">
+      <div v-else class="lib-tree-content">
+        <div v-for="group in folderGroups" :key="group.folderName" class="folder-group">
           <div
-            v-for="{ data: node, index } in virtualItems"
-            :key="node.id"
-            class="lib-row"
+            class="lib-row is-folder"
             :class="{
-              'is-folder': node.type === 'folder',
-              'is-asset': node.type === 'asset',
-              'is-selected': mediaLibrary.selectedNodeId === node.id,
-              'is-transient': node.isTransient,
-              'is-folder-drop-target': node.type === 'folder' && folderDropTargetId === node.id,
+              'is-selected': mediaLibrary.selectedNodeId === `folder:${group.folderName}`,
+              'is-folder-drop-target': folderDropTargetId === `folder:${group.folderName}`
             }"
             :draggable="true"
-            :style="{ paddingLeft: `${node.depth * 18 + 8}px` }"
-            @click="onNodeClick(node)"
-            @dblclick="onNodeDoubleClick(node)"
-            @contextmenu.prevent="onContextMenu($event, node)"
-            @dragstart="node.type === 'asset' ? onDragStart($event, node) : onFolderDragStart($event, node)"
+            @click="onFolderClick(group.folderName)"
+            @dblclick="onFolderDoubleClick(group.folderName)"
+            @contextmenu.prevent="onFolderContextMenu($event, group.folderName)"
+            @dragstart="onFolderDragStart($event, group.folderName)"
             @dragend="folderDropTargetId = null"
-            @dragover="onFolderDragOver($event, node)"
-            @drop="onFolderDrop($event, node)"
+            @dragover="onFolderDragOverPath($event, group.folderName)"
+            @drop="onFolderDropPath($event, group.folderName)"
           >
             <!-- Chevron for folders -->
             <span
-              v-if="node.type === 'folder'"
               class="chevron-icon"
-              :class="{ 'is-expanded': node.expanded }"
-              @click.stop="onFolderToggle(node)"
+              :class="{ 'is-expanded': expandedFolders[group.folderName] }"
+              @click.stop="expandedFolders[group.folderName] = !expandedFolders[group.folderName]"
             >
               ▶
             </span>
-            <span v-else class="chevron-spacer"></span>
-
-            <span class="lib-icon" @click.stop="onNodeClick(node)">
+            
+            <span class="lib-icon" @click.stop="onFolderClick(group.folderName)">
               <svg
-                v-if="node.type === 'folder'"
                 class="folder-svg"
                 viewBox="0 0 24 24"
-                :style="{ fill: node.color || 'var(--accent-blue)' }"
+                :style="{ fill: mediaLibrary.folderColors[group.folderName] || 'var(--accent-blue)' }"
               >
-                <path v-if="node.expanded" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
+                <path v-if="expandedFolders[group.folderName]" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
                 <path v-else d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
               </svg>
-              <span v-else-if="node.asset?.status === 'ready'">🎬</span>
-              <span v-else-if="node.asset?.status === 'processing'">⏳</span>
-              <span v-else>📄</span>
             </span>
-            <span class="lib-text"
-              :class="{ 'is-managed': node.type === 'asset' && !node.asset?.uuid.startsWith('local:') }"
+            <span class="lib-text">
+              <span class="lib-name">{{ getFolderName(group.folderName) }}</span>
+            </span>
+          </div>
+
+          <!-- Wrap folder's assets list in v-show -->
+          <div v-show="expandedFolders[group.folderName]" class="folder-children" style="display: flex; flex-direction: column;">
+            <div
+              v-for="asset in group.assets"
+              :key="asset.uuid"
+              class="lib-row is-asset"
+              :class="{
+                'is-selected': mediaLibrary.selectedNodeId === `asset:${asset.uuid}`
+              }"
+              :draggable="true"
+              :style="{ paddingLeft: '26px' }"
+              @click="onAssetClick(asset)"
+              @dblclick="onAssetDoubleClick(asset)"
+              @contextmenu.prevent="onAssetContextMenu($event, asset)"
+              @dragstart="onAssetDragStart($event, asset)"
             >
-              <span class="lib-name-wrap">
-                <span class="lib-name">{{ node.name }}</span>
-                <span v-if="node.type === 'asset' && node.asset" class="mcr-badges">
-                  <span v-if="parseBroadcastRating(node.asset.rating).ageRating !== 'none'" class="mcr-badge badge-age" :class="`age-${parseBroadcastRating(node.asset.rating).ageRating}`">
-                    {{ parseBroadcastRating(node.asset.rating).ageRating.toUpperCase() }}
-                  </span>
-                  <span v-if="parseBroadcastRating(node.asset.rating).tpFlag" class="mcr-badge badge-tp">TP</span>
-                  <span v-if="parseBroadcastRating(node.asset.rating).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${parseBroadcastRating(node.asset.rating).contentType}`">
-                    {{ parseBroadcastRating(node.asset.rating).contentType.toUpperCase() }}
+              <span class="chevron-spacer"></span>
+              
+              <span class="lib-icon" @click.stop="onAssetClick(asset)">
+                <span v-if="asset.status === 'ready'">🎬</span>
+                <span v-else-if="asset.status === 'processing'">⏳</span>
+                <span v-else>📄</span>
+              </span>
+              <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">
+                <span class="lib-name-wrap">
+                  <span class="lib-name">{{ asset.display_name }}</span>
+                  <span class="mcr-badges">
+                    <span v-if="parseBroadcastRating(asset.rating).ageRating !== 'none'" class="mcr-badge badge-age" :class="`age-${parseBroadcastRating(asset.rating).ageRating}`">
+                      {{ parseBroadcastRating(asset.rating).ageRating.toUpperCase() }}
+                    </span>
+                    <span v-if="parseBroadcastRating(asset.rating).tpFlag" class="mcr-badge badge-tp">TP</span>
+                    <span v-if="parseBroadcastRating(asset.rating).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${parseBroadcastRating(asset.rating).contentType}`">
+                      {{ parseBroadcastRating(asset.rating).contentType.toUpperCase() }}
+                    </span>
                   </span>
                 </span>
               </span>
-            </span>
-            <span v-if="node.type === 'asset' && effectiveDurationSeconds(node.asset) > 0" class="lib-time-pill">
-              {{ formatDuration(effectiveDurationSeconds(node.asset || {} as any)) }}
-            </span>
+              <span v-if="effectiveDurationSeconds(asset) > 0" class="lib-time-pill">
+                {{ formatDuration(effectiveDurationSeconds(asset)) }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1086,70 +1299,14 @@ async function ctxSetFolderColor(color: string) {
 
     <!-- Context Menu -->
     <Teleport to="body">
-      <div
+      <ContextMenu
         v-if="contextMenu.show"
-        class="context-menu context-menu-container"
-        :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
-      >
-        <template v-if="contextMenu.node?.type === 'asset' && contextMenu.node.asset">
-          <div class="menu-item" @click.stop="ctxAppend">Append to Rundown</div>
-          <div class="menu-item" @click.stop="ctxInsertAfter">Insert After Selected</div>
-          
-          <div class="menu-divider" />
-          <div class="menu-label">Age Rating</div>
-          <div v-for="rating in ratingOptions" :key="`lib-rating-${rating.id}`" class="menu-item" @click.stop="ctxSetAgeRating(rating.id)">
-            {{ parseBroadcastRating(contextMenu.node.asset.rating).ageRating === rating.id ? '✓ ' : '' }}{{ rating.label }}
-          </div>
-          
-          <div class="menu-divider" />
-          <div class="menu-label">Product Placement</div>
-          <div class="menu-item" @click.stop="ctxToggleTP">
-            {{ parseBroadcastRating(contextMenu.node.asset.rating).tpFlag ? '✓ TP (Active)' : '□ TP (None)' }}
-          </div>
-          
-          <div class="menu-divider" />
-          <div class="menu-label">Content Type</div>
-          <div v-for="cType in contentTypeOptions" :key="`lib-content-${cType.id}`" class="menu-item" @click.stop="ctxSetContentType(cType.id)">
-            {{ parseBroadcastRating(contextMenu.node.asset.rating).contentType === cType.id ? '✓ ' : '' }}{{ cType.label }}
-          </div>
-
-          <div class="menu-divider" />
-          <div class="menu-item" @click.stop="ctxRename">✏️ Rename</div>
-          <div class="menu-item" @click.stop="ctxMove">➡️ Move to…</div>
-          <div class="menu-item" @click.stop="ctxTrim">✂️ Trim…</div>
-          <div class="menu-divider" />
-          <div class="menu-item" @click.stop="ctxDelete">🗑 Hide</div>
-          <div class="menu-item" style="color: #e63946;" @click.stop="ctxPurge">💥 Delete & Purge</div>
-        </template>
-        <template v-else-if="contextMenu.node?.type === 'folder'">
-          <div class="menu-item" @click.stop="doNewVirtualFolder">📁 New Virtual Folder here</div>
-          <div class="menu-item" @click.stop="doRenameFolder">✏️ Rename folder</div>
-          <div v-if="contextMenu.node.isTransient" class="menu-item" @click.stop="doRemoveFolder">
-            Remove empty placeholder
-          </div>
-          <div class="menu-divider" />
-          <div class="menu-label">Folder Color</div>
-          <div class="folder-colors-grid">
-            <div
-              v-for="color in folderColorsPreset"
-              :key="color.hex"
-              class="folder-color-tag"
-              :style="{ backgroundColor: color.hex }"
-              :title="color.label"
-              @click.stop="ctxSetFolderColor(color.hex)"
-            >
-              <span v-if="contextMenu.node.color === color.hex" class="color-check">✓</span>
-            </div>
-            <div
-              class="folder-color-tag color-reset"
-              title="Reset Color"
-              @click.stop="ctxSetFolderColor('')"
-            >
-              ✕
-            </div>
-          </div>
-        </template>
-      </div>
+        :x="contextMenu.x"
+        :y="contextMenu.y"
+        :top-actions="topActionItems"
+        :items="menuItems"
+        @close="closeContextMenu"
+      />
     </Teleport>
 
     <!-- Trim Panel -->
@@ -1380,57 +1537,7 @@ async function ctxSetFolderColor(color: string) {
   cursor:not-allowed;
 }
 
-/* Context Menu */
-.context-menu {
-  position: fixed;
-  background: var(--bg-secondary);
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
-  padding: 4px 0;
-  min-width: 170px;
-  z-index: 9999;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-  backdrop-filter: blur(10px);
-}
-.context-menu-container {
-  max-height: min(450px, calc(100vh - 40px));
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #4a5568 #1a202c;
-}
-.context-menu-container::-webkit-scrollbar {
-  width: 6px;
-}
-.context-menu-container::-webkit-scrollbar-track {
-  background: #1a202c;
-}
-.context-menu-container::-webkit-scrollbar-thumb {
-  background-color: #4a5568;
-  border-radius: 3px;
-}
-.menu-label {
-  padding: 6px 12px 4px;
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-}
-.menu-item {
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.menu-item:hover {
-  background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
-  color: var(--accent-blue);
-}
-.menu-divider {
-  height: 1px;
-  background: var(--glass-border);
-  margin: 4px 0;
-}
+
 
 @media (max-width: 1280px) {
   .lib-toolbar {
