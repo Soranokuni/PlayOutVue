@@ -26,6 +26,7 @@ const emit  = defineEmits<{
 
 const activeItem = ref<LibraryTrimItem | null>(null);
 const item = computed(() => activeItem.value);
+const panelRef = ref<HTMLElement | null>(null);
 
 const lockTrimItem = () => {
   const source = props.libraryItem || store.selectedItem;
@@ -298,7 +299,10 @@ watch([item, () => props.isOpen], ([val, open]) => {
   speed.value = 0;
   isVideoPlaying.value = false;
   pendingSeekMs = null;
-  nextTick(() => syncPlaybackDisplay(inMs.value, true));
+  nextTick(() => {
+    syncPlaybackDisplay(inMs.value, true);
+    panelRef.value?.focus();
+  });
   loadVideoSrc(val.path);
   probeDuration();
     }
@@ -436,12 +440,10 @@ const handleKey = (e: KeyboardEvent) => {
     }
 };
 onMounted(()  => {
-    window.addEventListener('keydown', handleKey);
     window.addEventListener('mousemove', onWindowMouseMove);
     window.addEventListener('mouseup', onWindowMouseUp);
 });
 onUnmounted(() => {
-    window.removeEventListener('keydown', handleKey);
     window.removeEventListener('mousemove', onWindowMouseMove);
     window.removeEventListener('mouseup', onWindowMouseUp);
   clearPreviewFallbackTimer();
@@ -464,15 +466,15 @@ const saveNonDestructive = () => {
       if (item.value?.uuid && !item.value.uuid.startsWith('local:')) {
         await invoke('update_ingestor_trim', {
           uuid: item.value.uuid,
-          trimInMs: inMs.value,
-          trimOutMs: outMs.value,
-          apiBaseUrlOverride: null
+          trim_in_ms: Math.round(inMs.value),
+          trim_out_ms: Math.round(Math.max(0, totalDurationMs.value - outMs.value)),
+          api_base_url_override: null
         });
       } else if (isLocalFilePath(item.value?.path)) {
         await invoke('save_media_trim_profile', {
           path: item.value!.path,
-          inMs: inMs.value,
-          outMs: outMs.value
+          inMs: Math.round(inMs.value),
+          outMs: Math.round(outMs.value)
         });
       }
 
@@ -513,10 +515,10 @@ const saveAsSubclip = () => {
         trimStatus.value = 'Creating virtual sub-clip...';
         const response = await invoke<any>('create_ingestor_subclip', {
           uuid: currentItem.uuid,
-          displayName: trimmedName,
-          trimInMs: inMs.value,
-          trimOutMs: outMs.value,
-          apiBaseUrlOverride: null
+          display_name: trimmedName,
+          trim_in_ms: Math.round(inMs.value),
+          trim_out_ms: Math.round(Math.max(0, totalDurationMs.value - outMs.value)),
+          api_base_url_override: null
         });
         trimStatus.value = '✅ Virtual sub-clip created successfully!';
         emit('saved', { uuid: response.uuid, outputPath: response.current_path });
@@ -532,7 +534,7 @@ const saveAsSubclip = () => {
 </script>
 
 <template>
-  <div v-if="isOpen && item" class="modal-backdrop" @click.self="$emit('close')">
+  <div v-if="isOpen && item" ref="panelRef" class="modal-backdrop" tabindex="0" style="outline: none;" @click.self="$emit('close')" @keydown.capture="handleKey">
     <div class="glass-panel trim-panel">
 
       <!-- Header -->

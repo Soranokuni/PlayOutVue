@@ -520,8 +520,12 @@ export const useRundownStore = defineStore('rundown', () => {
             virtual_folder: (item as any).virtual_folder || '',
             current_path: (item as any).current_path || item.path || '',
             duration_ms: (item as any).duration_ms || (item.duration ? item.duration * 1000 : 0),
-            trim_in_ms: (item as any).trim_in_ms || inPoint,
-            trim_out_ms: (item as any).trim_out_ms || (item.duration ? (item.duration * 1000 - outPoint) : 0),
+            trim_in_ms: (item as any).trim_in_ms !== undefined ? (item as any).trim_in_ms : inPoint,
+            trim_out_ms: (item as any).trim_out_ms !== undefined 
+                ? (item as any).trim_out_ms 
+                : (outPoint > 0 && (item.duration || (item as any).duration_ms)
+                    ? Math.max(0, ((item.duration_ms || (item.duration ? item.duration * 1000 : 0))) - outPoint)
+                    : 0),
             tp_flag: (item as any).tp_flag || false,
             content_type: (item as any).content_type || 'none',
         };
@@ -782,7 +786,11 @@ export const useRundownStore = defineStore('rundown', () => {
             current_path: updates.current_path !== undefined ? updates.current_path : (updates.path !== undefined ? updates.path : existing.current_path),
             duration_ms: updates.duration_ms !== undefined ? updates.duration_ms : (updates.duration !== undefined ? updates.duration * 1000 : existing.duration_ms),
             trim_in_ms: updates.trim_in_ms !== undefined ? updates.trim_in_ms : (updates.inPoint !== undefined ? updates.inPoint : existing.trim_in_ms),
-            trim_out_ms: updates.trim_out_ms !== undefined ? updates.trim_out_ms : (updates.outPoint !== undefined && existing.duration_ms ? (existing.duration_ms - updates.outPoint) : existing.trim_out_ms),
+            trim_out_ms: updates.trim_out_ms !== undefined 
+                ? updates.trim_out_ms 
+                : (updates.outPoint !== undefined 
+                    ? (updates.outPoint > 0 && existing.duration_ms ? Math.max(0, existing.duration_ms - updates.outPoint) : 0)
+                    : existing.trim_out_ms),
         } as RundownItem;
         triggerNuclearReactivity(playlist.id, newItems);
     };
@@ -1130,6 +1138,13 @@ export const useRundownStore = defineStore('rundown', () => {
             currentPlayingIndex: startVisibleIndex,
             playStartVisibleIndex: startVisibleIndex
         });
+        const startItem = playlist.items[startVisibleIndex];
+        currentPlayingItemId.value = startItem
+            ? (startItem.playoutvueId || startItem.id)
+            : null;
+        currentPlayingInstanceId.value = startItem
+            ? startItem.id
+            : null;
     };
 
     const setOnAirPlayingIndex = (playableIndex: number) => {
@@ -1138,6 +1153,40 @@ export const useRundownStore = defineStore('rundown', () => {
         updatePlaylistState(playlist.id, {
             currentPlayingIndex: mapPlayableIndexToVisible(playlist.id, playableIndex)
         });
+    };
+
+    /// Identity-keyed on-air selection (plan §3.1). Sets `currentPlayingItemId`
+    /// (the single source for the "playing" row class) and syncs the visible
+    /// `currentPlayingIndex` so ETA ordering stays correct. `uuid` is the stable
+    /// item key (playoutvueId || local id); `null` clears on-air state.
+    const currentPlayingItemId = ref<string | null>(null);
+    const currentPlayingInstanceId = ref<string | null>(null);
+
+    const setOnAirPlayingItemById = (uuid: string | null) => {
+        const playlist = onAirPlaylist.value;
+        if (!playlist || uuid == null) {
+            currentPlayingItemId.value = null;
+            currentPlayingInstanceId.value = null;
+            if (playlist) {
+                updatePlaylistState(playlist.id, { currentPlayingIndex: -1 });
+            }
+            return;
+        }
+        currentPlayingItemId.value = uuid;
+        const visibleIndex = playlist.items.findIndex((item) =>
+            item.id === uuid || (item.playoutvueId && item.playoutvueId === uuid)
+        );
+        if (visibleIndex !== -1) {
+            const foundItem = playlist.items[visibleIndex];
+            if (foundItem) {
+                currentPlayingInstanceId.value = foundItem.id;
+            } else {
+                currentPlayingInstanceId.value = null;
+            }
+        } else {
+            currentPlayingInstanceId.value = null;
+        }
+        updatePlaylistState(playlist.id, { currentPlayingIndex: visibleIndex });
     };
 
     const clearOnAirState = () => {
@@ -1149,6 +1198,8 @@ export const useRundownStore = defineStore('rundown', () => {
             });
         }
         onAirPlaylistId.value = null;
+        currentPlayingItemId.value = null;
+        currentPlayingInstanceId.value = null;
     };
 
     const resolveAssetFromApi = async (itemId: string) => {
@@ -1421,6 +1472,9 @@ export const useRundownStore = defineStore('rundown', () => {
         deserializeRundown,
         setPlaylistOnAir,
         setOnAirPlayingIndex,
+        setOnAirPlayingItemById,
+        currentPlayingItemId,
+        currentPlayingInstanceId,
         clearOnAirState,
         resolveAssetFromApi,
         activePlayingUuid,

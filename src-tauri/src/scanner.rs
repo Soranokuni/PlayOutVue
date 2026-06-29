@@ -1021,7 +1021,7 @@ pub fn save_media_trim_profile<R: Runtime>(
 #[tauri::command]
 pub async fn scan_directory<R: Runtime>(
     path: String,
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     db_state: State<'_, DbState>,
     diagnostics: State<'_, DiagnosticState>,
 ) -> Result<Vec<DiscoveredMedia>, String> {

@@ -29,15 +29,15 @@ const localState = ref({
     playoutProfile: 'PAL_1080I50' as 'PAL_1080I50' | 'PAL_1080P25',
     transitionFrames: 2,
     prerollFrames: 2,
-    watermarkPath: '',
-    watermarkEnabled: false,
-    watermarkPosition: 'top-right' as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
-    watermarkOpacity: 80,
-    watermarkScale: 15,
     ingestorApiBaseUrl: '',
     
+    // CG settings
+    cg: {
+        stationIdPath: '',
+        stationIdEnabled: true,
+    },
+    
     // CG Paths
-    cgStationLogoPath: '',
     cgRatingKPath: '',
     cgRating8Path: '',
     cgRating12Path: '',
@@ -141,7 +141,7 @@ const scanLogosFolder = async () => {
             if (entry.entry_type !== 'file') continue;
             const lowerName = entry.name.toLowerCase();
             if (lowerName === 'logo.png') {
-                localState.value.cgStationLogoPath = entry.path;
+                localState.value.cg.stationIdPath = entry.path;
                 foundCount++;
             } else if (lowerName === 'k.png') {
                 localState.value.cgRatingKPath = entry.path;
@@ -182,15 +182,15 @@ const mapLocalState = () => {
         playoutProfile: settings.playoutProfile,
         transitionFrames: settings.transitionFrames,
         prerollFrames: settings.prerollFrames,
-        watermarkPath: settings.watermarkPath,
-        watermarkEnabled: settings.watermarkEnabled,
-        watermarkPosition: settings.watermarkPosition,
-        watermarkOpacity: settings.watermarkOpacity,
-        watermarkScale: settings.watermarkScale,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
         
+        // CG settings
+        cg: {
+            stationIdPath: settings.cg?.stationIdPath || '',
+            stationIdEnabled: settings.cg?.stationIdEnabled !== false,
+        },
+        
         // CG Paths
-        cgStationLogoPath: settings.cgStationLogoPath || '',
         cgRatingKPath: settings.cgRatingKPath || '',
         cgRating8Path: settings.cgRating8Path || '',
         cgRating12Path: settings.cgRating12Path || '',
@@ -241,14 +241,13 @@ const discardAndClose = () => {
     emit('close');
 };
 
-const pickPath = async (target: 'media' | 'watermark' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | 'badge-k' | 'badge-8' | 'badge-12' | 'badge-16' | 'badge-18' | 'badge-tp') => {
+const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | 'badge-k' | 'badge-8' | 'badge-12' | 'badge-16' | 'badge-18' | 'badge-tp') => {
     const isDirectory = target === 'media' || target === 'logos' || target === 'ffmpeg-bin';
     const defaultPath = (() => {
         if (target === 'media') return localState.value.localMediaPath;
         if (target === 'ffmpeg-bin') return localState.value.ffmpegBinPath;
         if (target === 'logos') return localState.value.logosPath;
-        if (target === 'watermark') return localState.value.watermarkPath;
-        if (target === 'cg-logo') return localState.value.cgStationLogoPath;
+        if (target === 'cg-logo') return localState.value.cg.stationIdPath;
         if (target === 'badge-k') return localState.value.cgRatingKPath;
         if (target === 'badge-8') return localState.value.cgRating8Path;
         if (target === 'badge-12') return localState.value.cgRating12Path;
@@ -271,9 +270,8 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos' | 'ffmpeg-bin' |
 
     if (target === 'media') localState.value.localMediaPath = selection;
     else if (target === 'ffmpeg-bin') localState.value.ffmpegBinPath = selection;
-    else if (target === 'watermark') localState.value.watermarkPath = selection;
     else if (target === 'logos') localState.value.logosPath = selection;
-    else if (target === 'cg-logo') localState.value.cgStationLogoPath = selection;
+    else if (target === 'cg-logo') localState.value.cg.stationIdPath = selection;
     else if (target === 'badge-k') localState.value.cgRatingKPath = selection;
     else if (target === 'badge-8') localState.value.cgRating8Path = selection;
     else if (target === 'badge-12') localState.value.cgRating12Path = selection;
@@ -423,43 +421,7 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos' | 'ffmpeg-bin' |
                   </div>
               </section>
 
-              <!-- TV Station Watermark / Bug -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">📺 Legacy Station Watermark / Bug</h3>
-                  <div class="form-group">
-                      <label>Logo Image Path (PNG/SVG on disk)</label>
-                      <div class="input-with-button">
-                          <input type="text" class="glass-input" v-model="localState.watermarkPath" placeholder="C:/Logos/station_logo.png">
-                          <button class="glass-btn" style="flex-shrink: 0;" title="Browse files" @click="pickPath('watermark')">📁</button>
-                      </div>
-                      <span class="hint-text">Legacy fallback overlay when visual layout logo is unconfigured.</span>
-                  </div>
-                  <div class="form-grid">
-                      <div class="form-group">
-                          <label>Position</label>
-                          <select class="glass-input" v-model="localState.watermarkPosition">
-                              <option value="top-left">Top Left</option>
-                              <option value="top-right">Top Right</option>
-                              <option value="bottom-left">Bottom Left</option>
-                              <option value="bottom-right">Bottom Right</option>
-                          </select>
-                      </div>
-                      <div class="form-group">
-                          <label>Scale (% of frame width) — {{ localState.watermarkScale }}%</label>
-                          <input type="range" min="3" max="40" v-model.number="localState.watermarkScale" style="accent-color:var(--accent-blue,#33becc);">
-                      </div>
-                      <div class="form-group">
-                          <label>Opacity — {{ localState.watermarkOpacity }}%</label>
-                          <input type="range" min="10" max="100" v-model.number="localState.watermarkOpacity" style="accent-color:var(--accent-blue,#33becc);">
-                      </div>
-                      <div class="form-group" style="justify-content:center; padding-top:1rem;">
-                          <label style="display:flex; gap:8px; align-items:center; cursor:pointer;">
-                              <input type="checkbox" v-model="localState.watermarkEnabled">
-                              Enable Permanent Watermark
-                          </label>
-                      </div>
-                  </div>
-              </section>
+
           </div>
 
           <!-- CG & Layouts Tab -->
@@ -477,7 +439,7 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos' | 'ffmpeg-bin' |
                       <div class="form-group">
                           <label>Station Logo (logo.png)</label>
                           <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgStationLogoPath" placeholder="C:/PlayOut/logos/logo.png">
+                              <input type="text" class="glass-input" v-model="localState.cg.stationIdPath" placeholder="C:/PlayOut/logos/logo.png">
                               <button class="glass-btn" @click="pickPath('cg-logo')">📁</button>
                           </div>
                       </div>
@@ -487,6 +449,15 @@ const pickPath = async (target: 'media' | 'watermark' | 'logos' | 'ffmpeg-bin' |
                               <input type="text" class="glass-input" v-model="localState.cgRatingTPPath" placeholder="C:/PlayOut/logos/TP.png">
                               <button class="glass-btn" @click="pickPath('badge-tp')">📁</button>
                           </div>
+                      </div>
+                  </div>
+
+                  <div class="form-grid" style="margin-top: 1rem;">
+                      <div class="form-group">
+                          <label style="display:flex; gap:8px; align-items:center; cursor:pointer;">
+                              <input type="checkbox" v-model="localState.cg.stationIdEnabled">
+                              <span>Enable Station Logo</span>
+                          </label>
                       </div>
                   </div>
 

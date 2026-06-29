@@ -8,11 +8,14 @@ mod runtime_settings;
 mod media_server;
 mod media_index;
 mod caspar;
+mod caspar_layers;
+mod amcp;
 mod caspar_config;
 mod filesystem;
 mod ingestor_api;
 
-use caspar::{caspar_send_command, configure_caspar_osc_listener, prepare_caspar_media_path, CasparOscListenerState};
+use caspar::{caspar_send_command, configure_caspar_osc_listener, prepare_caspar_media_path, CasparOscListenerState, caspar_cg_add, caspar_cg_update, caspar_cg_play, caspar_cg_stop, caspar_play_image, caspar_clear_layer, caspar_register_playback, caspar_clear_playback, caspar_set_playback_paused, CasparPlaybackState};
+use amcp::AmcpClient;
 use caspar_config::{apply_caspar_decklink_config, caspar_test_connection, find_default_caspar_config, load_caspar_config, save_caspar_config_raw, save_caspar_config_structured};
 use diagnostics::{clear_diagnostic_logs, export_diagnostic_logs, get_diagnostic_logs, push_diagnostic_log, DiagnosticState};
 use tauri::Manager;
@@ -24,7 +27,7 @@ use stream::extract_web_stream;
 use trimmer::{get_media_preview_info, get_media_preview_url};
 use playlist::{save_playlist, load_playlist};
 use filesystem::{browse_filesystem, find_default_logos_dir, get_image_dimensions, list_filesystem_roots};
-use ingestor_api::{resolve_ingestor_asset, resolve_ingestor_assets_batch, move_ingestor_asset, rename_ingestor_asset, update_ingestor_rating, update_ingestor_trim, list_ingestor_assets, check_ingestor_health, spawn_ingestor_heartbeat, create_ingestor_subclip, update_ingestor_tp, purge_ingestor_asset};
+use ingestor_api::{resolve_ingestor_asset, resolve_ingestor_assets_batch, move_ingestor_asset, rename_ingestor_asset, update_ingestor_rating, update_ingestor_trim, list_ingestor_assets, check_ingestor_health, spawn_ingestor_heartbeat, create_ingestor_subclip, update_ingestor_tp, purge_ingestor_asset, list_ingestor_folder_colors, set_ingestor_folder_color};
 use db::{MediaDb, default_db_path};
 
 /// Return an HTTP URL that streams a local file to <video src="…">
@@ -82,6 +85,8 @@ pub fn run() {
         .manage(DbState(media_db))
         .manage(MediaProbeState::default())
         .manage(CasparOscListenerState::default())
+        .manage(CasparPlaybackState::default())
+        .manage(AmcpClient::new())
         .invoke_handler(tauri::generate_handler![
             scan_media,
             scan_directory,
@@ -103,6 +108,15 @@ pub fn run() {
             caspar_send_command,
             configure_caspar_osc_listener,
             prepare_caspar_media_path,
+            caspar_cg_add,
+            caspar_cg_update,
+            caspar_cg_play,
+            caspar_cg_stop,
+            caspar_play_image,
+            caspar_clear_layer,
+            caspar_register_playback,
+            caspar_clear_playback,
+            caspar_set_playback_paused,
             find_default_caspar_config,
             load_caspar_config,
             save_caspar_config_raw,
@@ -123,7 +137,9 @@ pub fn run() {
             create_ingestor_subclip,
             purge_ingestor_asset,
             list_ingestor_assets,
-            check_ingestor_health
+            check_ingestor_health,
+            list_ingestor_folder_colors,
+            set_ingestor_folder_color
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

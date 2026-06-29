@@ -201,8 +201,8 @@ const hydrateSingleItemDuration = async (itemId: string, filePath: string) => {
   }
 };
 
-registerPlayoutAdvanceListener((index) => {
-  store.setOnAirPlayingIndex(index);
+registerPlayoutAdvanceListener((uuid) => {
+  store.setOnAirPlayingItemById(uuid);
   if (store.isCurrentPlaylistOnAir && store.currentPlayingIndex >= 0) {
     store.selectedItemId = store.activeItems[store.currentPlayingIndex]?.id || store.selectedItemId;
   }
@@ -766,7 +766,7 @@ onUnmounted(() => {
         :data-item-id="item.id"
         :class="{
           'selected': item.id === store.selectedItemId,
-          'playing': (index === store.currentPlayingIndex && store.isCurrentPlaylistOnAir) || item.id === store.activePlayingUuid || (item.playoutvueId && item.playoutvueId === store.activePlayingUuid),
+          'playing': item.id === store.currentPlayingInstanceId || (index === store.currentPlayingIndex && store.isCurrentPlaylistOnAir),
           'played': store.isCurrentPlaylistOnAir && index < store.currentPlayingIndex,
           'next-up': isNextUpRow(index),
           'next-up-imminent': isNextUpImminent(index),
@@ -779,7 +779,7 @@ onUnmounted(() => {
           'ct-documentary': item.content_type === 'documentary',
           'ct-news': item.content_type === 'news'
         }"
-        :style="item.id === store.activePlayingUuid || (item.playoutvueId && item.playoutvueId === store.activePlayingUuid) ? {
+        :style="item.id === store.currentPlayingInstanceId ? {
             background: `linear-gradient(90deg, rgba(46,204,113,0.22) ${store.playbackProgressPct}%, rgba(46,204,113,0.06) ${store.playbackProgressPct}%)`,
             borderColor: 'rgba(46,204,113,0.4)'
         } : (index === store.currentPlayingIndex && isPlayoutPlaying && store.isCurrentPlaylistOnAir && item.type !== 'live' && item.type !== 'gap' ? {
@@ -821,7 +821,7 @@ onUnmounted(() => {
 
         <!-- Duration -->
         <div class="rw-dur">
-          <span v-if="item.id === store.activePlayingUuid || (item.playoutvueId && item.playoutvueId === store.activePlayingUuid)" style="color:#2ecc71; font-weight:bold; margin-right:8px; font-family:monospace;">
+          <span v-if="item.id === store.currentPlayingInstanceId" style="color:#2ecc71; font-weight:bold; margin-right:8px; font-family:monospace;">
             {{ store.playbackCountdownStr }}
           </span>
           <span>{{ activeTimerLabel(item, index) || durationLabel(item) }}</span>

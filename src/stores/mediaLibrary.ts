@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef, triggerRef } from 'vue';
+import { computed, ref } from 'vue';
 import { useMediaDefaultsStore, type LibraryIndicator } from './mediaDefaults';
 import { useRundownStore, parseBroadcastRating, serializeBroadcastRating } from './rundown';
 import type { ComplianceRating } from './rundown';
@@ -35,6 +35,7 @@ export interface TreeNode {
     expanded?: boolean;
     asset?: LibraryAsset;
     isTransient?: boolean;
+    color?: string; // Add color property for folders!
 }
 
 function normalizeVirtualFolder(value?: string | null): string {
@@ -105,6 +106,7 @@ function flattenVisibleTree(
     depth: number,
     deleted: ReadonlySet<string>,
     transientFolders: ReadonlyMap<string, string>,
+    folderColors: Record<string, string>,
 ): TreeNode[] {
     const result: TreeNode[] = [];
     const isExpanded = expanded.has(node.virtualFolder) || node.virtualFolder === '/';
@@ -117,13 +119,14 @@ function flattenVisibleTree(
         depth,
         expanded: isExpanded,
         isTransient: transientFolders.has(node.virtualFolder),
+        color: folderColors[node.virtualFolder] || '',
     };
     result.push(folderNode);
 
     if (!isExpanded) return result;
 
     for (const child of node.children) {
-        result.push(...flattenVisibleTree(child, expanded, depth + 1, deleted, transientFolders));
+        result.push(...flattenVisibleTree(child, expanded, depth + 1, deleted, transientFolders, folderColors));
     }
 
     for (const asset of node.assets) {
@@ -146,6 +149,7 @@ function filterTreeForSearch(
     node: FolderNode,
     query: string,
     deleted: ReadonlySet<string>,
+    folderColors: Record<string, string>,
 ): { matches: TreeNode[]; hasMatch: boolean; expanded: Set<string> } {
     const result: TreeNode[] = [];
     const expanded = new Set<string>();
@@ -155,7 +159,7 @@ function filterTreeForSearch(
     if (folderMatch) hasMatch = true;
 
     const childResults = node.children.map((child) =>
-        filterTreeForSearch(child, query, deleted)
+        filterTreeForSearch(child, query, deleted, folderColors)
     );
     const anyChildMatch = childResults.some((r) => r.hasMatch);
     const matchingAssets = node.assets.filter(
@@ -174,6 +178,7 @@ function filterTreeForSearch(
             virtualFolder: node.virtualFolder,
             depth: 0,
             expanded: true,
+            color: folderColors[node.virtualFolder] || '',
         });
         expanded.add(node.virtualFolder);
 
@@ -211,6 +216,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         const deletedUuids = ref<string[]>([]);
         const transientFolders = ref<Record<string, string>>({});
         const localVirtualFolders = ref<Record<string, string>>({});
+        const folderOverrides = ref<Record<string, string>>({});
+        const folderColors = ref<Record<string, string>>({});
 
         const expandedFoldersSet = computed(() => new Set(expandedFolders.value));
         const deletedUuidsSet = computed(() => new Set(deletedUuids.value));
@@ -253,6 +260,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                     tree,
                     query,
                     deletedUuidsSet.value,
+                    folderColors.value,
                 );
                 return matches;
             }
@@ -262,6 +270,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                 0,
                 deletedUuidsSet.value,
                 transientFoldersMap.value,
+                folderColors.value,
             );
             return ensureFolderAsSelected(visible);
         });
@@ -281,6 +290,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                     0,
                     deletedUuidsSet.value,
                     transientFoldersMap.value,
+                    folderColors.value,
                 );
             }
             return nodes;
@@ -301,21 +311,26 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         );
 
         function setAssets(next: LibraryAsset[]) {
-            assets.value = next.map((asset) => {
-                const override = localVirtualFolders.value[asset.current_path];
+            const processed = next.map((asset) => {
+                // current_path-keyed override (local fallback assets).
+                const pathOverride = localVirtualFolders.value[asset.current_path];
+                // uuid-keyed override (Ingestor assets moved client-side; survives
+                // refreshes even if the API did not persist the move — plan §3.2).
+                const uuidOverride = folderOverrides.value[asset.uuid];
+                const override = uuidOverride ?? pathOverride;
                 return {
                     ...asset,
                     virtual_folder: override ? normalizeVirtualFolder(override) : normalizeVirtualFolder(asset.virtual_folder),
                 };
             });
+            assets.value.splice(0, assets.value.length, ...processed);
         }
 
         function updateAsset(uuid: string, patch: Partial<LibraryAsset>) {
             const index = assets.value.findIndex((a) => a.uuid === uuid);
             if (index >= 0) {
-                const nextAssets = [...assets.value];
-                nextAssets[index] = { ...nextAssets[index]!, ...patch };
-                assets.value = nextAssets;
+                const updated = { ...assets.value[index]!, ...patch };
+                assets.value.splice(index, 1, updated);
             }
         }
 
@@ -327,7 +342,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         function ensureExpanded(folderPath: string) {
             const normalized = normalizeVirtualFolder(folderPath);
             if (!expandedFolders.value.includes(normalized)) {
-                expandedFolders.value = [...expandedFolders.value, normalized];
+                expandedFolders.value.push(normalized);
             }
         }
 
@@ -335,11 +350,9 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             const normalized = normalizeVirtualFolder(folderPath);
             const index = expandedFolders.value.indexOf(normalized);
             if (index >= 0) {
-                const next = [...expandedFolders.value];
-                next.splice(index, 1);
-                expandedFolders.value = next;
+                expandedFolders.value.splice(index, 1);
             } else {
-                expandedFolders.value = [...expandedFolders.value, normalized];
+                expandedFolders.value.push(normalized);
             }
         }
 
@@ -350,10 +363,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             const newPath = base === '/' ? `/${trimmed}` : `${base}/${trimmed}`;
             if (transientFolders.value[newPath]) return;
 
-            transientFolders.value = {
-                ...transientFolders.value,
-                [newPath]: base,
-            };
+            transientFolders.value[newPath] = base;
             ensureExpanded(base);
             ensureExpanded(newPath);
             selectedNodeId.value = `folder:${newPath}`;
@@ -363,19 +373,57 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             const normalized = normalizeVirtualFolder(folderPath);
             updateAsset(uuid, { virtual_folder: normalized });
 
+            // Record a uuid-keyed override so the move survives API refreshes even
+            // when the Ingestor API does not persist it (plan §3.2 folderMap).
+            folderOverrides.value[uuid] = normalized;
+
             if (uuid.startsWith('local:')) {
                 const asset = assets.value.find((a) => a.uuid === uuid);
                 if (asset) {
-                    localVirtualFolders.value = {
-                        ...localVirtualFolders.value,
-                        [asset.current_path]: normalized
-                    };
+                    localVirtualFolders.value[asset.current_path] = normalized;
                 }
             }
 
             // If the asset was inside a transient folder, that folder may now contain no assets.
             // We leave cleanup to the next explicit API refresh; the user can delete empty transients.
             ensureExpanded(normalized);
+        }
+
+        /// Move a whole virtual folder (and all its child assets) into `targetFolder` by
+        /// re-prefixing every child asset's `virtual_folder`. Only `virtual_folder`
+        /// changes — `current_path` is never mutated, so CasparCG file references stay
+        /// intact (plan §3.2). Records uuid overrides so the move survives API refreshes.
+        function moveFolderInto(sourceFolder: string, targetFolder: string) {
+            const source = normalizeVirtualFolder(sourceFolder);
+            const target = normalizeVirtualFolder(targetFolder);
+            if (!source || source === '/' || source === target || target.startsWith(source + '/')) {
+                return; // refuse no-op or nesting into own descendant
+            }
+            const sourceBaseName = source.split('/').filter(Boolean).pop() || source;
+            const newFolderPath = target === '/' ? `/${sourceBaseName}` : `${target}/${sourceBaseName}`;
+
+            let changed = false;
+
+            for (let i = 0; i < assets.value.length; i++) {
+                const a = assets.value[i]!;
+                const vf = normalizeVirtualFolder(a.virtual_folder);
+                let newVf: string | null = null;
+                if (vf === source) {
+                    newVf = newFolderPath;
+                } else if (vf.startsWith(source + '/')) {
+                    newVf = newFolderPath + vf.slice(source.length);
+                }
+                if (newVf !== null) {
+                    const updated = { ...a, virtual_folder: normalizeVirtualFolder(newVf) };
+                    assets.value.splice(i, 1, updated);
+                    folderOverrides.value[a.uuid] = normalizeVirtualFolder(newVf);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                ensureExpanded(newFolderPath);
+            }
         }
 
         function renameAsset(uuid: string, newDisplayName: string) {
@@ -386,16 +434,92 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
 
         function deleteAsset(uuid: string) {
             if (deletedUuids.value.includes(uuid)) return;
-            deletedUuids.value = [...deletedUuids.value, uuid];
+            deletedUuids.value.push(uuid);
             if (selectedNodeId.value === `asset:${uuid}`) {
                 selectedNodeId.value = null;
             }
         }
 
         function removeTransientFolder(folderPath: string) {
-            const copy = { ...transientFolders.value };
-            delete copy[folderPath];
-            transientFolders.value = copy;
+            const hasAssets = assets.value.some(a => {
+                if (deletedUuids.value.includes(a.uuid)) return false;
+                const vf = a.virtual_folder || '/';
+                return vf === folderPath || vf.startsWith(folderPath + '/');
+            });
+            if (hasAssets) {
+                window.alert('Cannot remove folder: it contains active media assets.');
+                return;
+            }
+            delete transientFolders.value[folderPath];
+            for (const key of Object.keys(transientFolders.value)) {
+                if (key.startsWith(folderPath + '/')) {
+                    delete transientFolders.value[key];
+                }
+            }
+        }
+
+        function renameTransientFolder(oldPath: string, newName: string) {
+            const trimmed = newName.trim();
+            if (!trimmed || trimmed.includes('/')) {
+                window.alert('Invalid folder name.');
+                return;
+            }
+
+            const parts = oldPath.split('/');
+            parts[parts.length - 1] = trimmed;
+            const newPath = parts.join('/');
+
+            if (transientFolders.value[newPath]) {
+                window.alert('A folder with that name already exists.');
+                return;
+            }
+
+            if (transientFolders.value[oldPath] !== undefined) {
+                const parent = transientFolders.value[oldPath];
+                delete transientFolders.value[oldPath];
+                transientFolders.value[newPath] = parent;
+            }
+
+            for (const key of Object.keys(transientFolders.value)) {
+                if (key.startsWith(oldPath + '/')) {
+                    const subNewPath = key.replace(oldPath + '/', newPath + '/');
+                    const parentVal = transientFolders.value[key];
+                    if (parentVal !== undefined) {
+                        const parent = parentVal.replace(oldPath, newPath);
+                        delete transientFolders.value[key];
+                        transientFolders.value[subNewPath] = parent;
+                    }
+                }
+            }
+
+            const nextAssets = [...assets.value];
+            let assetsUpdated = false;
+            for (let i = 0; i < nextAssets.length; i++) {
+                const a = nextAssets[i]!;
+                const vf = a.virtual_folder || '/';
+                if (vf === oldPath) {
+                    nextAssets[i] = { ...a, virtual_folder: newPath };
+                    assetsUpdated = true;
+                } else if (vf.startsWith(oldPath + '/')) {
+                    nextAssets[i] = { ...a, virtual_folder: vf.replace(oldPath + '/', newPath + '/') };
+                    assetsUpdated = true;
+                }
+            }
+            if (assetsUpdated) {
+                assets.value = nextAssets;
+            }
+
+            expandedFolders.value = expandedFolders.value.map(folder => {
+                if (folder === oldPath) return newPath;
+                if (folder.startsWith(oldPath + '/')) {
+                    return folder.replace(oldPath + '/', newPath + '/');
+                }
+                return folder;
+            });
+
+            if (selectedNodeId.value === `folder:${oldPath}`) {
+                selectedNodeId.value = `folder:${newPath}`;
+            }
         }
 
         function getNodeDefaultCompliance(node: TreeNode): ComplianceRating {
@@ -493,6 +617,29 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             }
         }
 
+        async function fetchFolderColors() {
+            try {
+                const colors = await invoke<Array<{ virtual_folder: string; color: string }>>('list_ingestor_folder_colors');
+                if (colors) {
+                    for (const { virtual_folder, color } of colors) {
+                        folderColors.value[normalizeVirtualFolder(virtual_folder)] = color;
+                    }
+                }
+            } catch (error) {
+                console.warn('[LibraryStore] Failed to fetch folder colors:', error);
+            }
+        }
+
+        async function setFolderColor(folderPath: string, color: string) {
+            const normalized = normalizeVirtualFolder(folderPath);
+            folderColors.value[normalized] = color;
+            try {
+                await invoke('set_ingestor_folder_color', { virtualFolder: normalized, color });
+            } catch (error) {
+                console.error('[LibraryStore] Failed to set folder color:', error);
+            }
+        }
+
         return {
             assets,
             currentFolderPath,
@@ -502,6 +649,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             deletedUuids,
             transientFolders,
             localVirtualFolders,
+            folderOverrides,
+            folderColors,
             allTreeNodes,
             selectedAsset,
             currentFolderAssets,
@@ -511,18 +660,23 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             toggleFolder,
             createVirtualFolder,
             moveAssetToFolder,
+            moveFolderInto,
             renameAsset,
             deleteAsset,
             removeTransientFolder,
+            renameTransientFolder,
             getNodeDefaultCompliance,
             getNodeDefaultIndicator,
             durationSeconds,
             updateAssetMetadata,
+            fetchFolderColors,
+            setFolderColor,
         };
     },
     {
         persist: {
-            pick: ['expandedFolders', 'deletedUuids', 'selectedNodeId', 'currentFolderPath', 'transientFolders', 'localVirtualFolders'],
+            pick: ['expandedFolders', 'deletedUuids', 'selectedNodeId', 'currentFolderPath', 'transientFolders', 'localVirtualFolders', 'folderOverrides', 'folderColors'],
         },
     }
 );
+

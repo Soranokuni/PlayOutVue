@@ -8,19 +8,27 @@ import type { PlayoutAdvanceCallback, PlayoutItem, PlayoutService } from './play
 export const playStartTime = ref(0);
 export const playStartIndex = ref(0);
 
-const clamp = (val: number, min: number, max: number) => Math.min(Math.max(val, min), max);
-
-const CASPAR_HOST = '127.0.0.1';
-const CASPAR_AMCP_PORT = 5250;
 const PROGRAM_CHANNEL = 1;
-const PROGRAM_LAYER = 10;
-const LIVE_LAYER = 20;
 const FRAME_MS = 40;
 const PAL_FPS = 25;
 const RECONNECT_BASE_DELAY_MS = 750;
 const RECONNECT_MAX_DELAY_MS = 15_000;
 const RECONNECT_FOREGROUND_ATTEMPTS = 6;
 const HEARTBEAT_INTERVAL_MS = 5_000;
+
+// --- Layer registry (TS mirror of src-tauri/src/caspar_layers.rs) ---
+// Single source of truth for layer numbers on the program channel. Keep in
+// sync with the Rust enum — see plan §1.1.
+export const CASPAR_LAYERS = {
+    video: 10,
+    live: 20,
+    stationLogo: 30,
+    rating: 31,
+    explanation: 32,
+    crawl: 33,
+    tp: 34,
+    stationId: 35,
+} as const;
 
 const jitter = () => Math.floor(Math.random() * 201) - 100;
 
@@ -32,16 +40,35 @@ interface CasparOscPayload {
     receivedAt: string;
 }
 
+interface PlaybackTickPayload {
+    positionMs: number;
+    durationMs: number;
+    currentUuid: string | null;
+}
+
+interface PlaybackAdvancePayload {
+    currentUuid: string | null;
+    reason: string;
+}
+
 export const isCasparConnected = ref(false);
 export const isCasparPlaying = ref(false);
 export const currentCasparTime = ref('00:00:00:00');
 export const currentCasparMs = ref(0);
 export const currentCasparDurationMs = ref(0);
 
+// --- UUID-keyed queue (plan §2.2) ---
+// The queue is an ordered array; the current item is tracked by a stable key
+// (playoutvueId || local id) instead of a positional index. refreshQueue() can
+// reorder/replace the list without losing the current item's identity, which
+// fixes the index-space desync where advanceNext advanced the wrong item.
 let queuedItems: PlayoutItem[] = [];
-let currentIndex = -1;
-let advanceTimer: ReturnType<typeof setTimeout> | null = null;
+let currentKey: string | null = null;
 let timelineTimers: ReturnType<typeof setTimeout>[] = [];
+
+function queueKey(item: PlayoutItem): string {
+    return item.id;
+}
 
 function parseTimeToMs(t: string | number): number {
     if (typeof t === 'number') return t * 1000;
@@ -55,16 +82,12 @@ function parseTimeToMs(t: string | number): number {
     return isNaN(parsed) ? 0 : parsed * 1000;
 }
 
-function escapeJson(str: string): string {
-    return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
 let onAdvanceCallback: PlayoutAdvanceCallback | null = null;
 let playToken = 0;
-let clockTimer: ReturnType<typeof setInterval> | null = null;
-let positionBaseMs = 0;
-let positionBaseAt = 0;
 let feedbackListenerPromise: Promise<void> | null = null;
 let feedbackUnlisten: (() => void) | null = null;
+let tickUnlisten: (() => void) | null = null;
+let advanceUnlisten: (() => void) | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
 let reconnectRequested = false;
@@ -86,21 +109,6 @@ const assertIngestorReady = (item: PlayoutItem) => {
     }
 };
 
-const isProgramFileTimeAddress = (address: string) => {
-    const normalized = (address || '').trim();
-    if (!normalized.startsWith(`/channel/${PROGRAM_CHANNEL}/`)) {
-        return false;
-    }
-
-    if (normalized === `/channel/${PROGRAM_CHANNEL}/foreground/file/time`) {
-        return true;
-    }
-
-    return new RegExp(
-        `^/channel/${PROGRAM_CHANNEL}/stage/layer/${PROGRAM_LAYER}/(?:foreground/)?file/time$`
-    ).test(normalized);
-};
-
 const getSettingsSnapshot = () => {
     try {
         return useSettingsStore();
@@ -108,13 +116,28 @@ const getSettingsSnapshot = () => {
         return {
             liveInputSourceName: '',
             localMediaPath: '',
-            watermarkPath: '',
-            watermarkEnabled: false,
-            watermarkPosition: 'top-left',
-            watermarkOpacity: 80,
-            watermarkScale: 15,
             logosPath: '',
-            casparOscPort: 6250
+            casparOscPort: 6250,
+            cg: {
+                stationIdPath: '',
+                stationIdEnabled: true,
+            },
+            cgRatingKPath: '',
+            cgRating8Path: '',
+            cgRating12Path: '',
+            cgRating16Path: '',
+            cgRating18Path: '',
+            cgRatingTPPath: '',
+            cgExplanationTemplate: 'playout/explanation',
+            cgCrawlTemplate: 'playout/crawl',
+            cgCrawlText: '',
+            cgCrawlActive: false,
+            cgStationLogoPos: { left: 5, top: 5, width: 12, height: 12 },
+            cgRatingBadgePos: { left: 88, top: 5, width: 7, height: 7 },
+            cgTPPos: { left: 88, top: 13, width: 7, height: 7 },
+            cgExplanationBannerPos: { left: 60, top: 5, width: 27, height: 7 },
+            cgCrawlPos: { left: 0, top: 90, width: 100, height: 8 },
+            updateSettings: (() => {}) as (p: any) => void,
         } as ReturnType<typeof useSettingsStore>;
     }
 };
@@ -166,20 +189,12 @@ const normalizeMediaPath = (rawPath: string) => {
     let p = rawPath.replace(/\\/g, '/');
     const mediaRoot = (settings.localMediaPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
 
-    // Try stripping the configured media root (handles both long and short paths):
-    // We strip based on the last occurrence of the media root base name segment.
-    // A short path like C:/CASPAR~1/Media/VIDEO~1.mp4 may not share prefix with
-    // C:/CasparCG/Media, so we try stripping just the drive+root portion by attempting
-    // both the original path and looking for the known relative portion.
     if (mediaRoot) {
         const pLower = p.toLowerCase();
         const rootLower = mediaRoot.toLowerCase();
         if (pLower.startsWith(rootLower)) {
             p = p.substring(mediaRoot.length).replace(/^\/+/, '');
         } else {
-            // Short path case: extract relative to the root folder name
-            // e.g. if mediaRoot = 'C:/CasparCG/Media' and short path is 'C:/CASPAR~1/MEDIA/VIDEO~1.MP4'
-            // we find 'MEDIA' folder portion and keep only the relative tree.
             const rootParts = mediaRoot.split('/');
             const rootBaseName = (rootParts[rootParts.length - 1] || '').toLowerCase();
             const pParts = p.split('/');
@@ -188,13 +203,11 @@ const normalizeMediaPath = (rawPath: string) => {
             if (rootIdx >= 0) {
                 p = pParts.slice(rootIdx + 1).join('/');
             } else {
-                // Absolute fallback: just the filename
                 p = pParts[pParts.length - 1] || p;
             }
         }
     }
 
-    // Remove extension that CasparCG doesn't need
     return p.replace(/"/g, '\\"');
 };
 
@@ -213,13 +226,17 @@ const prepareCasparMediaPath = async (rawPath: string) => {
 };
 
 const disposeFeedbackListener = async () => {
-    if (!feedbackUnlisten) return;
-    try {
-        feedbackUnlisten();
-    } catch (error) {
-        console.warn('[CasparCG] Failed to detach OSC listener', error);
-    } finally {
+    if (feedbackUnlisten) {
+        try { feedbackUnlisten(); } catch (error) { console.warn('[CasparCG] Failed to detach OSC listener', error); }
         feedbackUnlisten = null;
+    }
+    if (tickUnlisten) {
+        try { tickUnlisten(); } catch { /* ignore */ }
+        tickUnlisten = null;
+    }
+    if (advanceUnlisten) {
+        try { advanceUnlisten(); } catch { /* ignore */ }
+        advanceUnlisten = null;
     }
 };
 
@@ -255,32 +272,6 @@ const formatTimecode = (ms: number) => {
 const updateDisplayedTime = (ms: number) => {
     currentCasparMs.value = Math.max(0, Math.round(ms));
     currentCasparTime.value = formatTimecode(currentCasparMs.value);
-};
-
-const syncClockBase = (ms: number) => {
-    positionBaseMs = Math.max(0, Math.round(ms));
-    positionBaseAt = Date.now();
-    updateDisplayedTime(positionBaseMs);
-};
-
-const startClock = () => {
-    if (clockTimer) return;
-    clockTimer = setInterval(() => {
-        if (!isCasparPlaying.value) return;
-        updateDisplayedTime(positionBaseMs + (Date.now() - positionBaseAt));
-    }, 100);
-};
-
-const stopClock = () => {
-    if (!clockTimer) return;
-    clearInterval(clockTimer);
-    clockTimer = null;
-};
-
-const clearAdvanceTimer = () => {
-    if (!advanceTimer) return;
-    clearTimeout(advanceTimer);
-    advanceTimer = null;
 };
 
 const itemDurationMs = (item: PlayoutItem) => {
@@ -387,7 +378,7 @@ const parseDurationFromCasparList = (response: string, clipKey: string) => {
 
 const queryActiveLayerDurationMs = async () => {
     try {
-        const response = await sendRawCommand(`INFO ${PROGRAM_CHANNEL}-${PROGRAM_LAYER}`);
+        const response = await sendRawCommand(`INFO ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
         return parseDurationFromCasparResponse(response);
     } catch (error) {
         console.warn('[CasparCG] INFO duration lookup failed', error);
@@ -461,21 +452,22 @@ const ensureItemDurationMs = async (item: PlayoutItem) => {
     return 0;
 };
 
-async function refreshCurrentProducerDuration(item: PlayoutItem, token: number) {
-    if (advanceTimer) return;
-
+/// Late-resolve an active producer's duration and re-register it with the Rust
+/// state machine so the watchdog deadline tracks the correct end point (plan
+/// §2.1). Replaces the old JS `advanceTimer`-setting retry loop.
+async function refreshCurrentProducerDuration(item: PlayoutItem, key: string, token: number) {
     for (let attempt = 0; attempt < 6; attempt += 1) {
         if (!isCasparPlaying.value || token !== playToken) return;
-        
+
         let durationMs = currentCasparDurationMs.value;
         if (durationMs <= 0) {
             durationMs = await queryActiveLayerDurationMs();
         }
-        
+
         if (durationMs > 0) {
             currentCasparDurationMs.value = durationMs;
             const totalDurationMs = updateItemDurationFromMs(item, durationMs);
-            
+
             if (item.id) {
                 const store = useRundownStore();
                 store.updateItem(item.id, {
@@ -484,13 +476,11 @@ async function refreshCurrentProducerDuration(item: PlayoutItem, token: number) 
                 });
             }
 
-            if (!advanceTimer && totalDurationMs > 0 && currentIndex >= 0 && token === playToken) {
-                const remainingMs = Math.max(0, totalDurationMs - currentCasparMs.value);
-                if (remainingMs > 0) {
-                    advanceTimer = setTimeout(async () => {
-                        await advanceNext(token);
-                    }, remainingMs + 200);
-                }
+            // Re-register so the Rust watchdog deadline uses the resolved length.
+            if (totalDurationMs > 0 && token === playToken && currentKey === key) {
+                await invoke('caspar_register_playback', { uuid: key, durationMs: totalDurationMs }).catch((e: any) => {
+                    console.warn('[CasparCG] Failed to re-register playback duration', e);
+                });
             }
             return;
         }
@@ -517,83 +507,60 @@ const buildVideoCommand = async (item: PlayoutItem, autoPlay: boolean) => {
     const path = await prepareCasparMediaPath(rawPath);
     const options = buildClipOptions(item);
     const auto = autoPlay ? ' AUTO' : '';
-    return `LOADBG ${PROGRAM_CHANNEL}-${PROGRAM_LAYER} "${path}" ${options}${auto}`.replace(/\s+/g, ' ').trim();
+    return `LOADBG ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video} "${path}" ${options}${auto}`.replace(/\s+/g, ' ').trim();
 };
 
 const buildPlayVideoCommand = async (item: PlayoutItem) => {
     const rawPath = item.path || item.shortPath;
     const path = await prepareCasparMediaPath(rawPath);
     const options = buildClipOptions(item);
-    return `PLAY ${PROGRAM_CHANNEL}-${PROGRAM_LAYER} "${path}" ${options}`.replace(/\s+/g, ' ').trim();
+    return `PLAY ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video} "${path}" ${options}`.replace(/\s+/g, ' ').trim();
 };
 
 const buildLiveCommand = (preferredSource?: string) => {
     const source = (preferredSource || getSettingsSnapshot().liveInputSourceName || '').trim();
     if (!source) return '';
-    return source ? `PLAY ${PROGRAM_CHANNEL}-${LIVE_LAYER} ${source}` : '';
+    return source ? `PLAY ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live} ${source}` : '';
 };
 
 const sendRawCommandCore = async (cmd: string) => {
     return invoke<string>('caspar_send_command', { cmd });
 };
 
+/// Subscribe to the Rust-authoritative playback events (plan §2.1/§2.4).
+/// `caspar://playback-tick` drives the single clock; `caspar://advance` drives
+/// the single advance decision. The legacy per-OSC `caspar-osc` JS advance logic
+/// and dual JS timers are removed.
 const ensureFeedbackListener = async () => {
-    if (feedbackUnlisten) return;
     if (feedbackListenerPromise) return feedbackListenerPromise;
 
     feedbackListenerPromise = (async () => {
+        // Start the Rust OSC listener (configures UDP port + watchdog).
         await invoke<number>('configure_caspar_osc_listener', { port: getConfiguredOscPort() });
-        feedbackUnlisten = await listen<CasparOscPayload>('caspar-osc', (event) => {
-            const payload = event.payload;
-            if (!isProgramFileTimeAddress(payload.address)) {
-                return;
-            }
-            if (payload.positionMs != null) {
-                syncClockBase(payload.positionMs);
-            }
-            
-            const positionMs = payload.positionMs ?? currentCasparMs.value;
-            let durationMs = payload.durationMs != null ? Math.max(0, Math.round(payload.durationMs)) : currentCasparDurationMs.value;
-            
-            if (payload.durationMs != null) {
-                currentCasparDurationMs.value = durationMs;
-            }
 
-            if (isCasparPlaying.value && currentIndex >= 0 && playToken > 0) {
-                const item = queuedItems[currentIndex];
-                if (item && item.type !== 'live') {
-                    const knownDuration = itemDurationMs(item);
-                    if (knownDuration <= 0 && durationMs > 0) {
-                        updateItemDurationFromMs(item, durationMs);
-                        const store = useRundownStore();
-                        store.updateItem(item.id, {
-                            duration: durationMs / 1000,
-                            plannedDuration: durationMs / 1000
-                        });
-                    }
-
-                    const effectiveTotalMs = itemDurationMs(item);
-                    if (!advanceTimer && effectiveTotalMs > 0) {
-                        const remainingMs = Math.max(0, effectiveTotalMs - positionMs);
-                        if (remainingMs > 0) {
-                            const currentToken = playToken;
-                            advanceTimer = setTimeout(async () => {
-                                await advanceNext(currentToken);
-                            }, remainingMs + 200);
-                        }
-                    }
-
-                    if (durationMs > 0 && positionMs >= durationMs - 80) {
-                        advanceNext(playToken).catch((error) => {
-                            console.error('[CasparCG] OSC advance error', error);
-                        });
-                    }
+        if (!tickUnlisten) {
+            tickUnlisten = await listen<PlaybackTickPayload>('caspar://playback-tick', (event) => {
+                const { positionMs, durationMs } = event.payload;
+                updateDisplayedTime(positionMs);
+                if (durationMs > 0) {
+                    currentCasparDurationMs.value = durationMs;
                 }
-            }
-        });
+            });
+        }
+
+        if (!advanceUnlisten) {
+            advanceUnlisten = await listen<PlaybackAdvancePayload>('caspar://advance', (event) => {
+                if (!isCasparPlaying.value) return;
+                advanceNext().catch((error) => {
+                    console.error('[CasparCG] advance error', error);
+                });
+                // Acknowledge the payload reference (currentUuid == the item that ended).
+                void event.payload.currentUuid;
+            });
+        }
     })()
         .catch((error) => {
-            console.warn('[CasparCG] Failed to attach OSC listener', error);
+            console.warn('[CasparCG] Failed to attach playback listeners', error);
             throw error;
         })
         .finally(() => {
@@ -688,33 +655,21 @@ const sendRawCommand = async (cmd: string) => {
     }
 };
 
-async function advanceNext(token: number) {
-    if (token !== playToken) return;
-
-    playToken += 1;
-    clearAdvanceTimer();
-
-    const nextIndex = currentIndex + 1;
-    if (nextIndex >= queuedItems.length) {
-        await casparPlayoutService.stop();
-        onAdvanceCallback?.(-1);
-        return;
-    }
-
-    await playAt(nextIndex, playToken);
-}
-
-async function playAt(index: number, token: number) {
+/// Play a single queued item by its array index. Registers it with the Rust
+/// state machine (uuid + duration) so Rust owns the advance. No JS advance timer
+/// is set — advance fires from `caspar://advance` (OSC EOF or watchdog deadline).
+async function playItemAt(index: number, token: number) {
     try {
         const item = queuedItems[index];
         if (!item || token !== playToken) return;
 
         assertIngestorReady(item);
 
-        await ensureItemDurationMs(item);
+        const key = queueKey(item);
+        const durationMs = await ensureItemDurationMs(item);
 
-        currentIndex = index;
-        onAdvanceCallback?.(index);
+        currentKey = key;
+        onAdvanceCallback?.(key);
         await casparPlayoutService.applyComplianceForItem?.(item);
 
         const store = useRundownStore();
@@ -724,52 +679,24 @@ async function playAt(index: number, token: number) {
             if (!liveCommand) {
                 throw new Error('No CasparCG live source configured. Set a Live Input Source in Settings.');
             }
-            const durationMs = itemDurationMs(item);
-            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${LIVE_LAYER}`);
+            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
             await sendRawCommand(liveCommand);
             isCasparPlaying.value = true;
-            syncClockBase(0);
+            updateDisplayedTime(0);
             currentCasparDurationMs.value = durationMs;
-            startClock();
-            
+
             store.startPlaybackProgressTimer(item.id, durationMs);
 
-            clearAdvanceTimer();
-            if (durationMs > 0) {
-                const currentToken = playToken;
-                advanceTimer = setTimeout(() => {
-                    advanceNext(currentToken).catch((error: any) => {
-                        console.error('[CasparCG] Failed to advance live item', error);
-                        invoke('push_diagnostic_log', {
-                            level: 'error',
-                            scope: 'caspar-playout',
-                            message: `Failed to advance live item: ${error?.message || error}`
-                        }).catch(() => {});
-                    });
-                }, durationMs);
-            }
+            await invoke('caspar_register_playback', { uuid: key, durationMs }).catch((e: any) => {
+                console.warn('[CasparCG] Failed to register live playback', e);
+            });
             return;
         }
 
-        const durationMs = await ensureItemDurationMs(item);
         currentCasparDurationMs.value = durationMs;
         await sendRawCommand(await buildPlayVideoCommand(item));
         isCasparPlaying.value = true;
-        syncClockBase(item.inPoint || 0);
-        startClock();
-        
-        const currentToken = playToken;
-        setTimeout(() => {
-            if (currentToken !== playToken) return;
-            refreshCurrentProducerDuration(item, currentToken).catch((error: any) => {
-                console.warn('[CasparCG] Failed to refresh active producer duration', error);
-                invoke('push_diagnostic_log', {
-                    level: 'warn',
-                    scope: 'caspar-playout',
-                    message: `Failed to refresh active producer duration: ${error?.message || error}`
-                }).catch(() => {});
-            });
-        }, 250);
+        updateDisplayedTime(item.inPoint || 0);
 
         let effectiveDuration = durationMs;
         const assetDuration = (item.duration_ms || (item.duration ? item.duration * 1000 : 0));
@@ -781,29 +708,61 @@ async function playAt(index: number, token: number) {
         }
         store.startPlaybackProgressTimer(item.id, effectiveDuration);
 
-        clearAdvanceTimer();
-        if (durationMs > 0) {
-            advanceTimer = setTimeout(async () => {
-                try {
-                    await advanceNext(currentToken);
-                } catch (error: any) {
-                    console.error('[CasparCG] Failed in advance timeout advanceNext', error);
-                    invoke('push_diagnostic_log', {
-                        level: 'error',
-                        scope: 'caspar-playout',
-                        message: `Failed in advance timeout advanceNext: ${error?.message || error}`
-                    }).catch(() => {});
-                }
-            }, durationMs + 200);
-        }
+        // Register with Rust so the OSC-authoritative state machine owns advance.
+        await invoke('caspar_register_playback', { uuid: key, durationMs: effectiveDuration }).catch((e: any) => {
+            console.warn('[CasparCG] Failed to register playback', e);
+        });
+
+        // Late-resolve duration if still unknown and re-register the deadline.
+        setTimeout(() => {
+            if (token !== playToken) return;
+            refreshCurrentProducerDuration(item, key, token).catch((error: any) => {
+                console.warn('[CasparCG] Failed to refresh active producer duration', error);
+                invoke('push_diagnostic_log', {
+                    level: 'warn',
+                    scope: 'caspar-playout',
+                    message: `Failed to refresh active producer duration: ${error?.message || error}`
+                }).catch(() => {});
+            });
+        }, 250);
     } catch (error: any) {
-        console.error('[CasparCG] playAt error', error);
+        console.error('[CasparCG] playItemAt error', error);
         invoke('push_diagnostic_log', {
             level: 'error',
             scope: 'caspar-playout',
             message: `Playout crash/error at index ${index} (${queuedItems[index]?.filename || 'unknown'}): ${error?.message || error}`
         }).catch(() => {});
     }
+}
+
+/// Advance to the next queued item by re-resolving the current key's position in
+/// the (possibly reordered) queue. Identity-based, so edits mid-playback cannot
+/// advance the wrong item (plan §2.2 / §A fix).
+async function advanceToNext(token: number) {
+    if (token !== playToken) return;
+    playToken += 1;
+
+    if (currentKey == null) {
+        await casparPlayoutService.stop();
+        onAdvanceCallback?.(null);
+        return;
+    }
+
+    const currentIndex = queuedItems.findIndex((it) => queueKey(it) === currentKey);
+    const nextIndex = currentIndex + 1;
+
+    if (nextIndex >= queuedItems.length) {
+        await casparPlayoutService.stop();
+        onAdvanceCallback?.(null);
+        return;
+    }
+
+    await playItemAt(nextIndex, playToken);
+}
+
+export async function advanceNext() {
+    const token = playToken;
+    await advanceToNext(token);
 }
 
 export const casparPlayoutService: PlayoutService = {
@@ -840,7 +799,6 @@ export const casparPlayoutService: PlayoutService = {
 
         queuedItems = items;
         playToken += 1;
-        clearAdvanceTimer();
         playStartTime.value = Date.now();
         playStartIndex.value = startIndex;
 
@@ -849,31 +807,37 @@ export const casparPlayoutService: PlayoutService = {
             return;
         }
 
-        await playAt(startIndex, playToken);
+        await playItemAt(startIndex, playToken);
     },
 
     async pause() {
         if (!isCasparConnected.value) return;
-        await sendRawCommand(`PAUSE ${PROGRAM_CHANNEL}-${PROGRAM_LAYER}`);
-        positionBaseMs = currentCasparMs.value;
-        positionBaseAt = Date.now();
+        await sendRawCommand(`PAUSE ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
         isCasparPlaying.value = false;
+        // Tell Rust to suppress the watchdog/EOF advance while paused.
+        await invoke('caspar_set_playback_paused', { paused: true }).catch(() => {});
     },
 
     async stop() {
         playToken += 1;
-        clearAdvanceTimer();
-        stopClock();
         isCasparPlaying.value = false;
         currentCasparDurationMs.value = 0;
-        currentIndex = -1;
-        syncClockBase(0);
+        currentKey = null;
+        updateDisplayedTime(0);
+        timelineTimers.forEach(clearTimeout);
+        timelineTimers = [];
         if (isCasparConnected.value) {
+            // Targeted clears first (clean logging), then the nuclear fallback.
             await this.clearCompliance?.();
+            await this.clearOverlays?.();
+            await this.clearBranding?.();
             await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}`);
         }
-        
-        // Stop local progress timer
+
+        // Release Rust playback ownership.
+        await invoke('caspar_clear_playback').catch(() => {});
+        await invoke('caspar_set_playback_paused', { paused: false }).catch(() => {});
+
         const store = useRundownStore();
         store.stopPlaybackProgressTimer();
     },
@@ -896,22 +860,19 @@ export const casparPlayoutService: PlayoutService = {
         }
 
         await sendRawCommand(await buildVideoCommand(item, false));
-        syncClockBase(item.inPoint || 0);
+        updateDisplayedTime(item.inPoint || 0);
     },
 
     async take() {
         if (!isCasparConnected.value) {
             await this.connect();
         }
-        await sendRawCommand(`PLAY ${PROGRAM_CHANNEL}-${PROGRAM_LAYER}`);
+        await sendRawCommand(`PLAY ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
         isCasparPlaying.value = true;
-        positionBaseAt = Date.now();
-        startClock();
 
-        // Start progress timer in rundown store
         const store = useRundownStore();
-        if (store.selectedItem) {
-            const item = store.selectedItem;
+        const item = store.selectedItem;
+        if (item) {
             let effectiveDuration = (item.duration || 0) * 1000;
             const assetDuration = (item.duration_ms || (item.duration ? item.duration * 1000 : 0));
             const trimIn = item.trim_in_ms || item.inPoint || 0;
@@ -921,6 +882,9 @@ export const casparPlayoutService: PlayoutService = {
                 effectiveDuration = calculatedEffective;
             }
             store.startPlaybackProgressTimer(item.id, effectiveDuration);
+            const key = queueKey(item);
+            currentKey = key;
+            await invoke('caspar_register_playback', { uuid: key, durationMs: effectiveDuration }).catch(() => {});
         }
     },
 
@@ -936,14 +900,16 @@ export const casparPlayoutService: PlayoutService = {
         if (!liveCommand) {
             throw new Error('No CasparCG live source configured. Set a Live Input Source in Settings.');
         }
-        await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${LIVE_LAYER}`);
+        await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
         await sendRawCommand(liveCommand);
         isCasparPlaying.value = true;
-        syncClockBase(0);
-        startClock();
+        updateDisplayedTime(0);
     },
 
     async refreshQueue(items) {
+        // Identity-keyed: the current item is tracked by `currentKey`, so a
+        // reordered/replaced queue is re-resolved on the next advance without any
+        // index remapping. This is the §A desync fix.
         queuedItems = items;
     },
 
@@ -963,62 +929,68 @@ export const casparPlayoutService: PlayoutService = {
         return;
     },
 
+    /// Station logo (layer 30) — always-on persistent branding.
+    /// Reads strictly from the CG configuration path for Layer 30 (settings.cg).
     async syncBrandingAssets() {
         if (!isCasparConnected.value) return;
         const settings = getSettingsSnapshot();
-        const watermarkLayer = 30;
+        const logoLayer = CASPAR_LAYERS.stationLogo;
 
-        const logoSourcePath = settings.cgStationLogoPath || settings.watermarkPath || resolveLogoAsset('logo.png');
+        const logoEnabled = settings.cg?.stationIdEnabled !== false;
+        const logoSourcePath = settings.cg?.stationIdPath || resolveLogoAsset('logo.png');
         const logoPath = logoSourcePath ? await prepareCasparMediaPath(logoSourcePath) : '';
 
-        if (settings.watermarkEnabled && logoPath) {
-            await sendRawCommand(`PLAY ${PROGRAM_CHANNEL}-${watermarkLayer} "${logoPath}"`);
+        if (logoEnabled && logoPath) {
+            await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: logoLayer, path: logoPath }).catch((e: any) => {
+                console.warn('[CasparCG] Failed to play station logo', e);
+            });
 
-            const opacity = (settings.watermarkOpacity || 80) / 100.0;
+            const opacity = 0.8; // Defaults strictly to 80% opacity
             const lx = (settings.cgStationLogoPos?.left ?? 5) / 100;
             const ly = (settings.cgStationLogoPos?.top ?? 5) / 100;
             const lw = (settings.cgStationLogoPos?.width ?? 12) / 100;
             const lh = (settings.cgStationLogoPos?.height ?? 12) / 100;
 
-            await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${watermarkLayer} FILL ${lx.toFixed(4)} ${ly.toFixed(4)} ${lw.toFixed(4)} ${lh.toFixed(4)}`);
-            await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${watermarkLayer} OPACITY ${opacity.toFixed(3)}`);
+            await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${logoLayer} FILL ${lx.toFixed(4)} ${ly.toFixed(4)} ${lw.toFixed(4)} ${lh.toFixed(4)}`);
+            await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${logoLayer} OPACITY ${opacity.toFixed(3)}`);
         } else {
-            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${watermarkLayer}`);
+            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: logoLayer }).catch(() => {});
         }
     },
 
     async seekMedia(_inputName: string, timeCursor: number) {
-        syncClockBase(timeCursor);
+        updateDisplayedTime(timeCursor);
     },
 
     async applyComplianceForItem(item) {
         if (!isCasparConnected.value) return;
         const settings = getSettingsSnapshot();
-        const ratingLayer = 31;
-        const tpLayer = 34;
+        const ratingLayer = CASPAR_LAYERS.rating;
+        const tpLayer = CASPAR_LAYERS.tp;
 
-        // Clear existing timers
         timelineTimers.forEach(clearTimeout);
         timelineTimers = [];
 
         const rating = (item.complianceRating || 'none') as ComplianceRating;
         const tpFlag = !!item.tp_flag;
 
-        // Display Age Rating Badge
+        // Age rating badge (image producer via typed command).
         let ratingSourcePath = '';
         if (rating === 'k') ratingSourcePath = settings.cgRatingKPath;
         else if (rating === '8') ratingSourcePath = settings.cgRating8Path;
         else if (rating === '12') ratingSourcePath = settings.cgRating12Path;
         else if (rating === '16') ratingSourcePath = settings.cgRating16Path;
         else if (rating === '18') ratingSourcePath = settings.cgRating18Path;
-        
+
         if (!ratingSourcePath && rating !== 'none') {
             ratingSourcePath = getRatingAssetPath(rating);
         }
 
         if (ratingSourcePath) {
             const path = await prepareCasparMediaPath(ratingSourcePath);
-            await sendRawCommand(`PLAY ${PROGRAM_CHANNEL}-${ratingLayer} "${path}"`);
+            await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: ratingLayer, path }).catch((e: any) => {
+                console.warn('[CasparCG] Failed to play rating badge', e);
+            });
 
             const rx = (settings.cgRatingBadgePos?.left ?? 88) / 100;
             const ry = (settings.cgRatingBadgePos?.top ?? 5) / 100;
@@ -1026,13 +998,17 @@ export const casparPlayoutService: PlayoutService = {
             const rh = (settings.cgRatingBadgePos?.height ?? 7) / 100;
             await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${ratingLayer} FILL ${rx.toFixed(4)} ${ry.toFixed(4)} ${rw.toFixed(4)} ${rh.toFixed(4)}`);
         } else {
-            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${ratingLayer}`);
+            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: ratingLayer }).catch(() => {});
         }
 
-        // Display TP Badge
-        if (tpFlag && settings.cgRatingTPPath) {
-            const path = await prepareCasparMediaPath(settings.cgRatingTPPath);
-            await sendRawCommand(`PLAY ${PROGRAM_CHANNEL}-${tpLayer} "${path}"`);
+        // TP badge (image producer). Fallback to resolveLogoAsset('TP.png') when
+        // the configured path is unset (plan §B fix).
+        const tpSourcePath = settings.cgRatingTPPath || (tpFlag ? resolveLogoAsset('TP.png') : '');
+        if (tpFlag && tpSourcePath) {
+            const path = await prepareCasparMediaPath(tpSourcePath);
+            await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: tpLayer, path }).catch((e: any) => {
+                console.warn('[CasparCG] Failed to play TP badge', e);
+            });
 
             const tpx = (settings.cgTPPos?.left ?? 88) / 100;
             const tpy = (settings.cgTPPos?.top ?? 13) / 100;
@@ -1040,10 +1016,11 @@ export const casparPlayoutService: PlayoutService = {
             const tph = (settings.cgTPPos?.height ?? 7) / 100;
             await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${tpLayer} FILL ${tpx.toFixed(4)} ${tpy.toFixed(4)} ${tpw.toFixed(4)} ${tph.toFixed(4)}`);
         } else {
-            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${tpLayer}`);
+            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: tpLayer }).catch(() => {});
         }
 
-        // Schedule dynamic explanation banners
+        // Dynamic explanation banners (CG template, layer 32). No MIXER on template
+        // layers — templates self-position (plan §1.1 rule).
         const timeline = item.timeline || [];
         timeline.forEach((field: any) => {
             if (!field.text) return;
@@ -1052,22 +1029,22 @@ export const casparPlayoutService: PlayoutService = {
 
             const startTimer = setTimeout(async () => {
                 const template = settings.cgExplanationTemplate || 'playout/explanation';
-                await sendRawCommand(`CG ${PROGRAM_CHANNEL}-32 ADD 1 "${template}" 1 "{\\"text\\":\\"${escapeJson(field.text)}\\"}"`);
-
-                const ebx = (settings.cgExplanationBannerPos?.left ?? 60) / 100;
-                const eby = (settings.cgExplanationBannerPos?.top ?? 5) / 100;
-                const ebw = (settings.cgExplanationBannerPos?.width ?? 27) / 100;
-                const ebh = (settings.cgExplanationBannerPos?.height ?? 7) / 100;
-
-                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-32 FILL ${ebx.toFixed(4)} ${eby.toFixed(4)} ${ebw.toFixed(4)} ${ebh.toFixed(4)}`);
-                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-32 OPACITY 1.0`);
+                await invoke('caspar_cg_add', {
+                    channel: PROGRAM_CHANNEL,
+                    layer: CASPAR_LAYERS.explanation,
+                    template,
+                    play: true,
+                    data: { text: field.text }
+                }).catch((e: any) => {
+                    console.warn('[CasparCG] Failed to add explanation CG', e);
+                });
             }, startMs);
             timelineTimers.push(startTimer);
 
             const endTimer = setTimeout(async () => {
-                await sendRawCommand(`CG ${PROGRAM_CHANNEL}-32 STOP 1`);
+                await invoke('caspar_cg_stop', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
                 const cleanupTimer = setTimeout(async () => {
-                    await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-32`);
+                    await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
                 }, 1000);
                 timelineTimers.push(cleanupTimer);
             }, endMs);
@@ -1075,13 +1052,26 @@ export const casparPlayoutService: PlayoutService = {
         });
     },
 
+    /// Clears per-item compliance layers: 31 (rating), 32 (explanation), 34 (TP).
     async clearCompliance() {
         if (!isCasparConnected.value) return;
         timelineTimers.forEach(clearTimeout);
         timelineTimers = [];
-        await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-31`);
-        await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-32`);
-        await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-34`);
+        for (const layer of [CASPAR_LAYERS.rating, CASPAR_LAYERS.explanation, CASPAR_LAYERS.tp]) {
+            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer }).catch(() => {});
+        }
+    },
+
+    /// Clears the on-demand crawl layer (33). (plan §B / §3.2)
+    async clearOverlays() {
+        if (!isCasparConnected.value) return;
+        await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.crawl }).catch(() => {});
+    },
+
+    /// Clears the station logo layer (30). (plan §B / §3.2)
+    async clearBranding() {
+        if (!isCasparConnected.value) return;
+        await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.stationLogo }).catch(() => {});
     },
 
     async startDeckLink(outputName: string) {
@@ -1113,27 +1103,31 @@ export const casparPlayoutService: PlayoutService = {
     }
 };
 
+/// Toggle the on-demand crawl (layer 33, CG template). Uses the typed CG commands
+/// so the payload is serde-serialized (fixes the broken hand-rolled `escapeJson`
+/// that corrupted crawls with quotes/newlines/emoji — plan §B). No MIXER on the
+/// crawl layer — templates self-position.
 export const toggleCrawlTicker = async () => {
     if (!isCasparConnected.value) return;
     const settings = getSettingsSnapshot();
-    const crawlLayer = 33;
-    
+    const crawlLayer = CASPAR_LAYERS.crawl;
+
     if (settings.cgCrawlActive) {
-        await sendRawCommand(`CG ${PROGRAM_CHANNEL}-${crawlLayer} STOP 1`);
+        await invoke('caspar_cg_stop', { channel: PROGRAM_CHANNEL, layer: crawlLayer }).catch(() => {});
         setTimeout(async () => {
-            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${crawlLayer}`);
+            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: crawlLayer }).catch(() => {});
         }, 1000);
         settings.updateSettings({ cgCrawlActive: false });
     } else {
-        await sendRawCommand(`CG ${PROGRAM_CHANNEL}-${crawlLayer} ADD 1 "${settings.cgCrawlTemplate || 'playout/crawl'}" 1 "{\\"text\\":\\"${escapeJson(settings.cgCrawlText)}\\"}"`);
-        
-        const cx = (settings.cgCrawlPos?.left ?? 0) / 100;
-        const cy = (settings.cgCrawlPos?.top ?? 90) / 100;
-        const cw = (settings.cgCrawlPos?.width ?? 100) / 100;
-        const ch = (settings.cgCrawlPos?.height ?? 8) / 100;
-        
-        await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${crawlLayer} FILL ${cx.toFixed(4)} ${cy.toFixed(4)} ${cw.toFixed(4)} ${ch.toFixed(4)}`);
-        await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${crawlLayer} OPACITY 1.0`);
+        await invoke('caspar_cg_add', {
+            channel: PROGRAM_CHANNEL,
+            layer: crawlLayer,
+            template: settings.cgCrawlTemplate || 'playout/crawl',
+            play: true,
+            data: { text: settings.cgCrawlText || '' }
+        }).catch((e: any) => {
+            console.warn('[CasparCG] Failed to add crawl CG', e);
+        });
         settings.updateSettings({ cgCrawlActive: true });
     }
 };
@@ -1141,8 +1135,14 @@ export const toggleCrawlTicker = async () => {
 export const updateCrawlTickerText = async () => {
     if (!isCasparConnected.value) return;
     const settings = getSettingsSnapshot();
-    const crawlLayer = 33;
+    const crawlLayer = CASPAR_LAYERS.crawl;
     if (settings.cgCrawlActive) {
-        await sendRawCommand(`CG ${PROGRAM_CHANNEL}-${crawlLayer} UPDATE 1 "{\\"text\\":\\"${escapeJson(settings.cgCrawlText)}\\"}"`);
+        await invoke('caspar_cg_update', {
+            channel: PROGRAM_CHANNEL,
+            layer: crawlLayer,
+            data: { text: settings.cgCrawlText || '' }
+        }).catch((e: any) => {
+            console.warn('[CasparCG] Failed to update crawl CG', e);
+        });
     }
 };

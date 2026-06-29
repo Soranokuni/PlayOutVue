@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+import { useSettingsStore } from './settings';
 
 export type DiagnosticLevel = 'warn' | 'error';
 
@@ -31,6 +33,15 @@ export const useIngestorStatusStore = defineStore(
         }
 
         function log(scope: string, message: string, level: DiagnosticLevel = 'warn') {
+            // Write to the backend physical file logger regardless of UI toggles
+            invoke('push_diagnostic_log', { level, scope, message }).catch(() => {});
+
+            // If debugMode is false, completely halt reactive UI log pushes
+            const settingsStore = useSettingsStore();
+            if (!settingsStore.debugMode) {
+                return;
+            }
+
             const entry: IngestorLogEntry = {
                 timestamp: Date.now(),
                 level,

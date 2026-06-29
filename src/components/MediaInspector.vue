@@ -59,9 +59,9 @@ const pushTrimToIngestor = async () => {
         const trimOut = item.trim_out_ms !== undefined ? item.trim_out_ms : (item.duration_ms && item.outPoint ? item.duration_ms - item.outPoint : (item.duration && item.outPoint ? Math.round(item.duration * 1000) - item.outPoint : 0));
         await invoke('update_ingestor_trim', {
             uuid: item.playoutvueId,
-            trim_in_ms: trimIn,
-            trim_out_ms: trimOut,
-            apiBaseUrlOverride: null
+            trim_in_ms: Math.round(trimIn),
+            trim_out_ms: Math.round(trimOut),
+            api_base_url_override: null
         });
     } catch (error) {
         console.error('[Inspector] Failed to push trim', error);

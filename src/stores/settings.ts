@@ -36,15 +36,11 @@ export const useSettingsStore = defineStore('settings', {
         transitionFrames: 2,
         prerollFrames: 2,
 
-        // Station Watermark / Bug - permanent CasparCG overlay
-        watermarkPath: '',          // Absolute path to station logo image (PNG/SVG)
-        watermarkEnabled: false,    // Toggle overlay on/off
-        watermarkPosition: 'top-right' as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
-        watermarkOpacity: 80,       // 0-100 percent
-        watermarkScale: 15,         // percent of frame width
-
-        // New Character Generator (CG) Assets & Layouts settings
-        cgStationLogoPath: '',
+        // Character Generator (CG) settings
+        cg: {
+            stationIdPath: '',
+            stationIdEnabled: true,
+        },
         cgRatingKPath: '',
         cgRating8Path: '',
         cgRating12Path: '',

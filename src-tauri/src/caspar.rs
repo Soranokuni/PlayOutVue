@@ -2,22 +2,20 @@ use rosc::{OscPacket, OscType};
 use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Runtime, State};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, UdpSocket};
+use tokio::net::UdpSocket;
 use tokio::sync::oneshot;
-use tokio::time::timeout;
 
-const CASPAR_AMCP_ADDR: &str = "127.0.0.1:5250";
+use crate::amcp::AmcpClient;
+use crate::caspar_layers::CasparLayer;
+
 const DEFAULT_CASPAR_OSC_PORT: u16 = 6250;
-const CONNECT_TIMEOUT: Duration = Duration::from_millis(750);
-const IO_TIMEOUT: Duration = Duration::from_millis(750);
-const READ_GAP_TIMEOUT: Duration = Duration::from_millis(125);
 const CASPAR_ALIAS_DIR: &str = "__sota_caspar";
 
 #[derive(Default)]
@@ -184,41 +182,12 @@ fn stable_hash(value: &str) -> u64 {
 }
 
 #[tauri::command]
-pub async fn caspar_send_command(cmd: String) -> Result<String, String> {
-    let mut stream = timeout(CONNECT_TIMEOUT, TcpStream::connect(CASPAR_AMCP_ADDR))
-        .await
-        .map_err(|_| format!("Timed out connecting to CasparCG at {}", CASPAR_AMCP_ADDR))?
-        .map_err(|error| format!("Failed to connect to CasparCG at {}: {}", CASPAR_AMCP_ADDR, error))?;
-
-    let normalized = if cmd.ends_with("\r\n") {
-        cmd
-    } else {
-        format!("{}\r\n", cmd.trim_end())
-    };
-
-    timeout(IO_TIMEOUT, stream.write_all(normalized.as_bytes()))
-        .await
-        .map_err(|_| "Timed out sending CasparCG command".to_string())?
-        .map_err(|error| format!("Failed to send CasparCG command: {}", error))?;
-
-    let mut response = Vec::new();
-    let mut chunk = [0_u8; 4096];
-
-    loop {
-        match timeout(READ_GAP_TIMEOUT, stream.read(&mut chunk)).await {
-            Ok(Ok(0)) => break,
-            Ok(Ok(read)) => {
-                response.extend_from_slice(&chunk[..read]);
-                if read < chunk.len() {
-                    break;
-                }
-            }
-            Ok(Err(error)) => return Err(format!("Failed to read CasparCG response: {}", error)),
-            Err(_) => break,
-        }
-    }
-
-    Ok(String::from_utf8_lossy(&response).trim().to_string())
+pub async fn caspar_send_command(
+    cmd: String,
+    client: State<'_, AmcpClient>,
+) -> Result<String, String> {
+    let resp = client.send(&cmd).await?;
+    Ok(resp.body)
 }
 
 #[tauri::command]
@@ -226,6 +195,7 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
     port: Option<u16>,
     app: AppHandle<R>,
     state: State<'_, CasparOscListenerState>,
+    playback: State<'_, CasparPlaybackState>,
 ) -> Result<u16, String> {
     let target_port = port.unwrap_or(DEFAULT_CASPAR_OSC_PORT);
     if target_port == 0 {
@@ -255,7 +225,15 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
         .map_err(|error| format!("Failed to bind CasparCG OSC listener on {}: {}", bind_addr, error))?;
 
     let (stop_tx, stop_rx) = oneshot::channel();
-    let task = tauri::async_runtime::spawn(run_osc_listener(app.clone(), socket, bind_addr.clone(), stop_rx));
+    let playback_state = playback.0.clone();
+    let _watchdog = spawn_playback_watchdog(app.clone(), playback_state.clone());
+    let task = tauri::async_runtime::spawn(run_osc_listener(
+        app.clone(),
+        socket,
+        bind_addr.clone(),
+        stop_rx,
+        playback_state,
+    ));
 
     let mut guard = state.0.lock();
     guard.port = Some(target_port);
@@ -278,6 +256,7 @@ async fn run_osc_listener<R: Runtime>(
     socket: UdpSocket,
     bind_addr: String,
     mut stop_rx: oneshot::Receiver<()>,
+    playback_state: Arc<Mutex<PlaybackStateInner>>,
 ) {
     let mut buffer = [0_u8; 4096];
 
@@ -294,6 +273,16 @@ async fn run_osc_listener<R: Runtime>(
                 match rosc::decoder::decode_udp(&buffer[..size]) {
                     Ok((_remainder, packet)) => {
                         for event in collect_osc_events(packet) {
+                            // Feed the authoritative Rust playback state machine
+                            // for program-layer (layer 10) /file/time packets.
+                            if is_program_file_time_address(&event.address) {
+                                handle_playback_osc(
+                                    &app,
+                                    &playback_state,
+                                    event.position_ms,
+                                    event.duration_ms,
+                                );
+                            }
                             if let Err(error) = app.emit("caspar-osc", event) {
                                 eprintln!("[CasparCG] Failed to emit OSC event: {}", error);
                             }
@@ -306,6 +295,21 @@ async fn run_osc_listener<R: Runtime>(
             }
         }
     }
+}
+
+/// Match only program video (layer 10) `/file/time` OSC addresses on channel 1,
+/// matching the TS `isProgramFileTimeAddress` filter so the state machine keys
+/// on the same source as the legacy advance logic.
+fn is_program_file_time_address(address: &str) -> bool {
+    let normalized = address.trim();
+    if !normalized.starts_with("/channel/1/") {
+        return false;
+    }
+    if normalized == "/channel/1/foreground/file/time" {
+        return true;
+    }
+    normalized == "/channel/1/stage/layer/10/file/time"
+        || normalized == "/channel/1/stage/layer/10/foreground/file/time"
 }
 
 fn collect_osc_events(packet: OscPacket) -> Vec<CasparOscEvent> {
@@ -363,4 +367,417 @@ fn arg_to_seconds(arg: &OscType) -> Option<f64> {
     }
 
     Some(seconds)
+}
+
+// ---------------------------------------------------------------------------
+// OSC-authoritative playback state machine (plan §2.1)
+// ---------------------------------------------------------------------------
+
+/// Advance fires when position is within this many ms of duration.
+const ADVANCE_THRESHOLD_MS: u64 = 300;
+/// Throttle `caspar://playback-tick` to at most one emission per this interval.
+const TICK_THROTTLE_MS: u64 = 100;
+/// If no OSC packet arrives for this long while playing, the watchdog emits
+/// `caspar://stalled` and arms a deadline fallback (plan §2.1).
+const PLAYBACK_WATCHDOG_MS: u64 = 3000;
+/// Watchdog tick cadence.
+const WATCHDOG_TICK_MS: u64 = 250;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackTick {
+    pub position_ms: u64,
+    pub duration_ms: u64,
+    pub current_uuid: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackAdvance {
+    pub current_uuid: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackStalled {
+    pub current_uuid: Option<String>,
+    pub gap_ms: u64,
+}
+
+/// Authoritative playback state, owned by Rust and updated from OSC.
+pub struct PlaybackStateInner {
+    pub current_uuid: Option<String>,
+    pub is_playing: bool,
+    pub is_paused: bool,
+    pub position_ms: u64,
+    pub duration_ms: u64,
+    pub last_osc_at_ms: u64,
+    pub last_tick_emit_ms: u64,
+    pub advance_fired: bool,
+    pub stall_emitted: bool,
+}
+
+impl Default for PlaybackStateInner {
+    fn default() -> Self {
+        PlaybackStateInner {
+            current_uuid: None,
+            is_playing: false,
+            is_paused: false,
+            position_ms: 0,
+            duration_ms: 0,
+            last_osc_at_ms: 0,
+            last_tick_emit_ms: 0,
+            advance_fired: false,
+            stall_emitted: false,
+        }
+    }
+}
+
+/// Tauri-managed wrapper around the authoritative playback state.
+#[derive(Clone, Default)]
+pub struct CasparPlaybackState(pub Arc<Mutex<PlaybackStateInner>>);
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Pure advance decision (plan §2.1 / §5): exactly one advance per item.
+/// Fires when within `ADVANCE_THRESHOLD_MS` of the end, but never when paused or
+/// once already fired. Extracted for unit testing the state-machine invariants.
+pub fn playback_should_advance(
+    is_playing: bool,
+    is_paused: bool,
+    advance_fired: bool,
+    duration_ms: u64,
+    position_ms: u64,
+) -> bool {
+    is_playing
+        && !is_paused
+        && !advance_fired
+        && duration_ms > 0
+        && position_ms >= duration_ms.saturating_sub(ADVANCE_THRESHOLD_MS)
+}
+
+/// Update playback state from a program-layer `/file/time` OSC message and emit
+/// the throttled tick / single advance events (plan §2.1). Called from the OSC
+/// listener loop.
+fn handle_playback_osc<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &Arc<Mutex<PlaybackStateInner>>,
+    position_ms: Option<u64>,
+    duration_ms: Option<u64>,
+) {
+    let now = now_ms();
+    let mut s = state.lock();
+    if !s.is_playing || s.is_paused {
+        return;
+    }
+
+    if let Some(pos) = position_ms {
+        s.position_ms = pos;
+    }
+    if let Some(dur) = duration_ms {
+        if dur > 0 {
+            s.duration_ms = dur;
+        }
+    }
+    s.last_osc_at_ms = now;
+
+    // Throttled tick emission.
+    if now.saturating_sub(s.last_tick_emit_ms) >= TICK_THROTTLE_MS {
+        s.last_tick_emit_ms = now;
+        let tick = PlaybackTick {
+            position_ms: s.position_ms,
+            duration_ms: s.duration_ms,
+            current_uuid: s.current_uuid.clone(),
+        };
+        let app_clone = app.clone();
+        let payload = tick;
+        tauri::async_runtime::spawn(async move {
+            let _ = app_clone.emit("caspar://playback-tick", payload);
+        });
+    }
+
+    // Single advance decision (OSC EOF threshold).
+    if playback_should_advance(
+        s.is_playing,
+        s.is_paused,
+        s.advance_fired,
+        s.duration_ms,
+        s.position_ms,
+    ) {
+        s.advance_fired = true;
+        let advance = PlaybackAdvance {
+            current_uuid: s.current_uuid.clone(),
+            reason: "osc-eof".to_string(),
+        };
+        let app_clone = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = app_clone.emit("caspar://advance", advance);
+        });
+    }
+}
+
+/// Spawn the watchdog task that detects OSC stalls and arms a deadline
+/// fallback advance so a CasparCG OSC freeze cannot hang the rundown. Spawned
+/// once from `configure_caspar_osc_listener` (which owns a concrete
+/// `AppHandle<R>`); the task reads the shared playback state thereafter.
+pub fn spawn_playback_watchdog<R: Runtime>(
+    app: AppHandle<R>,
+    state: Arc<Mutex<PlaybackStateInner>>,
+) -> JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(WATCHDOG_TICK_MS)).await;
+            let now = now_ms();
+            let (emit_stall, emit_advance) = {
+                let mut s = state.lock();
+                if !s.is_playing || s.is_paused || s.current_uuid.is_none() || s.advance_fired {
+                    continue;
+                }
+                let gap = now.saturating_sub(s.last_osc_at_ms);
+                let mut stall = false;
+                let mut advance = false;
+                if gap >= PLAYBACK_WATCHDOG_MS {
+                    if !s.stall_emitted {
+                        s.stall_emitted = true;
+                        stall = true;
+                    }
+                    // Deadline fallback: once stalled, advance when the estimated
+                    // remaining playback time (from last known position) elapses.
+                    let remaining = s.duration_ms.saturating_sub(s.position_ms);
+                    let deadline = s.last_osc_at_ms.saturating_add(remaining);
+                    if now >= deadline {
+                        s.advance_fired = true;
+                        advance = true;
+                    }
+                }
+                (stall, advance)
+            };
+
+            if emit_stall {
+                let (uuid, gap) = {
+                    let s = state.lock();
+                    (s.current_uuid.clone(), now_ms().saturating_sub(s.last_osc_at_ms))
+                };
+                let _ = app.emit(
+                    "caspar://stalled",
+                    PlaybackStalled {
+                        current_uuid: uuid,
+                        gap_ms: gap,
+                    },
+                );
+            }
+            if emit_advance {
+                let uuid = state.lock().current_uuid.clone();
+                let _ = app.emit(
+                    "caspar://advance",
+                    PlaybackAdvance {
+                        current_uuid: uuid,
+                        reason: "watchdog-deadline".to_string(),
+                    },
+                );
+            }
+        }
+    })
+}
+
+/// Register the current item with the Rust state machine; Rust then owns advance.
+#[tauri::command]
+pub async fn caspar_register_playback(
+    uuid: String,
+    duration_ms: u64,
+    state: State<'_, CasparPlaybackState>,
+) -> Result<(), String> {
+    let mut s = state.0.lock();
+    s.current_uuid = Some(uuid);
+    s.is_playing = true;
+    s.is_paused = false;
+    s.position_ms = 0;
+    s.duration_ms = duration_ms;
+    s.last_osc_at_ms = now_ms();
+    s.last_tick_emit_ms = 0;
+    s.advance_fired = false;
+    s.stall_emitted = false;
+    Ok(())
+}
+
+/// Toggle the paused state. When paused, the watchdog and OSC EOF advance are
+/// suppressed so a frozen producer does not trigger a spurious advance.
+#[tauri::command]
+pub async fn caspar_set_playback_paused(
+    paused: bool,
+    state: State<'_, CasparPlaybackState>,
+) -> Result<(), String> {
+    let mut s = state.0.lock();
+    if paused {
+        s.is_paused = true;
+    } else {
+        s.is_paused = false;
+        // Resuming: reset the OSC clock so the watchdog doesn't immediately fire
+        // based on the stale pre-pause timestamp.
+        s.last_osc_at_ms = now_ms();
+    }
+    Ok(())
+}
+
+/// Clear playback state (called by Vue stop()/advance-to-end).
+#[tauri::command]
+pub async fn caspar_clear_playback(state: State<'_, CasparPlaybackState>) -> Result<(), String> {
+    let mut s = state.0.lock();
+    s.current_uuid = None;
+    s.is_playing = false;
+    s.is_paused = false;
+    s.position_ms = 0;
+    s.duration_ms = 0;
+    s.advance_fired = false;
+    s.stall_emitted = false;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Typed AMCP Tauri commands (plan §1.3)
+// ---------------------------------------------------------------------------
+
+/// Add a CG template to a layer with a JSON payload (serde-serialized, fixing
+/// the broken hand-rolled `escapeJson`).
+#[tauri::command]
+pub async fn caspar_cg_add(
+    channel: u8,
+    layer: u16,
+    template: String,
+    play: bool,
+    data: serde_json::Value,
+    client: State<'_, AmcpClient>,
+) -> Result<String, String> {
+    let data_str = serde_json::to_string(&data).map_err(|e| format!("CG payload serialize: {}", e))?;
+    let cmd = crate::amcp::cg_add_cmd(channel, layer, 1, &template, play, &data_str);
+    let resp = client.send(&cmd).await?;
+    Ok(resp.body)
+}
+
+/// Update a CG template's data (live, e.g. crawl text).
+#[tauri::command]
+pub async fn caspar_cg_update(
+    channel: u8,
+    layer: u16,
+    data: serde_json::Value,
+    client: State<'_, AmcpClient>,
+) -> Result<String, String> {
+    let data_str = serde_json::to_string(&data).map_err(|e| format!("CG payload serialize: {}", e))?;
+    let cmd = crate::amcp::cg_update_cmd(channel, layer, 1, &data_str);
+    let resp = client.send(&cmd).await?;
+    Ok(resp.body)
+}
+
+/// Play a previously-added CG template.
+#[tauri::command]
+pub async fn caspar_cg_play(
+    channel: u8,
+    layer: u16,
+    client: State<'_, AmcpClient>,
+) -> Result<String, String> {
+    let cmd = crate::amcp::cg_play_cmd(channel, layer, 1);
+    let resp = client.send(&cmd).await?;
+    Ok(resp.body)
+}
+
+/// Stop a CG template.
+#[tauri::command]
+pub async fn caspar_cg_stop(
+    channel: u8,
+    layer: u16,
+    client: State<'_, AmcpClient>,
+) -> Result<String, String> {
+    let cmd = crate::amcp::cg_stop_cmd(channel, layer, 1);
+    let resp = client.send(&cmd).await?;
+    Ok(resp.body)
+}
+
+/// Typed image producer: `PLAY <ch>-<layer> "<path>"`.
+#[tauri::command]
+pub async fn caspar_play_image(
+    channel: u8,
+    layer: u16,
+    path: String,
+    client: State<'_, AmcpClient>,
+) -> Result<String, String> {
+    let cmd = crate::amcp::play_image_cmd(channel, layer, &path);
+    let resp = client.send(&cmd).await?;
+    Ok(resp.body)
+}
+
+/// Targeted clear of a single layer: `CLEAR <ch>-<layer>`.
+#[tauri::command]
+pub async fn caspar_clear_layer(
+    channel: u8,
+    layer: u16,
+    client: State<'_, AmcpClient>,
+) -> Result<String, String> {
+    let cmd = crate::amcp::clear_layer_cmd(channel, layer);
+    let resp = client.send(&cmd).await?;
+    Ok(resp.body)
+}
+
+/// Helper used by Rust-side audit logging: assert no MIXER FILL is ever sent to
+/// CG template layers 32/33. Returns true if the layer is safe for MIXER.
+#[allow(dead_code)]
+pub fn mixer_safe_for_layer(layer: u16) -> bool {
+    CasparLayer::from_layer(layer)
+        .map(|l| l.supports_mixer())
+        .unwrap_or(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Advance fires exactly once near EOF and not before (plan §5 state machine).
+    #[test]
+    fn advance_fires_once_near_eof() {
+        // Mid-playback: no advance.
+        assert!(!playback_should_advance(true, false, false, 10_000, 5_000));
+        // Just before threshold: no advance.
+        assert!(!playback_should_advance(true, false, false, 10_000, 10_000 - ADVANCE_THRESHOLD_MS - 1));
+        // Within threshold: advance.
+        assert!(playback_should_advance(true, false, false, 10_000, 10_000 - ADVANCE_THRESHOLD_MS));
+        // At/over end: advance.
+        assert!(playback_should_advance(true, false, false, 10_000, 10_000));
+
+        // Guard: once fired, never again (exactly one advance per item).
+        assert!(!playback_should_advance(true, false, true, 10_000, 10_000));
+    }
+
+    /// Paused playback never advances (prevents the watchdog from advancing a
+    /// frozen producer — the pause-flag fix).
+    #[test]
+    fn paused_never_advances() {
+        assert!(!playback_should_advance(true, true, false, 10_000, 10_000));
+    }
+
+    /// No duration (unknown) -> no advance via OSC EOF; the watchdog deadline
+    /// handles the fallback path instead (plan §2.1).
+    #[test]
+    fn unknown_duration_no_osc_advance() {
+        assert!(!playback_should_advance(true, false, false, 0, 0));
+    }
+
+    /// mixer_safe_for_layer enforces no MIXER FILL on CG template layers 32/33
+    /// (plan §1.1 rule / §5 audit assertion).
+    #[test]
+    fn mixer_forbidden_on_template_layers() {
+        assert!(!mixer_safe_for_layer(CasparLayer::Explanation.layer()));
+        assert!(!mixer_safe_for_layer(CasparLayer::Crawl.layer()));
+        // Image layers allow MIXER.
+        assert!(mixer_safe_for_layer(CasparLayer::StationLogo.layer()));
+        assert!(mixer_safe_for_layer(CasparLayer::Rating.layer()));
+        assert!(mixer_safe_for_layer(CasparLayer::Tp.layer()));
+        // Program/live layers: MIXER is not applied by the CG path.
+        assert!(!mixer_safe_for_layer(CasparLayer::Video.layer()));
+        assert!(!mixer_safe_for_layer(CasparLayer::Live.layer()));
+    }
 }
