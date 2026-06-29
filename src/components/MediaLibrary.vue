@@ -81,8 +81,6 @@ const contextMenu = ref({
 });
 
 const debouncedLibraryQuery = refDebounced(libraryQuery, 120);
-let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
-let statusTimer: ReturnType<typeof setInterval> | null = null;
 let scheduledWarmupTimer: ReturnType<typeof setTimeout> | null = null;
 let periodicWarmupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -246,6 +244,7 @@ async function fetchAssets(options: { force?: boolean } = {}) {
         if (apiAssets) {
             mediaLibrary.setAssets(apiAssets);
             ingestorStatus.setOnline(true);
+            await mediaLibrary.fetchFolderColors();
             if (!options.force) {
                 return;
             }
@@ -288,8 +287,15 @@ function assetDurationSeconds(asset?: LibraryAsset): number {
     return asset && asset.duration_ms > 0 ? asset.duration_ms / 1000 : 0;
 }
 
+function effectiveDurationSeconds(asset?: LibraryAsset): number {
+    if (!asset || asset.duration_ms <= 0) return 0;
+    const effectiveMs = asset.duration_ms - (asset.trim_in_ms || 0) - (asset.trim_out_ms || 0);
+    return Math.max(0, effectiveMs) / 1000;
+}
+
 function makeRundownDraftFromAsset(asset: LibraryAsset) {
     const duration = assetDurationSeconds(asset);
+    const effective = effectiveDurationSeconds(asset);
     const meta = parseBroadcastRating(asset.rating);
     const compliance = meta.ageRating ||
         mediaDefaults.getCompliance(asset.uuid, asset.current_path);
@@ -305,7 +311,7 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
         type: 'video' as const,
         libraryIndicator: mediaDefaults.getIndicator(asset.uuid, asset.current_path),
         duration,
-        plannedDuration: duration,
+        plannedDuration: effective,
         seek: 0,
         length: 0,
         complianceRating: compliance,
@@ -341,6 +347,7 @@ function onDragStart(event: DragEvent, node: TreeNode) {
         inPoint: asset.trim_in_ms,
         outPoint: asset.duration_ms > 0 ? asset.duration_ms - (asset.trim_out_ms || 0) : 0,
         duration: assetDurationSeconds(asset),
+        plannedDuration: effectiveDurationSeconds(asset),
         seek: 0,
         length: 0,
         complianceRating: meta.ageRating ||
@@ -361,11 +368,23 @@ function onDragStart(event: DragEvent, node: TreeNode) {
     }
 }
 
+const FOLDER_DRAG_MIME = 'application/x-playout-folder';
+const folderDropTargetId = ref<string | null>(null);
+
+function onFolderDragStart(event: DragEvent, node: TreeNode) {
+    if (node.type !== 'folder') return;
+    mediaLibrary.selectedNodeId = node.id;
+    if (event.dataTransfer) {
+        event.dataTransfer.setData(FOLDER_DRAG_MIME, node.virtualFolder);
+        event.dataTransfer.setData('text/plain', node.virtualFolder);
+        event.dataTransfer.effectAllowed = 'move';
+    }
+}
+
 function onNodeClick(node: TreeNode) {
     mediaLibrary.selectedNodeId = node.id;
     if (node.type === 'folder') {
         mediaLibrary.currentFolderPath = node.virtualFolder;
-        mediaLibrary.toggleFolder(node.virtualFolder);
     }
 }
 
@@ -460,6 +479,25 @@ function doNewVirtualFolder() {
     const name = window.prompt('New virtual folder name');
     if (!name) return;
     mediaLibrary.createVirtualFolder(name);
+    closeContextMenu();
+}
+
+function doRenameFolder() {
+    const node = contextMenu.value.node;
+    if (!node || node.type !== 'folder') return;
+    const oldPath = node.virtualFolder;
+    const currentName = oldPath.split('/').pop() || '';
+    const newName = window.prompt(`Rename folder "${currentName}" to:`, currentName);
+    if (!newName) return;
+    mediaLibrary.renameTransientFolder(oldPath, newName);
+    closeContextMenu();
+}
+
+function doRemoveFolder() {
+    const node = contextMenu.value.node;
+    if (!node || node.type !== 'folder') return;
+    mediaLibrary.removeTransientFolder(node.virtualFolder);
+    closeContextMenu();
 }
 
 async function doRenameSelected() {
@@ -490,12 +528,15 @@ async function doMoveSelected() {
     } else {
         const result = await ingestorInvoke<void>(
             'move_ingestor_asset',
-            { uuid: asset.uuid, virtual_folder: normalized, apiBaseUrlOverride: null },
+            { uuid: asset.uuid, virtual_folder: normalized, api_base_url_override: null },
             'ingestor-move'
         );
         if (result === null) return;
+        // Keep the local virtual_folder as source of truth; do NOT force-refresh
+        // from the API here, which previously discarded in-flight local overrides
+        // and made the asset "jump back" (plan §3.2 desync fix). The local
+        // override is re-applied on every setAssets() via localVirtualFolders.
         mediaLibrary.moveAssetToFolder(asset.uuid, normalized);
-        await fetchAssets({ force: true });
     }
 }
 
@@ -701,18 +742,11 @@ onMounted(() => {
             scheduleLibraryWarmup(0);
         }
     }, 300000);
+    mediaLibrary.fetchFolderColors();
     window.addEventListener('click', closeContextMenu);
 });
 
 onUnmounted(() => {
-    if (diagnosticsTimer) {
-        clearInterval(diagnosticsTimer);
-        diagnosticsTimer = null;
-    }
-    if (statusTimer) {
-        clearInterval(statusTimer);
-        statusTimer = null;
-    }
     if (periodicWarmupTimer) {
         clearInterval(periodicWarmupTimer);
         periodicWarmupTimer = null;
@@ -724,15 +758,28 @@ onUnmounted(() => {
 function onFolderDragOver(event: DragEvent, node: TreeNode) {
     if (node.type !== 'folder') return;
     event.preventDefault();
+    folderDropTargetId.value = node.id;
     if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'copy';
+        const isFolderDrag = event.dataTransfer.types.includes(FOLDER_DRAG_MIME);
+        event.dataTransfer.dropEffect = isFolderDrag ? 'move' : 'copy';
     }
 }
 
 async function onFolderDrop(event: DragEvent, node: TreeNode) {
     if (node.type !== 'folder') return;
     event.preventDefault();
-    
+    folderDropTargetId.value = null;
+
+    // Folder-into-folder nesting (plan §3.2): re-prefix child virtual_folders.
+    if (event.dataTransfer) {
+        const sourceFolder = event.dataTransfer.getData(FOLDER_DRAG_MIME);
+        if (sourceFolder) {
+            mediaLibrary.moveFolderInto(sourceFolder, node.virtualFolder);
+            draggingItem.value = null;
+            return;
+        }
+    }
+
     let uuid = '';
     if (event.dataTransfer) {
         uuid = event.dataTransfer.getData('text/plain');
@@ -740,25 +787,29 @@ async function onFolderDrop(event: DragEvent, node: TreeNode) {
     if (!uuid && draggingItem.value) {
         uuid = draggingItem.value.playoutvueId || `local:${draggingItem.value.path}`;
     }
-    if (!uuid) return;
-    
+    // Don't treat a dropped folder path (no asset uuid) as an asset move.
+    if (!uuid || uuid.startsWith('/') || uuid.startsWith('application/')) {
+        draggingItem.value = null;
+        return;
+    }
+
     const targetFolder = node.virtualFolder;
     const isLocal = uuid.startsWith('local:');
-    
+
     if (!isLocal) {
         const result = await ingestorInvoke<void>(
             'move_ingestor_asset',
-            { uuid: uuid, virtual_folder: targetFolder, apiBaseUrlOverride: null },
+            { uuid: uuid, virtual_folder: targetFolder, api_base_url_override: null },
             'ingestor-move'
         );
         if (result !== null) {
+            // Source of truth stays local; no force-refresh (plan §3.2 desync fix).
             mediaLibrary.moveAssetToFolder(uuid, targetFolder);
-            await fetchAssets({ force: true });
         }
     } else {
         mediaLibrary.moveAssetToFolder(uuid, targetFolder);
     }
-    
+
     draggingItem.value = null;
 }
 
@@ -800,6 +851,27 @@ async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id'])
   const asset = contextMenu.value.node?.asset;
   if (asset) {
     await mediaLibrary.updateAssetMetadata(asset.uuid, { content_type: cType });
+  }
+  closeContextMenu();
+}
+
+const folderColorsPreset = [
+  { hex: '#e63946', label: 'Red' },
+  { hex: '#f4a261', label: 'Orange' },
+  { hex: '#e9c46a', label: 'Yellow' },
+  { hex: '#2a9d8f', label: 'Teal' },
+  { hex: '#457b9d', label: 'Blue' },
+  { hex: '#a2d2ff', label: 'Light Blue' },
+  { hex: '#b5e2fa', label: 'Sky' },
+  { hex: '#c8b6ff', label: 'Lavender' },
+  { hex: '#ffc6ff', label: 'Pink' },
+  { hex: '#588157', label: 'Green' },
+];
+
+async function ctxSetFolderColor(color: string) {
+  const node = contextMenu.value.node;
+  if (node && node.type === 'folder') {
+    await mediaLibrary.setFolderColor(node.virtualFolder, color);
   }
   closeContextMenu();
 }
@@ -951,18 +1023,39 @@ async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id'])
               'is-asset': node.type === 'asset',
               'is-selected': mediaLibrary.selectedNodeId === node.id,
               'is-transient': node.isTransient,
+              'is-folder-drop-target': node.type === 'folder' && folderDropTargetId === node.id,
             }"
-            :draggable="node.type === 'asset'"
+            :draggable="true"
             :style="{ paddingLeft: `${node.depth * 18 + 8}px` }"
             @click="onNodeClick(node)"
             @dblclick="onNodeDoubleClick(node)"
             @contextmenu.prevent="onContextMenu($event, node)"
-            @dragstart="onDragStart($event, node)"
+            @dragstart="node.type === 'asset' ? onDragStart($event, node) : onFolderDragStart($event, node)"
+            @dragend="folderDropTargetId = null"
             @dragover="onFolderDragOver($event, node)"
             @drop="onFolderDrop($event, node)"
           >
-            <span class="lib-icon" @click.stop="onFolderToggle(node)">
-              <span v-if="node.type === 'folder'">{{ node.expanded ? '📂' : '📁' }}</span>
+            <!-- Chevron for folders -->
+            <span
+              v-if="node.type === 'folder'"
+              class="chevron-icon"
+              :class="{ 'is-expanded': node.expanded }"
+              @click.stop="onFolderToggle(node)"
+            >
+              ▶
+            </span>
+            <span v-else class="chevron-spacer"></span>
+
+            <span class="lib-icon" @click.stop="onNodeClick(node)">
+              <svg
+                v-if="node.type === 'folder'"
+                class="folder-svg"
+                viewBox="0 0 24 24"
+                :style="{ fill: node.color || 'var(--accent-blue)' }"
+              >
+                <path v-if="node.expanded" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
+                <path v-else d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+              </svg>
               <span v-else-if="node.asset?.status === 'ready'">🎬</span>
               <span v-else-if="node.asset?.status === 'processing'">⏳</span>
               <span v-else>📄</span>
@@ -983,8 +1076,8 @@ async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id'])
                 </span>
               </span>
             </span>
-            <span v-if="node.type === 'asset' && assetDurationSeconds(node.asset) > 0" class="lib-time-pill">
-              {{ formatDuration(assetDurationSeconds(node.asset || {} as any)) }}
+            <span v-if="node.type === 'asset' && effectiveDurationSeconds(node.asset) > 0" class="lib-time-pill">
+              {{ formatDuration(effectiveDurationSeconds(node.asset || {} as any)) }}
             </span>
           </div>
         </div>
@@ -1030,8 +1123,30 @@ async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id'])
         </template>
         <template v-else-if="contextMenu.node?.type === 'folder'">
           <div class="menu-item" @click.stop="doNewVirtualFolder">📁 New Virtual Folder here</div>
-          <div v-if="contextMenu.node.isTransient" class="menu-item" @click.stop="mediaLibrary.removeTransientFolder(contextMenu.node.virtualFolder)">
+          <div class="menu-item" @click.stop="doRenameFolder">✏️ Rename folder</div>
+          <div v-if="contextMenu.node.isTransient" class="menu-item" @click.stop="doRemoveFolder">
             Remove empty placeholder
+          </div>
+          <div class="menu-divider" />
+          <div class="menu-label">Folder Color</div>
+          <div class="folder-colors-grid">
+            <div
+              v-for="color in folderColorsPreset"
+              :key="color.hex"
+              class="folder-color-tag"
+              :style="{ backgroundColor: color.hex }"
+              :title="color.label"
+              @click.stop="ctxSetFolderColor(color.hex)"
+            >
+              <span v-if="contextMenu.node.color === color.hex" class="color-check">✓</span>
+            </div>
+            <div
+              class="folder-color-tag color-reset"
+              title="Reset Color"
+              @click.stop="ctxSetFolderColor('')"
+            >
+              ✕
+            </div>
           </div>
         </template>
       </div>
@@ -1044,6 +1159,7 @@ async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id'])
         :library-item="trimAsset
           ? {
               id: trimAsset.uuid,
+              uuid: trimAsset.uuid,
               path: trimAsset.current_path,
               filename: trimAsset.display_name,
               type: 'video',
@@ -1203,6 +1319,11 @@ async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id'])
   font-style:italic;
   opacity:0.7;
 }
+.lib-row.is-folder-drop-target {
+  outline: 2px dashed color-mix(in srgb, var(--accent-blue) 60%, transparent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
+}
 .lib-row[draggable="true"] { cursor:grab; }
 .lib-row[draggable="true"]:active { cursor:grabbing; }
 .lib-icon { font-size:0.85rem; flex-shrink:0; display:flex; align-items:center; gap:4px; cursor:pointer; }
@@ -1360,4 +1481,72 @@ async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id'])
 .badge-content.content-show { background: #9b59b6; color: #fff; }
 .badge-content.content-documentary { background: #f39c12; color: #000; }
 .badge-content.content-news { background: #1abc9c; color: #fff; }
+
+.chevron-icon {
+  font-size: 0.55rem;
+  color: var(--text-secondary);
+  width: 12px;
+  height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s ease, color 0.15s ease;
+  margin-right: 4px;
+}
+.chevron-icon.is-expanded {
+  transform: rotate(90deg);
+  color: var(--text-primary);
+}
+.chevron-icon:hover {
+  color: var(--text-primary);
+}
+.chevron-spacer {
+  width: 16px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.folder-svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  transition: fill 0.15s ease;
+}
+
+.folder-colors-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  padding: 6px 12px;
+}
+.folder-color-tag {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: bold;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: transform 0.1s, border-color 0.1s;
+}
+.folder-color-tag:hover {
+  transform: scale(1.15);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.folder-color-tag.color-reset {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-color: var(--glass-border);
+}
+.folder-color-tag.color-reset:hover {
+  color: var(--text-primary);
+}
+.color-check {
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
 </style>

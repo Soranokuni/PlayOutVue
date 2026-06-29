@@ -45,29 +45,10 @@ impl DiagnosticState {
     }
 
     pub fn push(&self, level: &str, scope: &str, message: impl Into<String>) {
-        if !self.is_enabled() {
-            return;
-        }
-
         let msg_str = message.into();
         let timestamp = now_ms();
-        let entry = DiagnosticEntry {
-            timestamp_ms: timestamp,
-            level: level.to_string(),
-            scope: scope.to_string(),
-            message: msg_str.clone(),
-        };
 
-        // 1. In-memory circular buffer for frontend diagnostics panel
-        {
-            let mut entries = self.entries.lock();
-            if entries.len() >= MAX_DIAGNOSTIC_ENTRIES {
-                entries.pop_front();
-            }
-            entries.push_back(entry);
-        }
-
-        // 2. Real-time file logging to playout.log
+        // 1. Regardless of the UI toggle, write ALL errors and events to a physical log file
         let log_line = format!(
             "{} [{}] {} {}\n",
             format_timestamp(timestamp),
@@ -79,7 +60,7 @@ impl DiagnosticState {
         if let Some(mut path) = dirs_next::data_dir() {
             path.push("com.playout.client");
             let _ = std::fs::create_dir_all(&path);
-            path.push("playout.log");
+            path.push("caspar-playout.log");
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -87,6 +68,27 @@ impl DiagnosticState {
             {
                 let _ = file.write_all(log_line.as_bytes());
             }
+        }
+
+        // 2. Only push to reactive in-memory buffer if enabled
+        if !self.is_enabled() {
+            return;
+        }
+
+        let entry = DiagnosticEntry {
+            timestamp_ms: timestamp,
+            level: level.to_string(),
+            scope: scope.to_string(),
+            message: msg_str.clone(),
+        };
+
+        // In-memory circular buffer for frontend diagnostics panel
+        {
+            let mut entries = self.entries.lock();
+            if entries.len() >= MAX_DIAGNOSTIC_ENTRIES {
+                entries.pop_front();
+            }
+            entries.push_back(entry);
         }
     }
 

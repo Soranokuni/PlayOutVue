@@ -4,7 +4,10 @@ import { casparPlayoutService, currentCasparDurationMs, currentCasparMs, current
 
 export type PlayoutEngine = 'casparcg';
 export type PlayoutItem = RundownItem;
-export type PlayoutAdvanceCallback = (index: number) => void;
+/// Advance callback receives the next item's stable key (playoutvueId || local
+/// id) or `null` when the rundown has reached its end. Identity-keyed advance
+/// replaces the old positional-index callback (plan §2.2).
+export type PlayoutAdvanceCallback = (uuid: string | null) => void;
 
 export interface PlayoutServiceCapabilities {
     preview: boolean;
@@ -40,6 +43,10 @@ export interface PlayoutService {
     seekMedia?(inputName: string, timeCursor: number): Promise<void>;
     applyComplianceForItem?(item: PlayoutItem): Promise<void>;
     clearCompliance?(): Promise<void>;
+    /// Clear the on-demand crawl layer (plan §3.2).
+    clearOverlays?(): Promise<void>;
+    /// Clear the station logo branding layer (plan §3.2).
+    clearBranding?(): Promise<void>;
 }
 
 export const getActivePlayoutService = (): PlayoutService => casparPlayoutService;

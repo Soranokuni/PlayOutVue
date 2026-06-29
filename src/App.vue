@@ -411,13 +411,13 @@ onUnmounted(() => {
 
       <IngestorStatusLight />
 
-      <button class="ctrl-btn" style="font-size:0.75rem; position:relative;" :class="{ active: showDiagnostics }" @click="showDiagnostics = !showDiagnostics">
+      <button v-if="settings.debugMode" class="ctrl-btn" style="font-size:0.75rem; position:relative;" :class="{ active: showDiagnostics }" @click="showDiagnostics = !showDiagnostics">
         Diagnostics
       </button>
 
       <button class="ctrl-btn" style="font-size:0.78rem;" @click="showSettings = true">⚙ Settings</button>
 
-      <ClientDiagnosticsLog v-model="showDiagnostics">
+      <ClientDiagnosticsLog v-if="settings.debugMode" v-model="showDiagnostics">
         <div style="display: none;"></div>
       </ClientDiagnosticsLog>
 

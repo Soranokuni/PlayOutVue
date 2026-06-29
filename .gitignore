@@ -48,3 +48,28 @@ Requirements/ffmpeg/doc/
 Requirements/ffmpeg/presets/
 Requirements/ffmpeg/LICENSE.txt
 Requirements/vcredist/VC_redist.x64.exe
+
+# AI Agent / Kilo Planning files
+.kilo/
+.agents/
+*revamp*.md
+*walkthrough*.md
+*-plan*.md
+session-*.md
+
+
+# Compiled Executables / Installers
+*.exe
+*.msi
+*.msm
+*.msp
+*.app
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.zip
+*.tar.gz
+src-tauri/target/
+target/
+

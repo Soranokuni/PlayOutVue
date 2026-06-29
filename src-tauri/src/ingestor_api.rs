@@ -214,7 +214,7 @@ pub async fn resolve_ingestor_asset<R: Runtime>(
     Ok(parsed)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn update_ingestor_trim<R: Runtime>(
     uuid: String,
     trim_in_ms: i64,
@@ -418,7 +418,7 @@ pub async fn resolve_ingestor_assets_batch<R: Runtime>(
     Ok(map)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn move_ingestor_asset<R: Runtime>(
     uuid: String,
     virtual_folder: String,
@@ -584,7 +584,7 @@ pub fn spawn_ingestor_heartbeat<R: Runtime>(app: AppHandle<R>) {
     });
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn create_ingestor_subclip<R: Runtime>(
     uuid: String,
     display_name: String,
@@ -772,3 +772,104 @@ pub async fn purge_ingestor_asset<R: Runtime>(
     diagnostics.push("info", "ingestor", format!("Successfully purged asset '{}' in {}ms", uuid, elapsed));
     Ok(())
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderColorResponse {
+    pub virtual_folder: String,
+    pub color: String,
+}
+
+#[tauri::command]
+pub async fn list_ingestor_folder_colors<R: Runtime>(
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<Vec<FolderColorResponse>, String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/folders/colors", base_url);
+    diagnostics.push("info", "ingestor", format!("Listing folder colors from '{}'", url));
+    let client = build_client()?;
+
+    let response_res = client.get(&url).send().await;
+    let elapsed = start_time.elapsed().as_millis();
+
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to list folder colors via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+
+    let parsed = serde_json::from_str::<Vec<FolderColorResponse>>(&body).map_err(|e| {
+        let err = format!("Failed to parse folder colors response for '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", err.clone());
+        err
+    })?;
+
+    Ok(parsed)
+}
+
+#[tauri::command]
+pub async fn set_ingestor_folder_color<R: Runtime>(
+    virtual_folder: String,
+    color: String,
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<(), String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/folders/colors", base_url);
+    diagnostics.push("info", "ingestor", format!("Setting folder '{}' color to '{}' at '{}'", virtual_folder, color, url));
+    let client = build_client()?;
+
+    #[derive(Serialize)]
+    struct SetColorPayload {
+        virtual_folder: String,
+        color: String,
+    }
+
+    let response_res = client
+        .put(&url)
+        .json(&SetColorPayload {
+            virtual_folder,
+            color,
+        })
+        .send()
+        .await;
+
+    let elapsed = start_time.elapsed().as_millis();
+
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to set folder color via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+
+    Ok(())
+}
+

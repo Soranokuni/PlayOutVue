@@ -161,7 +161,7 @@ const clearComplianceOverlay = async () => {
   <div class="compliance-module">
       <h3 class="text-warning" style="margin-bottom: 1rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.5rem;">NCRTV Compliance</h3>
 
-      <div v-if="!settings.logosPath && !settings.cgStationLogoPath" class="info-banner">Select the logos folder in settings to enable local rating PNG overlays.</div>
+      <div v-if="!settings.logosPath && !settings.cg?.stationIdPath" class="info-banner">Select the logos folder in settings to enable local rating PNG overlays.</div>
       <div v-if="!activePlayoutCapabilities.compliance" class="info-banner">The active playout engine does not yet expose compliance overlays. Settings are still saved per rundown item.</div>
       
       <div class="form-group">
