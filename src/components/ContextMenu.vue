@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 
 export interface MenuItem {
   type: 'action' | 'divider' | 'submenu' | 'label' | 'toggle';
@@ -34,7 +34,18 @@ const menuRef = ref<HTMLElement | null>(null);
 const computedX = ref(props.x);
 const computedY = ref(props.y);
 const isPositioned = ref(false);
-const openSubmenusLeft = ref(false);
+
+// Submenu reactive state
+interface ActiveSubmenuState {
+  id: string | number;
+  top: number;
+  left: number;
+  children: MenuItem[];
+}
+
+const activeSubmenu = ref<ActiveSubmenuState | null>(null);
+const currentHoveredParentId = ref<string | number | null>(null);
+let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
 onMounted(() => {
   // Give Vue a moment to render and get actual dimensions
@@ -59,17 +70,83 @@ onMounted(() => {
       computedX.value = newX;
       computedY.value = newY;
       isPositioned.value = true;
-
-      // Check if nested submenus (width ~180px) would overflow the right edge
-      const submenuWidth = 190;
-      if (newX + menuWidth + submenuWidth > window.innerWidth) {
-        openSubmenusLeft.value = true;
-      }
     } else {
       isPositioned.value = true;
     }
   }, 16); // ~1 frame delay
 });
+
+onUnmounted(() => {
+  if (closeTimeout) {
+    clearTimeout(closeTimeout);
+  }
+});
+
+// Open submenu with hover bridge and viewport boundary check
+const openSubmenu = (event: MouseEvent, item: MenuItem, index: number) => {
+  if (closeTimeout) {
+    clearTimeout(closeTimeout);
+    closeTimeout = null;
+  }
+  
+  if (!item.children || item.children.length === 0 || item.disabled) {
+    // Hovering a non-submenu item: trigger close of any open submenu after a small delay
+    currentHoveredParentId.value = null;
+    closeTimeout = setTimeout(() => {
+      activeSubmenu.value = null;
+    }, 120);
+    return;
+  }
+
+  const parentId = item.id || `sub-${index}`;
+  currentHoveredParentId.value = parentId;
+
+  const target = event.currentTarget as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  const submenuWidth = 190;
+  
+  // Calculate left coordinate (flip to open left if it overflows right screen boundary)
+  let left = rect.right;
+  if (rect.right + submenuWidth > window.innerWidth) {
+    left = Math.max(10, rect.left - submenuWidth);
+  }
+  
+  // Calculate top coordinate (clamp if it overflows bottom boundary)
+  let top = rect.top;
+  const estimatedSubmenuHeight = item.children.length * 32 + 8; // approx
+  if (rect.top + estimatedSubmenuHeight > window.innerHeight) {
+    top = Math.max(10, window.innerHeight - estimatedSubmenuHeight - 10);
+  }
+
+  activeSubmenu.value = {
+    id: parentId,
+    top,
+    left,
+    children: item.children
+  };
+};
+
+const onMouseLeaveItem = () => {
+  // Start hover bridge close timeout
+  closeTimeout = setTimeout(() => {
+    activeSubmenu.value = null;
+    currentHoveredParentId.value = null;
+  }, 220);
+};
+
+const onMouseEnterSubmenu = () => {
+  if (closeTimeout) {
+    clearTimeout(closeTimeout);
+    closeTimeout = null;
+  }
+};
+
+const onMouseLeaveSubmenu = () => {
+  closeTimeout = setTimeout(() => {
+    activeSubmenu.value = null;
+    currentHoveredParentId.value = null;
+  }, 220);
+};
 </script>
 
 <template>
@@ -134,10 +211,20 @@ onMounted(() => {
     <div class="menu-items-list custom-scrollbar">
       <template v-for="(item, idx) in items" :key="idx">
         <!-- Divider -->
-        <div v-if="item.type === 'divider'" class="menu-divider" />
+        <div
+          v-if="item.type === 'divider'"
+          class="menu-divider"
+          @mouseenter="openSubmenu($event, { type: 'divider' }, idx)"
+          @mouseleave="onMouseLeaveItem"
+        />
 
         <!-- Label -->
-        <div v-else-if="item.type === 'label'" class="menu-label">
+        <div
+          v-else-if="item.type === 'label'"
+          class="menu-label"
+          @mouseenter="openSubmenu($event, { type: 'label' }, idx)"
+          @mouseleave="onMouseLeaveItem"
+        >
           {{ item.label }}
         </div>
 
@@ -146,6 +233,8 @@ onMounted(() => {
           v-else-if="item.type === 'action' || item.type === 'toggle'"
           class="menu-item"
           :class="{ danger: item.danger, disabled: item.disabled }"
+          @mouseenter="openSubmenu($event, item, idx)"
+          @mouseleave="onMouseLeaveItem"
           @click.stop="!item.disabled && item.action && (item.action(), emit('close'))"
         >
           <span class="menu-item-check-spacer">
@@ -158,7 +247,13 @@ onMounted(() => {
         <div
           v-else-if="item.type === 'submenu'"
           class="menu-item has-submenu"
-          :class="{ disabled: item.disabled }"
+          :class="{ 
+            disabled: item.disabled,
+            'submenu-active': currentHoveredParentId === (item.id || `sub-${idx}`)
+          }"
+          @mouseenter="openSubmenu($event, item, idx)"
+          @mouseleave="onMouseLeaveItem"
+          @click.stop="openSubmenu($event, item, idx)"
         >
           <span class="menu-item-check-spacer"></span>
           <span class="menu-item-label">{{ item.label }}</span>
@@ -167,32 +262,41 @@ onMounted(() => {
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
           </span>
-
-          <!-- Nested Flyout -->
-          <ul
-            v-if="item.children && item.children.length > 0"
-            class="submenu custom-scrollbar"
-            :class="{ 'submenu-left': openSubmenusLeft }"
-          >
-            <template v-for="(child, cIdx) in item.children" :key="cIdx">
-              <li v-if="child.type === 'divider'" class="menu-divider" />
-              <li v-else-if="child.type === 'label'" class="menu-label">{{ child.label }}</li>
-              <li
-                v-else
-                class="menu-item"
-                :class="{ danger: child.danger, disabled: child.disabled }"
-                @click.stop="!child.disabled && child.action && (child.action(), emit('close'))"
-              >
-                <span class="menu-item-check-spacer">
-                  <span v-if="child.checked" class="check-mark">✓</span>
-                </span>
-                <span class="menu-item-label">{{ child.label }}</span>
-              </li>
-            </template>
-          </ul>
         </div>
       </template>
     </div>
+
+    <!-- Teleported Submenu Flyout -->
+    <Teleport to="body">
+      <div
+        v-if="activeSubmenu"
+        class="win11-context-menu submenu-flyout custom-scrollbar"
+        :style="{
+          top: activeSubmenu.top + 'px',
+          left: activeSubmenu.left + 'px',
+          position: 'fixed'
+        }"
+        @mouseenter="onMouseEnterSubmenu"
+        @mouseleave="onMouseLeaveSubmenu"
+        @click.stop
+      >
+        <template v-for="(child, cIdx) in activeSubmenu.children" :key="cIdx">
+          <div v-if="child.type === 'divider'" class="menu-divider" />
+          <div v-else-if="child.type === 'label'" class="menu-label">{{ child.label }}</div>
+          <div
+            v-else
+            class="menu-item"
+            :class="{ danger: child.danger, disabled: child.disabled }"
+            @click.stop="!child.disabled && child.action && (child.action(), emit('close'), activeSubmenu = null)"
+          >
+            <span class="menu-item-check-spacer">
+              <span v-if="child.checked" class="check-mark">✓</span>
+            </span>
+            <span class="menu-item-label">{{ child.label }}</span>
+          </div>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -401,31 +505,17 @@ onMounted(() => {
   margin: 4px 0;
 }
 
-/* Nested Submenus (Flyouts) */
-.submenu {
-  display: none;
-  position: absolute;
-  top: -4px;
-  left: 100%;
-  min-width: 180px;
-  background: rgba(30, 30, 30, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0.5rem;
-  padding: 4px 0;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  list-style: none;
-  margin: 0;
-  z-index: 10005;
+/* Teleported Submenu Flyout specific settings */
+.submenu-flyout {
+  min-width: 190px;
   max-height: 50vh;
   overflow-y: auto;
+  z-index: 10005;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
-.submenu-left {
-  left: auto;
-  right: 100%;
-}
-
-.has-submenu:hover > .submenu {
-  display: block;
+.submenu-active {
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
 }
 </style>

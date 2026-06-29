@@ -4,7 +4,37 @@ use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
-use std::io::Write as _;
+use tokio::sync::mpsc;
+use tokio::io::AsyncWriteExt;
+use std::sync::OnceLock;
+
+static LOG_TX: OnceLock<mpsc::UnboundedSender<String>> = OnceLock::new();
+
+pub fn init_background_logger() {
+    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    if LOG_TX.set(tx).is_err() {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        if let Some(mut path) = dirs_next::data_dir() {
+            path.push("com.playout.client");
+            let _ = tokio::fs::create_dir_all(&path).await;
+            path.push("caspar-playout.log");
+            
+            if let Ok(mut file) = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .await 
+            {
+                while let Some(log_line) = rx.recv().await {
+                    let _ = file.write_all(log_line.as_bytes()).await;
+                }
+            }
+        }
+    });
+}
 
 const MAX_DIAGNOSTIC_ENTRIES: usize = 250;
 
@@ -57,17 +87,8 @@ impl DiagnosticState {
             msg_str
         );
 
-        if let Some(mut path) = dirs_next::data_dir() {
-            path.push("com.playout.client");
-            let _ = std::fs::create_dir_all(&path);
-            path.push("caspar-playout.log");
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-            {
-                let _ = file.write_all(log_line.as_bytes());
-            }
+        if let Some(tx) = LOG_TX.get() {
+            let _ = tx.send(log_line);
         }
 
         // 2. Only push to reactive in-memory buffer if enabled

@@ -1176,9 +1176,37 @@ export const useRundownStore = defineStore('rundown', () => {
             return;
         }
         currentPlayingItemId.value = uuid;
-        const visibleIndex = playlist.items.findIndex((item) =>
-            item.id === uuid || (item.playoutvueId && item.playoutvueId === uuid)
-        );
+
+        // 1. Try matching the exact playlist item instance ID first
+        let visibleIndex = playlist.items.findIndex((item) => item.id === uuid);
+
+        // 2. If not found (meaning uuid is the ingestor asset UUID), search closest instance
+        if (visibleIndex === -1) {
+            const matches = playlist.items
+                .map((item, idx) => ({ item, idx }))
+                .filter(({ item }) => item.playoutvueId && item.playoutvueId === uuid);
+
+            if (matches.length > 0) {
+                const currentIdx = playlist.currentPlayingIndex >= 0 ? playlist.currentPlayingIndex : 0;
+                let bestMatch = matches[0];
+                if (bestMatch) {
+                    let minDistance = Math.abs(bestMatch.idx - currentIdx);
+
+                    for (const match of matches) {
+                        const distance = match.idx >= currentIdx 
+                            ? match.idx - currentIdx 
+                            : (playlist.items.length - currentIdx) + match.idx;
+                        
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            bestMatch = match;
+                        }
+                    }
+                    visibleIndex = bestMatch.idx;
+                }
+            }
+        }
+
         if (visibleIndex !== -1) {
             const foundItem = playlist.items[visibleIndex];
             if (foundItem) {

@@ -32,6 +32,13 @@ pub struct HeartbeatEvent {
     pub error: Option<String>,
 }
 
+fn is_safe_path_component(component: &str) -> bool {
+    !component.is_empty() 
+        && !component.contains("..") 
+        && !component.contains('/') 
+        && !component.contains('\\')
+}
+
 fn build_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
@@ -223,6 +230,10 @@ pub async fn update_ingestor_trim<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    if !is_safe_path_component(&uuid) {
+        return Err("SECURITY VIOLATION: Invalid UUID format detected (Path Traversal)".into());
+    }
+
     let start_time = std::time::Instant::now();
     if trim_in_ms < 0 || trim_out_ms < 0 {
         return Err("Trim values must be non-negative".to_string());
@@ -426,6 +437,13 @@ pub async fn move_ingestor_asset<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    if !is_safe_path_component(&uuid) {
+        return Err("SECURITY VIOLATION: Invalid UUID format detected (Path Traversal)".into());
+    }
+    if virtual_folder.contains("..") {
+        return Err("SECURITY VIOLATION: Path traversal sequences detected in virtual_folder".into());
+    }
+
     let start_time = std::time::Instant::now();
     let base_url = resolve_base_url(
         &get_ingestor_api_base_url(&app),
@@ -829,6 +847,10 @@ pub async fn set_ingestor_folder_color<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    if virtual_folder.contains("..") {
+        return Err("SECURITY VIOLATION: Path traversal sequences detected in virtual_folder".into());
+    }
+
     let start_time = std::time::Instant::now();
     let base_url = resolve_base_url(
         &get_ingestor_api_base_url(&app),
