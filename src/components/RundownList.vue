@@ -8,6 +8,7 @@ import { draggingItem } from '../composables/useDragState';
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
+import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 
@@ -349,6 +350,106 @@ const ctxSetIndicator = (indicator: LibraryIndicator) => {
   }
   closeContextMenu();
 };
+
+const topActionItems = computed<TopAction[]>(() => {
+  const item = contextMenu.value.item;
+  if (!item) return [];
+
+  const isDeleteDisabled = isProtectedPlayingRow(contextMenu.value.index);
+  
+  return [
+    {
+      id: 'trim',
+      tooltip: 'Trim (Unavailable)',
+      action: () => {},
+      disabled: true
+    },
+    {
+      id: 'rename',
+      tooltip: 'Rename (Unavailable)',
+      action: () => {},
+      disabled: true
+    },
+    {
+      id: 'purge',
+      tooltip: 'Purge (Unavailable)',
+      action: () => {},
+      disabled: true
+    },
+    {
+      id: 'delete',
+      tooltip: isDeleteDisabled ? 'Delete (Protected)' : 'Delete Item',
+      action: ctxDelete,
+      disabled: isDeleteDisabled
+    }
+  ];
+});
+
+const menuItems = computed<MenuItem[]>(() => {
+  const item = contextMenu.value.item;
+  if (!item) return [];
+  
+  const list: MenuItem[] = [
+    {
+      type: 'action',
+      label: '▶ Play from here',
+      action: ctxPlayFrom
+    },
+    {
+      type: 'action',
+      label: '⧉ Duplicate',
+      action: ctxDuplicate
+    }
+  ];
+  
+  if (item.type !== 'gap') {
+    list.push(
+      { type: 'divider' },
+      {
+        type: 'submenu',
+        label: 'Age Ratings (Σήματα Καταλληλότητας)',
+        children: ratingOptions.map(r => ({
+          type: 'action',
+          label: r.label,
+          checked: item.complianceRating === r.id,
+          action: () => ctxSetAgeRating(r.id)
+        }))
+      },
+      { type: 'divider' },
+      {
+        type: 'toggle',
+        label: item.tp_flag ? '✓ TP (Active)' : '□ TP (None)',
+        checked: item.tp_flag,
+        action: ctxToggleTP
+      },
+      { type: 'divider' },
+      {
+        type: 'submenu',
+        label: 'Categories/Tags',
+        children: contentTypeOptions.map(ct => ({
+          type: 'action',
+          label: ct.label,
+          checked: (item.content_type || 'none') === ct.id,
+          action: () => ctxSetContentType(ct.id)
+        }))
+      },
+      { type: 'divider' },
+      {
+        type: 'submenu',
+        label: 'Legacy Tags',
+        children: indicatorOptions.map(ind => ({
+          type: 'action',
+          label: ind.label,
+          checked: (item.libraryIndicator || 'none') === ind.id,
+          action: () => ctxSetIndicator(ind.id)
+        }))
+      }
+    );
+  }
+  
+  return list;
+});
+
 
 const ensureSelectedRowVisible = (behavior: ScrollBehavior = 'auto') => {
   const selectedId = store.selectedItemId;
@@ -855,37 +956,14 @@ onUnmounted(() => {
 
     <!-- Custom Context Menu for Rundown -->
     <Teleport to="body">
-      <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
-        <div class="menu-item" @click.stop="ctxPlayFrom">▶ Play from here</div>
-        <div class="menu-item" @click.stop="ctxDuplicate">⧉ Duplicate</div>
-        <template v-if="contextMenu.item && contextMenu.item.type !== 'gap'">
-          <div class="menu-divider"></div>
-          <div class="menu-label">Age Rating</div>
-          <div v-for="rating in ratingOptions" :key="`rating-${rating.id}`" class="menu-item" @click.stop="ctxSetAgeRating(rating.id)">
-            {{ contextMenu.item.complianceRating === rating.id ? '✓ ' : '' }}{{ rating.label }}
-          </div>
-          
-          <div class="menu-divider"></div>
-          <div class="menu-label">Product Placement</div>
-          <div class="menu-item" @click.stop="ctxToggleTP">
-            {{ contextMenu.item.tp_flag ? '✓ TP (Active)' : '□ TP (None)' }}
-          </div>
-          
-          <div class="menu-divider"></div>
-          <div class="menu-label">Content Type</div>
-          <div v-for="cType in contentTypeOptions" :key="`content-${cType.id}`" class="menu-item" @click.stop="ctxSetContentType(cType.id)">
-            {{ (contextMenu.item.content_type || 'none') === cType.id ? '✓ ' : '' }}{{ cType.label }}
-          </div>
-
-          <div class="menu-divider"></div>
-          <div class="menu-label">Legacy Tag</div>
-          <div v-for="indicator in indicatorOptions" :key="`indicator-${indicator.id}`" class="menu-item" @click.stop="ctxSetIndicator(indicator.id)">
-            {{ (contextMenu.item.libraryIndicator || 'none') === indicator.id ? '✓ ' : '' }}{{ indicator.label }}
-          </div>
-        </template>
-        <div class="menu-divider"></div>
-        <div v-if="!isProtectedPlayingRow(contextMenu.index)" class="menu-item menu-item-danger" @click.stop="ctxDelete">✕ Delete</div>
-      </div>
+      <ContextMenu
+        v-if="contextMenu.show"
+        :x="contextMenu.x"
+        :y="contextMenu.y"
+        :top-actions="topActionItems"
+        :items="menuItems"
+        @close="closeContextMenu"
+      />
     </Teleport>
 
     <PlaylistControls />
@@ -1158,46 +1236,7 @@ onUnmounted(() => {
 }
 .rw-ghost { opacity:0.3; background:rgba(255,255,255,0.06); }
 
-/* Context Menu */
-.context-menu {
-    position: absolute;
-    background: var(--bg-secondary);
-    border: 1px solid var(--glass-border);
-    border-radius: 6px;
-    padding: 4px 0;
-    min-width: 160px;
-    z-index: 9999;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-    backdrop-filter: blur(10px);
-}
-.menu-item {
-    padding: 6px 12px;
-    font-size: 0.8rem;
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: background 0.1s;
-}
-.menu-label {
-  padding: 6px 12px 4px;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.42);
-}
-.menu-item:hover {
-    background: rgba(51, 190, 204, 0.2);
-    color: #33becc;
-}
-.menu-item-danger:hover {
-    background: rgba(230, 57, 70, 0.2);
-    color: #e63946;
-}
-.menu-divider {
-    height: 1px;
-    background: var(--glass-border);
-    margin: 4px 0;
-}
+
 
 /* Content Type subtle row tints */
 .rw-row.ct-movie {
