@@ -490,11 +490,21 @@ async function refreshCurrentProducerDuration(item: PlayoutItem, key: string, to
 
 const buildClipOptions = (item: PlayoutItem) => {
     const options: string[] = [];
-    if (item.inPoint > 0) {
-        options.push(`SEEK ${Math.round(item.inPoint / FRAME_MS)}`);
+    const trimIn = item.trim_in_ms ?? item.inPoint ?? 0;
+    const trimOut = item.trim_out_ms ?? 0;
+
+    if (trimIn > 0) {
+        options.push(`SEEK ${Math.round(trimIn / FRAME_MS)}`);
     }
-    if (item.outPoint > item.inPoint) {
-        const durationMs = item.outPoint - item.inPoint;
+
+    const assetDuration = (item.duration_ms || (item.duration ? item.duration * 1000 : 0));
+    if (assetDuration > 0) {
+        const effectiveDuration = assetDuration - trimIn - trimOut;
+        if (effectiveDuration > 0 && effectiveDuration < assetDuration) {
+            options.push(`LENGTH ${Math.round(effectiveDuration / FRAME_MS)}`);
+        }
+    } else if (item.outPoint > trimIn) {
+        const durationMs = item.outPoint - trimIn;
         if (durationMs > 0) {
             options.push(`LENGTH ${Math.round(durationMs / FRAME_MS)}`);
         }
@@ -700,8 +710,8 @@ async function playItemAt(index: number, token: number) {
 
         let effectiveDuration = durationMs;
         const assetDuration = (item.duration_ms || (item.duration ? item.duration * 1000 : 0));
-        const trimIn = item.trim_in_ms || item.inPoint || 0;
-        const trimOut = item.trim_out_ms || (item.duration ? (item.duration * 1000 - item.outPoint) : 0);
+        const trimIn = item.trim_in_ms ?? item.inPoint ?? 0;
+        const trimOut = item.trim_out_ms ?? (item.duration ? (item.duration * 1000 - (item.outPoint ?? item.duration * 1000)) : 0);
         const calculatedEffective = assetDuration - trimIn - trimOut;
         if (calculatedEffective > 0) {
             effectiveDuration = calculatedEffective;
@@ -732,6 +742,8 @@ async function playItemAt(index: number, token: number) {
             scope: 'caspar-playout',
             message: `Playout crash/error at index ${index} (${queuedItems[index]?.filename || 'unknown'}): ${error?.message || error}`
         }).catch(() => {});
+        // Stop playback on crash/error to avoid desynced rundown UI and frozen player
+        await casparPlayoutService.stop();
     }
 }
 
@@ -875,8 +887,8 @@ export const casparPlayoutService: PlayoutService = {
         if (item) {
             let effectiveDuration = (item.duration || 0) * 1000;
             const assetDuration = (item.duration_ms || (item.duration ? item.duration * 1000 : 0));
-            const trimIn = item.trim_in_ms || item.inPoint || 0;
-            const trimOut = item.trim_out_ms || (item.duration ? (item.duration * 1000 - item.outPoint) : 0);
+            const trimIn = item.trim_in_ms ?? item.inPoint ?? 0;
+            const trimOut = item.trim_out_ms ?? (item.duration ? (item.duration * 1000 - (item.outPoint ?? item.duration * 1000)) : 0);
             const calculatedEffective = assetDuration - trimIn - trimOut;
             if (calculatedEffective > 0) {
                 effectiveDuration = calculatedEffective;

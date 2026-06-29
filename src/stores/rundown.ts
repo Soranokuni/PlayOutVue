@@ -578,6 +578,9 @@ export const useRundownStore = defineStore('rundown', () => {
             current_path: item.current_path || item.path || '',
             duration_ms: item.duration_ms || (duration * 1000),
             trim_in_ms: item.trim_in_ms || inPoint,
+            trim_out_ms: item.trim_out_ms !== undefined 
+                ? item.trim_out_ms 
+                : (outPoint > 0 ? Math.max(0, (item.duration_ms || (duration * 1000)) - outPoint) : 0),
             tp_flag: item.tp_flag || false,
             content_type: item.content_type || 'none',
             timeline: item.timeline || [],

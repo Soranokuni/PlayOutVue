@@ -302,12 +302,6 @@ async fn run_osc_listener<R: Runtime>(
 /// on the same source as the legacy advance logic.
 fn is_program_file_time_address(address: &str) -> bool {
     let normalized = address.trim();
-    if !normalized.starts_with("/channel/1/") {
-        return false;
-    }
-    if normalized == "/channel/1/foreground/file/time" {
-        return true;
-    }
     normalized == "/channel/1/stage/layer/10/file/time"
         || normalized == "/channel/1/stage/layer/10/foreground/file/time"
 }
@@ -779,5 +773,20 @@ mod tests {
         // Program/live layers: MIXER is not applied by the CG path.
         assert!(!mixer_safe_for_layer(CasparLayer::Video.layer()));
         assert!(!mixer_safe_for_layer(CasparLayer::Live.layer()));
+    }
+
+    /// Verify that is_program_file_time_address only matches layer 10 OSC addresses.
+    #[test]
+    fn is_program_file_time_address_filters_correctly() {
+        // Valid layer 10 addresses
+        assert!(is_program_file_time_address("/channel/1/stage/layer/10/file/time"));
+        assert!(is_program_file_time_address("/channel/1/stage/layer/10/foreground/file/time"));
+        assert!(is_program_file_time_address("  /channel/1/stage/layer/10/file/time  ")); // trim check
+
+        // Invalid addresses (other layers or channel-level)
+        assert!(!is_program_file_time_address("/channel/1/foreground/file/time"));
+        assert!(!is_program_file_time_address("/channel/1/stage/layer/30/foreground/file/time"));
+        assert!(!is_program_file_time_address("/channel/2/stage/layer/10/file/time"));
+        assert!(!is_program_file_time_address("/channel/1/stage/layer/10/some/other/path"));
     }
 }
