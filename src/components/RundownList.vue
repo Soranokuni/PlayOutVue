@@ -103,8 +103,11 @@ const formatClockTime = (epochMs: number) =>
 const itemDurationMs = (item: RundownItem): number => {
   if (item.type === 'gap') return 0;
   if (item.type === 'live') return (item.plannedDuration || item.duration || 0) * 1000;
-  if (item.outPoint > item.inPoint) return item.outPoint - item.inPoint;
-  return (item.plannedDuration || item.duration || 0) * 1000;
+  const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
+  const inMs = item.trim_in_ms ?? item.inPoint ?? 0;
+  const outMs = item.trim_out_ms ?? (item.outPoint > 0 ? item.outPoint : totalMs);
+  if (outMs > inMs && inMs >= 0) return outMs - inMs;
+  return totalMs;
 };
 
 const effectiveDurationMs = (item: RundownItem, index: number): number => {
@@ -144,9 +147,9 @@ const scheduledTimes = computed(() => {
   }));
 });
 
-const calcProgress = (item: RundownItem) => {
-  const activeIndex = store.activeItems.findIndex((candidate) => candidate.id === item.id);
-  const duration = effectiveDurationMs(item, activeIndex);
+const calcProgress = (item: RundownItem, index: number) => {
+  if (index !== store.currentPlayingIndex) return 0;
+  const duration = effectiveDurationMs(item, index);
   if (!duration || duration <= 0) return 0;
   const progress = (currentPlayoutMs.value / duration) * 100;
   return Math.max(0, Math.min(100, Math.round(progress * 100) / 100));
@@ -229,19 +232,20 @@ const runPlaylistFrom = async (index: number) => {
   }
 };
 
-watch(
-  () => store.activeItems.map((item) => `${item.id}:${item.type}:${item.path}:${item.inPoint}:${item.outPoint}:${item.plannedDuration}`).join('|'),
-  () => {
-    if (!isPlayoutPlaying.value || !store.isCurrentPlaylistOnAir) return;
-    getActivePlayoutService().refreshQueue?.(store.getPlayableItems() as any).catch((error) => {
-      console.error('[Playback] Failed to refresh rundown queue', error);
-    });
-  }
+const itemsFingerprint = computed(() =>
+  store.activeItems.map((item) =>
+    `${item.id}:${item.type}:${item.path}:${item.inPoint}:${item.outPoint}:${item.duration}:${item.plannedDuration}`
+  ).join('|')
 );
 
 watch(
-  () => store.activeItems.map((item) => `${item.id}:${item.type}:${item.path}:${item.duration}:${item.outPoint}:${item.inPoint}`).join('|'),
+  itemsFingerprint,
   () => {
+    if (isPlayoutPlaying.value && store.isCurrentPlaylistOnAir) {
+      getActivePlayoutService().refreshQueue?.(store.getPlayableItems() as any).catch((error) => {
+        console.error('[Playback] Failed to refresh rundown queue', error);
+      });
+    }
     hydrateMissingDurations().catch((error) => {
       console.warn('[Rundown] Duration hydration failed', error);
     });
@@ -613,9 +617,9 @@ const msToShortDisplay = (ms: number) => {
   return `${minutes}:${seconds}`;
 };
 
-const durationLabel = (item: RundownItem) => {
+const durationLabel = (item: RundownItem, index: number) => {
   if (item.type === 'gap') return 'Ghost marker';
-  const durationMs = effectiveDurationMs(item, store.activeItems.findIndex((candidate) => candidate.id === item.id));
+  const durationMs = effectiveDurationMs(item, index);
   if (durationMs > 0) return `00:00:00 / ${msToClockDisplay(durationMs)}`;
   if (item.type === 'live') return 'LIVE';
   return '00:00:00 / 00:00:00';
@@ -884,7 +888,7 @@ onUnmounted(() => {
             background: `linear-gradient(90deg, rgba(46,204,113,0.22) ${store.playbackProgressPct}%, rgba(46,204,113,0.06) ${store.playbackProgressPct}%)`,
             borderColor: 'rgba(46,204,113,0.4)'
         } : (index === store.currentPlayingIndex && isPlayoutPlaying && store.isCurrentPlaylistOnAir && item.type !== 'live' && item.type !== 'gap' ? {
-            background: `linear-gradient(90deg, rgba(230,57,70,0.3) ${calcProgress(item)}%, rgba(230,57,70,0.08) ${calcProgress(item)}%)`,
+            background: `linear-gradient(90deg, rgba(230,57,70,0.3) ${calcProgress(item, index)}%, rgba(230,57,70,0.08) ${calcProgress(item, index)}%)`,
             borderColor: 'rgba(230,57,70,0.4)'
         } : {})"
         @click="store.selectedItemId = item.id"
@@ -925,7 +929,7 @@ onUnmounted(() => {
           <span v-if="item.id === store.currentPlayingInstanceId" style="color:#2ecc71; font-weight:bold; margin-right:8px; font-family:monospace;">
             {{ store.playbackCountdownStr }}
           </span>
-          <span>{{ activeTimerLabel(item, index) || durationLabel(item) }}</span>
+          <span>{{ activeTimerLabel(item, index) || durationLabel(item, index) }}</span>
           <span v-if="store.activeItemsETAs[index] && store.activeItemsETAs[index].formatted" class="rw-eta-hint">
             ({{ store.activeItemsETAs[index].formatted }})
           </span>

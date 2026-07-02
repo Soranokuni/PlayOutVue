@@ -26,6 +26,7 @@ pub struct CasparOscListenerControl {
     pub port: Option<u16>,
     pub stop_tx: Option<oneshot::Sender<()>>,
     pub task: Option<JoinHandle<()>>,
+    pub watchdog_task: Option<JoinHandle<()>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -206,14 +207,14 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
         return Err("OSC port must be greater than 0".to_string());
     }
 
-    let (existing_port, existing_stop_tx, existing_task) = {
+    let (existing_port, existing_stop_tx, existing_task, existing_watchdog) = {
         let mut guard = state.0.lock();
 
         if guard.port == Some(target_port) && guard.task.is_some() {
             return Ok(target_port);
         }
 
-        (guard.port.take(), guard.stop_tx.take(), guard.task.take())
+        (guard.port.take(), guard.stop_tx.take(), guard.task.take(), guard.watchdog_task.take())
     };
 
     if let Some(stop_tx) = existing_stop_tx {
@@ -221,6 +222,9 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
     }
     if let Some(task) = existing_task {
         let _ = task.await;
+    }
+    if let Some(watchdog) = existing_watchdog {
+        watchdog.abort();
     }
 
     let bind_addr = format!("0.0.0.0:{}", target_port);
@@ -230,7 +234,7 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
 
     let (stop_tx, stop_rx) = oneshot::channel();
     let playback_state = playback.0.clone();
-    let _watchdog = spawn_playback_watchdog(app.clone(), playback_state.clone());
+    let watchdog = spawn_playback_watchdog(app.clone(), playback_state.clone());
     let task = tauri::async_runtime::spawn(run_osc_listener(
         app.clone(),
         socket,
@@ -243,6 +247,7 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
     guard.port = Some(target_port);
     guard.stop_tx = Some(stop_tx);
     guard.task = Some(task);
+    guard.watchdog_task = Some(watchdog);
 
     if existing_port != Some(target_port) {
         app.emit(
@@ -336,9 +341,22 @@ fn osc_message_to_event_from_raw(address: String, args: Vec<OscType>) -> CasparO
 
 fn parse_timing_payload_from_args(args: &[OscType]) -> (Option<u64>, Option<u64>) {
     let seconds = args.iter().filter_map(arg_to_seconds).collect::<Vec<_>>();
-    let position_ms = seconds.first().copied().map(seconds_to_millis);
-    let duration_ms = seconds.get(1).copied().map(seconds_to_millis);
-    (position_ms, duration_ms)
+    if seconds.len() == 4 {
+        // [current_frame, total_frames, current_seconds, total_seconds]
+        let position_ms = Some(seconds_to_millis(seconds[2]));
+        let duration_ms = Some(seconds_to_millis(seconds[3]));
+        (position_ms, duration_ms)
+    } else if seconds.len() == 2 {
+        // [current_seconds, total_seconds]
+        let position_ms = Some(seconds_to_millis(seconds[0]));
+        let duration_ms = Some(seconds_to_millis(seconds[1]));
+        (position_ms, duration_ms)
+    } else {
+        // Fallback
+        let position_ms = seconds.first().copied().map(seconds_to_millis);
+        let duration_ms = seconds.get(1).copied().map(seconds_to_millis);
+        (position_ms, duration_ms)
+    }
 }
 
 fn normalize_caspar_osc_path(path: &str) -> String {
@@ -362,6 +380,30 @@ fn is_program_file_path_address(address: &str) -> bool {
         || normalized == "/channel/1/stage/layer/10/foreground/file/path"
 }
 
+fn extract_raw_filename_lower(path_str: &str) -> String {
+    let mut cleaned = path_str.replace('\\', "/");
+    if cleaned.starts_with("//?/") {
+        cleaned = cleaned[4..].to_string();
+    } else if cleaned.starts_with("\\\\?\\") {
+        cleaned = cleaned[4..].to_string();
+    }
+    if cleaned.len() >= 2 && cleaned.chars().nth(1) == Some(':') {
+        cleaned = cleaned[2..].to_string();
+    }
+    let p = std::path::Path::new(&cleaned);
+    let filename = p.file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or(&cleaned);
+    let mut filename_lower = filename.to_lowercase();
+    if let Some(pos) = filename_lower.rfind('.') {
+        let ext = &filename_lower[pos + 1..];
+        if ext.len() >= 3 && ext.len() <= 4 {
+            filename_lower = filename_lower[..pos].to_string();
+        }
+    }
+    filename_lower
+}
+
 fn handle_playback_path_osc<R: Runtime>(
     app: &AppHandle<R>,
     state: &Arc<Mutex<PlaybackStateInner>>,
@@ -376,8 +418,9 @@ fn handle_playback_path_osc<R: Runtime>(
     s.current_file_path = normalized_path.clone();
 
     if let Some(expected) = &s.expected_next_path {
-        let normalized_expected = normalize_caspar_osc_path(expected);
-        if normalized_path == normalized_expected {
+        let path_norm = extract_raw_filename_lower(path);
+        let expected_norm = extract_raw_filename_lower(expected);
+        if path_norm == expected_norm {
             if !s.transition_triggered {
                 s.transition_triggered = true;
                 s.advance_fired = true; // Sync the advance fired flag to prevent double-trigger
@@ -396,50 +439,10 @@ fn handle_playback_path_osc<R: Runtime>(
     }
 }
 
-/// Match only program video (layer 10) `/file/time` OSC addresses on channel 1,
-/// matching the TS `isProgramFileTimeAddress` filter so the state machine keys
-/// on the same source as the legacy advance logic.
 fn is_program_file_time_address(address: &str) -> bool {
     let normalized = address.trim();
     normalized == "/channel/1/stage/layer/10/file/time"
         || normalized == "/channel/1/stage/layer/10/foreground/file/time"
-}
-
-fn collect_osc_events(packet: OscPacket) -> Vec<CasparOscEvent> {
-    match packet {
-        OscPacket::Message(message) => vec![osc_message_to_event(message.addr, message.args)],
-        OscPacket::Bundle(bundle) => bundle
-            .content
-            .into_iter()
-            .flat_map(collect_osc_events)
-            .collect(),
-    }
-}
-
-fn osc_message_to_event(address: String, args: Vec<OscType>) -> CasparOscEvent {
-    let (position_ms, duration_ms) = parse_timing_payload(&address, &args);
-
-    CasparOscEvent {
-        address,
-        args: args.iter().map(|arg| format!("{:?}", arg)).collect(),
-        position_ms,
-        duration_ms,
-        received_at: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_millis().to_string())
-            .unwrap_or_else(|_| "0".to_string()),
-    }
-}
-
-fn parse_timing_payload(address: &str, args: &[OscType]) -> (Option<u64>, Option<u64>) {
-    if !address.ends_with("/file/time") {
-        return (None, None);
-    }
-
-    let seconds = args.iter().filter_map(arg_to_seconds).collect::<Vec<_>>();
-    let position_ms = seconds.first().copied().map(seconds_to_millis);
-    let duration_ms = seconds.get(1).copied().map(seconds_to_millis);
-    (position_ms, duration_ms)
 }
 
 fn seconds_to_millis(seconds: f64) -> u64 {
@@ -583,11 +586,33 @@ fn handle_playback_osc<R: Runtime>(
         s.position_ms = pos;
     }
     if let Some(dur) = duration_ms {
-        if dur > 0 && s.duration_ms == 0 {
+        if dur > 0 && (s.duration_ms == 0 || dur > s.duration_ms) {
             s.duration_ms = dur;
         }
     }
     s.last_osc_at_ms = now;
+
+    // Position-based advance check (primary advance mechanism)
+    if playback_should_advance(
+        s.is_playing,
+        s.is_paused,
+        s.advance_fired,
+        s.expected_out_point_ms,
+        s.position_ms,
+    ) {
+        s.advance_fired = true;
+        s.transition_triggered = true;
+        let advance = PlaybackAdvance {
+            current_uuid: s.current_uuid.clone(),
+            reason: "osc-position".to_string(),
+        };
+        let app_clone = app.clone();
+        drop(s); // release lock before emit to prevent deadlocks
+        tauri::async_runtime::spawn(async move {
+            let _ = app_clone.emit("caspar://advance", advance);
+        });
+        return;
+    }
 
     // Throttled tick emission.
     if now.saturating_sub(s.last_tick_emit_ms) >= TICK_THROTTLE_MS {
@@ -625,11 +650,7 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                 let gap = now.saturating_sub(s.last_osc_at_ms);
                 let mut stall = false;
                 let mut advance_reason = None;
-                if gap >= 1500 {
-                    s.advance_fired = true;
-                    s.transition_triggered = true;
-                    advance_reason = Some("eof-watchdog".to_string());
-                } else if gap >= PLAYBACK_WATCHDOG_MS {
+                if gap >= PLAYBACK_WATCHDOG_MS {
                     if !s.stall_emitted {
                         s.stall_emitted = true;
                         stall = true;
@@ -642,6 +663,16 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                         s.advance_fired = true;
                         s.transition_triggered = true;
                         advance_reason = Some("watchdog-deadline".to_string());
+                    }
+                } else if gap >= 1500 {
+                    // Brief OSC gap — only advance if position was already near the end (EOF)
+                    if s.position_ms > 0
+                        && s.expected_out_point_ms > 0
+                        && s.position_ms >= s.expected_out_point_ms.saturating_sub(2000)
+                    {
+                        s.advance_fired = true;
+                        s.transition_triggered = true;
+                        advance_reason = Some("eof-watchdog".to_string());
                     }
                 }
                 (stall, advance_reason)
@@ -893,5 +924,40 @@ mod tests {
         assert!(!is_program_file_time_address("/channel/1/stage/layer/30/foreground/file/time"));
         assert!(!is_program_file_time_address("/channel/2/stage/layer/10/file/time"));
         assert!(!is_program_file_time_address("/channel/1/stage/layer/10/some/other/path"));
+    }
+
+    /// Verify parse_timing_payload_from_args correctly extracts values for 4-argument,
+    /// 2-argument, and fallback structures.
+    #[test]
+    fn parse_timing_payload_from_args_extracts_correctly() {
+        use rosc::OscType;
+
+        // 4 arguments: [current_frame, total_frames, current_seconds, total_seconds]
+        let args_4 = vec![
+            OscType::Int(1127),
+            OscType::Int(9246),
+            OscType::Float(45.08),
+            OscType::Float(369.84),
+        ];
+        let (pos_4, dur_4) = parse_timing_payload_from_args(&args_4);
+        assert_eq!(pos_4, Some(45080));
+        assert_eq!(dur_4, Some(369840));
+
+        // 2 arguments: [current_seconds, total_seconds]
+        let args_2 = vec![
+            OscType::Float(10.5),
+            OscType::Float(120.0),
+        ];
+        let (pos_2, dur_2) = parse_timing_payload_from_args(&args_2);
+        assert_eq!(pos_2, Some(10500));
+        assert_eq!(dur_2, Some(120000));
+
+        // Fallback or 1 argument
+        let args_1 = vec![
+            OscType::Float(5.2),
+        ];
+        let (pos_1, dur_1) = parse_timing_payload_from_args(&args_1);
+        assert_eq!(pos_1, Some(5200));
+        assert_eq!(dur_1, None);
     }
 }

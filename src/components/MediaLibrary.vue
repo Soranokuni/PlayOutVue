@@ -349,17 +349,34 @@ function effectiveDurationSeconds(asset?: LibraryAsset): number {
 }
 
 function makeRundownDraftFromAsset(asset: LibraryAsset) {
-    const duration = assetDurationSeconds(asset);
-    const effective = effectiveDurationSeconds(asset);
+    const nameLower = (asset.display_name || '').toLowerCase();
+    const ratingLower = (asset.rating || '').toLowerCase();
+    const isSubclip = nameLower.includes('sub-clip') || nameLower.includes('subclip') || ratingLower.includes('subclip');
+
+    let duration = assetDurationSeconds(asset);
+    let effective = effectiveDurationSeconds(asset);
+    let inPoint = asset.trim_in_ms || 0;
+    let outPoint = asset.duration_ms > 0
+        ? asset.duration_ms - (asset.trim_out_ms || 0)
+        : 0;
+    let durationMs = asset.duration_ms;
+
+    if (isSubclip) {
+        const calculatedDuration = (asset.trim_out_ms || 0) - (asset.trim_in_ms || 0);
+        durationMs = calculatedDuration;
+        duration = calculatedDuration / 1000;
+        effective = calculatedDuration / 1000;
+        inPoint = asset.trim_in_ms || 0;
+        outPoint = asset.trim_out_ms || 0;
+    }
+
     const meta = parseBroadcastRating(asset.rating);
     const compliance = meta.ageRating ||
         mediaDefaults.getCompliance(asset.uuid, asset.current_path);
     return {
         playoutvueId: asset.uuid.startsWith('local:') ? undefined : asset.uuid,
-        inPoint: asset.trim_in_ms,
-        outPoint: asset.duration_ms > 0
-            ? asset.duration_ms - (asset.trim_out_ms || 0)
-            : 0,
+        inPoint,
+        outPoint,
         filename: asset.display_name,
         path: asset.current_path,
         shortPath: '',
@@ -375,7 +392,8 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
         display_name: asset.display_name,
         virtual_folder: asset.virtual_folder,
         current_path: asset.current_path,
-        duration_ms: asset.duration_ms,
+        duration_ms: durationMs,
+        durationMs: durationMs,
         trim_in_ms: asset.trim_in_ms,
         trim_out_ms: asset.trim_out_ms,
     };
