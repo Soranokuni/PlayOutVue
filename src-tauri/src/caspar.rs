@@ -715,6 +715,11 @@ pub async fn caspar_register_playback(
     next_path: Option<String>,
     state: State<'_, CasparPlaybackState>,
 ) -> Result<(), String> {
+    if duration_ms == 0 {
+        // No valid duration yet — skip deadline registration entirely.
+        // Advance will be driven by CasparCG OSC EOF signal only.
+        return Ok(());
+    }
     let mut s = state.0.lock();
     s.current_uuid = Some(uuid);
     s.is_playing = true;

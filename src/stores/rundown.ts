@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia';
 import { v4 as uuidv4 } from 'uuid';
 import { invoke } from '@tauri-apps/api/core';
-import { computed, shallowRef, triggerRef, ref } from 'vue';
+import { computed, shallowRef, triggerRef, ref, watch } from 'vue';
 import type { LibraryIndicator } from './mediaDefaults';
 import { useIngestorStatusStore } from './ingestorStatus';
-import { playStartTime } from '../services/caspar';
+import { playStartTime, casparPlayoutService } from '../services/caspar';
 import { useMediaLibraryStore } from './mediaLibrary';
 
 export type ComplianceRating = 'none' | 'k' | '8' | '12' | '16' | '18';
@@ -570,6 +570,7 @@ export const useRundownStore = defineStore('rundown', () => {
             virtual_folder: item.virtual_folder || '',
             current_path: item.current_path || item.path || '',
             duration_ms: item.duration_ms || (duration * 1000),
+            durationMs: item.durationMs || item.duration_ms || (duration * 1000),
             trim_in_ms: item.trim_in_ms || inPoint,
             trim_out_ms: item.trim_out_ms !== undefined 
                 ? item.trim_out_ms 
@@ -983,6 +984,7 @@ export const useRundownStore = defineStore('rundown', () => {
                          updatePlaylistState(playlist.id, {
                              items: [...playlist.items]
                          });
+                         casparPlayoutService.refreshQueue?.(getPlayableItems(playlist.id) as any);
                      } catch (e) {
                          try {
                              const ingestor = useIngestorStatusStore();
@@ -1323,6 +1325,7 @@ export const useRundownStore = defineStore('rundown', () => {
                 playlist.items = newItems;
             }
             triggerRef(playlists);
+            casparPlayoutService.refreshQueue?.(getPlayableItems(playlist.id) as any);
         } catch (error) {
             try {
                 const ingestor = useIngestorStatusStore();
@@ -1343,8 +1346,18 @@ export const useRundownStore = defineStore('rundown', () => {
     if (typeof window !== 'undefined') {
         clockInterval = setInterval(() => {
             clockMs.value = Date.now();
-        }, 5000);
+        }, onAirPlaylistId.value ? 1000 : 5000);
     }
+
+    watch(onAirPlaylistId, (newId) => {
+        if (typeof window === 'undefined') return;
+        if (clockInterval) {
+            clearInterval(clockInterval);
+        }
+        clockInterval = setInterval(() => {
+            clockMs.value = Date.now();
+        }, newId ? 1000 : 5000);
+    });
 
     const getItemDurationMs = (item: RundownItem): number => {
         if (item.type === 'gap') return 0;
