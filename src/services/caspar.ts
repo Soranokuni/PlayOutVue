@@ -279,17 +279,17 @@ const updateDisplayedTime = (ms: number) => {
 
 const itemDurationMs = (item: PlayoutItem) => {
     if (item.type === 'live') return (item.plannedDuration || item.duration || 0) * 1000;
-    const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
+    const totalMs = item.duration_ms || (item as any).durationMs || (item.duration ? item.duration * 1000 : 0);
     const inMs = item.trim_in_ms ?? item.inPoint ?? 0;
-    const outMs = item.trim_out_ms ?? (item.outPoint > 0 ? item.outPoint : totalMs);
+    const outMs = item.trim_out_ms ? item.trim_out_ms : (item.outPoint > 0 ? item.outPoint : totalMs);
     if (outMs > inMs && inMs >= 0) return outMs - inMs;
     return totalMs;
 };
 
 const computePlaybackDeadline = (item: PlayoutItem) => {
-    const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
+    const totalMs = item.duration_ms || (item as any).durationMs || (item.duration ? item.duration * 1000 : 0);
     const inMs = item.trim_in_ms ?? item.inPoint ?? 0;
-    const outMs = item.trim_out_ms ?? (item.outPoint > 0 ? item.outPoint : totalMs);
+    const outMs = item.trim_out_ms ? item.trim_out_ms : (item.outPoint > 0 ? item.outPoint : totalMs);
     const effectiveDuration = (outMs > inMs && inMs >= 0) ? (outMs - inMs) : totalMs;
     const expectedOutPointMs = effectiveDuration; // OSC position is relative to trim start
     return { effectiveDuration, expectedOutPointMs };
@@ -467,6 +467,19 @@ const ensureItemDurationMs = async (item: PlayoutItem) => {
     return 0;
 };
 
+const waitForDurationResolution = async (item: PlayoutItem, timeoutMs: number): Promise<number> => {
+    const start = Date.now();
+    const interval = 250;
+    while (Date.now() - start < timeoutMs) {
+        const dur = await ensureItemDurationMs(item);
+        if (dur > 0) {
+            return dur;
+        }
+        await new Promise(resolve => setTimeout(resolve, interval));
+    }
+    return 0;
+};
+
 /// Late-resolve an active producer's duration and re-register it with the Rust
 /// state machine so the watchdog deadline tracks the correct end point (plan
 /// §2.1). Replaces the old JS `advanceTimer`-setting retry loop.
@@ -489,6 +502,9 @@ async function refreshCurrentProducerDuration(item: PlayoutItem, key: string, to
                     duration: totalDurationMs / 1000,
                     plannedDuration: totalDurationMs / 1000
                 });
+                // Re-anchor progress timer with real duration
+                const startEpoch = playStartTime.value;
+                store.startPlaybackProgressTimer(item.id, totalDurationMs, startEpoch);
             }
 
             const expectedOutPointMs = totalDurationMs; // Relative to trim start
@@ -702,10 +718,20 @@ const sendRawCommand = async (cmd: string) => {
     }
 };
 
-async function preloadNextItemAt(index: number) {
+async function preloadNextItemAt(index: number, retriesLeft = 3) {
     if (index < 0 || index >= queuedItems.length) return;
     const item = queuedItems[index];
     if (!item || item.type !== 'video' || item.ingestorStatus === 'error') return;
+
+    // If item path is not resolved yet, or status is not ready, retry in 500ms
+    if (!item.path || item.ingestorStatus !== 'ready') {
+        if (retriesLeft > 0) {
+            setTimeout(() => {
+                preloadNextItemAt(index, retriesLeft - 1).catch(() => {});
+            }, 500);
+        }
+        return;
+    }
 
     try {
         const rawPath = item.path || item.shortPath;
@@ -794,19 +820,33 @@ async function playItemAt(index: number, token: number) {
         consecutiveSkips = 0;
         updateDisplayedTime(item.inPoint || 0);
 
-        const { effectiveDuration, expectedOutPointMs } = computePlaybackDeadline(item);
-        store.startPlaybackProgressTimer(item.id, effectiveDuration);
+        let resolvedDuration = durationMs;
+        if (resolvedDuration <= 0) {
+            resolvedDuration = await waitForDurationResolution(item, 3000);
+        }
 
-        // Register with Rust so the OSC-authoritative state machine owns advance.
-        await invoke('caspar_register_playback', {
-            uuid: key,
-            durationMs: effectiveDuration,
-            expectedOutPointMs: expectedOutPointMs,
-            currentPath: currentPath,
-            nextPath: nextPath
-        }).catch((e: any) => {
-            console.warn('[CasparCG] Failed to register playback', e);
-        });
+        let effectiveDuration = 0;
+        let expectedOutPointMs = 0;
+        if (resolvedDuration > 0) {
+            const deadline = computePlaybackDeadline(item);
+            effectiveDuration = deadline.effectiveDuration;
+            expectedOutPointMs = deadline.expectedOutPointMs;
+        }
+
+        if (effectiveDuration > 0) {
+            store.startPlaybackProgressTimer(item.id, effectiveDuration);
+
+            // Register with Rust so the OSC-authoritative state machine owns advance.
+            await invoke('caspar_register_playback', {
+                uuid: key,
+                durationMs: effectiveDuration,
+                expectedOutPointMs: expectedOutPointMs,
+                currentPath: currentPath,
+                nextPath: nextPath
+            }).catch((e: any) => {
+                console.warn('[CasparCG] Failed to register playback', e);
+            });
+        }
 
         // Preload next item immediately
         await preloadNextItemAt(index + 1);
@@ -1001,7 +1041,7 @@ export const casparPlayoutService: PlayoutService = {
             await this.connect();
         }
 
-        queuedItems = items;
+        queuedItems = items.map((i: any) => ({ ...i }));
         playToken += 1;
         playStartTime.value = Date.now();
         playStartIndex.value = startIndex;
@@ -1190,7 +1230,7 @@ export const casparPlayoutService: PlayoutService = {
         // Identity-keyed: the current item is tracked by `currentKey`, so a
         // reordered/replaced queue is re-resolved on the next advance without any
         // index remapping. This is the §A desync fix.
-        queuedItems = items;
+        queuedItems = items.map((i: any) => ({ ...i }));
     },
 
     onAdvance(callback) {
