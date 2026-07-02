@@ -19,8 +19,8 @@ use tokio::time::timeout;
 
 const CASPAR_AMCP_ADDR: &str = "127.0.0.1:5250";
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_millis(750);
-pub(crate) const COMMAND_TIMEOUT: Duration = Duration::from_millis(1500);
-pub(crate) const READ_GAP_TIMEOUT: Duration = Duration::from_millis(150);
+pub(crate) const COMMAND_TIMEOUT: Duration = Duration::from_millis(3000);
+pub(crate) const READ_GAP_TIMEOUT: Duration = Duration::from_millis(300);
 
 /// Typed AMCP response.
 #[allow(dead_code)]

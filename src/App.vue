@@ -57,11 +57,14 @@ const startJankMonitor = () => {
         : null;
       
       const memoryStr = heapMemory !== null ? `${heapMemory}MB` : 'N/A';
-      invoke('push_diagnostic_log', {
-        level: 'info',
-        scope: 'ui-performance',
-        message: `FPS: ${fps.toFixed(1)} | Jank frames: ${jankCount} | JS Heap: ${memoryStr}`
-      }).catch(() => {});
+      const logMessage = `FPS: ${fps.toFixed(1)} | Jank frames: ${jankCount} | JS Heap: ${memoryStr}`;
+      setTimeout(() => {
+        invoke('push_diagnostic_log', {
+          level: 'info',
+          scope: 'ui-performance',
+          message: logMessage
+        }).catch(() => {});
+      }, 0);
 
       frameTimes = [];
       jankCount = 0;

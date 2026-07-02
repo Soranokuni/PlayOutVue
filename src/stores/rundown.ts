@@ -36,11 +36,13 @@ export interface RundownItem {
     virtual_folder?: string;
     current_path?: string;
     duration_ms?: number;
+    durationMs?: number;
     trim_in_ms?: number;
     trim_out_ms?: number;
     tp_flag?: boolean;
     content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
     timeline?: Array<{ start: number; end: number; text: string }>;
+    fps?: number;
 }
 
 export interface RundownPlaylist {
@@ -326,20 +328,17 @@ export const useRundownStore = defineStore('rundown', () => {
         updatePlaylistState(playlistId, { items: [...newItems] });
     };
 
-    let playbackInterval: ReturnType<typeof setInterval> | null = null;
+    let playbackInterval: number | null = null;
     let playbackStartTime = 0;
     let playbackDurationMs = 0;
 
-    const startPlaybackProgressTimer = (itemId: string, durationMs: number) => {
-        if (playbackInterval) {
-            clearInterval(playbackInterval);
-            playbackInterval = null;
-        }
+    const startPlaybackProgressTimer = (itemId: string, durationMs: number, startTime = Date.now()) => {
+        stopPlaybackProgressTimer();
         activePlayingUuid.value = itemId;
         playbackProgressPct.value = 0;
         playbackCountdownStr.value = formatCountdown(durationMs);
 
-        playbackStartTime = Date.now();
+        playbackStartTime = startTime;
         playbackDurationMs = durationMs;
 
         // Bug 3 Fix 2: Save state to localStorage
@@ -347,28 +346,35 @@ export const useRundownStore = defineStore('rundown', () => {
         localStorage.setItem('playout_playbackStartTimestamp', String(playbackStartTime));
         localStorage.setItem('playout_playbackDurationMs', String(durationMs));
 
-        playbackInterval = setInterval(() => {
+        let lastProgressUpdate = 0;
+        const progressLoop = () => {
             if (!activePlayingUuid.value || playbackDurationMs <= 0) {
                 stopPlaybackProgressTimer();
                 return;
             }
-            const elapsed = Date.now() - playbackStartTime;
-            const pct = Math.min(100, Math.max(0, (elapsed / playbackDurationMs) * 100));
-            playbackProgressPct.value = pct;
+            const now = Date.now();
+            if (now - lastProgressUpdate >= 250) {
+                lastProgressUpdate = now;
+                const elapsed = now - playbackStartTime;
+                const pct = Math.min(100, Math.max(0, (elapsed / playbackDurationMs) * 100));
+                playbackProgressPct.value = pct;
 
-            const remaining = Math.max(0, playbackDurationMs - elapsed);
-            playbackCountdownStr.value = formatCountdown(remaining);
+                const remaining = Math.max(0, playbackDurationMs - elapsed);
+                playbackCountdownStr.value = formatCountdown(remaining);
 
-            if (elapsed >= playbackDurationMs) {
-                playbackProgressPct.value = 100;
-                playbackCountdownStr.value = '-00:00';
+                if (elapsed >= playbackDurationMs) {
+                    playbackProgressPct.value = 100;
+                    playbackCountdownStr.value = '-00:00';
+                }
             }
-        }, 100);
+            playbackInterval = requestAnimationFrame(progressLoop);
+        };
+        playbackInterval = requestAnimationFrame(progressLoop);
     };
 
     const stopPlaybackProgressTimer = () => {
         if (playbackInterval) {
-            clearInterval(playbackInterval);
+            cancelAnimationFrame(playbackInterval);
             playbackInterval = null;
         }
         activePlayingUuid.value = null;
@@ -392,33 +398,7 @@ export const useRundownStore = defineStore('rundown', () => {
             const elapsed = Date.now() - startTime;
 
             if (elapsed < durationMs) {
-                stopPlaybackProgressTimer();
-                activePlayingUuid.value = storedUuid;
-                playbackStartTime = startTime;
-                playbackDurationMs = durationMs;
-
-                const pct = Math.min(100, Math.max(0, (elapsed / playbackDurationMs) * 100));
-                playbackProgressPct.value = pct;
-                const remaining = Math.max(0, playbackDurationMs - elapsed);
-                playbackCountdownStr.value = formatCountdown(remaining);
-
-                playbackInterval = setInterval(() => {
-                    if (!activePlayingUuid.value || playbackDurationMs <= 0) {
-                        stopPlaybackProgressTimer();
-                        return;
-                    }
-                    const nowElapsed = Date.now() - playbackStartTime;
-                    const nowPct = Math.min(100, Math.max(0, (nowElapsed / playbackDurationMs) * 100));
-                    playbackProgressPct.value = nowPct;
-
-                    const nowRemaining = Math.max(0, playbackDurationMs - nowElapsed);
-                    playbackCountdownStr.value = formatCountdown(nowRemaining);
-
-                    if (nowElapsed >= playbackDurationMs) {
-                        playbackProgressPct.value = 100;
-                        playbackCountdownStr.value = '-00:00';
-                    }
-                }, 100);
+                startPlaybackProgressTimer(storedUuid, durationMs, startTime);
             } else {
                 localStorage.removeItem('playout_activePlayingUuid');
                 localStorage.removeItem('playout_playbackStartTimestamp');
@@ -499,6 +479,18 @@ export const useRundownStore = defineStore('rundown', () => {
         }, 0)
     );
 
+    const parseFps = (rFrameRate?: string): number => {
+        if (!rFrameRate) return 25;
+        const parts = rFrameRate.split('/');
+        if (parts.length === 2 && parts[0] !== undefined && parts[1] !== undefined) {
+            const num = parseFloat(parts[0]);
+            const den = parseFloat(parts[1]);
+            if (num > 0 && den > 0) return Math.round((num / den) * 100) / 100;
+        }
+        const val = parseFloat(rFrameRate);
+        return val > 0 ? val : 25;
+    };
+
     const makeItem = (item: RundownDraft): RundownItem => {
         const inPoint = item.inPoint && item.inPoint > 0 ? item.inPoint : 0;
         const outPoint = item.outPoint && item.outPoint > inPoint ? item.outPoint : 0;
@@ -526,9 +518,7 @@ export const useRundownStore = defineStore('rundown', () => {
             trim_in_ms: (item as any).trim_in_ms !== undefined ? (item as any).trim_in_ms : inPoint,
             trim_out_ms: (item as any).trim_out_ms !== undefined 
                 ? (item as any).trim_out_ms 
-                : (outPoint > 0 && (item.duration || (item as any).duration_ms)
-                    ? Math.max(0, ((item.duration_ms || (item.duration ? item.duration * 1000 : 0))) - outPoint)
-                    : 0),
+                : (outPoint > 0 ? outPoint : 0),
             tp_flag: (item as any).tp_flag || false,
             content_type: (item as any).content_type || 'none',
         };
@@ -794,9 +784,7 @@ export const useRundownStore = defineStore('rundown', () => {
             trim_in_ms: updates.trim_in_ms !== undefined ? updates.trim_in_ms : (updates.inPoint !== undefined ? updates.inPoint : existing.trim_in_ms),
             trim_out_ms: updates.trim_out_ms !== undefined 
                 ? updates.trim_out_ms 
-                : (updates.outPoint !== undefined 
-                    ? (updates.outPoint > 0 && existing.duration_ms ? Math.max(0, existing.duration_ms - updates.outPoint) : 0)
-                    : existing.trim_out_ms),
+                : (updates.outPoint !== undefined ? updates.outPoint : existing.trim_out_ms),
         } as RundownItem;
         triggerNuclearReactivity(playlist.id, newItems);
     };
@@ -947,10 +935,24 @@ export const useRundownStore = defineStore('rundown', () => {
                              if (idx === -1) continue;
                              const existing = playlist.items[idx]!;
 
-                             const durationSec = (asset.duration_ms || 0) / 1000;
-                             const outPoint = asset.duration_ms > 0
-                                 ? asset.duration_ms - (asset.trim_out_ms || 0)
-                                 : 0;
+                             const nameLower = (asset.display_name || existing.filename || '').toLowerCase();
+                             const ratingLower = (asset.rating || '').toLowerCase();
+                             const isSubclip = nameLower.includes('sub-clip') || nameLower.includes('subclip') || ratingLower.includes('subclip');
+
+                             let inPoint = asset.trim_in_ms || 0;
+                             let outPoint = 0;
+                             let durationSec = (asset.duration_ms || 0) / 1000;
+                             
+                             if (isSubclip) {
+                                 const calculatedDuration = (asset.trim_out_ms || 0) - (asset.trim_in_ms || 0);
+                                 durationSec = calculatedDuration / 1000;
+                                 outPoint = asset.trim_out_ms || 0;
+                             } else {
+                                 outPoint = asset.duration_ms > 0
+                                     ? asset.duration_ms - (asset.trim_out_ms || 0)
+                                     : 0;
+                             }
+                             const durationMs = asset.duration_ms;
 
                              const meta = getMetadataFromAssetResponse(asset);
                              playlist.items[idx] = {
@@ -959,9 +961,9 @@ export const useRundownStore = defineStore('rundown', () => {
                                  path: asset.current_path || existing.path,
                                  displayPath: asset.current_path || existing.displayPath,
                                  duration: durationSec,
-                                 inPoint: asset.trim_in_ms || 0,
+                                 inPoint,
                                  outPoint: outPoint > 0 ? outPoint : 0,
-                                 plannedDuration: existing.plannedDuration > 0
+                                 plannedDuration: existing.plannedDuration > 0 && !isSubclip
                                      ? existing.plannedDuration
                                      : durationSec,
                                  complianceRating: meta.ageRating,
@@ -971,9 +973,11 @@ export const useRundownStore = defineStore('rundown', () => {
                                  display_name: asset.display_name,
                                  virtual_folder: asset.virtual_folder,
                                  current_path: asset.current_path,
-                                 duration_ms: asset.duration_ms,
-                                 trim_in_ms: asset.trim_in_ms,
-                                 trim_out_ms: asset.trim_out_ms,
+                                 duration_ms: durationMs,
+                                 durationMs: durationMs,
+                                 trim_in_ms: inPoint,
+                                 trim_out_ms: outPoint > 0 ? outPoint : 0,
+                                 fps: parseFps(asset.r_frame_rate),
                              };
                          }
                          updatePlaylistState(playlist.id, {
@@ -1037,27 +1041,41 @@ export const useRundownStore = defineStore('rundown', () => {
                     changed = true;
                 }
 
-                const duration = Number(match.duration || 0);
-                if (duration > 0 && newItem.duration <= 0) {
-                    newItem.duration = duration;
-                    if (newItem.plannedDuration <= 0 && newItem.outPoint <= newItem.inPoint) {
-                        newItem.plannedDuration = duration;
-                    }
-                    changed = true;
-                }
-
-                const trimInMs = Math.max(0, Number(match.trim_in_ms || 0));
+                 const trimInMs = Math.max(0, Number(match.trim_in_ms || 0));
                 const trimOutMs = Math.max(0, Number(match.trim_out_ms || 0));
 
-                if (trimInMs > 0 && newItem.inPoint === 0) {
-                    newItem.inPoint = trimInMs;
-                    changed = true;
-                }
+                const nameLower = (match.filename || newItem.filename || '').toLowerCase();
+                const isSubclip = nameLower.includes('sub-clip') || nameLower.includes('subclip');
 
-                if (trimOutMs > 0 && trimOutMs > newItem.inPoint && newItem.outPoint === 0) {
+                if (isSubclip) {
+                    const calculatedDuration = trimOutMs - trimInMs;
+                    newItem.duration = calculatedDuration / 1000;
+                    newItem.plannedDuration = calculatedDuration / 1000;
+                    newItem.inPoint = trimInMs;
                     newItem.outPoint = trimOutMs;
-                    newItem.plannedDuration = (newItem.outPoint - newItem.inPoint) / 1000;
+                    newItem.duration_ms = calculatedDuration;
+                    (newItem as any).durationMs = calculatedDuration;
                     changed = true;
+                } else {
+                    const duration = Number(match.duration || 0);
+                    if (duration > 0 && newItem.duration <= 0) {
+                        newItem.duration = duration;
+                        if (newItem.plannedDuration <= 0 && newItem.outPoint <= newItem.inPoint) {
+                            newItem.plannedDuration = duration;
+                        }
+                        changed = true;
+                    }
+
+                    if (trimInMs > 0 && newItem.inPoint === 0) {
+                        newItem.inPoint = trimInMs;
+                        changed = true;
+                    }
+
+                    if (trimOutMs > 0 && trimOutMs > newItem.inPoint && newItem.outPoint === 0) {
+                        newItem.outPoint = trimOutMs;
+                        newItem.plannedDuration = (newItem.outPoint - newItem.inPoint) / 1000;
+                        changed = true;
+                    }
                 }
 
                 if (changed) {
@@ -1256,20 +1274,34 @@ export const useRundownStore = defineStore('rundown', () => {
                 apiBaseUrlOverride: null
             });
 
-            const durationSec = (response.duration_ms || 0) / 1000;
-            const outPoint = response.duration_ms > 0
-                ? response.duration_ms - (response.trim_out_ms || 0)
-                : 0;
+            const nameLower = (response.display_name || item.filename || '').toLowerCase();
+            const ratingLower = (response.rating || '').toLowerCase();
+            const isSubclip = nameLower.includes('sub-clip') || nameLower.includes('subclip') || ratingLower.includes('subclip');
+
+            let inPoint = response.trim_in_ms || 0;
+            let outPoint = 0;
+            let durationSec = (response.duration_ms || 0) / 1000;
+
+            if (isSubclip) {
+                const calculatedDuration = (response.trim_out_ms || 0) - (response.trim_in_ms || 0);
+                durationSec = calculatedDuration / 1000;
+                outPoint = response.trim_out_ms || 0;
+            } else {
+                outPoint = response.duration_ms > 0
+                    ? response.duration_ms - (response.trim_out_ms || 0)
+                    : 0;
+            }
+            const durationMs = response.duration_ms;
 
             const meta = getMetadataFromAssetResponse(response);
-            const updates: Partial<RundownItem> = {
+            const updates: any = {
                 filename: response.display_name || item.filename,
                 path: response.current_path || item.path,
                 displayPath: response.current_path || item.displayPath,
                 duration: durationSec,
-                inPoint: response.trim_in_ms || 0,
+                inPoint,
                 outPoint: outPoint > 0 ? outPoint : 0,
-                plannedDuration: item.plannedDuration > 0 ? item.plannedDuration : durationSec,
+                plannedDuration: item.plannedDuration > 0 && !isSubclip ? item.plannedDuration : durationSec,
                 complianceRating: meta.ageRating,
                 tp_flag: meta.tpFlag,
                 content_type: meta.contentType,
@@ -1277,9 +1309,11 @@ export const useRundownStore = defineStore('rundown', () => {
                 display_name: response.display_name,
                 virtual_folder: response.virtual_folder,
                 current_path: response.current_path,
-                duration_ms: response.duration_ms,
-                trim_in_ms: response.trim_in_ms,
-                trim_out_ms: response.trim_out_ms,
+                duration_ms: durationMs,
+                durationMs: durationMs,
+                trim_in_ms: inPoint,
+                trim_out_ms: outPoint > 0 ? outPoint : 0,
+                fps: parseFps(response.r_frame_rate),
             };
 
             const newItems = [...playlist.items];
@@ -1309,14 +1343,17 @@ export const useRundownStore = defineStore('rundown', () => {
     if (typeof window !== 'undefined') {
         clockInterval = setInterval(() => {
             clockMs.value = Date.now();
-        }, 1000);
+        }, 5000);
     }
 
     const getItemDurationMs = (item: RundownItem): number => {
         if (item.type === 'gap') return 0;
         if (item.type === 'live') return (item.plannedDuration || item.duration || 0) * 1000;
-        if (item.outPoint > item.inPoint) return item.outPoint - item.inPoint;
-        return (item.plannedDuration || item.duration || 0) * 1000;
+        const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
+        const inMs = item.trim_in_ms ?? item.inPoint ?? 0;
+        const outMs = item.trim_out_ms ?? (item.outPoint > 0 ? item.outPoint : totalMs);
+        if (outMs > inMs && inMs >= 0) return outMs - inMs;
+        return totalMs;
     };
 
     const activeItemsETAs = computed(() => {
