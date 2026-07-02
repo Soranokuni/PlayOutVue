@@ -393,7 +393,6 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
         virtual_folder: asset.virtual_folder,
         current_path: asset.current_path,
         duration_ms: durationMs,
-        durationMs: durationMs,
         trim_in_ms: asset.trim_in_ms,
         trim_out_ms: asset.trim_out_ms,
     };
