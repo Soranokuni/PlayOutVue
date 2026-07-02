@@ -331,7 +331,10 @@ export const useRundownStore = defineStore('rundown', () => {
     let playbackDurationMs = 0;
 
     const startPlaybackProgressTimer = (itemId: string, durationMs: number) => {
-        stopPlaybackProgressTimer();
+        if (playbackInterval) {
+            clearInterval(playbackInterval);
+            playbackInterval = null;
+        }
         activePlayingUuid.value = itemId;
         playbackProgressPct.value = 0;
         playbackCountdownStr.value = formatCountdown(durationMs);
@@ -1158,10 +1161,6 @@ export const useRundownStore = defineStore('rundown', () => {
         });
     };
 
-    /// Identity-keyed on-air selection (plan §3.1). Sets `currentPlayingItemId`
-    /// (the single source for the "playing" row class) and syncs the visible
-    /// `currentPlayingIndex` so ETA ordering stays correct. `uuid` is the stable
-    /// item key (playoutvueId || local id); `null` clears on-air state.
     const currentPlayingItemId = ref<string | null>(null);
     const currentPlayingInstanceId = ref<string | null>(null);
 
