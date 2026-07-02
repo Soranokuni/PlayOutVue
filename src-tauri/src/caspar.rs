@@ -108,7 +108,11 @@ fn resolve_caspar_media_path(path: &str, media_root: &str) -> Result<String, Str
 }
 
 fn normalize_caspar_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    let mut s = path.to_string_lossy().replace('\\', "/");
+    if s.starts_with("//?/") {
+        s = s[4..].to_string();
+    }
+    s
 }
 
 fn is_caspar_safe_path(path: &str) -> bool {
@@ -272,26 +276,121 @@ async fn run_osc_listener<R: Runtime>(
 
                 match rosc::decoder::decode_udp(&buffer[..size]) {
                     Ok((_remainder, packet)) => {
-                        for event in collect_osc_events(packet) {
-                            // Feed the authoritative Rust playback state machine
-                            // for program-layer (layer 10) /file/time packets.
-                            if is_program_file_time_address(&event.address) {
-                                handle_playback_osc(
-                                    &app,
-                                    &playback_state,
-                                    event.position_ms,
-                                    event.duration_ms,
-                                );
-                            }
-                            if let Err(error) = app.emit("caspar-osc", event) {
-                                eprintln!("[CasparCG] Failed to emit OSC event: {}", error);
-                            }
-                        }
+                        process_decoded_packet(&app, packet, &playback_state);
                     }
                     Err(error) => {
                         eprintln!("[CasparCG] Failed to decode OSC packet on {}: {}", bind_addr, error);
                     }
                 }
+            }
+        }
+    }
+}
+
+fn process_decoded_packet<R: Runtime>(
+    app: &AppHandle<R>,
+    packet: OscPacket,
+    playback_state: &Arc<Mutex<PlaybackStateInner>>,
+) {
+    match packet {
+        OscPacket::Message(message) => {
+            let address = message.addr;
+            let args = message.args;
+
+            if is_program_file_path_address(&address) {
+                if let Some(OscType::String(path)) = args.first() {
+                    handle_playback_path_osc(app, playback_state, path);
+                }
+            } else if is_program_file_time_address(&address) {
+                let (position_ms, duration_ms) = parse_timing_payload_from_args(&args);
+                handle_playback_osc(app, playback_state, position_ms, duration_ms);
+            }
+
+            let event = osc_message_to_event_from_raw(address, args);
+            if let Err(error) = app.emit("caspar-osc", event) {
+                eprintln!("[CasparCG] Failed to emit OSC event: {}", error);
+            }
+        }
+        OscPacket::Bundle(bundle) => {
+            for content in bundle.content {
+                process_decoded_packet(app, content, playback_state);
+            }
+        }
+    }
+}
+
+fn osc_message_to_event_from_raw(address: String, args: Vec<OscType>) -> CasparOscEvent {
+    let (position_ms, duration_ms) = parse_timing_payload_from_args(&args);
+
+    CasparOscEvent {
+        address,
+        args: args.iter().map(|arg| format!("{:?}", arg)).collect(),
+        position_ms,
+        duration_ms,
+        received_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis().to_string())
+            .unwrap_or_else(|_| "0".to_string()),
+    }
+}
+
+fn parse_timing_payload_from_args(args: &[OscType]) -> (Option<u64>, Option<u64>) {
+    let seconds = args.iter().filter_map(arg_to_seconds).collect::<Vec<_>>();
+    let position_ms = seconds.first().copied().map(seconds_to_millis);
+    let duration_ms = seconds.get(1).copied().map(seconds_to_millis);
+    (position_ms, duration_ms)
+}
+
+fn normalize_caspar_osc_path(path: &str) -> String {
+    let mut p = path.replace('\\', "/").to_lowercase();
+    if p.starts_with("//?/") {
+        p = p[4..].to_string();
+    }
+    p = p.trim_matches(|c| c == '/' || c == '"' || c == ' ').to_string();
+    if let Some(pos) = p.rfind('.') {
+        let ext = &p[pos + 1..];
+        if ext.len() >= 3 && ext.len() <= 4 {
+            p = p[..pos].to_string();
+        }
+    }
+    p
+}
+
+fn is_program_file_path_address(address: &str) -> bool {
+    let normalized = address.trim();
+    normalized == "/channel/1/stage/layer/10/file/path"
+        || normalized == "/channel/1/stage/layer/10/foreground/file/path"
+}
+
+fn handle_playback_path_osc<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &Arc<Mutex<PlaybackStateInner>>,
+    path: &str,
+) {
+    let mut s = state.lock();
+    if !s.is_playing || s.is_paused {
+        return;
+    }
+
+    let normalized_path = normalize_caspar_osc_path(path);
+    s.current_file_path = normalized_path.clone();
+
+    if let Some(expected) = &s.expected_next_path {
+        let normalized_expected = normalize_caspar_osc_path(expected);
+        if normalized_path == normalized_expected {
+            if !s.transition_triggered {
+                s.transition_triggered = true;
+                s.advance_fired = true; // Sync the advance fired flag to prevent double-trigger
+                s.expected_next_path = None; // Clear the expected next path state to avoid deadlock
+
+                let advance = PlaybackAdvance {
+                    current_uuid: s.current_uuid.clone(),
+                    reason: "osc-path-switch".to_string(),
+                };
+                let app_clone = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = app_clone.emit("caspar://advance", advance);
+                });
             }
         }
     }
@@ -406,10 +505,14 @@ pub struct PlaybackStateInner {
     pub is_paused: bool,
     pub position_ms: u64,
     pub duration_ms: u64,
+    pub expected_out_point_ms: u64,
+    pub current_file_path: String,
+    pub expected_next_path: Option<String>,
     pub last_osc_at_ms: u64,
     pub last_tick_emit_ms: u64,
     pub advance_fired: bool,
     pub stall_emitted: bool,
+    pub transition_triggered: bool,
 }
 
 impl Default for PlaybackStateInner {
@@ -420,10 +523,14 @@ impl Default for PlaybackStateInner {
             is_paused: false,
             position_ms: 0,
             duration_ms: 0,
+            expected_out_point_ms: 0,
+            current_file_path: String::new(),
+            expected_next_path: None,
             last_osc_at_ms: 0,
             last_tick_emit_ms: 0,
             advance_fired: false,
             stall_emitted: false,
+            transition_triggered: false,
         }
     }
 }
@@ -446,15 +553,15 @@ pub fn playback_should_advance(
     is_playing: bool,
     is_paused: bool,
     advance_fired: bool,
-    duration_ms: u64,
+    expected_out_point_ms: u64,
     position_ms: u64,
 ) -> bool {
     is_playing
         && !is_paused
         && !advance_fired
         && position_ms > 0
-        && duration_ms > 0
-        && position_ms >= duration_ms.saturating_sub(ADVANCE_THRESHOLD_MS)
+        && expected_out_point_ms > 0
+        && position_ms >= expected_out_point_ms.saturating_sub(ADVANCE_THRESHOLD_MS)
 }
 
 /// Update playback state from a program-layer `/file/time` OSC message and emit
@@ -476,7 +583,7 @@ fn handle_playback_osc<R: Runtime>(
         s.position_ms = pos;
     }
     if let Some(dur) = duration_ms {
-        if dur > 0 {
+        if dur > 0 && s.duration_ms == 0 {
             s.duration_ms = dur;
         }
     }
@@ -494,25 +601,6 @@ fn handle_playback_osc<R: Runtime>(
         let payload = tick;
         tauri::async_runtime::spawn(async move {
             let _ = app_clone.emit("caspar://playback-tick", payload);
-        });
-    }
-
-    // Single advance decision (OSC EOF threshold).
-    if playback_should_advance(
-        s.is_playing,
-        s.is_paused,
-        s.advance_fired,
-        s.duration_ms,
-        s.position_ms,
-    ) {
-        s.advance_fired = true;
-        let advance = PlaybackAdvance {
-            current_uuid: s.current_uuid.clone(),
-            reason: "osc-eof".to_string(),
-        };
-        let app_clone = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let _ = app_clone.emit("caspar://advance", advance);
         });
     }
 }
@@ -539,6 +627,7 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                 let mut advance_reason = None;
                 if gap >= 1500 {
                     s.advance_fired = true;
+                    s.transition_triggered = true;
                     advance_reason = Some("eof-watchdog".to_string());
                 } else if gap >= PLAYBACK_WATCHDOG_MS {
                     if !s.stall_emitted {
@@ -547,10 +636,11 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     }
                     // Deadline fallback: once stalled, advance when the estimated
                     // remaining playback time (from last known position) elapses.
-                    let remaining = s.duration_ms.saturating_sub(s.position_ms);
+                    let remaining = s.expected_out_point_ms.saturating_sub(s.position_ms);
                     let deadline = s.last_osc_at_ms.saturating_add(remaining);
                     if now >= deadline {
                         s.advance_fired = true;
+                        s.transition_triggered = true;
                         advance_reason = Some("watchdog-deadline".to_string());
                     }
                 }
@@ -589,6 +679,9 @@ pub fn spawn_playback_watchdog<R: Runtime>(
 pub async fn caspar_register_playback(
     uuid: String,
     duration_ms: u64,
+    expected_out_point_ms: u64,
+    current_path: String,
+    next_path: Option<String>,
     state: State<'_, CasparPlaybackState>,
 ) -> Result<(), String> {
     let mut s = state.0.lock();
@@ -597,10 +690,14 @@ pub async fn caspar_register_playback(
     s.is_paused = false;
     s.position_ms = 0;
     s.duration_ms = duration_ms;
+    s.expected_out_point_ms = expected_out_point_ms;
+    s.current_file_path = current_path;
+    s.expected_next_path = next_path;
     s.last_osc_at_ms = now_ms();
     s.last_tick_emit_ms = 0;
     s.advance_fired = false;
     s.stall_emitted = false;
+    s.transition_triggered = false;
     Ok(())
 }
 
@@ -632,8 +729,12 @@ pub async fn caspar_clear_playback(state: State<'_, CasparPlaybackState>) -> Res
     s.is_paused = false;
     s.position_ms = 0;
     s.duration_ms = 0;
+    s.expected_out_point_ms = 0;
+    s.current_file_path = String::new();
+    s.expected_next_path = None;
     s.advance_fired = false;
     s.stall_emitted = false;
+    s.transition_triggered = false;
     Ok(())
 }
 
