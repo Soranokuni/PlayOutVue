@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import { ref } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useRundownStore, type ComplianceRating, type IngestorStatus } from '../stores/rundown';
@@ -887,6 +887,9 @@ async function playItemAt(index: number, token: number) {
                 scope: 'caspar-playout',
                 message: `Halting playout: ${MAX_CONSECUTIVE_SKIPS} consecutive playout errors reached.`
             }).catch(() => {});
+            emit('playout://halted', { consecutiveSkips }).catch((e) => {
+                console.warn('[CasparCG] Failed to emit playout://halted event', e);
+            });
             await casparPlayoutService.stop();
             return;
         }
@@ -948,7 +951,19 @@ async function advanceToNext(token: number, natural: boolean) {
             try {
                 assertIngestorReady(nextItem);
                 const key = queueKey(nextItem);
-                const { effectiveDuration, expectedOutPointMs } = computePlaybackDeadline(nextItem);
+
+                let resolvedDuration = itemDurationMs(nextItem);
+                if (resolvedDuration <= 0) {
+                    resolvedDuration = await waitForDurationResolution(nextItem, 3000);
+                }
+
+                let effectiveDuration = 0;
+                let expectedOutPointMs = 0;
+                if (resolvedDuration > 0) {
+                    const deadline = computePlaybackDeadline(nextItem);
+                    effectiveDuration = deadline.effectiveDuration;
+                    expectedOutPointMs = deadline.expectedOutPointMs;
+                }
 
                 currentKey = key;
                 onAdvanceCallback?.(key);
@@ -957,28 +972,30 @@ async function advanceToNext(token: number, natural: boolean) {
                 const store = useRundownStore();
                 updateDisplayedTime(nextItem.inPoint || 0);
 
-                store.startPlaybackProgressTimer(nextItem.id, effectiveDuration);
+                if (effectiveDuration > 0) {
+                    store.startPlaybackProgressTimer(nextItem.id, effectiveDuration);
 
-                // Prepare paths for registration
-                const nextItemRawPath = nextItem.path || nextItem.shortPath;
-                const nextItemPath = (await prepareCasparMediaPath(nextItemRawPath)).replace(/\\/g, '/').replace(/"/g, '');
+                    // Prepare paths for registration
+                    const nextItemRawPath = nextItem.path || nextItem.shortPath;
+                    const nextItemPath = (await prepareCasparMediaPath(nextItemRawPath)).replace(/\\/g, '/').replace(/"/g, '');
 
-                const nextNextItem = queuedItems[nextIndex + 1];
-                let nextNextPath: string | null = null;
-                if (nextNextItem && nextNextItem.type === 'video') {
-                    const nextNextRawPath = nextNextItem.path || nextNextItem.shortPath;
-                    nextNextPath = (await prepareCasparMediaPath(nextNextRawPath)).replace(/\\/g, '/').replace(/"/g, '');
+                    const nextNextItem = queuedItems[nextIndex + 1];
+                    let nextNextPath: string | null = null;
+                    if (nextNextItem && nextNextItem.type === 'video') {
+                        const nextNextRawPath = nextNextItem.path || nextNextItem.shortPath;
+                        nextNextPath = (await prepareCasparMediaPath(nextNextRawPath)).replace(/\\/g, '/').replace(/"/g, '');
+                    }
+
+                    await invoke('caspar_register_playback', {
+                        uuid: key,
+                        durationMs: effectiveDuration,
+                        expectedOutPointMs: expectedOutPointMs,
+                        currentPath: nextItemPath,
+                        nextPath: nextNextPath
+                    }).catch((e: any) => {
+                        console.warn('[CasparCG] Failed to register playback on natural advance', e);
+                    });
                 }
-
-                await invoke('caspar_register_playback', {
-                    uuid: key,
-                    durationMs: effectiveDuration,
-                    expectedOutPointMs: expectedOutPointMs,
-                    currentPath: nextItemPath,
-                    nextPath: nextNextPath
-                }).catch((e: any) => {
-                    console.warn('[CasparCG] Failed to register playback on natural advance', e);
-                });
 
                 await preloadNextItemAt(nextIndex + 1);
 

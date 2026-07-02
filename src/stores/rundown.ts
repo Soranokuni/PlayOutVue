@@ -36,7 +36,6 @@ export interface RundownItem {
     virtual_folder?: string;
     current_path?: string;
     duration_ms?: number;
-    durationMs?: number;
     trim_in_ms?: number;
     trim_out_ms?: number;
     tp_flag?: boolean;
@@ -516,9 +515,17 @@ export const useRundownStore = defineStore('rundown', () => {
             current_path: (item as any).current_path || item.path || '',
             duration_ms: (item as any).duration_ms || (item.duration ? item.duration * 1000 : 0),
             trim_in_ms: (item as any).trim_in_ms !== undefined ? (item as any).trim_in_ms : inPoint,
-            trim_out_ms: (item as any).trim_out_ms !== undefined 
-                ? (item as any).trim_out_ms 
-                : (outPoint > 0 ? outPoint : 0),
+            trim_out_ms: (() => {
+                // INVARIANT: trim_out_ms and outPoint must both be absolute ms positions from clip start.
+                // Never store a duration-relative delta in either field.
+                const val = (item as any).trim_out_ms !== undefined 
+                    ? (item as any).trim_out_ms 
+                    : (outPoint > 0 ? outPoint : 0);
+                if (val !== undefined && val < 0) {
+                    console.error("[Invariant Violation] trim_out_ms cannot be negative:", val, item);
+                }
+                return val;
+            })(),
             tp_flag: (item as any).tp_flag || false,
             content_type: (item as any).content_type || 'none',
         };
@@ -570,7 +577,6 @@ export const useRundownStore = defineStore('rundown', () => {
             virtual_folder: item.virtual_folder || '',
             current_path: item.current_path || item.path || '',
             duration_ms: item.duration_ms || (duration * 1000),
-            durationMs: item.durationMs || item.duration_ms || (duration * 1000),
             trim_in_ms: item.trim_in_ms || inPoint,
             trim_out_ms: item.trim_out_ms !== undefined 
                 ? item.trim_out_ms 
@@ -783,9 +789,17 @@ export const useRundownStore = defineStore('rundown', () => {
             current_path: updates.current_path !== undefined ? updates.current_path : (updates.path !== undefined ? updates.path : existing.current_path),
             duration_ms: updates.duration_ms !== undefined ? updates.duration_ms : (updates.duration !== undefined ? updates.duration * 1000 : existing.duration_ms),
             trim_in_ms: updates.trim_in_ms !== undefined ? updates.trim_in_ms : (updates.inPoint !== undefined ? updates.inPoint : existing.trim_in_ms),
-            trim_out_ms: updates.trim_out_ms !== undefined 
-                ? updates.trim_out_ms 
-                : (updates.outPoint !== undefined ? updates.outPoint : existing.trim_out_ms),
+            trim_out_ms: (() => {
+                // INVARIANT: trim_out_ms and outPoint must both be absolute ms positions from clip start.
+                // Never store a duration-relative delta in either field.
+                const val = updates.trim_out_ms !== undefined 
+                    ? updates.trim_out_ms 
+                    : (updates.outPoint !== undefined ? updates.outPoint : existing.trim_out_ms);
+                if (val !== undefined && val < 0) {
+                    console.error("[Invariant Violation] trim_out_ms cannot be negative:", val, updates);
+                }
+                return val;
+            })(),
         } as RundownItem;
         triggerNuclearReactivity(playlist.id, newItems);
     };
@@ -975,7 +989,6 @@ export const useRundownStore = defineStore('rundown', () => {
                                  virtual_folder: asset.virtual_folder,
                                  current_path: asset.current_path,
                                  duration_ms: durationMs,
-                                 durationMs: durationMs,
                                  trim_in_ms: inPoint,
                                  trim_out_ms: outPoint > 0 ? outPoint : 0,
                                  fps: parseFps(asset.r_frame_rate),
@@ -1056,7 +1069,6 @@ export const useRundownStore = defineStore('rundown', () => {
                     newItem.inPoint = trimInMs;
                     newItem.outPoint = trimOutMs;
                     newItem.duration_ms = calculatedDuration;
-                    (newItem as any).durationMs = calculatedDuration;
                     changed = true;
                 } else {
                     const duration = Number(match.duration || 0);
@@ -1312,7 +1324,6 @@ export const useRundownStore = defineStore('rundown', () => {
                 virtual_folder: response.virtual_folder,
                 current_path: response.current_path,
                 duration_ms: durationMs,
-                durationMs: durationMs,
                 trim_in_ms: inPoint,
                 trim_out_ms: outPoint > 0 ? outPoint : 0,
                 fps: parseFps(response.r_frame_rate),

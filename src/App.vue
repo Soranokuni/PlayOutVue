@@ -22,7 +22,9 @@ const isSdiActive  = ref(false);
 const showSettings = ref(false);
 const showDiagnostics = ref(false);
 const ingestorStatus = useIngestorStatusStore();
+const playoutHalted = ref(false);
 let unlistenHeartbeat: (() => void) | null = null;
+let unlistenHalted: (() => void) | null = null;
 
 // Performance / Jank Monitor
 let jankFrameId: number | null = null;
@@ -268,7 +270,6 @@ const toggleSdi = async () => {
 const cutToLive = async () => {
   await getActivePlayoutService().cutToLive?.();
 };
-
 onMounted(async () => {
   window.addEventListener('pointerdown', handleGlobalPointerDown);
   try {
@@ -283,6 +284,13 @@ onMounted(async () => {
     );
   } catch (err) {
     console.error('[Heartbeat] Failed to listen to heartbeat events:', err);
+  }
+  try {
+    unlistenHalted = await listen('playout://halted', () => {
+      playoutHalted.value = true;
+    });
+  } catch (err) {
+    console.error('[Playout] Failed to listen to playout://halted event:', err);
   }
   if (settings.debugMode) {
     startJankMonitor();
@@ -305,6 +313,10 @@ onUnmounted(() => {
     unlistenHeartbeat();
     unlistenHeartbeat = null;
   }
+  if (unlistenHalted) {
+    unlistenHalted();
+    unlistenHalted = null;
+  }
   stopJankMonitor();
 });
 </script>
@@ -316,6 +328,14 @@ onUnmounted(() => {
     '--right-resizer-w': showRightPanel ? '8px' : '0px',
     cursor: isResizing ? 'ew-resize' : 'default'
   }">
+    <!-- Persistent Playout Halted Banner -->
+    <div v-if="playoutHalted" class="halt-banner">
+      <div class="halt-content">
+        <span class="halt-icon">⚠️</span>
+        <span class="halt-text">Playout halted after 3 consecutive errors — operator intervention required.</span>
+      </div>
+      <button class="halt-dismiss-btn" @click="playoutHalted = false">Dismiss</button>
+    </div>
     
     <aside class="panel panel-library glass-panel"><MediaLibrary /></aside>
     <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = 260"></div>
@@ -759,5 +779,81 @@ onUnmounted(() => {
     left:0;
     width:min(380px, calc(100vw - 24px));
   }
+}
+
+.halt-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: rgba(230, 57, 70, 0.15);
+  border: 1px solid rgba(230, 57, 70, 0.45);
+  backdrop-filter: blur(12px);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(230, 57, 70, 0.2), 0 0 1px 1px rgba(230, 57, 70, 0.3) inset;
+  color: #fff;
+  font-family: Inter, system-ui, sans-serif;
+  animation: slideDownFade 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.halt-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.halt-icon {
+  font-size: 1.15rem;
+  animation: pulseWarning 1.5s infinite ease-in-out;
+}
+
+.halt-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.halt-dismiss-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.halt-dismiss-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.halt-dismiss-btn:active {
+  transform: scale(0.95);
+}
+
+@keyframes slideDownFade {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes pulseWarning {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); filter: drop-shadow(0 0 6px rgba(230, 57, 70, 0.8)); }
 }
 </style>
