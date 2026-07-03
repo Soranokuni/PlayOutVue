@@ -517,7 +517,7 @@ impl Default for PlaybackStateInner {
             is_paused: false,
             position_ms: 0,
             duration_ms: 0,
-            expected_out_point_ms: 0,
+            expected_out_point_ms: u64::MAX,
             current_file_path: String::new(),
             expected_next_path: None,
             last_osc_at_ms: 0,
@@ -770,7 +770,7 @@ pub async fn caspar_clear_playback(state: State<'_, CasparPlaybackState>) -> Res
     s.is_paused = false;
     s.position_ms = 0;
     s.duration_ms = 0;
-    s.expected_out_point_ms = 0;
+    s.expected_out_point_ms = u64::MAX;
     s.current_file_path = String::new();
     s.expected_next_path = None;
     s.advance_fired = false;

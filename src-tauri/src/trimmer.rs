@@ -138,17 +138,19 @@ pub async fn compute_frame_trim(
     let in_ms = trim_in_ms.clamp(0, total_dur);
 
     // Default trim_out_ms to total duration if <= 0 or > duration_ms
-    let out_ms = if trim_out_ms <= 0 || trim_out_ms > total_dur {
+    let mut out_ms = if trim_out_ms <= 0 || trim_out_ms > total_dur {
         total_dur
     } else {
         trim_out_ms
     };
 
     if out_ms <= in_ms {
-        return Err(format!(
-            "Invalid trim range: OUT point ({}) must be greater than IN point ({})",
-            out_ms, in_ms
-        ));
+        let mut clamped_out = (in_ms + 2000).min(total_dur);
+        if clamped_out <= in_ms {
+            clamped_out = total_dur;
+        }
+        tracing::warn!("Degenerate trim [{},{}] for {}, clamping out to {}", in_ms, out_ms, path, clamped_out);
+        out_ms = clamped_out;
     }
 
     // Convert milliseconds to frame counts
