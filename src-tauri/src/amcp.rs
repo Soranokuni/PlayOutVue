@@ -324,6 +324,47 @@ pub fn clear_layer_cmd(channel: u8, layer: u16) -> String {
     format!("CLEAR {}-{}", channel, layer)
 }
 
+/// Build a `LOADBG <ch>-<layer> "path" SEEK X LENGTH Y AUTO` command.
+/// If `in_frame` or `out_frame` are greater than 0, format it with ` SEEK [in_frame] LENGTH [out_frame - in_frame]`.
+/// If `auto` is true, append ` AUTO`.
+#[allow(dead_code)]
+pub fn loadbg_cmd(
+    channel: u8,
+    layer: u16,
+    path: &str,
+    in_frame: u32,
+    out_frame: u32,
+    auto: bool,
+) -> String {
+    let mut cmd = format!("LOADBG {}-{} \"{}\"", channel, layer, path);
+    if in_frame > 0 || out_frame > 0 {
+        let length = out_frame.saturating_sub(in_frame);
+        cmd.push_str(&format!(" SEEK {} LENGTH {}", in_frame, length));
+    }
+    if auto {
+        cmd.push_str(" AUTO");
+    }
+    cmd
+}
+
+/// Build a `PLAY <ch>-<layer> "path" SEEK X LENGTH Y` command for trimmed files,
+/// fallbacking to a simple `PLAY channel-layer "path"` if no trim is applied.
+#[allow(dead_code)]
+pub fn play_trimmed_cmd(
+    channel: u8,
+    layer: u16,
+    path: &str,
+    in_frame: u32,
+    out_frame: u32,
+) -> String {
+    let mut cmd = format!("PLAY {}-{} \"{}\"", channel, layer, path);
+    if in_frame > 0 || out_frame > 0 {
+        let length = out_frame.saturating_sub(in_frame);
+        cmd.push_str(&format!(" SEEK {} LENGTH {}", in_frame, length));
+    }
+    cmd
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,5 +479,37 @@ mod tests {
             let cmd = cg_add_cmd(PROGRAM_CHANNEL, 33, 1, "playout/crawl", true, &json);
             assert!(cmd.starts_with("CG 1-33 ADD 1 \"playout/crawl\" 1 \""));
         }
+    }
+
+    #[test]
+    fn test_loadbg_cmd_formats() {
+        assert_eq!(
+            loadbg_cmd(1, 10, "media/clip", 0, 0, false),
+            "LOADBG 1-10 \"media/clip\""
+        );
+        assert_eq!(
+            loadbg_cmd(1, 10, "media/clip", 100, 250, false),
+            "LOADBG 1-10 \"media/clip\" SEEK 100 LENGTH 150"
+        );
+        assert_eq!(
+            loadbg_cmd(1, 10, "media/clip", 0, 0, true),
+            "LOADBG 1-10 \"media/clip\" AUTO"
+        );
+        assert_eq!(
+            loadbg_cmd(1, 10, "media/clip", 100, 250, true),
+            "LOADBG 1-10 \"media/clip\" SEEK 100 LENGTH 150 AUTO"
+        );
+    }
+
+    #[test]
+    fn test_play_trimmed_cmd_formats() {
+        assert_eq!(
+            play_trimmed_cmd(1, 10, "media/clip", 0, 0),
+            "PLAY 1-10 \"media/clip\""
+        );
+        assert_eq!(
+            play_trimmed_cmd(1, 10, "media/clip", 100, 250),
+            "PLAY 1-10 \"media/clip\" SEEK 100 LENGTH 150"
+        );
     }
 }

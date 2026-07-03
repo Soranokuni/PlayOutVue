@@ -103,3 +103,69 @@ pub async fn get_media_preview_info<R: Runtime>(
 
     Ok((duration_ms, frame_count, preview_uri))
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct FrameTrimResult {
+    pub in_frame: u32,
+    pub out_frame: u32,
+    pub duration_frames: u32,
+    pub fps_rational: String,
+}
+
+#[tauri::command]
+pub async fn compute_frame_trim(
+    path: String,
+    trim_in_ms: i64,
+    trim_out_ms: i64,
+    db_state: State<'_, crate::scanner::DbState>,
+) -> Result<FrameTrimResult, String> {
+    let entry = db_state
+        .0
+        .get_entry(&path)
+        .ok_or_else(|| format!("Asset not found in database: {}", path))?;
+
+    if entry.fps_num <= 0 || entry.fps_den <= 0 {
+        return Err(format!(
+            "Invalid frame rate for asset: {}/{}",
+            entry.fps_num, entry.fps_den
+        ));
+    }
+
+    let fps = entry.fps_num as f64 / entry.fps_den as f64;
+    let total_dur = if entry.duration_ms < 0 { 0 } else { entry.duration_ms };
+
+    // Clamp trim_in_ms between 0 and duration_ms
+    let in_ms = trim_in_ms.clamp(0, total_dur);
+
+    // Default trim_out_ms to total duration if <= 0 or > duration_ms
+    let out_ms = if trim_out_ms <= 0 || trim_out_ms > total_dur {
+        total_dur
+    } else {
+        trim_out_ms
+    };
+
+    if out_ms <= in_ms {
+        return Err(format!(
+            "Invalid trim range: OUT point ({}) must be greater than IN point ({})",
+            out_ms, in_ms
+        ));
+    }
+
+    // Convert milliseconds to frame counts
+    let in_frame = ((in_ms as f64 / 1000.0) * fps).floor() as u32;
+    let out_frame_raw = ((out_ms as f64 / 1000.0) * fps).ceil() as u32;
+    let total_frames = ((total_dur as f64 / 1000.0) * fps).round() as u32;
+
+    // Ensure out_frame is capped at the calculated absolute total frame count of the file
+    let out_frame = std::cmp::min(out_frame_raw, total_frames);
+
+    let duration_frames = out_frame.saturating_sub(in_frame);
+
+    Ok(FrameTrimResult {
+        in_frame,
+        out_frame,
+        duration_frames,
+        fps_rational: format!("{}/{}", entry.fps_num, entry.fps_den),
+    })
+}
+

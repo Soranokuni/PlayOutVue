@@ -43,6 +43,8 @@ export interface RundownItem {
     content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
     timeline?: Array<{ start: number; end: number; text: string }>;
     fps?: number;
+    fps_num?: number;
+    fps_den?: number;
     mezzanine_ok?: boolean;
     total_frames?: number;
     gop_frames?: number;
@@ -647,6 +649,8 @@ export const useRundownStore = defineStore('rundown', () => {
             timeline: item.timeline || [],
             mezzanine_ok: item.mezzanine_ok,
             fps: item.fps,
+            fps_num: item.fps_num,
+            fps_den: item.fps_den,
             total_frames: item.total_frames,
             gop_frames: item.gop_frames,
             keyframe_safe_start_ms: item.keyframe_safe_start_ms,

@@ -4,6 +4,9 @@ import { ref } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useRundownStore, type ComplianceRating, type IngestorStatus } from '../stores/rundown';
 import type { PlayoutAdvanceCallback, PlayoutItem, PlayoutService } from './playout';
+import { hydrateItem } from '../lib/rundownHydrator';
+import { dispatchPlay, dispatchLoadbg, type FrameTrimResult } from '../lib/playoutDispatch';
+import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
 
 export const playStartTime = ref(0);
 export const playStartIndex = ref(0);
@@ -229,6 +232,7 @@ const prepareCasparMediaPath = async (rawPath: string) => {
 };
 
 const disposeFeedbackListener = async () => {
+    stopEndGuard();
     if (feedbackUnlisten) {
         try { feedbackUnlisten(); } catch (error) { console.warn('[CasparCG] Failed to detach OSC listener', error); }
         feedbackUnlisten = null;
@@ -616,39 +620,6 @@ const sendRawCommandCore = async (cmd: string) => {
     return invoke<string>('caspar_send_command', { cmd });
 };
 
-interface GuardState {
-  lastPositionMs: number;
-  lastTickAt: number;
-  stalledTicks: number;
-}
-
-const guards = new Map<string, GuardState>();
-
-function onPlaybackTick(itemId: string, positionMs: number, effectiveDuration: number, playStartedAt: number) {
-  const now = Date.now();
-  const g = guards.get(itemId) ?? { lastPositionMs: -1, lastTickAt: now, stalledTicks: 0 };
-
-  const moved = Math.abs(positionMs - g.lastPositionMs) > 40; // ~1 frame @25fps
-  g.stalledTicks = moved ? 0 : g.stalledTicks + 1;
-  g.lastPositionMs = positionMs;
-  g.lastTickAt = now;
-  guards.set(itemId, g);
-
-  const overtime = now - playStartedAt > effectiveDuration * 1.2;
-  const stalled = g.stalledTicks >= 5; // ~5 consecutive stale ticks
-
-  if (overtime && stalled) {
-    console.warn('[EndGuard] Playout stalled overtime! Forcing advance next.', { itemId, positionMs, effectiveDuration });
-    invoke('push_diagnostic_log', {
-        level: 'warn',
-        scope: 'caspar-playout',
-        message: `JS end guard triggered: item ${itemId} stalled at ${positionMs}ms (duration ${effectiveDuration}ms)`
-    }).catch(() => {});
-    advanceNext(false).catch((e) => console.error(e));
-    guards.delete(itemId);
-  }
-}
-
 /// Subscribe to the Rust-authoritative playback events (plan §2.1/§2.4).
 /// `caspar://playback-tick` drives the single clock; `caspar://advance` drives
 /// the single advance decision. The legacy per-OSC `caspar-osc` JS advance logic
@@ -660,25 +631,22 @@ const ensureFeedbackListener = async () => {
         // Start the Rust OSC listener (configures UDP port + watchdog).
         await invoke<number>('configure_caspar_osc_listener', { port: getConfiguredOscPort() });
 
+        await initEndGuard((itemId) => {
+            console.warn('[EndGuard Callback] Playout stalled overtime! Forcing advance next.', itemId);
+            invoke('push_diagnostic_log', {
+                level: 'warn',
+                scope: 'caspar-playout',
+                message: `JS end guard triggered: item ${itemId} stalled`
+            }).catch(() => {});
+            advanceNext(false).catch((e) => console.error(e));
+        });
+
         if (!tickUnlisten) {
             tickUnlisten = await listen<PlaybackTickPayload>('caspar://playback-tick', (event) => {
                 const { positionMs, durationMs } = event.payload;
                 updateDisplayedTime(positionMs);
                 if (durationMs > 0) {
                     currentCasparDurationMs.value = durationMs;
-                }
-
-                // JS-side end-guard for "hangs on a frame but says PLAYING"
-                if (isCasparPlaying.value && currentKey) {
-                    const currentIndex = queuedItems.findIndex((it) => queueKey(it) === currentKey);
-                    const currentItem = currentIndex !== -1 ? queuedItems[currentIndex] : null;
-                    if (currentItem && currentItem.type === 'video') {
-                        const deadline = computePlaybackDeadline(currentItem);
-                        const effectiveDuration = deadline.effectiveDuration;
-                        if (effectiveDuration > 0) {
-                            onPlaybackTick(currentItem.id, positionMs, effectiveDuration, playStartTime.value);
-                        }
-                    }
                 }
             });
         }
@@ -803,12 +771,20 @@ async function preloadNextItemAt(index: number, retriesLeft = 3) {
     }
 
     try {
-        const rawPath = item.path || item.shortPath;
-        const path = await prepareCasparMediaPath(rawPath);
-        const formattedPath = path.replace(/\\/g, '/').replace(/"/g, '');
-        const options = buildClipOptions(item);
-        const cmd = `LOADBG ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video} "${formattedPath}" ${options} AUTO`.trim();
-        await sendRawCommand(cmd);
+        const rawItem = {
+            id: item.id,
+            path: item.path || item.shortPath,
+            playoutvue_id: item.playoutvueId || item.id,
+            duration_ms: item.duration_ms || (item.duration * 1000) || 0,
+            trim_in_ms: item.trim_in_ms ?? 0,
+            trim_out_ms: item.trim_out_ms ?? 0,
+            fps_num: item.fps_num ?? 0,
+            fps_den: item.fps_den ?? 0,
+            fps: item.fps,
+            mezzanine_ok: item.mezzanine_ok
+        };
+        const hydrated = hydrateItem(rawItem);
+        await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video);
     } catch (error) {
         console.warn('[CasparCG] Failed to preload next item', item.filename, error);
     }
@@ -847,7 +823,7 @@ async function playItemAt(index: number, token: number) {
             if (!liveCommand) {
                 throw new Error('No CasparCG live source configured. Set a Live Input Source in Settings.');
             }
-            guards.clear();
+            activeGuard.clear();
             playStartTime.value = Date.now();
             await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
             await sendRawCommand(liveCommand);
@@ -872,54 +848,58 @@ async function playItemAt(index: number, token: number) {
             return;
         }
 
-        currentCasparDurationMs.value = durationMs;
-        
-        // Prepare current path
-        const currentRawPath = item.path || item.shortPath;
-        const currentPath = (await prepareCasparMediaPath(currentRawPath)).replace(/\\/g, '/').replace(/"/g, '');
-
-        // Prepare next path
         const nextItem = queuedItems[index + 1];
         let nextPath: string | null = null;
         if (nextItem && nextItem.type === 'video') {
             const nextRawPath = nextItem.path || nextItem.shortPath;
-            nextPath = (await prepareCasparMediaPath(nextRawPath)).replace(/\\/g, '/').replace(/"/g, '');
+            try {
+                const settings = useSettingsStore();
+                nextPath = await invoke<string>('prepare_caspar_media_path', {
+                    path: nextRawPath,
+                    mediaRoot: settings.localMediaPath || ''
+                });
+                nextPath = nextPath.replace(/\\/g, '/').replace(/"/g, '');
+            } catch (e) {
+                console.warn('[CasparCG] Failed to prepare next path:', e);
+                nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');
+            }
         }
 
-        guards.clear();
+        activeGuard.clear();
         playStartTime.value = Date.now();
-        await sendRawCommand(await buildPlayVideoCommand(item));
+
+        // Hydrate the item
+        const rawItem = {
+            id: item.id,
+            path: item.path || item.shortPath,
+            playoutvue_id: item.playoutvueId || item.id,
+            duration_ms: item.duration_ms || (item.duration * 1000) || 0,
+            trim_in_ms: item.trim_in_ms ?? 0,
+            trim_out_ms: item.trim_out_ms ?? 0,
+            fps_num: item.fps_num ?? 0,
+            fps_den: item.fps_den ?? 0,
+            fps: item.fps,
+            mezzanine_ok: item.mezzanine_ok
+        };
+        const hydrated = hydrateItem(rawItem);
+
+        // Dispatch frame-accurate trim PLAY and register playback
+        const dispatchResult = await dispatchPlay(
+            hydrated,
+            PROGRAM_CHANNEL,
+            CASPAR_LAYERS.video,
+            nextPath
+        );
+
         isCasparPlaying.value = true;
         consecutiveSkips = 0;
-        updateDisplayedTime(item.inPoint || 0);
+        updateDisplayedTime(hydrated.trim_in_ms || 0);
+        currentCasparDurationMs.value = dispatchResult.durationMs;
 
-        let resolvedDuration = durationMs;
-        if (resolvedDuration <= 0) {
-            resolvedDuration = await waitForDurationResolution(item, 3000);
-        }
+        // Register play start with our end-guard
+        registerPlayStart(hydrated.id, dispatchResult.durationMs);
 
-        let effectiveDuration = 0;
-        let expectedOutPointMs = 0;
-        if (resolvedDuration > 0) {
-            const deadline = computePlaybackDeadline(item);
-            effectiveDuration = deadline.effectiveDuration;
-            expectedOutPointMs = deadline.expectedOutPointMs;
-        }
-
-        if (effectiveDuration > 0) {
-            store.startPlaybackProgressTimer(item.id, effectiveDuration);
-
-            // Register with Rust so the OSC-authoritative state machine owns advance.
-            await invoke('caspar_register_playback', {
-                uuid: key,
-                durationMs: effectiveDuration,
-                expectedOutPointMs: expectedOutPointMs,
-                currentPath: currentPath,
-                nextPath: nextPath
-            }).catch((e: any) => {
-                console.warn('[CasparCG] Failed to register playback', e);
-            });
-        }
+        store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs);
 
         // Preload next item immediately
         await preloadNextItemAt(index + 1);
@@ -1025,52 +1005,76 @@ async function advanceToNext(token: number, natural: boolean) {
                 assertIngestorReady(nextItem);
                 const key = queueKey(nextItem);
 
-                let resolvedDuration = itemDurationMs(nextItem);
-                if (resolvedDuration <= 0) {
-                    resolvedDuration = await waitForDurationResolution(nextItem, 3000);
-                }
+                // Hydrate the next item
+                const rawItem = {
+                    id: nextItem.id,
+                    path: nextItem.path || nextItem.shortPath,
+                    playoutvue_id: nextItem.playoutvueId || nextItem.id,
+                    duration_ms: nextItem.duration_ms || (nextItem.duration * 1000) || 0,
+                    trim_in_ms: nextItem.trim_in_ms ?? 0,
+                    trim_out_ms: nextItem.trim_out_ms ?? 0,
+                    fps_num: nextItem.fps_num ?? 0,
+                    fps_den: nextItem.fps_den ?? 0,
+                    fps: nextItem.fps,
+                    mezzanine_ok: nextItem.mezzanine_ok
+                };
+                const hydrated = hydrateItem(rawItem);
 
-                let effectiveDuration = 0;
-                let expectedOutPointMs = 0;
-                if (resolvedDuration > 0) {
-                    const deadline = computePlaybackDeadline(nextItem);
-                    effectiveDuration = deadline.effectiveDuration;
-                    expectedOutPointMs = deadline.expectedOutPointMs;
-                }
+                // Call compute_frame_trim to get frame-accurate values
+                const trim = await invoke<FrameTrimResult>('compute_frame_trim', {
+                    path: hydrated.path,
+                    trimInMs: hydrated.trim_in_ms,
+                    trimOutMs: hydrated.trim_out_ms
+                });
+
+                // Calculate precise expected duration and expected out point
+                const durationMs = Math.round((trim.duration_frames / (hydrated.fps_num / hydrated.fps_den)) * 1000);
+                const expectedOutMs = hydrated.trim_in_ms + durationMs;
 
                 currentKey = key;
                 onAdvanceCallback?.(key);
                 await casparPlayoutService.applyComplianceForItem?.(nextItem);
 
                 const store = useRundownStore();
-                updateDisplayedTime(nextItem.inPoint || 0);
+                updateDisplayedTime(hydrated.trim_in_ms || 0);
 
-                guards.clear();
+                activeGuard.clear();
                 playStartTime.value = Date.now();
-                if (effectiveDuration > 0) {
-                    store.startPlaybackProgressTimer(nextItem.id, effectiveDuration);
 
-                    // Prepare paths for registration
-                    const nextItemRawPath = nextItem.path || nextItem.shortPath;
-                    const nextItemPath = (await prepareCasparMediaPath(nextItemRawPath)).replace(/\\/g, '/').replace(/"/g, '');
+                // Prepare paths for registration
+                const nextItemPath = (await prepareCasparMediaPath(hydrated.path)).replace(/\\/g, '/').replace(/"/g, '');
 
-                    const nextNextItem = queuedItems[nextIndex + 1];
-                    let nextNextPath: string | null = null;
-                    if (nextNextItem && nextNextItem.type === 'video') {
-                        const nextNextRawPath = nextNextItem.path || nextNextItem.shortPath;
-                        nextNextPath = (await prepareCasparMediaPath(nextNextRawPath)).replace(/\\/g, '/').replace(/"/g, '');
+                const nextNextItem = queuedItems[nextIndex + 1];
+                let nextNextPath: string | null = null;
+                if (nextNextItem && nextNextItem.type === 'video') {
+                    const nextNextRawPath = nextNextItem.path || nextNextItem.shortPath;
+                    try {
+                        const settings = useSettingsStore();
+                        nextNextPath = await invoke<string>('prepare_caspar_media_path', {
+                            path: nextNextRawPath,
+                            mediaRoot: settings.localMediaPath || ''
+                        });
+                        nextNextPath = nextNextPath.replace(/\\/g, '/').replace(/"/g, '');
+                    } catch (e) {
+                        nextNextPath = nextNextRawPath.replace(/\\/g, '/').replace(/"/g, '');
                     }
-
-                    await invoke('caspar_register_playback', {
-                        uuid: key,
-                        durationMs: effectiveDuration,
-                        expectedOutPointMs: expectedOutPointMs,
-                        currentPath: nextItemPath,
-                        nextPath: nextNextPath
-                    }).catch((e: any) => {
-                        console.warn('[CasparCG] Failed to register playback on natural advance', e);
-                    });
                 }
+
+                // Register with our end-guard
+                registerPlayStart(hydrated.id, durationMs);
+
+                store.startPlaybackProgressTimer(hydrated.id, durationMs);
+
+                // Register playback with Rust backend watchdog
+                await invoke('caspar_register_playback', {
+                    uuid: key,
+                    durationMs: durationMs,
+                    expectedOutPointMs: expectedOutMs,
+                    currentPath: nextItemPath,
+                    nextPath: nextNextPath
+                }).catch((e: any) => {
+                    console.warn('[CasparCG] Failed to register playback on natural advance', e);
+                });
 
                 await preloadNextItemAt(nextIndex + 1);
 

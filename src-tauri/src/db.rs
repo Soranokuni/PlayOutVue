@@ -156,6 +156,42 @@ impl MediaDb {
         }).ok().flatten()
     }
 
+    /// Looks up a cached entry directly from the database by path,
+    /// without checking the physical file identity or existence on disk.
+    pub fn get_entry(&self, path: &str) -> Option<CachedMediaEntry> {
+        let normalized_path = normalize_cache_path(path);
+        self.with_connection(|conn| {
+            let result = conn.query_row(
+                "SELECT duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
+                        display_aspect_ratio, field_order, timecode_start, playoutvue_id,
+                        transcode_profile, transcoded_at, original_source_path
+                 FROM media_cache WHERE path = ?1",
+                params![normalized_path],
+                |row| {
+                    Ok(CachedMediaEntry {
+                        path: normalized_path.clone(),
+                        duration_ms: row.get::<_, i64>(0)?,
+                        trim_in_ms: row.get::<_, i64>(1)?,
+                        trim_out_ms: row.get::<_, i64>(2)?,
+                        width: row.get::<_, i64>(3)?,
+                        height: row.get::<_, i64>(4)?,
+                        codec: row.get::<_, String>(5)?,
+                        fps_num: row.get::<_, i64>(6)?,
+                        fps_den: row.get::<_, i64>(7)?,
+                        display_aspect_ratio: row.get::<_, String>(8)?,
+                        field_order: row.get::<_, String>(9)?,
+                        timecode_start: row.get::<_, String>(10)?,
+                        playoutvue_id: row.get::<_, String>(11)?,
+                        transcode_profile: row.get::<_, String>(12)?,
+                        transcoded_at: row.get::<_, String>(13)?,
+                        original_source_path: row.get::<_, String>(14)?,
+                    })
+                },
+            );
+            Ok(result.ok())
+        }).ok().flatten()
+    }
+
     pub fn upsert(&self, entry: &CachedMediaEntry) -> Result<(), String> {
         let normalized_path = normalize_cache_path(&entry.path);
         let (mtime, filesize) = file_identity(&entry.path).unwrap_or((0, 0));

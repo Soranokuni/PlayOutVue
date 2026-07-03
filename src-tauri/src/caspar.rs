@@ -340,19 +340,12 @@ fn osc_message_to_event_from_raw(address: String, args: Vec<OscType>) -> CasparO
 }
 
 fn parse_timing_payload_from_args(args: &[OscType]) -> (Option<u64>, Option<u64>) {
-    let seconds = args.iter().filter_map(arg_to_seconds).collect::<Vec<_>>();
-    if seconds.len() == 4 {
-        // [current_frame, total_frames, current_seconds, total_seconds]
-        let position_ms = Some(seconds_to_millis(seconds[2]));
-        let duration_ms = Some(seconds_to_millis(seconds[3]));
-        (position_ms, duration_ms)
-    } else if seconds.len() == 2 {
-        // [current_seconds, total_seconds]
-        let position_ms = Some(seconds_to_millis(seconds[0]));
-        let duration_ms = Some(seconds_to_millis(seconds[1]));
+    if args.len() == 4 {
+        let position_ms = arg_to_float(&args[2]).map(seconds_to_millis);
+        let duration_ms = arg_to_float(&args[3]).map(seconds_to_millis);
         (position_ms, duration_ms)
     } else {
-        // Fallback
+        let seconds = args.iter().filter_map(arg_to_float).collect::<Vec<_>>();
         let position_ms = seconds.first().copied().map(seconds_to_millis);
         let duration_ms = seconds.get(1).copied().map(seconds_to_millis);
         (position_ms, duration_ms)
@@ -449,12 +442,10 @@ fn seconds_to_millis(seconds: f64) -> u64 {
     (seconds * 1000.0).round() as u64
 }
 
-fn arg_to_seconds(arg: &OscType) -> Option<f64> {
+fn arg_to_float(arg: &OscType) -> Option<f64> {
     let seconds = match arg {
         OscType::Float(value) => Some(*value as f64),
         OscType::Double(value) => Some(*value),
-        OscType::Int(value) => Some(*value as f64),
-        OscType::Long(value) => Some(*value as f64),
         _ => None,
     }?;
 
@@ -586,7 +577,7 @@ fn handle_playback_osc<R: Runtime>(
         s.position_ms = pos;
     }
     if let Some(dur) = duration_ms {
-        if dur > 0 && (s.duration_ms == 0 || dur > s.duration_ms) {
+        if dur > 0 && (s.expected_out_point_ms == 0 || s.expected_out_point_ms == u64::MAX || (dur as i64 - s.expected_out_point_ms as i64).abs() < 5000) {
             s.duration_ms = dur;
         }
     }
@@ -657,9 +648,17 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     }
                     // Deadline fallback: once stalled, advance when the estimated
                     // remaining playback time (from last known position) elapses.
-                    let remaining = s.expected_out_point_ms.saturating_sub(s.position_ms);
-                    let deadline = s.last_osc_at_ms.saturating_add(remaining);
-                    if now >= deadline {
+                    let remaining = if s.expected_out_point_ms == u64::MAX {
+                        u64::MAX
+                    } else {
+                        s.expected_out_point_ms.saturating_sub(s.position_ms)
+                    };
+                    let deadline = if remaining == u64::MAX {
+                        u64::MAX
+                    } else {
+                        s.last_osc_at_ms.saturating_add(remaining)
+                    };
+                    if deadline != u64::MAX && now >= deadline {
                         s.advance_fired = true;
                         s.transition_triggered = true;
                         advance_reason = Some("watchdog-deadline".to_string());
@@ -668,6 +667,7 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     // Brief OSC gap — only advance if position was already near the end (EOF)
                     if s.position_ms > 0
                         && s.expected_out_point_ms > 0
+                        && s.expected_out_point_ms != u64::MAX
                         && s.position_ms >= s.expected_out_point_ms.saturating_sub(2000)
                     {
                         s.advance_fired = true;
@@ -715,18 +715,23 @@ pub async fn caspar_register_playback(
     next_path: Option<String>,
     state: State<'_, CasparPlaybackState>,
 ) -> Result<(), String> {
-    if duration_ms == 0 {
-        // No valid duration yet — skip deadline registration entirely.
-        // Advance will be driven by CasparCG OSC EOF signal only.
-        return Ok(());
-    }
     let mut s = state.0.lock();
     s.current_uuid = Some(uuid);
     s.is_playing = true;
     s.is_paused = false;
     s.position_ms = 0;
     s.duration_ms = duration_ms;
-    s.expected_out_point_ms = expected_out_point_ms;
+
+    let mut out_point = expected_out_point_ms;
+    if out_point == 0 {
+        if duration_ms == 0 {
+            out_point = u64::MAX;
+        } else {
+            out_point = duration_ms;
+        }
+    }
+    s.expected_out_point_ms = out_point;
+
     s.current_file_path = current_path;
     s.expected_next_path = next_path;
     s.last_osc_at_ms = now_ms();
