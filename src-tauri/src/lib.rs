@@ -24,7 +24,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use runtime_settings::{apply_runtime_settings, RuntimeSettingsState};
 use scanner::{get_media_probe_status, save_media_trim_profile, scan_media, scan_directory, start_media_probe, warm_media_cache, DbState, MediaProbeState};
 use stream::extract_web_stream;
-use trimmer::{get_media_preview_info, get_media_preview_url};
+use trimmer::{get_media_preview_info, get_media_preview_url, compute_frame_trim};
 use playlist::{save_playlist, load_playlist};
 use filesystem::{browse_filesystem, find_default_logos_dir, get_image_dimensions, list_filesystem_roots};
 use ingestor_api::{resolve_ingestor_asset, resolve_ingestor_assets_batch, move_ingestor_asset, rename_ingestor_asset, update_ingestor_rating, update_ingestor_trim, list_ingestor_assets, check_ingestor_health, spawn_ingestor_heartbeat, create_ingestor_subclip, update_ingestor_tp, purge_ingestor_asset, list_ingestor_folder_colors, set_ingestor_folder_color};
@@ -102,6 +102,7 @@ pub fn run() {
             extract_web_stream,
             get_media_preview_url,
             get_media_preview_info,
+            compute_frame_trim,
             get_media_url,
             save_playlist,
             load_playlist,
