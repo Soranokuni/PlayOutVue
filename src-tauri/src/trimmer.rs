@@ -145,9 +145,9 @@ pub async fn compute_frame_trim(
     };
 
     if out_ms <= in_ms {
-        let mut clamped_out = (in_ms + 2000).min(total_dur);
+        let clamped_out = (in_ms + 2000).min(total_dur);
         if clamped_out <= in_ms {
-            clamped_out = total_dur;
+            return Err(format!("Asset has zero or invalid duration ({}ms), cannot trim: {}", total_dur, path));
         }
         tracing::warn!("Degenerate trim [{},{}] for {}, clamping out to {}", in_ms, out_ms, path, clamped_out);
         out_ms = clamped_out;
