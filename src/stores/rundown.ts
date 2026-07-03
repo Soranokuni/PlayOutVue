@@ -6,6 +6,7 @@ import type { LibraryIndicator } from './mediaDefaults';
 import { useIngestorStatusStore } from './ingestorStatus';
 import { playStartTime, casparPlayoutService } from '../services/caspar';
 import { useMediaLibraryStore } from './mediaLibrary';
+import { clampTrimIn, clampTrimOut } from '../utils/frameMath';
 
 export type ComplianceRating = 'none' | 'k' | '8' | '12' | '16' | '18';
 export type RundownItemType = 'video' | 'live' | 'graphic' | 'gap';
@@ -42,6 +43,11 @@ export interface RundownItem {
     content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
     timeline?: Array<{ start: number; end: number; text: string }>;
     fps?: number;
+    mezzanine_ok?: boolean;
+    total_frames?: number;
+    gop_frames?: number;
+    keyframe_safe_start_ms?: number;
+    warnings?: string[];
 }
 
 export interface RundownPlaylist {
@@ -491,11 +497,42 @@ export const useRundownStore = defineStore('rundown', () => {
     };
 
     const makeItem = (item: RundownDraft): RundownItem => {
-        const inPoint = item.inPoint && item.inPoint > 0 ? item.inPoint : 0;
-        const outPoint = item.outPoint && item.outPoint > inPoint ? item.outPoint : 0;
+        const totalMs = (item as any).duration_ms || (item.duration ? item.duration * 1000 : 0);
+        let inPoint = item.inPoint && item.inPoint > 0 ? item.inPoint : 0;
+        let outPoint = item.outPoint && item.outPoint > inPoint ? item.outPoint : totalMs;
+
+        if (item.mezzanine_ok) {
+            const geo = {
+                fps: item.fps || 25,
+                totalFrames: item.total_frames || 0,
+                gopFrames: item.gop_frames || 25,
+                keyframeSafeStartMs: item.keyframe_safe_start_ms || 0,
+                mezzanineOk: true
+            };
+            inPoint = clampTrimIn(inPoint, geo);
+            outPoint = clampTrimOut(outPoint, geo);
+        }
+
         const plannedDuration = item.plannedDuration && item.plannedDuration > 0
             ? item.plannedDuration
             : (outPoint > inPoint ? (outPoint - inPoint) / 1000 : (item.duration || 0));
+
+        let trim_in_ms = (item as any).trim_in_ms !== undefined ? (item as any).trim_in_ms : inPoint;
+        let trim_out_ms = (item as any).trim_out_ms !== undefined && (item as any).trim_out_ms > 0
+            ? (item as any).trim_out_ms 
+            : (outPoint > 0 ? outPoint : totalMs);
+
+        if (item.mezzanine_ok) {
+            const geo = {
+                fps: item.fps || 25,
+                totalFrames: item.total_frames || 0,
+                gopFrames: item.gop_frames || 25,
+                keyframeSafeStartMs: item.keyframe_safe_start_ms || 0,
+                mezzanineOk: true
+            };
+            trim_in_ms = clampTrimIn(trim_in_ms, geo);
+            trim_out_ms = clampTrimOut(trim_out_ms, geo);
+        }
 
         return {
             ...item,
@@ -513,21 +550,17 @@ export const useRundownStore = defineStore('rundown', () => {
             display_name: (item as any).display_name || item.filename || '',
             virtual_folder: (item as any).virtual_folder || '',
             current_path: (item as any).current_path || item.path || '',
-            duration_ms: (item as any).duration_ms || (item.duration ? item.duration * 1000 : 0),
-            trim_in_ms: (item as any).trim_in_ms !== undefined ? (item as any).trim_in_ms : inPoint,
-            trim_out_ms: (() => {
-                // INVARIANT: trim_out_ms and outPoint must both be absolute ms positions from clip start.
-                // Never store a duration-relative delta in either field.
-                const val = (item as any).trim_out_ms !== undefined 
-                    ? (item as any).trim_out_ms 
-                    : (outPoint > 0 ? outPoint : 0);
-                if (val !== undefined && val < 0) {
-                    console.error("[Invariant Violation] trim_out_ms cannot be negative:", val, item);
-                }
-                return val;
-            })(),
+            duration_ms: totalMs,
+            trim_in_ms,
+            trim_out_ms,
             tp_flag: (item as any).tp_flag || false,
             content_type: (item as any).content_type || 'none',
+            mezzanine_ok: item.mezzanine_ok,
+            fps: item.fps,
+            total_frames: item.total_frames,
+            gop_frames: item.gop_frames,
+            keyframe_safe_start_ms: item.keyframe_safe_start_ms,
+            warnings: item.warnings,
         };
     };
 
@@ -549,8 +582,38 @@ export const useRundownStore = defineStore('rundown', () => {
         }
 
         const duration = item.duration || 0;
-        const inPoint = item.inPoint || 0;
-        const outPoint = item.outPoint || 0;
+        const totalMs = item.duration_ms || (duration * 1000);
+        let inPoint = item.inPoint || 0;
+        let outPoint = item.outPoint || totalMs;
+
+        if (item.mezzanine_ok) {
+            const geo = {
+                fps: item.fps || 25,
+                totalFrames: item.total_frames || 0,
+                gopFrames: item.gop_frames || 25,
+                keyframeSafeStartMs: item.keyframe_safe_start_ms || 0,
+                mezzanineOk: true
+            };
+            inPoint = clampTrimIn(inPoint, geo);
+            outPoint = clampTrimOut(outPoint, geo);
+        }
+
+        let trim_in_ms = item.trim_in_ms || inPoint;
+        let trim_out_ms = item.trim_out_ms !== undefined && item.trim_out_ms > 0
+            ? item.trim_out_ms
+            : (outPoint > 0 ? outPoint : totalMs);
+
+        if (item.mezzanine_ok) {
+            const geo = {
+                fps: item.fps || 25,
+                totalFrames: item.total_frames || 0,
+                gopFrames: item.gop_frames || 25,
+                keyframeSafeStartMs: item.keyframe_safe_start_ms || 0,
+                mezzanineOk: true
+            };
+            trim_in_ms = clampTrimIn(trim_in_ms, geo);
+            trim_out_ms = clampTrimOut(trim_out_ms, geo);
+        }
 
         return {
             id: uuidv4(),
@@ -576,14 +639,18 @@ export const useRundownStore = defineStore('rundown', () => {
             display_name: item.display_name || item.filename || 'Untitled',
             virtual_folder: item.virtual_folder || '',
             current_path: item.current_path || item.path || '',
-            duration_ms: item.duration_ms || (duration * 1000),
-            trim_in_ms: item.trim_in_ms || inPoint,
-            trim_out_ms: item.trim_out_ms !== undefined 
-                ? item.trim_out_ms 
-                : (outPoint > 0 ? Math.max(0, (item.duration_ms || (duration * 1000)) - outPoint) : 0),
+            duration_ms: totalMs,
+            trim_in_ms,
+            trim_out_ms,
             tp_flag: item.tp_flag || false,
             content_type: item.content_type || 'none',
             timeline: item.timeline || [],
+            mezzanine_ok: item.mezzanine_ok,
+            fps: item.fps,
+            total_frames: item.total_frames,
+            gop_frames: item.gop_frames,
+            keyframe_safe_start_ms: item.keyframe_safe_start_ms,
+            warnings: item.warnings,
         };
     };
 
@@ -782,24 +849,48 @@ export const useRundownStore = defineStore('rundown', () => {
         if (index === -1) return;
         const newItems = [...playlist.items];
         const existing = newItems[index]!;
+
+        let trim_in_ms = updates.trim_in_ms !== undefined ? updates.trim_in_ms : (updates.inPoint !== undefined ? updates.inPoint : existing.trim_in_ms);
+        let trim_out_ms = (() => {
+            const val = updates.trim_out_ms !== undefined 
+                ? updates.trim_out_ms 
+                : (updates.outPoint !== undefined ? updates.outPoint : existing.trim_out_ms);
+            if (val !== undefined && val < 0) {
+                console.error("[Invariant Violation] trim_out_ms cannot be negative:", val, updates);
+            }
+            return val;
+        })();
+
+        const mezzanine_ok = updates.mezzanine_ok !== undefined ? updates.mezzanine_ok : existing.mezzanine_ok;
+        if (mezzanine_ok) {
+            const geo = {
+                fps: updates.fps || existing.fps || 25,
+                totalFrames: updates.total_frames || existing.total_frames || 0,
+                gopFrames: updates.gop_frames || existing.gop_frames || 25,
+                keyframeSafeStartMs: updates.keyframe_safe_start_ms || existing.keyframe_safe_start_ms || 0,
+                mezzanineOk: true
+            };
+            if (trim_in_ms !== undefined) {
+                trim_in_ms = clampTrimIn(trim_in_ms, geo);
+            }
+            if (trim_out_ms !== undefined && trim_out_ms > 0) {
+                trim_out_ms = clampTrimOut(trim_out_ms, geo);
+            }
+        }
+
+        const inPoint = trim_in_ms || 0;
+        const outPoint = trim_out_ms || 0;
+
         newItems[index] = { 
             ...existing, 
             ...updates,
             display_name: updates.display_name !== undefined ? updates.display_name : (updates.filename !== undefined ? updates.filename : existing.display_name),
             current_path: updates.current_path !== undefined ? updates.current_path : (updates.path !== undefined ? updates.path : existing.current_path),
             duration_ms: updates.duration_ms !== undefined ? updates.duration_ms : (updates.duration !== undefined ? updates.duration * 1000 : existing.duration_ms),
-            trim_in_ms: updates.trim_in_ms !== undefined ? updates.trim_in_ms : (updates.inPoint !== undefined ? updates.inPoint : existing.trim_in_ms),
-            trim_out_ms: (() => {
-                // INVARIANT: trim_out_ms and outPoint must both be absolute ms positions from clip start.
-                // Never store a duration-relative delta in either field.
-                const val = updates.trim_out_ms !== undefined 
-                    ? updates.trim_out_ms 
-                    : (updates.outPoint !== undefined ? updates.outPoint : existing.trim_out_ms);
-                if (val !== undefined && val < 0) {
-                    console.error("[Invariant Violation] trim_out_ms cannot be negative:", val, updates);
-                }
-                return val;
-            })(),
+            trim_in_ms,
+            trim_out_ms,
+            inPoint,
+            outPoint,
         } as RundownItem;
         triggerNuclearReactivity(playlist.id, newItems);
     };
@@ -963,9 +1054,10 @@ export const useRundownStore = defineStore('rundown', () => {
                                  durationSec = calculatedDuration / 1000;
                                  outPoint = asset.trim_out_ms || 0;
                              } else {
-                                 outPoint = asset.duration_ms > 0
-                                     ? asset.duration_ms - (asset.trim_out_ms || 0)
-                                     : 0;
+                                 outPoint = (asset.trim_out_ms && asset.trim_out_ms > 0)
+                                     ? asset.trim_out_ms
+                                     : (asset.duration_ms || 0);
+                                 durationSec = (outPoint - inPoint) / 1000;
                              }
                              const durationMs = asset.duration_ms;
 
@@ -991,7 +1083,12 @@ export const useRundownStore = defineStore('rundown', () => {
                                  duration_ms: durationMs,
                                  trim_in_ms: inPoint,
                                  trim_out_ms: outPoint > 0 ? outPoint : 0,
-                                 fps: parseFps(asset.r_frame_rate),
+                                 fps: asset.fps || parseFps(asset.r_frame_rate),
+                                 mezzanine_ok: asset.mezzanine_ok,
+                                 total_frames: asset.total_frames,
+                                 gop_frames: asset.gop_frames,
+                                 keyframe_safe_start_ms: asset.keyframe_safe_start_ms,
+                                 warnings: asset.warnings,
                              };
                          }
                          updatePlaylistState(playlist.id, {
@@ -1301,9 +1398,10 @@ export const useRundownStore = defineStore('rundown', () => {
                 durationSec = calculatedDuration / 1000;
                 outPoint = response.trim_out_ms || 0;
             } else {
-                outPoint = response.duration_ms > 0
-                    ? response.duration_ms - (response.trim_out_ms || 0)
-                    : 0;
+                outPoint = (response.trim_out_ms && response.trim_out_ms > 0)
+                    ? response.trim_out_ms
+                    : (response.duration_ms || 0);
+                durationSec = (outPoint - inPoint) / 1000;
             }
             const durationMs = response.duration_ms;
 
@@ -1326,7 +1424,12 @@ export const useRundownStore = defineStore('rundown', () => {
                 duration_ms: durationMs,
                 trim_in_ms: inPoint,
                 trim_out_ms: outPoint > 0 ? outPoint : 0,
-                fps: parseFps(response.r_frame_rate),
+                fps: response.fps || parseFps(response.r_frame_rate),
+                mezzanine_ok: response.mezzanine_ok,
+                total_frames: response.total_frames,
+                gop_frames: response.gop_frames,
+                keyframe_safe_start_ms: response.keyframe_safe_start_ms,
+                warnings: response.warnings,
             };
 
             const newItems = [...playlist.items];

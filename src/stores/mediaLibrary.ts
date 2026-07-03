@@ -24,6 +24,12 @@ export interface LibraryAsset {
     fieldOrder?: string;
     codec?: string;
     probing?: boolean;
+    mezzanine_ok?: boolean;
+    fps?: number;
+    total_frames?: number;
+    gop_frames?: number;
+    keyframe_safe_start_ms?: number;
+    warnings?: string[];
 }
 
 export interface TreeNode {

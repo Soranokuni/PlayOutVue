@@ -22,6 +22,18 @@ pub struct AssetResponse {
     pub display_name: Option<String>,
     #[serde(default)]
     pub virtual_folder: Option<String>,
+    #[serde(default)]
+    pub mezzanine_ok: Option<bool>,
+    #[serde(default)]
+    pub fps: Option<f64>,
+    #[serde(default)]
+    pub total_frames: Option<i64>,
+    #[serde(default)]
+    pub gop_frames: Option<i64>,
+    #[serde(default)]
+    pub keyframe_safe_start_ms: Option<i64>,
+    #[serde(default)]
+    pub warnings: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

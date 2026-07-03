@@ -540,6 +540,30 @@ async function refreshCurrentProducerDuration(item: PlayoutItem, key: string, to
 }
 
 const buildClipOptions = (item: PlayoutItem) => {
+    const isImage = (item.type as string) === 'image' || (item.path && /\.(png|jpe?g|gif|bmp|tiff|tga)$/i.test(item.path));
+    if (isImage) {
+        return `CLEAR_ON_404`;
+    }
+
+    if (item.mezzanine_ok) {
+        const fps = item.fps || 25;
+        const msToFrame = (ms: number) => Math.round((ms / 1000) * fps);
+        
+        let inFrame = msToFrame(item.trim_in_ms ?? 0);
+        let outFrame = msToFrame(item.trim_out_ms ?? (item.duration_ms || 0));
+        
+        const gopFrames = item.gop_frames || 25;
+        if (outFrame <= inFrame) {
+            outFrame = inFrame + gopFrames;
+        }
+        
+        const total = item.total_frames || outFrame;
+        outFrame = Math.min(outFrame, total);
+        inFrame = Math.max(0, Math.min(inFrame, outFrame - 1));
+        
+        return `IN ${inFrame} OUT ${outFrame} CLEAR_ON_404`;
+    }
+
     const fps = item.fps || PAL_FPS;
     const msPerFrame = 1000 / fps;
     const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
@@ -549,7 +573,6 @@ const buildClipOptions = (item: PlayoutItem) => {
     const seekFrames = Math.max(0, Math.round(inMs / msPerFrame));
     const totalClipFrames = Math.round(totalMs / msPerFrame);
     
-    const isImage = (item.type as string) === 'image' || (item.path && /\.(png|jpe?g|gif|bmp|tiff|tga)$/i.test(item.path));
     let endFrames = outMs > 0 && outMs < totalMs
         ? Math.round(outMs / msPerFrame)
         : totalClipFrames;
@@ -559,7 +582,7 @@ const buildClipOptions = (item: PlayoutItem) => {
         endFrames = totalClipFrames > seekFrames ? totalClipFrames : seekFrames + 25;
     }
 
-    if (!isImage && (endFrames - seekFrames) < 25) {
+    if ((endFrames - seekFrames) < 25) {
         endFrames = seekFrames + 25;
     }
 
@@ -593,6 +616,39 @@ const sendRawCommandCore = async (cmd: string) => {
     return invoke<string>('caspar_send_command', { cmd });
 };
 
+interface GuardState {
+  lastPositionMs: number;
+  lastTickAt: number;
+  stalledTicks: number;
+}
+
+const guards = new Map<string, GuardState>();
+
+function onPlaybackTick(itemId: string, positionMs: number, effectiveDuration: number, playStartedAt: number) {
+  const now = Date.now();
+  const g = guards.get(itemId) ?? { lastPositionMs: -1, lastTickAt: now, stalledTicks: 0 };
+
+  const moved = Math.abs(positionMs - g.lastPositionMs) > 40; // ~1 frame @25fps
+  g.stalledTicks = moved ? 0 : g.stalledTicks + 1;
+  g.lastPositionMs = positionMs;
+  g.lastTickAt = now;
+  guards.set(itemId, g);
+
+  const overtime = now - playStartedAt > effectiveDuration * 1.2;
+  const stalled = g.stalledTicks >= 5; // ~5 consecutive stale ticks
+
+  if (overtime && stalled) {
+    console.warn('[EndGuard] Playout stalled overtime! Forcing advance next.', { itemId, positionMs, effectiveDuration });
+    invoke('push_diagnostic_log', {
+        level: 'warn',
+        scope: 'caspar-playout',
+        message: `JS end guard triggered: item ${itemId} stalled at ${positionMs}ms (duration ${effectiveDuration}ms)`
+    }).catch(() => {});
+    advanceNext(false).catch((e) => console.error(e));
+    guards.delete(itemId);
+  }
+}
+
 /// Subscribe to the Rust-authoritative playback events (plan §2.1/§2.4).
 /// `caspar://playback-tick` drives the single clock; `caspar://advance` drives
 /// the single advance decision. The legacy per-OSC `caspar-osc` JS advance logic
@@ -610,6 +666,19 @@ const ensureFeedbackListener = async () => {
                 updateDisplayedTime(positionMs);
                 if (durationMs > 0) {
                     currentCasparDurationMs.value = durationMs;
+                }
+
+                // JS-side end-guard for "hangs on a frame but says PLAYING"
+                if (isCasparPlaying.value && currentKey) {
+                    const currentIndex = queuedItems.findIndex((it) => queueKey(it) === currentKey);
+                    const currentItem = currentIndex !== -1 ? queuedItems[currentIndex] : null;
+                    if (currentItem && currentItem.type === 'video') {
+                        const deadline = computePlaybackDeadline(currentItem);
+                        const effectiveDuration = deadline.effectiveDuration;
+                        if (effectiveDuration > 0) {
+                            onPlaybackTick(currentItem.id, positionMs, effectiveDuration, playStartTime.value);
+                        }
+                    }
                 }
             });
         }
@@ -778,6 +847,8 @@ async function playItemAt(index: number, token: number) {
             if (!liveCommand) {
                 throw new Error('No CasparCG live source configured. Set a Live Input Source in Settings.');
             }
+            guards.clear();
+            playStartTime.value = Date.now();
             await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
             await sendRawCommand(liveCommand);
             isCasparPlaying.value = true;
@@ -815,6 +886,8 @@ async function playItemAt(index: number, token: number) {
             nextPath = (await prepareCasparMediaPath(nextRawPath)).replace(/\\/g, '/').replace(/"/g, '');
         }
 
+        guards.clear();
+        playStartTime.value = Date.now();
         await sendRawCommand(await buildPlayVideoCommand(item));
         isCasparPlaying.value = true;
         consecutiveSkips = 0;
@@ -972,6 +1045,8 @@ async function advanceToNext(token: number, natural: boolean) {
                 const store = useRundownStore();
                 updateDisplayedTime(nextItem.inPoint || 0);
 
+                guards.clear();
+                playStartTime.value = Date.now();
                 if (effectiveDuration > 0) {
                     store.startPlaybackProgressTimer(nextItem.id, effectiveDuration);
 
