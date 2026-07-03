@@ -243,6 +243,12 @@ function libraryAssetFromApi(asset: any): LibraryAsset {
         displayAspectRatio: asset.display_aspect_ratio || asset.displayAspectRatio,
         fieldOrder: asset.field_order || asset.fieldOrder,
         codec: asset.codec,
+        mezzanine_ok: asset.mezzanine_ok,
+        fps: asset.fps,
+        total_frames: asset.total_frames,
+        gop_frames: asset.gop_frames,
+        keyframe_safe_start_ms: asset.keyframe_safe_start_ms,
+        warnings: asset.warnings,
     };
 }
 
@@ -344,7 +350,11 @@ function assetDurationSeconds(asset?: LibraryAsset): number {
 
 function effectiveDurationSeconds(asset?: LibraryAsset): number {
     if (!asset || asset.duration_ms <= 0) return 0;
-    const effectiveMs = asset.duration_ms - (asset.trim_in_ms || 0) - (asset.trim_out_ms || 0);
+    const outPoint = (asset.trim_out_ms && asset.trim_out_ms > 0)
+        ? asset.trim_out_ms
+        : asset.duration_ms;
+    const inPoint = asset.trim_in_ms || 0;
+    const effectiveMs = outPoint - inPoint;
     return Math.max(0, effectiveMs) / 1000;
 }
 
@@ -356,9 +366,9 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
     let duration = assetDurationSeconds(asset);
     let effective = effectiveDurationSeconds(asset);
     let inPoint = asset.trim_in_ms || 0;
-    let outPoint = asset.duration_ms > 0
-        ? asset.duration_ms - (asset.trim_out_ms || 0)
-        : 0;
+    let outPoint = (asset.trim_out_ms && asset.trim_out_ms > 0)
+        ? asset.trim_out_ms
+        : (asset.duration_ms || 0);
     let durationMs = asset.duration_ms;
 
     if (isSubclip) {
@@ -395,6 +405,12 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
         duration_ms: durationMs,
         trim_in_ms: asset.trim_in_ms,
         trim_out_ms: asset.trim_out_ms,
+        mezzanine_ok: asset.mezzanine_ok,
+        fps: asset.fps,
+        total_frames: asset.total_frames,
+        gop_frames: asset.gop_frames,
+        keyframe_safe_start_ms: asset.keyframe_safe_start_ms,
+        warnings: asset.warnings,
     };
 }
 

@@ -472,7 +472,7 @@ const saveNonDestructive = () => {
         await invoke('update_ingestor_trim', {
           uuid: item.value.uuid,
           trim_in_ms: Math.round(inMs.value),
-          trim_out_ms: Math.round(Math.max(0, totalDurationMs.value - outMs.value)),
+          trim_out_ms: Math.round(outMs.value),
           api_base_url_override: null
         });
       } else if (isLocalFilePath(item.value?.path)) {
@@ -522,7 +522,7 @@ const saveAsSubclip = () => {
           uuid: currentItem.uuid,
           display_name: trimmedName,
           trim_in_ms: Math.round(inMs.value),
-          trim_out_ms: Math.round(Math.max(0, totalDurationMs.value - outMs.value)),
+          trim_out_ms: Math.round(outMs.value),
           api_base_url_override: null
         });
         trimStatus.value = '✅ Virtual sub-clip created successfully!';
