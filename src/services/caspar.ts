@@ -4,8 +4,8 @@ import { ref } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useRundownStore, type ComplianceRating, type IngestorStatus } from '../stores/rundown';
 import type { PlayoutAdvanceCallback, PlayoutItem, PlayoutService } from './playout';
-import { hydrateItem } from '../lib/rundownHydrator';
-import { dispatchPlay, dispatchLoadbg, type FrameTrimResult } from '../lib/playoutDispatch';
+import { hydrateItem, type RundownItem } from '../lib/rundownHydrator';
+import { dispatchPlay, dispatchLoadbg, computeDurationMsFromTrim, type FrameTrimResult } from '../lib/playoutDispatch';
 import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
 
 export const playStartTime = ref(0);
@@ -245,6 +245,11 @@ const disposeFeedbackListener = async () => {
         try { advanceUnlisten(); } catch { /* ignore */ }
         advanceUnlisten = null;
     }
+    // Release the ensureFeedbackListener singleton promise so a subsequent
+    // connect() re-runs the listener setup. Without this, disconnect()→connect()
+    // short-circuits in ensureFeedbackListener (feedbackListenerPromise != null)
+    // and never re-registers the OSC/advance listeners — the rundown freezes.
+    feedbackListenerPromise = null;
 };
 
 const getLogosRoot = () => {
@@ -290,13 +295,25 @@ const itemDurationMs = (item: PlayoutItem) => {
     return totalMs;
 };
 
-const computePlaybackDeadline = (item: PlayoutItem) => {
-    const totalMs = item.duration_ms || (item as any).durationMs || (item.duration ? item.duration * 1000 : 0);
-    const inMs = item.trim_in_ms ?? item.inPoint ?? 0;
-    const outMs = item.trim_out_ms ? item.trim_out_ms : (item.outPoint > 0 ? item.outPoint : totalMs);
-    const effectiveDuration = (outMs > inMs && inMs >= 0) ? (outMs - inMs) : totalMs;
-    const expectedOutPointMs = effectiveDuration; // OSC position is relative to trim start
-    return { effectiveDuration, expectedOutPointMs };
+/// Hydrate a PlayoutItem (store shape, may carry legacy `inPoint`/`outPoint`/
+/// `shortPath`/`playoutvueId` fields) into a canonical RundownItem suitable
+/// for the frame-accurate dispatch path. Centralizes the rawItem+hydrateItem
+/// mapping that was previously duplicated inline in playItemAt,
+/// advanceToNext, preloadNextItemAt, cue, and take — ensuring every AMCP
+/// command is built from the same hydrated shape (plan §3 unification).
+const hydratePlayoutItem = (item: PlayoutItem): RundownItem => {
+    return hydrateItem({
+        id: item.id,
+        path: item.path || item.shortPath,
+        playoutvue_id: item.playoutvueId || item.id,
+        duration_ms: item.duration_ms || (item.duration ? item.duration * 1000 : 0) || 0,
+        trim_in_ms: item.trim_in_ms ?? 0,
+        trim_out_ms: item.trim_out_ms ?? 0,
+        fps_num: item.fps_num ?? 0,
+        fps_den: item.fps_den ?? 0,
+        fps: item.fps,
+        mezzanine_ok: item.mezzanine_ok
+    });
 };
 
 const stripMediaExtension = (value: string) => value.replace(/\.[^./\\]+$/, '');
@@ -543,73 +560,6 @@ async function refreshCurrentProducerDuration(item: PlayoutItem, key: string, to
     }
 }
 
-const buildClipOptions = (item: PlayoutItem) => {
-    const isImage = (item.type as string) === 'image' || (item.path && /\.(png|jpe?g|gif|bmp|tiff|tga)$/i.test(item.path));
-    if (isImage) {
-        return `CLEAR_ON_404`;
-    }
-
-    if (item.mezzanine_ok) {
-        const fps = item.fps || 25;
-        const msToFrame = (ms: number) => Math.round((ms / 1000) * fps);
-        
-        let inFrame = msToFrame(item.trim_in_ms ?? 0);
-        let outFrame = msToFrame(item.trim_out_ms ?? (item.duration_ms || 0));
-        
-        const gopFrames = item.gop_frames || 25;
-        if (outFrame <= inFrame) {
-            outFrame = inFrame + gopFrames;
-        }
-        
-        const total = item.total_frames || outFrame;
-        outFrame = Math.min(outFrame, total);
-        inFrame = Math.max(0, Math.min(inFrame, outFrame - 1));
-        
-        return `IN ${inFrame} OUT ${outFrame} CLEAR_ON_404`;
-    }
-
-    const fps = item.fps || PAL_FPS;
-    const msPerFrame = 1000 / fps;
-    const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
-    const inMs = item.trim_in_ms ?? item.inPoint ?? 0;
-    const outMs = item.trim_out_ms ?? (item.outPoint > 0 ? item.outPoint : totalMs);
-
-    const seekFrames = Math.max(0, Math.round(inMs / msPerFrame));
-    const totalClipFrames = Math.round(totalMs / msPerFrame);
-    
-    let endFrames = outMs > 0 && outMs < totalMs
-        ? Math.round(outMs / msPerFrame)
-        : totalClipFrames;
-    
-    if (endFrames <= seekFrames) {
-        // Fallback if metadata is corrupted or mismatching
-        endFrames = totalClipFrames > seekFrames ? totalClipFrames : seekFrames + 25;
-    }
-
-    if ((endFrames - seekFrames) < 25) {
-        endFrames = seekFrames + 25;
-    }
-
-    return `IN ${seekFrames} OUT ${endFrames} CLEAR_ON_404`;
-};
-
-const buildVideoCommand = async (item: PlayoutItem, autoPlay: boolean) => {
-    const rawPath = item.path || item.shortPath;
-    const path = await prepareCasparMediaPath(rawPath);
-    const formattedPath = path.replace(/\\/g, '/').replace(/"/g, '');
-    const auto = autoPlay ? ' AUTO' : '';
-    const options = buildClipOptions(item);
-    return `LOADBG ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video} "${formattedPath}" ${options}${auto}`.trim();
-};
-
-const buildPlayVideoCommand = async (item: PlayoutItem) => {
-    const rawPath = item.path || item.shortPath;
-    const path = await prepareCasparMediaPath(rawPath);
-    const formattedPath = path.replace(/\\/g, '/').replace(/"/g, '');
-    const options = buildClipOptions(item);
-    return `PLAY ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video} "${formattedPath}" ${options}`.trim();
-};
-
 const buildLiveCommand = (preferredSource?: string) => {
     const source = (preferredSource || getSettingsSnapshot().liveInputSourceName || '').trim();
     if (!source) return '';
@@ -755,35 +705,35 @@ const sendRawCommand = async (cmd: string) => {
     }
 };
 
-async function preloadNextItemAt(index: number, retriesLeft = 3) {
+async function preloadNextItemAt(index: number, retriesLeft = 6, delayMs = 500) {
     if (index < 0 || index >= queuedItems.length) return;
     const item = queuedItems[index];
     if (!item || item.type !== 'video' || item.ingestorStatus === 'error') return;
 
-    // If item path is not resolved yet, or status is not ready, retry in 500ms
+    // If item path is not resolved yet, or status is not ready, retry with
+    // exponential-ish backoff (~500, 750, 1125, 1687, 2531, 3896ms ~= 10.5s
+    // total) so late-added ingestor assets still get preloaded. Log on final
+    // give-up instead of silently dropping the preload - a dropped preload
+    // causes a cold-play black cut when the AUTO trigger fires unprepared.
     if (!item.path || item.ingestorStatus !== 'ready') {
         if (retriesLeft > 0) {
+            const nextDelay = Math.round(delayMs * 1.5);
             setTimeout(() => {
-                preloadNextItemAt(index, retriesLeft - 1).catch(() => {});
-            }, 500);
+                preloadNextItemAt(index, retriesLeft - 1, nextDelay).catch(() => {});
+            }, delayMs);
+        } else {
+            console.warn(`[CasparCG] preloadNextItemAt gave up after retries for item ${item.filename || item.id}`);
+            invoke('push_diagnostic_log', {
+                level: 'warn',
+                scope: 'caspar-playout',
+                message: `preload failed for ${item.filename || item.id}: path or ingestor status not ready after retries`
+            }).catch(() => {});
         }
         return;
     }
 
     try {
-        const rawItem = {
-            id: item.id,
-            path: item.path || item.shortPath,
-            playoutvue_id: item.playoutvueId || item.id,
-            duration_ms: item.duration_ms || (item.duration * 1000) || 0,
-            trim_in_ms: item.trim_in_ms ?? 0,
-            trim_out_ms: item.trim_out_ms ?? 0,
-            fps_num: item.fps_num ?? 0,
-            fps_den: item.fps_den ?? 0,
-            fps: item.fps,
-            mezzanine_ok: item.mezzanine_ok
-        };
-        const hydrated = hydrateItem(rawItem);
+        const hydrated = hydratePlayoutItem(item);
         await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video);
     } catch (error) {
         console.warn('[CasparCG] Failed to preload next item', item.filename, error);
@@ -869,19 +819,7 @@ async function playItemAt(index: number, token: number) {
         playStartTime.value = Date.now();
 
         // Hydrate the item
-        const rawItem = {
-            id: item.id,
-            path: item.path || item.shortPath,
-            playoutvue_id: item.playoutvueId || item.id,
-            duration_ms: item.duration_ms || (item.duration * 1000) || 0,
-            trim_in_ms: item.trim_in_ms ?? 0,
-            trim_out_ms: item.trim_out_ms ?? 0,
-            fps_num: item.fps_num ?? 0,
-            fps_den: item.fps_den ?? 0,
-            fps: item.fps,
-            mezzanine_ok: item.mezzanine_ok
-        };
-        const hydrated = hydrateItem(rawItem);
+        const hydrated = hydratePlayoutItem(item);
 
         // Dispatch frame-accurate trim PLAY and register playback
         const dispatchResult = await dispatchPlay(
@@ -1005,20 +943,15 @@ async function advanceToNext(token: number, natural: boolean) {
                 assertIngestorReady(nextItem);
                 const key = queueKey(nextItem);
 
+                // Resolve duration before hydrating so the hydrator doesn't
+                // fabricate a fake clip for an unresolved item. This mirrors
+                // playItemAt (which calls ensureItemDurationMs). Without it, a
+                // next item with duration_ms=0 hydrates to a 0/2000ms sentinel
+                // and plays as a 2-second phantom clip.
+                await ensureItemDurationMs(nextItem);
+
                 // Hydrate the next item
-                const rawItem = {
-                    id: nextItem.id,
-                    path: nextItem.path || nextItem.shortPath,
-                    playoutvue_id: nextItem.playoutvueId || nextItem.id,
-                    duration_ms: nextItem.duration_ms || (nextItem.duration * 1000) || 0,
-                    trim_in_ms: nextItem.trim_in_ms ?? 0,
-                    trim_out_ms: nextItem.trim_out_ms ?? 0,
-                    fps_num: nextItem.fps_num ?? 0,
-                    fps_den: nextItem.fps_den ?? 0,
-                    fps: nextItem.fps,
-                    mezzanine_ok: nextItem.mezzanine_ok
-                };
-                const hydrated = hydrateItem(rawItem);
+                const hydrated = hydratePlayoutItem(nextItem);
 
                 // Call compute_frame_trim to get frame-accurate values
                 const trim = await invoke<FrameTrimResult>('compute_frame_trim', {
@@ -1027,9 +960,14 @@ async function advanceToNext(token: number, natural: boolean) {
                     trimOutMs: hydrated.trim_out_ms
                 });
 
-                // Calculate precise expected duration and expected out point
-                const durationMs = Math.round((trim.duration_frames / (hydrated.fps_num / hydrated.fps_den)) * 1000);
-                const expectedOutMs = hydrated.trim_in_ms + durationMs;
+                // Calculate precise expected duration. OSC position is
+                // relative to the trim start (the producer is SEEK'd), so
+                // expectedOutMs must be the content duration — NOT the
+                // absolute trim_in_ms + durationMs. The old absolute value
+                // set the advance threshold beyond the clip end, freezing the
+                // rundown on any trimmed clip on a natural video transition.
+                const durationMs = computeDurationMsFromTrim(trim, hydrated.id);
+                const expectedOutMs = durationMs;
 
                 currentKey = key;
                 onAdvanceCallback?.(key);
@@ -1199,8 +1137,13 @@ export const casparPlayoutService: PlayoutService = {
             return;
         }
 
-        await sendRawCommand(await buildVideoCommand(item, false));
-        updateDisplayedTime(item.inPoint || 0);
+        // Frame-accurate cue: LOADBG without AUTO, so the clip is prepared in
+        // the background for a later manual take but does not auto-transition.
+        // Routed through dispatchLoadbg (SEEK/LENGTH) so cue and the rundown
+        // preload path share one AMCP shape and one trim source (plan §3).
+        const hydrated = hydratePlayoutItem(item);
+        await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, false);
+        updateDisplayedTime(item.trim_in_ms ?? item.inPoint ?? 0);
     },
 
     async take() {
@@ -1254,35 +1197,39 @@ export const casparPlayoutService: PlayoutService = {
                 return;
             }
 
-            // For video: force hard PLAY with clip options, flushing any background clips
-            const playCmd = await buildPlayVideoCommand(item);
-            await sendRawCommand(playCmd);
-            isCasparPlaying.value = true;
-
-            const { effectiveDuration, expectedOutPointMs } = computePlaybackDeadline(item);
-            store.startPlaybackProgressTimer(item.id, effectiveDuration);
-            updateDisplayedTime(item.trim_in_ms ?? item.inPoint ?? 0);
-            
-            onAdvanceCallback?.(key); // Notify UI progression immediately!
-
-            const currentRawPath = item.path || item.shortPath;
-            const currentPath = (await prepareCasparMediaPath(currentRawPath)).replace(/\\/g, '/').replace(/"/g, '');
+            // For video: force a hard PLAY via the frame-accurate dispatch path
+            // (SEEK/LENGTH + register playback). Unifies take() with the rundown
+            // path so there is exactly one AMCP shape and one deadline
+            // computation, eliminating the old buildClipOptions/IN-OUT divergence
+            // (plan §3). computeDurationMsFromTrim throws on degenerate trims,
+            // which propagates to the catch below (item marked error, auto-advance).
+            const hydrated = hydratePlayoutItem(item);
 
             const index = queuedItems.findIndex(it => queueKey(it) === key);
             const nextItem = index !== -1 ? queuedItems[index + 1] : null;
             let nextPath: string | null = null;
             if (nextItem && nextItem.type === 'video') {
                 const nextRawPath = nextItem.path || nextItem.shortPath;
-                nextPath = (await prepareCasparMediaPath(nextRawPath)).replace(/\\/g, '/').replace(/"/g, '');
+                try {
+                    nextPath = (await prepareCasparMediaPath(nextRawPath)).replace(/\\/g, '/').replace(/"/g, '');
+                } catch (e) {
+                    nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');
+                }
             }
 
-            await invoke('caspar_register_playback', { 
-                uuid: key, 
-                durationMs: effectiveDuration,
-                expectedOutPointMs: expectedOutPointMs,
-                currentPath: currentPath,
-                nextPath: nextPath
-            }).catch(() => {});
+            const dispatchResult = await dispatchPlay(
+                hydrated,
+                PROGRAM_CHANNEL,
+                CASPAR_LAYERS.video,
+                nextPath
+            );
+
+            isCasparPlaying.value = true;
+            currentCasparDurationMs.value = dispatchResult.durationMs;
+            store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs);
+            updateDisplayedTime(hydrated.trim_in_ms || 0);
+
+            onAdvanceCallback?.(key); // Notify UI progression immediately!
 
             if (index !== -1) {
                 await preloadNextItemAt(index + 1);
