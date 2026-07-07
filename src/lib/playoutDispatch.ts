@@ -9,6 +9,34 @@ export interface FrameTrimResult {
     fps_rational: string;
 }
 
+function parseFpsRational(rational: string): number | null {
+    const parts = rational.split('/');
+    if (parts.length !== 2) return null;
+    const num = Number(parts[0]);
+    const den = Number(parts[1]);
+    if (!Number.isFinite(num) || !Number.isFinite(den) || num <= 0 || den <= 0) return null;
+    return num / den;
+}
+
+/**
+ * Compute the precise content duration in ms from a frame-accurate trim result.
+ * Uses the authoritative `fps_rational` returned by the Rust trimmer (sourced
+ * from the asset DB) rather than the item's possibly-unresolved
+ * `fps_num`/`fps_den`, and guards against invalid/zero/NaN results so the
+ * watchdog deadline can never be armed with garbage. Throws on a degenerate
+ * result so the caller skips the item instead of registering a frozen state.
+ */
+export function computeDurationMsFromTrim(trim: FrameTrimResult, itemId: string): number {
+    const fps = parseFpsRational(trim.fps_rational) ?? 25;
+    const durationMs = Math.round((trim.duration_frames / fps) * 1000);
+    if (!Number.isFinite(durationMs) || durationMs <= 0) {
+        throw new Error(
+            `Invalid durationMs for item ${itemId}: duration_frames=${trim.duration_frames}, fps_rational=${trim.fps_rational}`
+        );
+    }
+    return durationMs;
+}
+
 /**
  * Prepares the path to be relative to the CasparCG media folder.
  */
@@ -65,9 +93,14 @@ export async function dispatchPlay(
     const cmd = `PLAY ${channel}-${layer} "${formattedPath}" SEEK ${trim.in_frame} LENGTH ${trim.duration_frames}`;
     await invoke('caspar_send_command', { cmd });
 
-    // 4. Calculate precise expected duration and expected out ms
-    const durationMs = Math.round((trim.duration_frames / (item.fps_num / item.fps_den)) * 1000);
-    const expectedOutMs = item.trim_in_ms + durationMs;
+    // 4. Calculate precise expected duration and expected out ms.
+    // OSC position is relative to the trim start (the producer is SEEK'd to
+    // in_frame), so expectedOutMs must be the content duration — NOT the
+    // absolute trim_in_ms + durationMs. Using the absolute value sets the
+    // advance threshold beyond the clip's end, so the position-based advance
+    // never fires and the rundown freezes on any trimmed clip.
+    const durationMs = computeDurationMsFromTrim(trim, item.id);
+    const expectedOutMs = durationMs;
 
     // 5. Register playback with backend
     await invoke('caspar_register_playback', {
@@ -84,7 +117,8 @@ export async function dispatchPlay(
 export async function dispatchLoadbg(
     item: RundownItem,
     channel: number,
-    layer: number
+    layer: number,
+    auto: boolean = true
 ): Promise<{ durationMs: number; expectedOutMs: number }> {
     // 1. compute_frame_trim
     const trim = await invoke<FrameTrimResult>('compute_frame_trim', {
@@ -96,13 +130,17 @@ export async function dispatchLoadbg(
     // 2. prepare path
     const formattedPath = await preparePath(item.path);
 
-    // 3. Construct and send LOADBG command with AUTO
-    const cmd = `LOADBG ${channel}-${layer} "${formattedPath}" SEEK ${trim.in_frame} LENGTH ${trim.duration_frames} AUTO`;
+    // 3. Construct and send LOADBG command. `auto=true` (default, used by the
+    // rundown preload path) appends AUTO so CasparCG auto-transitions when the
+    // current producer ends. `auto=false` (used by manual cue()) loads the
+    // clip into the background without scheduling an auto-transition.
+    const autoSuffix = auto ? ' AUTO' : '';
+    const cmd = `LOADBG ${channel}-${layer} "${formattedPath}" SEEK ${trim.in_frame} LENGTH ${trim.duration_frames}${autoSuffix}`;
     await invoke('caspar_send_command', { cmd });
 
-    // 4. Calculate duration and expected out point
-    const durationMs = Math.round((trim.duration_frames / (item.fps_num / item.fps_den)) * 1000);
-    const expectedOutMs = item.trim_in_ms + durationMs;
+    // 4. Calculate duration and expected out point (relative to trim start).
+    const durationMs = computeDurationMsFromTrim(trim, item.id);
+    const expectedOutMs = durationMs;
 
     return { durationMs, expectedOutMs };
 }

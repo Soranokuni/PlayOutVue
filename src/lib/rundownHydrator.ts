@@ -73,15 +73,28 @@ export function hydrateItem(raw: Record<string, unknown>): RundownItem {
 
     // Strict Invariant logic:
     // trim_out_ms must ALWAYS represent an absolute timestamp from the file start.
-    // If it is 0, missing, or higher than the total file duration, set it equal to duration_ms.
-    if (!raw.trim_out_ms || isNaN(trim_out_ms) || trim_out_ms === 0 || trim_out_ms > duration_ms) {
-        trim_out_ms = duration_ms;
+    // 0 is a sentinel: compute_frame_trim (Rust) treats trim_out_ms<=0 as "use
+    // the file's total duration from the asset DB", which is the correct
+    // behavior when duration_ms is not yet resolved. Do NOT fabricate a fake
+    // +2000ms duration here - that created a 2-second phantom clip whenever an
+    // item was hydrated before the ingestor resolved its duration, which then
+    // played wrong / appeared to skip.
+    if (isNaN(trim_out_ms)) {
+        trim_out_ms = 0;
     }
-
-    // If it is less than or equal to trim_in_ms, fallback to a safe default of trim_in_ms + 2000
-    if (trim_out_ms <= trim_in_ms) {
-        trim_out_ms = trim_in_ms + 2000;
+    if (duration_ms > 0) {
+        // Duration is known: clamp trim_out_ms into (trim_in_ms, duration_ms].
+        if (trim_out_ms === 0 || trim_out_ms > duration_ms) {
+            trim_out_ms = duration_ms;
+        }
+        if (trim_out_ms <= trim_in_ms) {
+            // Degenerate trim: clamp to file end. compute_frame_trim has its
+            // own (in_ms + 2000).min(total_dur) fallback on the Rust side too.
+            trim_out_ms = duration_ms;
+        }
     }
+    // else (duration_ms <= 0): leave trim_out_ms as 0 (sentinel) so
+    // compute_frame_trim resolves the real total duration from the DB.
 
     return {
         id,
