@@ -27,6 +27,10 @@ pub struct AssetResponse {
     #[serde(default)]
     pub fps: Option<f64>,
     #[serde(default)]
+    pub fps_num: Option<i64>,
+    #[serde(default)]
+    pub fps_den: Option<i64>,
+    #[serde(default)]
     pub total_frames: Option<i64>,
     #[serde(default)]
     pub gop_frames: Option<i64>,
@@ -34,6 +38,8 @@ pub struct AssetResponse {
     pub keyframe_safe_start_ms: Option<i64>,
     #[serde(default)]
     pub warnings: Option<Vec<String>>,
+    #[serde(default)]
+    pub playoutvue_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
