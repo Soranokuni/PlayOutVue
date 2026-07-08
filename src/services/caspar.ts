@@ -206,19 +206,31 @@ const normalizeMediaPath = (rawPath: string) => {
     if (mediaRoot) {
         const pLower = p.toLowerCase();
         const rootLower = mediaRoot.toLowerCase();
-        if (pLower.startsWith(rootLower)) {
-            p = p.substring(mediaRoot.length).replace(/^\/+/, '');
+
+        // Strip Windows verbatim prefix from both for comparison
+        const pClean = p.replace(/^\/\/\?\//, '');
+        const rootClean = mediaRoot.replace(/^\/\/\?\//, '');
+        const pCleanLower = pClean.toLowerCase();
+        const rootCleanLower = rootClean.toLowerCase();
+
+        if (pCleanLower.startsWith(rootCleanLower)) {
+            p = pClean.substring(rootClean.length).replace(/^\/+/, '');
         } else {
-            const rootParts = mediaRoot.split('/');
+            // Try to find the media root base name in the path and strip from there
+            const rootParts = rootClean.split('/');
             const rootBaseName = (rootParts[rootParts.length - 1] || '').toLowerCase();
-            const pParts = p.split('/');
-            const rootIdx = pParts.findIndex(s => s.toLowerCase() === rootBaseName ||
-                s.toLowerCase().replace(/~\d+$/, '').startsWith(rootBaseName.substring(0, 4)));
+            const pParts = pClean.split('/');
+            const rootIdx = pParts.findIndex(s => s.toLowerCase() === rootBaseName);
             if (rootIdx >= 0) {
                 p = pParts.slice(rootIdx + 1).join('/');
-            } else {
-                p = pParts[pParts.length - 1] || p;
+            } else if (!pClean.includes(':') && !pClean.startsWith('/')) {
+                // Already a relative path — return as-is (preserves subdirectory structure)
+                p = pClean;
             }
+            // else: full absolute path that doesn't match media root.
+            // Do NOT strip to just the filename — return the full path so
+            // CasparCG can try to resolve it. This prevents the critical bug
+            // where videos/...mp4 was stripped to just ...mp4.
         }
     }
 

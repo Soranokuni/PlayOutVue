@@ -9,6 +9,7 @@ use crate::db::{MediaDb, CachedMediaEntry};
 use crate::diagnostics::DiagnosticState;
 use crate::media_index;
 use crate::runtime_settings::{resolve_tool_path, RuntimeSettingsState};
+use crate::transcoder_sidecar;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -49,6 +50,14 @@ pub struct DiscoveredMedia {
     pub fps_den: i64,
     pub display_aspect_ratio: String,
     pub field_order: String,
+    #[serde(default)]
+    pub mezzanine_ok: bool,
+    #[serde(default)]
+    pub qc_warnings: String,
+    #[serde(default)]
+    pub transcode_profile: String,
+    #[serde(default)]
+    pub has_sidecar: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -528,6 +537,22 @@ fn load_cached_or_probe(
                 }
             }
         }
+        // Refresh QC fields from the transcoder sidecar if one exists.
+        let sidecar = transcoder_sidecar::read_sidecar(Path::new(filepath));
+        if let Some(ref sc) = sidecar {
+            enriched.mezzanine_ok = sc.mezzanine_ok;
+            enriched.qc_warnings = sc.warnings.join("; ");
+            if enriched.transcode_profile.is_empty() {
+                enriched.transcode_profile = sc.profile_used.clone();
+            }
+            if enriched.transcoded_at.is_empty() {
+                enriched.transcoded_at = sc.transcoded_at.clone();
+            }
+            if enriched.playoutvue_id.is_empty() && !sc.playoutvue_id.is_empty() {
+                enriched.playoutvue_id = sc.playoutvue_id.clone();
+            }
+            let _ = db.upsert(&enriched);
+        }
         return Ok(enriched);
     }
 
@@ -562,6 +587,36 @@ fn load_cached_or_probe(
                 }
             }
         }
+    }
+
+    // ── Try the transcoder sidecar JSON before falling back to ffprobe ──
+    // The sidecar is the authoritative metadata source for transcoded files:
+    // it has the exact frame count, FPS, and QC verdict that the transcoder
+    // intended, avoiding ffprobe failures on files still being written or
+    // with container quirks.
+    if let Some(sidecar) = transcoder_sidecar::read_sidecar(Path::new(filepath)) {
+        let mut entry = transcoder_sidecar::sidecar_to_cached_entry(&sidecar, filepath);
+        if let Some(root) = resolved_media_root.as_deref() {
+            if let Ok(stable_id) = media_index::upsert_entry(root, Path::new(filepath), &entry) {
+                if !stable_id.trim().is_empty() {
+                    entry.playoutvue_id = stable_id;
+                }
+            }
+        }
+        let _ = db.upsert(&entry);
+        if let Some(diagnostics) = diagnostics {
+            log_scanner(
+                diagnostics,
+                "info",
+                format!(
+                    "Resolved metadata from transcoder sidecar for '{}' (profile: {}, qc: {})",
+                    filepath.replace('\\', "/"),
+                    sidecar.profile_used,
+                    if sidecar.mezzanine_ok { "ok" } else { "pending" }
+                ),
+            );
+        }
+        return Ok(entry);
     }
 
     match run_ffprobe(ffprobe, filepath, diagnostics) {
@@ -667,6 +722,8 @@ fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticSta
         transcode_profile: String::new(),
         transcoded_at: String::new(),
         original_source_path: String::new(),
+        mezzanine_ok: false,
+        qc_warnings: String::new(),
     })
 }
 
@@ -1005,6 +1062,8 @@ pub fn save_media_trim_profile<R: Runtime>(
             transcode_profile: String::new(),
             transcoded_at: String::new(),
             original_source_path: String::new(),
+            mezzanine_ok: false,
+            qc_warnings: String::new(),
         });
 
     entry.path = normalized_path;
@@ -1082,6 +1141,10 @@ pub async fn scan_directory<R: Runtime>(
                             fps_den: 1,
                             display_aspect_ratio: String::new(),
                             field_order: String::new(),
+                            mezzanine_ok: false,
+                            qc_warnings: String::new(),
+                            transcode_profile: String::new(),
+                            has_sidecar: false,
                         });
                     }
 
@@ -1122,6 +1185,8 @@ pub async fn scan_directory<R: Runtime>(
                     transcode_profile: String::new(),
                     transcoded_at: String::new(),
                     original_source_path: String::new(),
+                    mezzanine_ok: false,
+                    qc_warnings: String::new(),
                 });
 
                 if entry_meta.duration_ms <= 0 {
@@ -1130,6 +1195,25 @@ pub async fn scan_directory<R: Runtime>(
                         let _ = db.upsert(&indexed_entry);
                         entry_meta = indexed_entry;
                     }
+                }
+
+                // Try the transcoder sidecar for metadata + QC status
+                let sidecar = transcoder_sidecar::read_sidecar(&file_path);
+                if let Some(ref sc) = sidecar {
+                    if entry_meta.duration_ms <= 0 {
+                        entry_meta = transcoder_sidecar::sidecar_to_cached_entry(sc, &path_str);
+                        let _ = db.upsert(&entry_meta);
+                    }
+                    // Always refresh QC fields from the sidecar
+                    entry_meta.mezzanine_ok = sc.mezzanine_ok;
+                    entry_meta.qc_warnings = sc.warnings.join("; ");
+                    if entry_meta.transcode_profile.is_empty() {
+                        entry_meta.transcode_profile = sc.profile_used.clone();
+                    }
+                    if entry_meta.playoutvue_id.is_empty() && !sc.playoutvue_id.is_empty() {
+                        entry_meta.playoutvue_id = sc.playoutvue_id.clone();
+                    }
+                    let _ = db.upsert(&entry_meta);
                 }
 
                 let index_root = media_index::find_media_root_for_path(&file_path).unwrap_or_else(|| root.clone());
@@ -1157,6 +1241,10 @@ pub async fn scan_directory<R: Runtime>(
                     fps_den:      entry_meta.fps_den,
                     display_aspect_ratio: entry_meta.display_aspect_ratio,
                     field_order:  entry_meta.field_order,
+                    mezzanine_ok: entry_meta.mezzanine_ok,
+                    qc_warnings:  entry_meta.qc_warnings,
+                    transcode_profile: entry_meta.transcode_profile,
+                    has_sidecar:  sidecar.is_some(),
                 });
             }
 

@@ -9,6 +9,20 @@ export interface FrameTrimResult {
     fps_rational: string;
 }
 
+export interface PlaybackReadiness {
+    ready: boolean;
+    fileExists: boolean;
+    hasDbEntry: boolean;
+    hasSidecar: boolean;
+    qcPassed: boolean;
+    mezzanineOk: boolean;
+    warnings: string[];
+    durationMs: number;
+    fpsNum: number;
+    fpsDen: number;
+    error: string;
+}
+
 function parseFpsRational(rational: string): number | null {
     const parts = rational.split('/');
     if (parts.length !== 2) return null;
@@ -16,6 +30,33 @@ function parseFpsRational(rational: string): number | null {
     const den = Number(parts[1]);
     if (!Number.isFinite(num) || !Number.isFinite(den) || num <= 0 || den <= 0) return null;
     return num / den;
+}
+
+/**
+ * Pre-flight playback readiness check. Verifies file existence, DB metadata
+ * availability, and QC status before attempting to play.
+ * If the DB has no entry but a transcoder sidecar exists, the sidecar metadata
+ * is upserted into the DB so compute_frame_trim succeeds.
+ */
+async function verifyPlaybackReady(path: string): Promise<PlaybackReadiness> {
+    try {
+        return await invoke<PlaybackReadiness>('verify_playback_ready', { path });
+    } catch (e) {
+        console.warn('[playoutDispatch] verify_playback_ready failed, continuing:', e);
+        return {
+            ready: true,
+            fileExists: true,
+            hasDbEntry: true,
+            hasSidecar: false,
+            qcPassed: true,
+            mezzanineOk: true,
+            warnings: [],
+            durationMs: 0,
+            fpsNum: 0,
+            fpsDen: 0,
+            error: '',
+        };
+    }
 }
 
 /// CasparCG channel output rate in fields/sec. The channel is configured as
@@ -76,20 +117,26 @@ async function preparePath(clientPath: string): Promise<string> {
         let p = clientPath.replace(/\\/g, '/');
         const mediaRoot = (settings.localMediaPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
         if (mediaRoot) {
-            const pLower = p.toLowerCase();
-            const rootLower = mediaRoot.toLowerCase();
+            // Strip Windows verbatim prefix from both for comparison
+            const pClean = p.replace(/^\/\/\?\//, '');
+            const rootClean = mediaRoot.replace(/^\/\/\?\//, '');
+            const pLower = pClean.toLowerCase();
+            const rootLower = rootClean.toLowerCase();
             if (pLower.startsWith(rootLower)) {
-                p = p.substring(mediaRoot.length).replace(/^\/+/, '');
+                p = pClean.substring(rootClean.length).replace(/^\/+/, '');
             } else {
-                const rootParts = mediaRoot.split('/');
+                const rootParts = rootClean.split('/');
                 const rootBaseName = (rootParts[rootParts.length - 1] || '').toLowerCase();
-                const pParts = p.split('/');
+                const pParts = pClean.split('/');
                 const rootIdx = pParts.findIndex(s => s.toLowerCase() === rootBaseName);
                 if (rootIdx >= 0) {
                     p = pParts.slice(rootIdx + 1).join('/');
-                } else {
-                    p = pParts[pParts.length - 1] || p;
+                } else if (!pClean.includes(':') && !pClean.startsWith('/')) {
+                    // Already a relative path — return as-is
+                    p = pClean;
                 }
+                // else: return the full path. Do NOT strip to just the filename
+                // — that caused CasparCG 404 errors for files in media/videos/.
             }
         }
         return p.replace(/"/g, '');
@@ -102,6 +149,14 @@ export async function dispatchPlay(
     layer: number,
     nextPath: string | null = null
 ): Promise<{ durationMs: number; expectedOutMs: number }> {
+    // 0. Pre-flight: verify file exists, has metadata, and passed QC
+    const readiness = await verifyPlaybackReady(item.path);
+    if (!readiness.ready) {
+        throw new Error(
+            `Playback pre-flight check failed for "${item.path}": ${readiness.error}`
+        );
+    }
+
     // 1. compute_frame_trim
     const trim = await invoke<FrameTrimResult>('compute_frame_trim', {
         path: item.path,
@@ -153,6 +208,12 @@ export async function dispatchLoadbg(
     layer: number,
     auto: boolean = true
 ): Promise<{ durationMs: number; expectedOutMs: number }> {
+    // 0. Pre-flight: verify file exists and has metadata (skip QC for preload)
+    const readiness = await verifyPlaybackReady(item.path);
+    if (!readiness.fileExists) {
+        throw new Error(`Preload pre-flight check failed — file not found: "${item.path}"`);
+    }
+
     // 1. compute_frame_trim
     const trim = await invoke<FrameTrimResult>('compute_frame_trim', {
         path: item.path,
