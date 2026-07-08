@@ -519,7 +519,16 @@ fn handle_playback_path_osc<R: Runtime>(
     if let Some(expected) = &s.expected_next_path {
         let path_norm = extract_raw_filename_lower(path);
         let expected_norm = extract_raw_filename_lower(expected);
-        if path_norm == expected_norm {
+        // Guard against same-file transitions (e.g. a subclip that points to
+        // the same media file as its parent). When the parent starts playing,
+        // the OSC `/file/path` echoes the parent's path — which is identical to
+        // the preloaded subclip's `expected_next_path`. Without this guard the
+        // path-switch advance fires instantly, skipping the parent and jumping
+        // to the subclip. We only fire when the foreground has *actually*
+        // switched to a different file than the one the current item was
+        // registered with.
+        let registered_norm = extract_raw_filename_lower(&s.registered_current_path);
+        if path_norm == expected_norm && !registered_norm.is_empty() && path_norm != registered_norm {
             if !s.transition_triggered {
                 s.transition_triggered = true;
                 s.advance_fired = true; // Sync the advance fired flag to prevent double-trigger
@@ -530,9 +539,11 @@ fn handle_playback_path_osc<R: Runtime>(
                     reason: "osc-path-switch".to_string(),
                 };
                 let app_clone = app.clone();
+                drop(s); // release lock before emit
                 tauri::async_runtime::spawn(async move {
                     let _ = app_clone.emit("caspar://advance", advance);
                 });
+                return;
             }
         }
     }
@@ -620,6 +631,14 @@ pub struct PlaybackStateInner {
     /// Whether the position has advanced at least once since playback started.
     /// Used to distinguish a startup delay from a genuine EOF stall.
     pub position_ever_advanced: bool,
+    /// The path the *current* item was registered with (`caspar_register_playback`'s
+    /// `current_path`). Unlike `current_file_path` (which is overwritten by every
+    /// OSC `/file/path` packet), this stays fixed for the item's lifetime so the
+    /// path-switch detector can tell a genuine foreground change from the current
+    /// item's own path echoing back. Without this, a subclip that shares the same
+    /// file as its parent triggers an instant `osc-path-switch` advance the moment
+    /// the parent starts playing — skipping the parent entirely.
+    pub registered_current_path: String,
 }
 
 impl Default for PlaybackStateInner {
@@ -641,6 +660,7 @@ impl Default for PlaybackStateInner {
             last_position_ms: 0,
             position_stalled_ticks: 0,
             position_ever_advanced: false,
+            registered_current_path: String::new(),
         }
     }
 }
@@ -816,10 +836,22 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                 // EOF, the position freezes, but the watchdog's deadline is
                 // set far in the future. Without this check the rundown would
                 // freeze for the entire inflated duration.
+                //
+                // The check also requires the position to be reasonably close
+                // to the expected out point (within 5 seconds). Without this
+                // guard, a short subclip (e.g. 4s) whose watchdog was
+                // incorrectly armed with the FILE's full duration (e.g. 15s)
+                // would have its position stall at ~4000ms — far below the
+                // 15640ms expected out point — and the stall would fire after
+                // 3s, cutting the clip short. The proximity check ensures the
+                // stall only fires when the producer genuinely hit EOF near
+                // where it was expected to end.
                 if advance_reason.is_none()
                     && s.position_ever_advanced
                     && s.position_stalled_ticks >= 12
                     && s.position_ms > 500
+                    && s.expected_out_point_ms != u64::MAX
+                    && s.position_ms >= s.expected_out_point_ms.saturating_sub(5000)
                 {
                     s.advance_fired = true;
                     s.transition_triggered = true;
@@ -882,7 +914,8 @@ pub async fn caspar_register_playback(
     }
     s.expected_out_point_ms = out_point;
 
-    s.current_file_path = current_path;
+    s.current_file_path = current_path.clone();
+    s.registered_current_path = current_path;
     s.expected_next_path = next_path;
     s.last_osc_at_ms = now_ms();
     s.last_tick_emit_ms = 0;
@@ -925,6 +958,7 @@ pub async fn caspar_clear_playback(state: State<'_, CasparPlaybackState>) -> Res
     s.duration_ms = 0;
     s.expected_out_point_ms = u64::MAX;
     s.current_file_path = String::new();
+    s.registered_current_path = String::new();
     s.expected_next_path = None;
     s.advance_fired = false;
     s.stall_emitted = false;
