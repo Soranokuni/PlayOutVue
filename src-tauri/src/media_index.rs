@@ -354,6 +354,8 @@ fn to_cached_entry(record: &MediaIndexRecord, path: String) -> CachedMediaEntry 
         transcode_profile: String::new(),
         transcoded_at: String::new(),
         original_source_path: String::new(),
+        mezzanine_ok: false,
+        qc_warnings: String::new(),
     }
 }
 

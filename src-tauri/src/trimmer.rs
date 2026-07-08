@@ -2,6 +2,7 @@ use std::path::Path;
 use tauri::{AppHandle, Runtime, State};
 
 use crate::runtime_settings::{resolve_tool_path, RuntimeSettingsState};
+use crate::transcoder_sidecar;
 
 fn get_ffmpeg_path<R: Runtime>(app: Option<&AppHandle<R>>, runtime_settings: Option<&RuntimeSettingsState>) -> String {
     resolve_tool_path(app, runtime_settings, "ffmpeg.exe")
@@ -119,10 +120,28 @@ pub async fn compute_frame_trim(
     trim_out_ms: i64,
     db_state: State<'_, crate::scanner::DbState>,
 ) -> Result<FrameTrimResult, String> {
-    let entry = db_state
-        .0
-        .get_entry(&path)
-        .ok_or_else(|| format!("Asset not found in database: {}", path))?;
+    let entry = match db_state.0.get_entry(&path) {
+        Some(entry) if entry.fps_num > 0 && entry.duration_ms > 0 => entry,
+        _ => {
+            // Fallback: try the transcoder sidecar JSON before erroring out.
+            // This fixes the "Asset not found in database" error that occurred
+            // when a newly transcoded file hadn't been scanned into the DB yet.
+            let sidecar = transcoder_sidecar::read_sidecar(Path::new(&path))
+                .ok_or_else(|| format!("Asset not found in database: {}", path))?;
+            let mut entry = transcoder_sidecar::sidecar_to_cached_entry(&sidecar, &path);
+            // Persist to DB so subsequent lookups succeed
+            let _ = db_state.0.upsert(&entry);
+            if entry.fps_num <= 0 || entry.duration_ms <= 0 {
+                return Err(format!(
+                    "Invalid metadata for asset (fps: {}/{}, duration: {}ms): {}",
+                    entry.fps_num, entry.fps_den, entry.duration_ms, path
+                ));
+            }
+            // Re-fetch to get the normalized path
+            entry.path = path.clone();
+            entry
+        }
+    };
 
     if entry.fps_num <= 0 || entry.fps_den <= 0 {
         return Err(format!(
