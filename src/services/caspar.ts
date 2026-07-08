@@ -100,6 +100,14 @@ let reconnectRequested = false;
 let reconnectInFlight: Promise<void> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+// Track which items have been successfully preloaded via LOADBG AUTO.
+// The natural advance path assumes CasparCG auto-transitioned to the
+// preloaded clip. If the preload failed (e.g. ingestor not ready), there
+// is nothing to auto-transition to and the screen would freeze. By
+// checking this set, advanceToNext can fall back to playItemAt (which
+// sends an explicit PLAY) when the preload didn't happen.
+const preloadedKeys = new Set<string>();
+
 const assertIngestorReady = (item: PlayoutItem) => {
     const status: IngestorStatus = (item as any).ingestorStatus || 'idle';
 
@@ -523,9 +531,13 @@ async function refreshCurrentProducerDuration(item: PlayoutItem, key: string, to
                     duration: totalDurationMs / 1000,
                     plannedDuration: totalDurationMs / 1000
                 });
-                // Re-anchor progress timer with real duration
-                const startEpoch = playStartTime.value;
-                store.startPlaybackProgressTimer(item.id, totalDurationMs, startEpoch);
+                // Re-anchor progress timer with the resolved duration. Use
+                // Date.now() — NOT playStartTime.value — because playStartTime
+                // was set several hundred ms before the clip actually started
+                // (during the async dispatch). Re-anchoring with the stale
+                // timestamp makes the green progress bar jump to a non-zero
+                // position and then snap back when OSC ticks arrive.
+                store.startPlaybackProgressTimer(item.id, totalDurationMs, Date.now());
             }
 
             const expectedOutPointMs = totalDurationMs; // Relative to trim start
@@ -735,6 +747,7 @@ async function preloadNextItemAt(index: number, retriesLeft = 6, delayMs = 500) 
     try {
         const hydrated = hydratePlayoutItem(item);
         await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video);
+        preloadedKeys.add(queueKey(item));
     } catch (error) {
         console.warn('[CasparCG] Failed to preload next item', item.filename, error);
     }
@@ -831,7 +844,7 @@ async function playItemAt(index: number, token: number) {
 
         isCasparPlaying.value = true;
         consecutiveSkips = 0;
-        updateDisplayedTime(hydrated.trim_in_ms || 0);
+        updateDisplayedTime(0);
         currentCasparDurationMs.value = dispatchResult.durationMs;
 
         // Register play start with our end-guard
@@ -923,14 +936,23 @@ async function advanceToNext(token: number, natural: boolean) {
         const currentItem = queuedItems[currentIndex];
         const nextItem = queuedItems[nextIndex];
 
-        const isNaturalVideoTransition = 
-            natural && 
-            currentItem && 
-            currentItem.type === 'video' && 
-            nextItem && 
-            nextItem.type === 'video';
+        const nextKey = nextItem ? queueKey(nextItem) : '';
+        // Only take the natural (no-PLAY) path when the next clip was
+        // successfully preloaded via LOADBG AUTO. If the preload failed
+        // (ingestor not ready, path unresolved), CasparCG has nothing to
+        // auto-transition to and the screen would freeze. Falling through
+        // to playItemAt sends an explicit PLAY, which is less seamless but
+        // guaranteed to start the clip.
+        const isNaturalVideoTransition =
+            natural &&
+            currentItem &&
+            currentItem.type === 'video' &&
+            nextItem &&
+            nextItem.type === 'video' &&
+            preloadedKeys.has(nextKey);
 
         if (isNaturalVideoTransition && nextItem) {
+            preloadedKeys.delete(nextKey);
             if (nextItem.ingestorStatus === 'error') {
                 console.warn(`[CasparCG] Skipping item ${nextItem.filename} on natural advance because it is flagged with error status.`);
                 setTimeout(() => {
@@ -974,7 +996,7 @@ async function advanceToNext(token: number, natural: boolean) {
                 await casparPlayoutService.applyComplianceForItem?.(nextItem);
 
                 const store = useRundownStore();
-                updateDisplayedTime(hydrated.trim_in_ms || 0);
+                updateDisplayedTime(0);
 
                 activeGuard.clear();
                 playStartTime.value = Date.now();
@@ -1076,6 +1098,7 @@ export const casparPlayoutService: PlayoutService = {
         }
 
         queuedItems = items.map((i: any) => ({ ...i }));
+        preloadedKeys.clear();
         playToken += 1;
         playStartTime.value = Date.now();
         playStartIndex.value = startIndex;
@@ -1101,6 +1124,7 @@ export const casparPlayoutService: PlayoutService = {
         isCasparPlaying.value = false;
         currentCasparDurationMs.value = 0;
         currentKey = null;
+        preloadedKeys.clear();
         updateDisplayedTime(0);
         timelineTimers.forEach(clearTimeout);
         timelineTimers = [];
@@ -1143,7 +1167,7 @@ export const casparPlayoutService: PlayoutService = {
         // preload path share one AMCP shape and one trim source (plan §3).
         const hydrated = hydratePlayoutItem(item);
         await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, false);
-        updateDisplayedTime(item.trim_in_ms ?? item.inPoint ?? 0);
+        updateDisplayedTime(0);
     },
 
     async take() {
@@ -1155,6 +1179,7 @@ export const casparPlayoutService: PlayoutService = {
         if (!item) return;
 
         playToken += 1; // Flush/invalidate previous preloads or natural advance tokens
+        preloadedKeys.clear();
 
         try {
             if (item.ingestorStatus === 'error') {
@@ -1227,7 +1252,7 @@ export const casparPlayoutService: PlayoutService = {
             isCasparPlaying.value = true;
             currentCasparDurationMs.value = dispatchResult.durationMs;
             store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs);
-            updateDisplayedTime(hydrated.trim_in_ms || 0);
+            updateDisplayedTime(0);
 
             onAdvanceCallback?.(key); // Notify UI progression immediately!
 

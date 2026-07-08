@@ -5,6 +5,7 @@ export interface GuardState {
     stalledTicks: number;
     startedAt: number;
     effectiveDurationMs: number;
+    positionEverAdvanced: boolean;
 }
 
 export const activeGuard = new Map<string, GuardState>();
@@ -37,7 +38,8 @@ export async function initEndGuard(onStall: (itemId: string) => void): Promise<v
                 lastPositionMs: positionMs,
                 stalledTicks: 0,
                 startedAt: now,
-                effectiveDurationMs: durationMs || 0
+                effectiveDurationMs: durationMs || 0,
+                positionEverAdvanced: false
             };
             activeGuard.set(currentUuid, state);
             return;
@@ -47,6 +49,7 @@ export async function initEndGuard(onStall: (itemId: string) => void): Promise<v
         const positionChanged = Math.abs(positionMs - state.lastPositionMs) > 40;
         if (positionChanged) {
             state.stalledTicks = 0;
+            state.positionEverAdvanced = true;
         } else {
             state.stalledTicks += 1;
         }
@@ -61,7 +64,17 @@ export async function initEndGuard(onStall: (itemId: string) => void): Promise<v
         const overtime = elapsed > state.effectiveDurationMs * 1.15;
         const stalled = state.stalledTicks >= 5;
 
-        if (overtime && stalled) {
+        // EOF stall detection: the position was advancing but has been
+        // frozen for an extended period, even though the expected duration
+        // hasn't elapsed. This catches clips that hit EOF before the
+        // expected out point (e.g. inflated DB duration → LENGTH larger
+        // than remaining frames). Without this, the rundown would freeze
+        // for the entire inflated duration before the overtime check fires.
+        const eofStalled = state.positionEverAdvanced
+            && state.stalledTicks >= 20
+            && positionMs > 500;
+
+        if ((overtime && stalled) || eofStalled) {
             console.warn(
                 `[EndGuard] HEAVY WARNING: Playout stalled for item ${currentUuid}!\n` +
                 `  Elapsed wall-clock: ${elapsed}ms\n` +
@@ -84,7 +97,8 @@ export function registerPlayStart(itemId: string, durationMs: number) {
         lastPositionMs: -1,
         stalledTicks: 0,
         startedAt: Date.now(),
-        effectiveDurationMs: durationMs
+        effectiveDurationMs: durationMs,
+        positionEverAdvanced: false
     });
 }
 

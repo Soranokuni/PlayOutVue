@@ -18,6 +18,29 @@ function parseFpsRational(rational: string): number | null {
     return num / den;
 }
 
+/// CasparCG channel output rate in fields/sec. The channel is configured as
+/// `1080i5000` (1080 interlaced, 50.000 fields/sec). CasparCG's AMCP protocol
+/// interprets SEEK and LENGTH values in units of the **channel output rate**,
+/// not the source file's frame rate.
+///
+/// For a 25fps progressive file on a 1080i50 channel, each source frame
+/// produces 2 output fields. So `LENGTH 836` (file frames) is interpreted by
+/// CasparCG as 836 fields = 16.72s — exactly **half** the real 33.44s duration.
+/// This was the root cause of clips freezing at the midpoint: the producer
+/// hit the LENGTH limit at half the file, froze on the last frame, and the
+/// position-based advance never fired because the OSC position (16,720ms) was
+/// far below the watchdog's expected out point (33,440ms).
+///
+/// The fix: multiply file-frame values by `channelOutputRate / fileFps` before
+/// sending them as AMCP SEEK/LENGTH. For 25fps → multiplier 2, for 50fps →
+/// multiplier 1. The watchdog duration (`computeDurationMsFromTrim`) stays in
+/// real time (file frames / file fps) and is unaffected.
+const CHANNEL_OUTPUT_RATE_HZ = 50;
+
+function computeFieldMultiplier(fileFps: number): number {
+    return Math.max(1, Math.round(CHANNEL_OUTPUT_RATE_HZ / fileFps));
+}
+
 /**
  * Compute the precise content duration in ms from a frame-accurate trim result.
  * Uses the authoritative `fps_rational` returned by the Rust trimmer (sourced
@@ -89,8 +112,18 @@ export async function dispatchPlay(
     // 2. prepare path
     const formattedPath = await preparePath(item.path);
 
-    // 3. Construct and send AMCP command
-    const cmd = `PLAY ${channel}-${layer} "${formattedPath}" SEEK ${trim.in_frame} LENGTH ${trim.duration_frames}`;
+    // 3. Construct and send AMCP command. CasparCG interprets SEEK/LENGTH in
+    // channel output units (fields on 1080i50 = 50Hz). `compute_frame_trim`
+    // returns file-frame values, so we convert via the field multiplier.
+    // For 25fps files: multiplier = 50/25 = 2 (each frame = 2 fields).
+    // For 50fps files: multiplier = 50/50 = 1 (each frame = 1 field).
+    // Without this, 25fps clips play at half duration and freeze at the
+    // midpoint because CasparCG plays `LENGTH` fields, not `LENGTH` frames.
+    const fileFps = parseFpsRational(trim.fps_rational) ?? 25;
+    const fieldMultiplier = computeFieldMultiplier(fileFps);
+    const seekFields = trim.in_frame * fieldMultiplier;
+    const lengthFields = trim.duration_frames * fieldMultiplier;
+    const cmd = `PLAY ${channel}-${layer} "${formattedPath}" SEEK ${seekFields} LENGTH ${lengthFields}`;
     await invoke('caspar_send_command', { cmd });
 
     // 4. Calculate precise expected duration and expected out ms.
@@ -130,12 +163,18 @@ export async function dispatchLoadbg(
     // 2. prepare path
     const formattedPath = await preparePath(item.path);
 
-    // 3. Construct and send LOADBG command. `auto=true` (default, used by the
-    // rundown preload path) appends AUTO so CasparCG auto-transitions when the
-    // current producer ends. `auto=false` (used by manual cue()) loads the
-    // clip into the background without scheduling an auto-transition.
+    // 3. Construct and send LOADBG command. Same field-rate conversion as
+    // dispatchPlay — CasparCG interprets SEEK/LENGTH in channel output fields.
+    // `auto=true` (default, used by the rundown preload path) appends AUTO so
+    // CasparCG auto-transitions when the current producer ends. `auto=false`
+    // (used by manual cue()) loads the clip into the background without
+    // scheduling an auto-transition.
+    const fileFps = parseFpsRational(trim.fps_rational) ?? 25;
+    const fieldMultiplier = computeFieldMultiplier(fileFps);
+    const seekFields = trim.in_frame * fieldMultiplier;
+    const lengthFields = trim.duration_frames * fieldMultiplier;
     const autoSuffix = auto ? ' AUTO' : '';
-    const cmd = `LOADBG ${channel}-${layer} "${formattedPath}" SEEK ${trim.in_frame} LENGTH ${trim.duration_frames}${autoSuffix}`;
+    const cmd = `LOADBG ${channel}-${layer} "${formattedPath}" SEEK ${seekFields} LENGTH ${lengthFields}${autoSuffix}`;
     await invoke('caspar_send_command', { cmd });
 
     // 4. Calculate duration and expected out point (relative to trim start).

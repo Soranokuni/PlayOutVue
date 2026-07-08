@@ -1,6 +1,7 @@
 use std::path::Path;
 use tauri::{AppHandle, Runtime, State};
 
+use crate::media_index;
 use crate::runtime_settings::{resolve_tool_path, RuntimeSettingsState};
 
 fn get_ffmpeg_path<R: Runtime>(app: Option<&AppHandle<R>>, runtime_settings: Option<&RuntimeSettingsState>) -> String {
@@ -119,10 +120,27 @@ pub async fn compute_frame_trim(
     trim_out_ms: i64,
     db_state: State<'_, crate::scanner::DbState>,
 ) -> Result<FrameTrimResult, String> {
-    let entry = db_state
-        .0
-        .get_entry(&path)
-        .ok_or_else(|| format!("Asset not found in database: {}", path))?;
+    // Look up the asset in the in-memory SQLite DB first. If it hasn't been
+    // probed yet (the background scanner may still be running, or the file was
+    // just added), fall back to the portable JSON index that the transcoder
+    // writes alongside the media. This prevents "Asset not found in database"
+    // errors on first playback — the exact failure visible in the playout log
+    // at startup. The resolved entry is upserted into the DB so subsequent
+    // lookups hit the fast path.
+    let entry = if let Some(e) = db_state.0.get_entry(&path) {
+        e
+    } else if let Some(e) = media_index::find_media_root_for_path(Path::new(&path))
+        .and_then(|root| {
+            media_index::hydrate_entry_from_index(&root, Path::new(&path))
+                .ok()
+                .flatten()
+        })
+    {
+        let _ = db_state.0.upsert(&e);
+        e
+    } else {
+        return Err(format!("Asset not found in database or portable index: {}", path));
+    };
 
     if entry.fps_num <= 0 || entry.fps_den <= 0 {
         return Err(format!(

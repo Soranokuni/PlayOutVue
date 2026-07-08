@@ -507,6 +507,13 @@ pub struct PlaybackStateInner {
     pub advance_fired: bool,
     pub stall_emitted: bool,
     pub transition_triggered: bool,
+    /// Previous OSC position, used to detect position stalls (EOF freeze).
+    pub last_position_ms: u64,
+    /// Consecutive watchdog ticks where the position has not advanced.
+    pub position_stalled_ticks: u32,
+    /// Whether the position has advanced at least once since playback started.
+    /// Used to distinguish a startup delay from a genuine EOF stall.
+    pub position_ever_advanced: bool,
 }
 
 impl Default for PlaybackStateInner {
@@ -525,6 +532,9 @@ impl Default for PlaybackStateInner {
             advance_fired: false,
             stall_emitted: false,
             transition_triggered: false,
+            last_position_ms: 0,
+            position_stalled_ticks: 0,
+            position_ever_advanced: false,
         }
     }
 }
@@ -582,6 +592,20 @@ fn handle_playback_osc<R: Runtime>(
         }
     }
     s.last_osc_at_ms = now;
+
+    // Track position stalls for EOF freeze detection. When the producer
+    // hits EOF before the expected out point (e.g. due to an inflated DB
+    // duration causing a LENGTH larger than the remaining frames), the
+    // OSC position stops advancing while OSC packets keep arriving.
+    if position_ms.is_some() {
+        if s.position_ms > s.last_position_ms + 40 {
+            s.position_ever_advanced = true;
+            s.position_stalled_ticks = 0;
+        } else if s.position_ever_advanced && s.position_ms == s.last_position_ms {
+            s.position_stalled_ticks += 1;
+        }
+        s.last_position_ms = s.position_ms;
+    }
 
     // Position-based advance check (primary advance mechanism)
     if playback_should_advance(
@@ -675,6 +699,26 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                         advance_reason = Some("eof-watchdog".to_string());
                     }
                 }
+
+                // Position-stall EOF detection: OSC packets are still arriving
+                // (gap < 1500) but the position has not advanced for several
+                // ticks. This catches the case where the producer hits EOF
+                // before the expected out point — e.g. when the DB duration is
+                // inflated (ffprobe picking the max stream duration instead of
+                // the video duration), causing compute_frame_trim to produce a
+                // LENGTH larger than the remaining frames. CasparCG plays to
+                // EOF, the position freezes, but the watchdog's deadline is
+                // set far in the future. Without this check the rundown would
+                // freeze for the entire inflated duration.
+                if advance_reason.is_none()
+                    && s.position_ever_advanced
+                    && s.position_stalled_ticks >= 12
+                    && s.position_ms > 500
+                {
+                    s.advance_fired = true;
+                    s.transition_triggered = true;
+                    advance_reason = Some("eof-position-stall".to_string());
+                }
                 (stall, advance_reason)
             };
 
@@ -739,6 +783,9 @@ pub async fn caspar_register_playback(
     s.advance_fired = false;
     s.stall_emitted = false;
     s.transition_triggered = false;
+    s.last_position_ms = 0;
+    s.position_stalled_ticks = 0;
+    s.position_ever_advanced = false;
     Ok(())
 }
 
@@ -776,6 +823,9 @@ pub async fn caspar_clear_playback(state: State<'_, CasparPlaybackState>) -> Res
     s.advance_fired = false;
     s.stall_emitted = false;
     s.transition_triggered = false;
+    s.last_position_ms = 0;
+    s.position_stalled_ticks = 0;
+    s.position_ever_advanced = false;
     Ok(())
 }
 
