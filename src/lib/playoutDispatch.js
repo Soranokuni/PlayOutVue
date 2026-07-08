@@ -1,47 +1,26 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { RundownItem } from './rundownHydrator';
 import { useSettingsStore } from '../stores/settings';
-
-export interface FrameTrimResult {
-    in_frame: number;
-    out_frame: number;
-    duration_frames: number;
-    fps_rational: string;
-}
-
-export interface PlaybackReadiness {
-    ready: boolean;
-    fileExists: boolean;
-    hasDbEntry: boolean;
-    hasSidecar: boolean;
-    qcPassed: boolean;
-    mezzanineOk: boolean;
-    warnings: string[];
-    durationMs: number;
-    fpsNum: number;
-    fpsDen: number;
-    error: string;
-}
-
-function parseFpsRational(rational: string): number | null {
+function parseFpsRational(rational) {
     const parts = rational.split('/');
-    if (parts.length !== 2) return null;
+    if (parts.length !== 2)
+        return null;
     const num = Number(parts[0]);
     const den = Number(parts[1]);
-    if (!Number.isFinite(num) || !Number.isFinite(den) || num <= 0 || den <= 0) return null;
+    if (!Number.isFinite(num) || !Number.isFinite(den) || num <= 0 || den <= 0)
+        return null;
     return num / den;
 }
-
 /**
  * Pre-flight playback readiness check. Verifies file existence, DB metadata
  * availability, and QC status before attempting to play.
  * If the DB has no entry but a transcoder sidecar exists, the sidecar metadata
  * is upserted into the DB so compute_frame_trim succeeds.
  */
-async function verifyPlaybackReady(path: string): Promise<PlaybackReadiness> {
+async function verifyPlaybackReady(path) {
     try {
-        return await invoke<PlaybackReadiness>('verify_playback_ready', { path });
-    } catch (e) {
+        return await invoke('verify_playback_ready', { path });
+    }
+    catch (e) {
         console.warn('[playoutDispatch] verify_playback_ready failed, continuing:', e);
         return {
             ready: true,
@@ -58,7 +37,6 @@ async function verifyPlaybackReady(path: string): Promise<PlaybackReadiness> {
         };
     }
 }
-
 /**
  * Compute the precise content duration in ms from a frame-accurate trim result.
  * Uses the authoritative `fps_rational` returned by the Rust trimmer (sourced
@@ -67,29 +45,27 @@ async function verifyPlaybackReady(path: string): Promise<PlaybackReadiness> {
  * watchdog deadline can never be armed with garbage. Throws on a degenerate
  * result so the caller skips the item instead of registering a frozen state.
  */
-export function computeDurationMsFromTrim(trim: FrameTrimResult, itemId: string): number {
+export function computeDurationMsFromTrim(trim, itemId) {
     const fps = parseFpsRational(trim.fps_rational) ?? 25;
     const durationMs = Math.round((trim.duration_frames / fps) * 1000);
     if (!Number.isFinite(durationMs) || durationMs <= 0) {
-        throw new Error(
-            `Invalid durationMs for item ${itemId}: duration_frames=${trim.duration_frames}, fps_rational=${trim.fps_rational}`
-        );
+        throw new Error(`Invalid durationMs for item ${itemId}: duration_frames=${trim.duration_frames}, fps_rational=${trim.fps_rational}`);
     }
     return durationMs;
 }
-
 /**
  * Prepares the path to be relative to the CasparCG media folder.
  */
-async function preparePath(clientPath: string): Promise<string> {
+async function preparePath(clientPath) {
     const settings = useSettingsStore();
     try {
-        const prepared = await invoke<string>('prepare_caspar_media_path', {
+        const prepared = await invoke('prepare_caspar_media_path', {
             path: clientPath,
             mediaRoot: settings.localMediaPath || ''
         });
         return prepared.replace(/\\/g, '/').replace(/"/g, '');
-    } catch (e) {
+    }
+    catch (e) {
         console.warn('[playoutDispatch] Failed to prepare path via invoke, using local fallback:', e);
         let p = clientPath.replace(/\\/g, '/');
         const mediaRoot = (settings.localMediaPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
@@ -101,14 +77,16 @@ async function preparePath(clientPath: string): Promise<string> {
             const rootLower = rootClean.toLowerCase();
             if (pLower.startsWith(rootLower)) {
                 p = pClean.substring(rootClean.length).replace(/^\/+/, '');
-            } else {
+            }
+            else {
                 const rootParts = rootClean.split('/');
                 const rootBaseName = (rootParts[rootParts.length - 1] || '').toLowerCase();
                 const pParts = pClean.split('/');
                 const rootIdx = pParts.findIndex(s => s.toLowerCase() === rootBaseName);
                 if (rootIdx >= 0) {
                     p = pParts.slice(rootIdx + 1).join('/');
-                } else if (!pClean.includes(':') && !pClean.startsWith('/')) {
+                }
+                else if (!pClean.includes(':') && !pClean.startsWith('/')) {
                     // Already a relative path — return as-is
                     p = pClean;
                 }
@@ -119,35 +97,23 @@ async function preparePath(clientPath: string): Promise<string> {
         return p.replace(/"/g, '');
     }
 }
-
-export async function dispatchPlay(
-    item: RundownItem,
-    channel: number,
-    layer: number,
-    nextPath: string | null = null
-): Promise<{ durationMs: number; expectedOutMs: number }> {
+export async function dispatchPlay(item, channel, layer, nextPath = null) {
     // 0. Pre-flight: verify file exists, has metadata, and passed QC
     const readiness = await verifyPlaybackReady(item.path);
     if (!readiness.ready) {
-        throw new Error(
-            `Playback pre-flight check failed for "${item.path}": ${readiness.error}`
-        );
+        throw new Error(`Playback pre-flight check failed for "${item.path}": ${readiness.error}`);
     }
-
     // 1. compute_frame_trim
-    const trim = await invoke<FrameTrimResult>('compute_frame_trim', {
+    const trim = await invoke('compute_frame_trim', {
         path: item.path,
         trimInMs: item.trim_in_ms,
         trimOutMs: item.trim_out_ms
     });
-
     // 2. prepare path
     const formattedPath = await preparePath(item.path);
-
     // 3. Construct and send AMCP command
     const cmd = `PLAY ${channel}-${layer} "${formattedPath}" SEEK ${trim.in_frame} LENGTH ${trim.duration_frames}`;
     await invoke('caspar_send_command', { cmd });
-
     // 4. Calculate precise expected duration and expected out ms.
     // OSC position is relative to the trim start (the producer is SEEK'd to
     // in_frame), so expectedOutMs must be the content duration — NOT the
@@ -156,7 +122,6 @@ export async function dispatchPlay(
     // never fires and the rundown freezes on any trimmed clip.
     const durationMs = computeDurationMsFromTrim(trim, item.id);
     const expectedOutMs = durationMs;
-
     // 5. Register playback with backend
     await invoke('caspar_register_playback', {
         uuid: item.id,
@@ -165,32 +130,22 @@ export async function dispatchPlay(
         currentPath: formattedPath,
         nextPath
     });
-
     return { durationMs, expectedOutMs };
 }
-
-export async function dispatchLoadbg(
-    item: RundownItem,
-    channel: number,
-    layer: number,
-    auto: boolean = true
-): Promise<{ durationMs: number; expectedOutMs: number }> {
+export async function dispatchLoadbg(item, channel, layer, auto = true) {
     // 0. Pre-flight: verify file exists and has metadata (skip QC for preload)
     const readiness = await verifyPlaybackReady(item.path);
     if (!readiness.fileExists) {
         throw new Error(`Preload pre-flight check failed — file not found: "${item.path}"`);
     }
-
     // 1. compute_frame_trim
-    const trim = await invoke<FrameTrimResult>('compute_frame_trim', {
+    const trim = await invoke('compute_frame_trim', {
         path: item.path,
         trimInMs: item.trim_in_ms,
         trimOutMs: item.trim_out_ms
     });
-
     // 2. prepare path
     const formattedPath = await preparePath(item.path);
-
     // 3. Construct and send LOADBG command. `auto=true` (default, used by the
     // rundown preload path) appends AUTO so CasparCG auto-transitions when the
     // current producer ends. `auto=false` (used by manual cue()) loads the
@@ -198,10 +153,8 @@ export async function dispatchLoadbg(
     const autoSuffix = auto ? ' AUTO' : '';
     const cmd = `LOADBG ${channel}-${layer} "${formattedPath}" SEEK ${trim.in_frame} LENGTH ${trim.duration_frames}${autoSuffix}`;
     await invoke('caspar_send_command', { cmd });
-
     // 4. Calculate duration and expected out point (relative to trim start).
     const durationMs = computeDurationMsFromTrim(trim, item.id);
     const expectedOutMs = durationMs;
-
     return { durationMs, expectedOutMs };
 }
