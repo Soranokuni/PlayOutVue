@@ -339,7 +339,17 @@ export const useRundownStore = defineStore('rundown', () => {
     let playbackStartTime = 0;
     let playbackDurationMs = 0;
 
+    let lastProgressTimerItemId = '';
+    let lastProgressTimerStartedAt = 0;
+
     const startPlaybackProgressTimer = (itemId: string, durationMs: number, startTime = Date.now()) => {
+        const now = Date.now();
+        if (lastProgressTimerItemId === itemId && now - lastProgressTimerStartedAt < 1000) {
+            return;
+        }
+        lastProgressTimerItemId = itemId;
+        lastProgressTimerStartedAt = now;
+
         stopPlaybackProgressTimer();
         activePlayingUuid.value = itemId;
         playbackProgressPct.value = 0;
@@ -387,6 +397,9 @@ export const useRundownStore = defineStore('rundown', () => {
         activePlayingUuid.value = null;
         playbackProgressPct.value = 0;
         playbackCountdownStr.value = '';
+
+        lastProgressTimerItemId = '';
+        lastProgressTimerStartedAt = 0;
 
         // Bug 3 Fix 2: Clean up localStorage
         localStorage.removeItem('playout_activePlayingUuid');

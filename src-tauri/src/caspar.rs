@@ -846,12 +846,17 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                 // 3s, cutting the clip short. The proximity check ensures the
                 // stall only fires when the producer genuinely hit EOF near
                 // where it was expected to end.
+                // Note: if expected_out_point_ms == u64::MAX (unknown duration),
+                // proximity_threshold will be ~u64::MAX and this branch will never fire,
+                // which is correct — we can't do proximity-based stall detection without
+                // a known out point.
+                let proximity_threshold = s.expected_out_point_ms.saturating_mul(80) / 100;
                 if advance_reason.is_none()
                     && s.position_ever_advanced
                     && s.position_stalled_ticks >= 12
                     && s.position_ms > 500
                     && s.expected_out_point_ms != u64::MAX
-                    && s.position_ms >= s.expected_out_point_ms.saturating_sub(5000)
+                    && s.position_ms >= proximity_threshold
                 {
                     s.advance_fired = true;
                     s.transition_triggered = true;
