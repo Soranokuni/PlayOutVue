@@ -13,6 +13,7 @@ mod amcp;
 mod caspar_config;
 mod filesystem;
 mod ingestor_api;
+mod transcoder_sidecar;
 
 use caspar::{caspar_send_command, configure_caspar_osc_listener, prepare_caspar_media_path, CasparOscListenerState, caspar_cg_add, caspar_cg_update, caspar_cg_play, caspar_cg_stop, caspar_play_image, caspar_clear_layer, caspar_register_playback, caspar_clear_playback, caspar_set_playback_paused, CasparPlaybackState};
 use amcp::AmcpClient;
@@ -28,6 +29,7 @@ use trimmer::{get_media_preview_info, get_media_preview_url, compute_frame_trim}
 use playlist::{save_playlist, load_playlist};
 use filesystem::{browse_filesystem, find_default_logos_dir, get_image_dimensions, list_filesystem_roots};
 use ingestor_api::{resolve_ingestor_asset, resolve_ingestor_assets_batch, move_ingestor_asset, rename_ingestor_asset, update_ingestor_rating, update_ingestor_trim, list_ingestor_assets, check_ingestor_health, spawn_ingestor_heartbeat, create_ingestor_subclip, update_ingestor_tp, purge_ingestor_asset, list_ingestor_folder_colors, set_ingestor_folder_color};
+use transcoder_sidecar::verify_playback_ready;
 use db::{MediaDb, default_db_path};
 
 /// Return an HTTP URL that streams a local file to <video src="…">
@@ -140,7 +142,8 @@ pub fn run() {
             list_ingestor_assets,
             check_ingestor_health,
             list_ingestor_folder_colors,
-            set_ingestor_folder_color
+            set_ingestor_folder_color,
+            verify_playback_ready
         ])
         .setup(|app| {
             init_background_logger();

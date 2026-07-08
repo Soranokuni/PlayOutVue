@@ -26,6 +26,10 @@ pub struct CachedMediaEntry {
     pub transcode_profile: String,
     pub transcoded_at: String,
     pub original_source_path: String,
+    #[serde(default)]
+    pub mezzanine_ok: bool,
+    #[serde(default)]
+    pub qc_warnings: String,
 }
 
 #[derive(Clone)]
@@ -98,12 +102,13 @@ impl MediaDb {
                 "SELECT duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
                         display_aspect_ratio, field_order, timecode_start, playoutvue_id,
                         transcode_profile, transcoded_at, original_source_path,
+                        mezzanine_ok, qc_warnings,
                         mtime, filesize
                  FROM media_cache WHERE path = ?1",
                 params![normalized_path],
                 |row| {
-                    let db_mtime: i64 = row.get(15)?;
-                    let db_size: i64  = row.get(16)?;
+                    let db_mtime: i64 = row.get(17)?;
+                    let db_size: i64  = row.get(18)?;
                     Ok((
                         row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
@@ -120,6 +125,8 @@ impl MediaDb {
                         row.get::<_, String>(12)?,
                         row.get::<_, String>(13)?,
                         row.get::<_, String>(14)?,
+                        row.get::<_, bool>(15)?,
+                        row.get::<_, String>(16)?,
                         db_mtime,
                         db_size,
                     ))
@@ -127,7 +134,7 @@ impl MediaDb {
             );
 
             let entry = match result {
-                Ok((dur, trim_in_ms, trim_out_ms, w, h, codec, fps_n, fps_d, dar, field_order, tc, playoutvue_id, tprofile, tcat, osrc, db_mtime, db_size))
+                Ok((dur, trim_in_ms, trim_out_ms, w, h, codec, fps_n, fps_d, dar, field_order, tc, playoutvue_id, tprofile, tcat, osrc, mez_ok, qc_warn, db_mtime, db_size))
                     if db_mtime == mtime as i64 && db_size == filesize as i64 =>
                 {
                     Some(CachedMediaEntry {
@@ -147,6 +154,8 @@ impl MediaDb {
                         transcode_profile: tprofile,
                         transcoded_at: tcat,
                         original_source_path: osrc,
+                        mezzanine_ok: mez_ok,
+                        qc_warnings: qc_warn,
                     })
                 }
                 _ => None,
@@ -164,7 +173,8 @@ impl MediaDb {
             let result = conn.query_row(
                 "SELECT duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
                         display_aspect_ratio, field_order, timecode_start, playoutvue_id,
-                        transcode_profile, transcoded_at, original_source_path
+                        transcode_profile, transcoded_at, original_source_path,
+                        mezzanine_ok, qc_warnings
                  FROM media_cache WHERE path = ?1",
                 params![normalized_path],
                 |row| {
@@ -185,6 +195,8 @@ impl MediaDb {
                         transcode_profile: row.get::<_, String>(12)?,
                         transcoded_at: row.get::<_, String>(13)?,
                         original_source_path: row.get::<_, String>(14)?,
+                        mezzanine_ok: row.get::<_, bool>(15)?,
+                        qc_warnings: row.get::<_, String>(16)?,
                     })
                 },
             );
@@ -205,8 +217,8 @@ impl MediaDb {
                 "INSERT OR REPLACE INTO media_cache
                  (path, mtime, filesize, duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
                   display_aspect_ratio, field_order, timecode_start, playoutvue_id,
-                  transcode_profile, transcoded_at, original_source_path, scanned_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                  transcode_profile, transcoded_at, original_source_path, mezzanine_ok, qc_warnings, scanned_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
                 params![
                     normalized_path, mtime as i64, filesize as i64,
                     entry.duration_ms, entry.trim_in_ms, entry.trim_out_ms,
@@ -215,6 +227,7 @@ impl MediaDb {
                     entry.display_aspect_ratio, entry.field_order,
                     entry.timecode_start, entry.playoutvue_id,
                     entry.transcode_profile, entry.transcoded_at, entry.original_source_path,
+                    entry.mezzanine_ok, entry.qc_warnings,
                     now
                 ],
             )
@@ -314,6 +327,14 @@ fn ensure_media_cache_columns(conn: &Connection) -> Result<(), String> {
         (
             "original_source_path",
             "ALTER TABLE media_cache ADD COLUMN original_source_path TEXT DEFAULT ''",
+        ),
+        (
+            "mezzanine_ok",
+            "ALTER TABLE media_cache ADD COLUMN mezzanine_ok BOOLEAN DEFAULT 0",
+        ),
+        (
+            "qc_warnings",
+            "ALTER TABLE media_cache ADD COLUMN qc_warnings TEXT DEFAULT ''",
         ),
     ] {
         if existing.contains(name) {

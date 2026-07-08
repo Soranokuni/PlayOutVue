@@ -68,6 +68,7 @@ fn resolve_caspar_media_path(path: &str, media_root: &str) -> Result<String, Str
         Some(media_root_path.clone())
     };
 
+    // ── Attempt 1: canonical strip_prefix (the happy path) ──
     if let Some(root) = media_root_canonical.as_ref() {
         if let Ok(relative) = source_canonical.strip_prefix(root) {
             let relative_str = normalize_caspar_path(relative);
@@ -85,16 +86,78 @@ fn resolve_caspar_media_path(path: &str, media_root: &str) -> Result<String, Str
         }
     }
 
+    // ── Attempt 2: case-insensitive, separator-agnostic string strip ──
+    // This handles the common failure case where the source path was not
+    // canonicalised (file not found, network share, etc.) and therefore
+    // strip_prefix on the Path fails even though the media root prefix is
+    // present.  We normalise both to forward-slash + lowercase and compare.
+    if let Some(root) = media_root_canonical.as_ref().or(media_root_path.exists().then(|| &media_root_path)) {
+        if let Some(relative_str) = try_string_strip_prefix(&source, root) {
+            if is_caspar_safe_path(&relative_str) {
+                return Ok(relative_str);
+            }
+        }
+
+        // ── Attempt 3: try to locate the file relative to the media root ──
+        // If the source path is just a filename or a partial path, try
+        // joining it with the media root to see if the file exists there.
+        if !source_exists {
+            let file_name = source.file_name();
+            if let Some(name) = file_name {
+                let candidate = media_root_path.join(name);
+                if candidate.exists() {
+                    let candidate_canonical = std::fs::canonicalize(&candidate).unwrap_or_else(|_| candidate.clone());
+                    if let Ok(relative) = candidate_canonical.strip_prefix(
+                        media_root_canonical.as_ref().unwrap_or(&media_root_path)
+                    ) {
+                        let relative_str = normalize_caspar_path(relative);
+                        if is_caspar_safe_path(&relative_str) {
+                            return Ok(relative_str);
+                        }
+                    }
+                }
+
+                // Also try searching subdirectories one level deep (e.g. videos/)
+                if let Ok(entries) = std::fs::read_dir(&media_root_path) {
+                    for entry in entries.flatten() {
+                        if !entry.path().is_dir() { continue; }
+                        let subdir_candidate = entry.path().join(name);
+                        if subdir_candidate.exists() {
+                            let subdir_canonical = std::fs::canonicalize(&subdir_candidate)
+                                .unwrap_or_else(|_| subdir_candidate.clone());
+                            if let Ok(relative) = subdir_canonical.strip_prefix(
+                                media_root_canonical.as_ref().unwrap_or(&media_root_path)
+                            ) {
+                                let relative_str = normalize_caspar_path(relative);
+                                if is_caspar_safe_path(&relative_str) {
+                                    return Ok(relative_str);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Attempt 4: if the source path is already a safe relative path, return it ──
     let source_str = normalize_caspar_path(&source_canonical);
-    if is_caspar_safe_path(&source_str) {
+    if is_caspar_safe_path(&source_str) && !source_str.contains(':') && !source_str.starts_with("/") {
+        // Only return as-is if it's a relative path (no drive letter, no leading /)
         return Ok(source_str);
     }
 
+    // ── Attempt 5: non-ASCII path with existing file → create alias ──
     if !source_exists {
-        return Err(format!("CasparCG path contains unsupported characters and does not exist: {}", source_str));
+        return Err(format!(
+            "CasparCG media file not found at '{}' (media root: '{}'). \
+             Verify the file exists and the media path is configured correctly.",
+            source_str,
+            normalize_caspar_path(&media_root_path)
+        ));
     }
 
-    let Some(root) = media_root_canonical.as_ref() else {
+    let Some(root) = media_root_canonical.as_ref().or(Some(&media_root_path)) else {
         return Err(format!(
             "CasparCG cannot safely access non-ASCII path '{}' without a configured media root",
             source_str
@@ -106,6 +169,49 @@ fn resolve_caspar_media_path(path: &str, media_root: &str) -> Result<String, Str
         .strip_prefix(root)
         .map_err(|error| format!("Failed to relativize CasparCG alias path: {}", error))?;
     Ok(normalize_caspar_path(alias_relative))
+}
+
+/// Case-insensitive, separator-agnostic prefix stripping.
+/// Normalises both paths to forward slashes and lowercase, then checks if
+/// the source starts with the media root.  If so, returns the relative
+/// portion (preserving the original casing of the source).
+fn try_string_strip_prefix(source: &Path, media_root: &Path) -> Option<String> {
+    let source_str = source.to_string_lossy().replace('\\', "/");
+    let root_str = media_root.to_string_lossy().replace('\\', "/");
+
+    // Strip Windows verbatim prefix from both
+    let source_clean = strip_verbatim_prefix(&source_str);
+    let root_clean = strip_verbatim_prefix(&root_str);
+
+    let root_trimmed = root_clean.trim_end_matches('/');
+
+    if root_trimmed.is_empty() {
+        return None;
+    }
+
+    let source_lower = source_clean.to_lowercase();
+    let root_lower = root_trimmed.to_lowercase();
+
+    if source_lower.starts_with(&root_lower) {
+        let relative = &source_clean[root_trimmed.len()..];
+        let relative_trimmed = relative.trim_start_matches('/');
+        if relative_trimmed.is_empty() {
+            return None;
+        }
+        return Some(relative_trimmed.to_string());
+    }
+
+    None
+}
+
+fn strip_verbatim_prefix(path: &str) -> &str {
+    if path.starts_with("//?/") {
+        &path[4..]
+    } else if path.starts_with(r"\\?\") {
+        &path[4..]
+    } else {
+        path
+    }
 }
 
 fn normalize_caspar_path(path: &Path) -> String {
