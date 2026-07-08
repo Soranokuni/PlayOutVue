@@ -84,6 +84,7 @@ const contextMenu = ref({
 const debouncedLibraryQuery = refDebounced(libraryQuery, 120);
 let scheduledWarmupTimer: ReturnType<typeof setTimeout> | null = null;
 let periodicWarmupTimer: ReturnType<typeof setInterval> | null = null;
+let libraryPollTimer: ReturnType<typeof setInterval> | null = null;
 
 const createDefaultProbeStatus = (): MediaProbeStatus => ({
     running: false,
@@ -689,25 +690,11 @@ function openTrimPanelForSelected() {
 
 const handleTrimSaved = async ({ uuid }: { uuid?: string }) => {
     if (!uuid) return;
-    // Refresh the changed asset from the API in the background.
-    const response = await ingestorInvoke<{
-        uuid?: string;
-        current_path: string;
-        display_name?: string;
-        virtual_folder?: string;
-        duration_ms: number;
-        trim_in_ms: number;
-        trim_out_ms: number;
-        rating: string;
-        status: string;
-    }>(
-        'resolve_ingestor_asset',
-        { uuid, apiBaseUrlOverride: null },
-        'ingestor-resolve'
-    );
-    if (response) {
-        mediaLibrary.updateAsset(uuid, libraryAssetFromApi(response));
-    }
+    // A subclip creation registers a brand-new asset in the Ingestor API.
+    // `updateAsset` only patches an existing entry, so the new subclip would
+    // never appear in the tree. Trigger a full forced re-fetch to pull the
+    // new asset (and any siblings) from the API.
+    await fetchAssets({ force: true });
 };
 
 // --- Legacy local-file debug/probe panel (kept separate from client diagnostics) ---
@@ -843,6 +830,14 @@ onMounted(() => {
             scheduleLibraryWarmup(0);
         }
     }, 300000);
+    // Poll the Ingestor API for newly delivered transcoder files / subclips.
+    // A 30s cadence balances responsiveness against API load. Only re-fetches
+    // when the ingestor is online and no manual operation is in flight.
+    libraryPollTimer = setInterval(() => {
+        if (isScanning.value) return;
+        if (!ingestorStatus.isIngestorOnline) return;
+        fetchAssets().catch(() => {});
+    }, 30000);
     mediaLibrary.fetchFolderColors();
     window.addEventListener('click', closeContextMenu);
 });
@@ -851,6 +846,10 @@ onUnmounted(() => {
     if (periodicWarmupTimer) {
         clearInterval(periodicWarmupTimer);
         periodicWarmupTimer = null;
+    }
+    if (libraryPollTimer) {
+        clearInterval(libraryPollTimer);
+        libraryPollTimer = null;
     }
     clearScheduledWarmup();
     window.removeEventListener('click', closeContextMenu);

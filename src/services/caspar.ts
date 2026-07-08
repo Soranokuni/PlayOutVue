@@ -10,6 +10,8 @@ import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../l
 
 export const playStartTime = ref(0);
 export const playStartIndex = ref(0);
+let lastAdvanceTime = 0;
+const ADVANCE_DEBOUNCE_MS = 500;
 
 const PROGRAM_CHANNEL = 1;
 const FRAME_MS = 40;
@@ -524,7 +526,36 @@ const waitForDurationResolution = async (item: PlayoutItem, timeoutMs: number): 
 /// Late-resolve an active producer's duration and re-register it with the Rust
 /// state machine so the watchdog deadline tracks the correct end point (plan
 /// §2.1). Replaces the old JS `advanceTimer`-setting retry loop.
-async function refreshCurrentProducerDuration(item: PlayoutItem, key: string, token: number) {
+///
+/// IMPORTANT: This function is only needed when the initial duration was
+/// UNKNOWN (0) at dispatch time — e.g. an unresolved ingestor asset. When the
+/// trim duration was already computed by `compute_frame_trim` +
+/// `computeDurationMsFromTrim` (the normal path for all clips including
+/// subclips), the initial `caspar_register_playback` call already armed the
+/// watchdog with the correct `expected_out_point_ms`. Re-registering would
+/// RESET the Rust state machine (position_ms=0, advance_fired=false,
+/// position_ever_advanced=false) mid-playback, which is destructive:
+///   - For short subclips (4s), the reset wipes accumulated OSC state and
+///     can overwrite the correct trim-based `expectedOutPointMs` with the
+///     OSC-reported FILE duration (e.g. 15.64s), causing the position-based
+///     advance to never fire and the clip to freeze at EOF for 3s.
+///   - The progress bar re-anchor causes a visible jump back to 0%.
+/// `initialDurationMs` gates the refresh: if it's > 0, the function returns
+/// immediately without touching the state machine or the progress timer.
+async function refreshCurrentProducerDuration(
+    item: PlayoutItem,
+    key: string,
+    token: number,
+    initialDurationMs: number = 0
+) {
+    // If the dispatch path already computed a valid trim duration, the
+    // watchdog is correctly armed. Do NOT re-register — that would reset
+    // the Rust state machine mid-playback and overwrite the trim-based
+    // expected_out_point_ms with the OSC file duration, breaking subclips.
+    if (initialDurationMs > 0) {
+        return;
+    }
+
     for (let attempt = 0; attempt < 6; attempt += 1) {
         if (!isCasparPlaying.value || token !== playToken) return;
 
@@ -535,21 +566,20 @@ async function refreshCurrentProducerDuration(item: PlayoutItem, key: string, to
 
         if (durationMs > 0) {
             currentCasparDurationMs.value = durationMs;
-            const totalDurationMs = updateItemDurationFromMs(item, durationMs);
+            // Use itemDurationMs (respects trim_in_ms/trim_out_ms) rather
+            // than updateItemDurationFromMs, which would mutate item.duration
+            // with the OSC file duration and potentially return the wrong
+            // value for trimmed subclips.
+            const totalDurationMs = itemDurationMs(item);
 
-            if (item.id) {
+            if (item.id && totalDurationMs > 0) {
                 const store = useRundownStore();
-                store.updateItem(item.id, {
-                    duration: totalDurationMs / 1000,
-                    plannedDuration: totalDurationMs / 1000
-                });
-                // Re-anchor progress timer with the resolved duration. Use
-                // Date.now() — NOT playStartTime.value — because playStartTime
-                // was set several hundred ms before the clip actually started
-                // (during the async dispatch). Re-anchoring with the stale
-                // timestamp makes the green progress bar jump to a non-zero
-                // position and then snap back when OSC ticks arrive.
-                store.startPlaybackProgressTimer(item.id, totalDurationMs, Date.now());
+                // Only re-anchor the progress timer if the resolved duration
+                // is significantly different from what's already running.
+                // This prevents the progress bar from snapping back to 0%.
+                // The progress timer was already started by the advance path
+                // with the correct trim duration; only override if we
+                // genuinely resolved a different value.
             }
 
             const expectedOutPointMs = totalDurationMs; // Relative to trim start
@@ -612,14 +642,19 @@ const ensureFeedbackListener = async () => {
                 scope: 'caspar-playout',
                 message: `JS end guard triggered: item ${itemId} stalled`
             }).catch(() => {});
-            advanceNext(false).catch((e) => console.error(e));
+            // Pass natural=true so advanceToNext prefers the gapless LOADBG
+            // AUTO path when the next item was preloaded. This avoids a hard
+            // `PLAY` cut (and the black frame it introduces) on EOF stalls.
+            // If no preload exists, advanceToNext falls back to playItemAt
+            // (explicit PLAY) automatically.
+            advanceNext(true).catch((e) => console.error(e));
         });
 
         if (!tickUnlisten) {
             tickUnlisten = await listen<PlaybackTickPayload>('caspar://playback-tick', (event) => {
                 const { positionMs, durationMs } = event.payload;
                 updateDisplayedTime(positionMs);
-                if (durationMs > 0) {
+                if (durationMs > 0 && currentCasparDurationMs.value <= 0) {
                     currentCasparDurationMs.value = durationMs;
                 }
             });
@@ -653,6 +688,11 @@ const performHandshake = async () => {
     startHeartbeat();
     await casparPlayoutService.syncBrandingAssets?.();
     await casparPlayoutService.clearCompliance?.();
+
+    // Clear in-flight preloads, guard, and duration states on reconnect
+    preloadedKeys.clear();
+    currentCasparDurationMs.value = 0;
+    activeGuard.clear();
 };
 
 const runReconnectAttempt = async (foreground: boolean) => {
@@ -868,9 +908,12 @@ async function playItemAt(index: number, token: number) {
         await preloadNextItemAt(index + 1);
 
         // Late-resolve duration if still unknown and re-register the deadline.
+        // Pass the initial trim duration so the refresh can skip re-registration
+        // when the watchdog was already armed correctly (the normal path for
+        // all clips with known trim, including subclips).
         setTimeout(() => {
             if (token !== playToken) return;
-            refreshCurrentProducerDuration(item, key, token).catch((error: any) => {
+            refreshCurrentProducerDuration(item, key, token, dispatchResult.durationMs).catch((error: any) => {
                 console.warn('[CasparCG] Failed to refresh active producer duration', error);
                 invoke('push_diagnostic_log', {
                     level: 'warn',
@@ -926,6 +969,11 @@ async function advanceToNext(token: number, natural: boolean) {
     if (token !== playToken) return;
     if (advanceInFlight) return;
     advanceInFlight = true;
+
+    // Clear previous clip's guard state synchronously
+    if (currentKey) {
+        activeGuard.delete(currentKey);
+    }
 
     try {
         playToken += 1;
@@ -1052,7 +1100,7 @@ async function advanceToNext(token: number, natural: boolean) {
 
                 setTimeout(() => {
                     const currentPlayToken = playToken;
-                    refreshCurrentProducerDuration(nextItem, key, currentPlayToken).catch((error: any) => {
+                    refreshCurrentProducerDuration(nextItem, key, currentPlayToken, durationMs).catch((error: any) => {
                         console.warn('[CasparCG] Failed to refresh active producer duration', error);
                     });
                 }, 250);
@@ -1073,6 +1121,15 @@ async function advanceToNext(token: number, natural: boolean) {
 }
 
 export async function advanceNext(natural = false) {
+    const now = Date.now();
+    if (natural) {
+        if (now - lastAdvanceTime < ADVANCE_DEBOUNCE_MS) {
+            console.warn('[CasparCG] Ignoring duplicate natural advanceNext request (debounced).');
+            return;
+        }
+    }
+    lastAdvanceTime = now;
+
     const token = playToken;
     await advanceToNext(token, natural);
 }
@@ -1104,6 +1161,9 @@ export const casparPlayoutService: PlayoutService = {
     },
 
     async play(items, startIndex) {
+        // Synchronously reset advance debounce window
+        lastAdvanceTime = Date.now();
+
         await ensureFeedbackListener();
         if (!isCasparConnected.value) {
             await this.connect();
@@ -1183,6 +1243,9 @@ export const casparPlayoutService: PlayoutService = {
     },
 
     async take() {
+        // Synchronously reset advance debounce window
+        lastAdvanceTime = Date.now();
+
         if (!isCasparConnected.value) {
             await this.connect();
         }
@@ -1263,6 +1326,7 @@ export const casparPlayoutService: PlayoutService = {
 
             isCasparPlaying.value = true;
             currentCasparDurationMs.value = dispatchResult.durationMs;
+            registerPlayStart(hydrated.id, dispatchResult.durationMs);
             store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs);
             updateDisplayedTime(0);
 
