@@ -847,7 +847,7 @@ async function playItemAt(index: number, token: number) {
             updateDisplayedTime(0);
             currentCasparDurationMs.value = durationMs;
 
-            store.startPlaybackProgressTimer(item.id, durationMs);
+            store.startPlaybackProgressTimer(item.id, durationMs, playStartTime.value);
 
             await invoke('caspar_register_playback', {
                 uuid: key,
@@ -902,7 +902,7 @@ async function playItemAt(index: number, token: number) {
         // Register play start with our end-guard
         registerPlayStart(hydrated.id, dispatchResult.durationMs);
 
-        store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs);
+        store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, playStartTime.value);
 
         // Preload next item immediately
         await preloadNextItemAt(index + 1);
@@ -969,6 +969,9 @@ async function advanceToNext(token: number, natural: boolean) {
     if (token !== playToken) return;
     if (advanceInFlight) return;
     advanceInFlight = true;
+
+    // Set playStartTime synchronously at the very top of the transition
+    playStartTime.value = Date.now();
 
     // Clear previous clip's guard state synchronously
     if (currentKey) {
@@ -1059,7 +1062,6 @@ async function advanceToNext(token: number, natural: boolean) {
                 updateDisplayedTime(0);
 
                 activeGuard.clear();
-                playStartTime.value = Date.now();
 
                 // Prepare paths for registration
                 const nextItemPath = (await prepareCasparMediaPath(hydrated.path)).replace(/\\/g, '/').replace(/"/g, '');
@@ -1083,7 +1085,7 @@ async function advanceToNext(token: number, natural: boolean) {
                 // Register with our end-guard
                 registerPlayStart(hydrated.id, durationMs);
 
-                store.startPlaybackProgressTimer(hydrated.id, durationMs);
+                store.startPlaybackProgressTimer(hydrated.id, durationMs, playStartTime.value);
 
                 // Register playback with Rust backend watchdog
                 await invoke('caspar_register_playback', {
@@ -1243,8 +1245,9 @@ export const casparPlayoutService: PlayoutService = {
     },
 
     async take() {
-        // Synchronously reset advance debounce window
+        // Synchronously reset advance debounce window and play start time
         lastAdvanceTime = Date.now();
+        playStartTime.value = Date.now();
 
         if (!isCasparConnected.value) {
             await this.connect();
@@ -1278,7 +1281,7 @@ export const casparPlayoutService: PlayoutService = {
                 
                 const durationMs = itemDurationMs(item);
                 currentCasparDurationMs.value = durationMs;
-                store.startPlaybackProgressTimer(item.id, durationMs);
+                store.startPlaybackProgressTimer(item.id, durationMs, playStartTime.value);
                 
                 onAdvanceCallback?.(key); // Notify UI progression immediately!
 
@@ -1327,7 +1330,7 @@ export const casparPlayoutService: PlayoutService = {
             isCasparPlaying.value = true;
             currentCasparDurationMs.value = dispatchResult.durationMs;
             registerPlayStart(hydrated.id, dispatchResult.durationMs);
-            store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs);
+            store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, playStartTime.value);
             updateDisplayedTime(0);
 
             onAdvanceCallback?.(key); // Notify UI progression immediately!
