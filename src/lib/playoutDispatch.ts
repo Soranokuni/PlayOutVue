@@ -157,17 +157,17 @@ export async function dispatchPlay(
         );
     }
 
-    // 1. compute_frame_trim
-    const trim = await invoke<FrameTrimResult>('compute_frame_trim', {
-        path: item.path,
-        trimInMs: item.trim_in_ms,
-        trimOutMs: item.trim_out_ms
-    });
+    // 1. compute_frame_trim and prepare path in parallel (they are independent)
+    const [trim, formattedPath] = await Promise.all([
+        invoke<FrameTrimResult>('compute_frame_trim', {
+            path: item.path,
+            trimInMs: item.trim_in_ms,
+            trimOutMs: item.trim_out_ms
+        }),
+        preparePath(item.path)
+    ]);
 
-    // 2. prepare path
-    const formattedPath = await preparePath(item.path);
-
-    // 3. Construct and send AMCP command. CasparCG interprets SEEK/LENGTH in
+    // 2. Compute AMCP SEEK/LENGTH values. CasparCG interprets SEEK/LENGTH in
     // channel output units (fields on 1080i50 = 50Hz). `compute_frame_trim`
     // returns file-frame values, so we convert via the field multiplier.
     // For 25fps files: multiplier = 50/25 = 2 (each frame = 2 fields).
@@ -178,10 +178,8 @@ export async function dispatchPlay(
     const fieldMultiplier = computeFieldMultiplier(fileFps);
     const seekFields = trim.in_frame * fieldMultiplier;
     const lengthFields = trim.duration_frames * fieldMultiplier;
-    const cmd = `PLAY ${channel}-${layer} "${formattedPath}" SEEK ${seekFields} LENGTH ${lengthFields}`;
-    await invoke('caspar_send_command', { cmd });
 
-    // 4. Calculate precise expected duration and expected out ms.
+    // 3. Calculate precise expected duration.
     // OSC position is relative to the trim start (the producer is SEEK'd to
     // in_frame), so expectedOutMs must be the content duration — NOT the
     // absolute trim_in_ms + durationMs. Using the absolute value sets the
@@ -190,14 +188,25 @@ export async function dispatchPlay(
     const durationMs = computeDurationMsFromTrim(trim, item.id);
     const expectedOutMs = durationMs;
 
-    // 5. Register playback with backend
+    // 4. Register playback with Rust backend BEFORE sending the PLAY command.
+    // This prevents a race condition where the first OSC ticks from the new
+    // file arrive while the Rust state machine still holds the previous
+    // item's trim_in_ms and expected_out_point_ms. Without this, a manual
+    // take on a trimmed subclip (absolute OSC pos ~367800ms) would be
+    // normalized against the old trim_in_ms=0, producing position_ms=367800,
+    // which exceeds the old expected_out_point_ms → instant advance → black.
     await invoke('caspar_register_playback', {
         uuid: item.id,
         durationMs,
         expectedOutPointMs: expectedOutMs,
         currentPath: formattedPath,
-        nextPath
+        nextPath,
+        trimInMs: item.trim_in_ms || 0
     });
+
+    // 5. Send PLAY command (state machine is already armed for this item)
+    const cmd = `PLAY ${channel}-${layer} "${formattedPath}" SEEK ${seekFields} LENGTH ${lengthFields}`;
+    await invoke('caspar_send_command', { cmd });
 
     return { durationMs, expectedOutMs };
 }

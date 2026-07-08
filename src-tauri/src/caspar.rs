@@ -639,6 +639,7 @@ pub struct PlaybackStateInner {
     /// file as its parent triggers an instant `osc-path-switch` advance the moment
     /// the parent starts playing — skipping the parent entirely.
     pub registered_current_path: String,
+    pub trim_in_ms: u64,
 }
 
 impl Default for PlaybackStateInner {
@@ -661,6 +662,7 @@ impl Default for PlaybackStateInner {
             position_stalled_ticks: 0,
             position_ever_advanced: false,
             registered_current_path: String::new(),
+            trim_in_ms: 0,
         }
     }
 }
@@ -710,7 +712,7 @@ fn handle_playback_osc<R: Runtime>(
     }
 
     if let Some(pos) = position_ms {
-        s.position_ms = pos;
+        s.position_ms = pos.saturating_sub(s.trim_in_ms);
     }
     if let Some(dur) = duration_ms {
         if dur > 0 && (s.expected_out_point_ms == 0 || s.expected_out_point_ms == u64::MAX || (dur as i64 - s.expected_out_point_ms as i64).abs() < 5000) {
@@ -900,6 +902,7 @@ pub async fn caspar_register_playback(
     expected_out_point_ms: u64,
     current_path: String,
     next_path: Option<String>,
+    trim_in_ms: u64,
     state: State<'_, CasparPlaybackState>,
 ) -> Result<(), String> {
     let mut s = state.0.lock();
@@ -908,6 +911,7 @@ pub async fn caspar_register_playback(
     s.is_paused = false;
     s.position_ms = 0;
     s.duration_ms = duration_ms;
+    s.trim_in_ms = trim_in_ms;
 
     let mut out_point = expected_out_point_ms;
     if out_point == 0 {
@@ -961,6 +965,7 @@ pub async fn caspar_clear_playback(state: State<'_, CasparPlaybackState>) -> Res
     s.is_paused = false;
     s.position_ms = 0;
     s.duration_ms = 0;
+    s.trim_in_ms = 0;
     s.expected_out_point_ms = u64::MAX;
     s.current_file_path = String::new();
     s.registered_current_path = String::new();
@@ -1085,6 +1090,21 @@ mod tests {
 
         // Guard: once fired, never again (exactly one advance per item).
         assert!(!playback_should_advance(true, false, true, 10_000, 10_000));
+    }
+
+    #[test]
+    fn trim_in_normalization_prevents_immediate_advance() {
+        // Absolute OSC pos 367800ms, trim_in=367800ms → normalized=0 → no advance
+        let trim_in: u64 = 367_800;
+        let raw_pos: u64 = 367_800;
+        let normalized = raw_pos.saturating_sub(trim_in);
+        let out_point: u64 = 145_360;
+        assert!(!playback_should_advance(true, false, false, out_point, normalized));
+
+        // Near end: normalized=145200ms → advance fires
+        let raw_near_end = trim_in + out_point - 100;
+        let normalized_near_end = raw_near_end.saturating_sub(trim_in);
+        assert!(playback_should_advance(true, false, false, out_point, normalized_near_end));
     }
 
     /// Paused playback never advances (prevents the watchdog from advancing a
