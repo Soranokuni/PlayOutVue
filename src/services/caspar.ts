@@ -603,7 +603,8 @@ async function refreshCurrentProducerDuration(
                     durationMs: totalDurationMs,
                     expectedOutPointMs: expectedOutPointMs,
                     currentPath: currentPath,
-                    nextPath: nextPath
+                    nextPath: nextPath,
+                    trimInMs: 0
                 }).catch((e: any) => {
                     console.warn('[CasparCG] Failed to re-register playback duration', e);
                 });
@@ -854,7 +855,8 @@ async function playItemAt(index: number, token: number) {
                 durationMs,
                 expectedOutPointMs: durationMs,
                 currentPath: '',
-                nextPath: null
+                nextPath: null,
+                trimInMs: 0
             }).catch((e: any) => {
                 console.warn('[CasparCG] Failed to register live playback', e);
             });
@@ -1093,7 +1095,8 @@ async function advanceToNext(token: number, natural: boolean) {
                     durationMs: durationMs,
                     expectedOutPointMs: expectedOutMs,
                     currentPath: nextItemPath,
-                    nextPath: nextNextPath
+                    nextPath: nextNextPath,
+                    trimInMs: hydrated.trim_in_ms || 0
                 }).catch((e: any) => {
                     console.warn('[CasparCG] Failed to register playback on natural advance', e);
                 });
@@ -1290,7 +1293,8 @@ export const casparPlayoutService: PlayoutService = {
                     durationMs,
                     expectedOutPointMs: durationMs,
                     currentPath: '',
-                    nextPath: null
+                    nextPath: null,
+                    trimInMs: 0
                 }).catch(() => {});
                 
                 const index = queuedItems.findIndex(it => queueKey(it) === key);
