@@ -11,6 +11,7 @@ import PlaylistControls from './PlaylistControls.vue';
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
+import { applyWeekdayAnchor, parseClockAnchor, formatClockTime, weekdayLabel } from '../utils/timeFormat';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -47,58 +48,7 @@ const indicatorOptions: Array<{ id: LibraryIndicator; label: string }> = [
   { id: 'telemarketing', label: 'Telemarketing' }
 ];
 
-const clockNow = ref(Date.now());
-let clockTick: ReturnType<typeof setInterval> | null = null;
-
-const tickClock = () => {
-  clockNow.value = Date.now();
-};
-
-onMounted(() => {
-  clockTick = setInterval(tickClock, 1000);
-});
-
-onUnmounted(() => {
-  if (clockTick) clearInterval(clockTick);
-});
-
-const clockStr = computed(() => {
-  const date = new Date(clockNow.value);
-  return date.toLocaleTimeString('el-GR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
-});
-
-const weekdayLabel = (epochMs: number) =>
-  new Date(epochMs).toLocaleDateString('en-GB', { weekday: 'short' }).toLowerCase();
-
-const applyWeekdayAnchor = (epochMs: number, weekday: number) => {
-  const anchored = new Date(epochMs);
-  anchored.setDate(anchored.getDate() - anchored.getDay() + weekday);
-  return anchored.getTime();
-};
-
-const parseClockAnchor = (timeText: string, fallbackMs: number) => {
-  const parts = timeText.split(':').map((part) => Number.parseInt(part, 10));
-  if (parts.length < 2 || parts.length > 3 || parts.some((part) => Number.isNaN(part))) {
-    return fallbackMs;
-  }
-
-  const anchor = new Date(fallbackMs);
-  anchor.setHours(parts[0] || 0, parts[1] || 0, parts[2] || 0, 0);
-  return anchor.getTime();
-};
-
-const formatClockTime = (epochMs: number) =>
-  new Date(epochMs).toLocaleTimeString('el-GR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
+const clockStr = computed(() => formatClockTime(store.clockMs));
 
 const itemDurationMs = (item: RundownItem): number => {
   if (item.type === 'gap') return 0;
@@ -147,12 +97,23 @@ const scheduledTimes = computed(() => {
   }));
 });
 
+const lockedPlayingDurationMs = ref(0);
+
+watch(
+  () => store.currentPlayingIndex,
+  (newIndex) => {
+    if (newIndex < 0) { lockedPlayingDurationMs.value = 0; return; }
+    const item = store.activeItems[newIndex];
+    if (item) lockedPlayingDurationMs.value = itemDurationMs(item);
+  },
+  { immediate: true }
+);
+
 const calcProgress = (item: RundownItem, index: number) => {
   if (index !== store.currentPlayingIndex) return 0;
-  const duration = effectiveDurationMs(item, index);
+  const duration = lockedPlayingDurationMs.value || effectiveDurationMs(item, index);
   if (!duration || duration <= 0) return 0;
-  const progress = (currentPlayoutMs.value / duration) * 100;
-  return Math.max(0, Math.min(100, Math.round(progress * 100) / 100));
+  return Math.max(0, Math.min(100, (currentPlayoutMs.value / duration) * 100));
 };
 
 const hydrateMissingDurations = async () => {
@@ -270,7 +231,7 @@ watch(
     const index = store.currentPlayingIndex;
     if (!store.isCurrentPlaylistOnAir || index < 0 || currentTotalPlayoutMs.value <= 0) return;
     const item = store.activeItems[index];
-    if (!item || item.type !== 'video' || item.outPoint > item.inPoint || item.duration > 0) return;
+    if (!item || item.type !== 'video' || item.outPoint > item.inPoint || item.duration > 0 || (item.duration_ms ?? 0) > 0) return;
     const seconds = currentTotalPlayoutMs.value / 1000;
     store.updateItem(item.id, {
       duration: seconds,

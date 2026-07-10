@@ -8,6 +8,7 @@ import { playStartTime, casparPlayoutService } from '../services/caspar';
 import { useMediaLibraryStore } from './mediaLibrary';
 import { clampTrimIn, clampTrimOut } from '../utils/frameMath';
 import { savePlaybackState, loadPlaybackState, clearPlaybackState } from '../lib/playbackPersistence';
+import { applyWeekdayAnchor, parseClockAnchor, formatClockTime, weekdayLabel } from '../utils/timeFormat';
 
 export type ComplianceRating = 'none' | 'k' | '8' | '12' | '16' | '18';
 export type RundownItemType = 'video' | 'live' | 'graphic' | 'gap';
@@ -22,6 +23,7 @@ export interface RundownItem {
     shortPath: string;
     filename: string;
     libraryIndicator: LibraryIndicator;
+    /** Physical file duration in whole or fractional seconds. Display source of truth. */
     duration: number;
     seek: number;
     length: number;
@@ -37,6 +39,7 @@ export interface RundownItem {
     display_name?: string;
     virtual_folder?: string;
     current_path?: string;
+    /** Physical file duration in milliseconds. Canonical value from ingestor API. */
     duration_ms?: number;
     trim_in_ms?: number;
     trim_out_ms?: number;
@@ -241,34 +244,6 @@ const mapApiRatingToCompliance = (rating: string | undefined | null): Compliance
     }
     return 'none';
 };
-
-const applyWeekdayAnchorInStore = (epochMs: number, weekday: number) => {
-  const anchored = new Date(epochMs);
-  anchored.setDate(anchored.getDate() - anchored.getDay() + weekday);
-  return anchored.getTime();
-};
-
-const parseClockAnchorInStore = (timeText: string, fallbackMs: number) => {
-  const parts = timeText.split(':').map((part) => Number.parseInt(part, 10));
-  if (parts.length < 2 || parts.length > 3 || parts.some((part) => Number.isNaN(part))) {
-    return fallbackMs;
-  }
-
-  const anchor = new Date(fallbackMs);
-  anchor.setHours(parts[0] || 0, parts[1] || 0, parts[2] || 0, 0);
-  return anchor.getTime();
-};
-
-const formatClockTimeInStore = (epochMs: number) =>
-  new Date(epochMs).toLocaleTimeString('el-GR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
-
-const weekdayLabelInStore = (epochMs: number) =>
-  new Date(epochMs).toLocaleDateString('en-GB', { weekday: 'short' }).toLowerCase();
 
 const makePlaylistRecord = (index: number, name?: string): RundownPlaylist => ({
     id: uuidv4(),
@@ -1084,52 +1059,60 @@ export const useRundownStore = defineStore('rundown', () => {
         if (unresolvedItems.length > 0) {
             const uuidToItemId = new Map(unresolvedItems.map(i => [i.uuid, i.id]));
             const uuids = Array.from(uuidToItemId.keys());
+            const playlistId = playlist.id;
 
             (async () => {
                 for (let i = 0; i < uuids.length; i += BATCH_SIZE) {
                      const batch = uuids.slice(i, i + BATCH_SIZE);
                      try {
-                         const map = await invoke<Record<string, any>>('resolve_ingestor_assets_batch', {
-                             uuids: batch, apiBaseUrlOverride: null
-                         });
+                         const map = await Promise.race([
+                             invoke<Record<string, any>>('resolve_ingestor_assets_batch', {
+                                 uuids: batch, apiBaseUrlOverride: null
+                             }),
+                             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Batch resolution timeout')), 15_000))
+                         ]);
+                         const livePlaylist = getPlaylistById(playlistId);
+                         if (!livePlaylist) continue;
+                         const newItems = [...livePlaylist.items];
+                         let changed = false;
                          for (const [uuid, asset] of Object.entries(map)) {
                              const itemId = uuidToItemId.get(uuid);
                              if (!itemId) continue;
-                             const idx = playlist.items.findIndex(e => e.id === itemId);
+                             const idx = livePlaylist.items.findIndex(e => e.id === itemId);
                              if (idx === -1) continue;
-                              const existing = playlist.items[idx]!;
+                             const existing = livePlaylist.items[idx]!;
 
-                              const fileDurationMs = asset.duration_ms || 0;
-                              const trimInMs = Math.max(0, asset.trim_in_ms || 0);
-                              const trimOutMs =
-                                  asset.trim_out_ms && asset.trim_out_ms > trimInMs
-                                      ? asset.trim_out_ms
-                                      : fileDurationMs;
-                              const effectiveDurationMs =
-                                  trimOutMs > trimInMs
-                                      ? trimOutMs - trimInMs
-                                      : fileDurationMs;
+                             const fileDurationMs = asset.duration_ms || 0;
+                             const trimInMs = Math.max(0, asset.trim_in_ms || 0);
+                             const trimOutMs =
+                                 asset.trim_out_ms && asset.trim_out_ms > trimInMs
+                                     ? asset.trim_out_ms
+                                     : fileDurationMs;
+                             const effectiveDurationMs =
+                                 trimOutMs > trimInMs
+                                     ? trimOutMs - trimInMs
+                                     : fileDurationMs;
 
-                              const meta = getMetadataFromAssetResponse(asset);
-                              playlist.items[idx] = {
-                                  ...existing,
-                                  filename: asset.display_name || existing.filename,
-                                  path: asset.current_path || existing.path,
-                                  displayPath: asset.current_path || existing.displayPath,
-                                  duration: effectiveDurationMs / 1000,
-                                  inPoint: trimInMs,
-                                  outPoint: trimOutMs,
-                                  plannedDuration: effectiveDurationMs / 1000,
-                                  complianceRating: meta.ageRating,
-                                  tp_flag: meta.tpFlag,
-                                  content_type: meta.contentType,
-                                  ingestorStatus: (asset.status || 'ready') as IngestorStatus,
-                                  display_name: asset.display_name,
-                                  virtual_folder: asset.virtual_folder,
-                                  current_path: asset.current_path,
-                                  duration_ms: fileDurationMs,
-                                  trim_in_ms: trimInMs,
-                                  trim_out_ms: trimOutMs,
+                             const meta = getMetadataFromAssetResponse(asset);
+                             newItems[idx] = {
+                                 ...existing,
+                                 filename: asset.display_name || existing.filename,
+                                 path: asset.current_path || existing.path,
+                                 displayPath: asset.current_path || existing.displayPath,
+                                 duration: effectiveDurationMs / 1000,
+                                 inPoint: trimInMs,
+                                 outPoint: trimOutMs,
+                                 plannedDuration: effectiveDurationMs / 1000,
+                                 complianceRating: meta.ageRating,
+                                 tp_flag: meta.tpFlag,
+                                 content_type: meta.contentType,
+                                 ingestorStatus: (asset.status || 'ready') as IngestorStatus,
+                                 display_name: asset.display_name,
+                                 virtual_folder: asset.virtual_folder,
+                                 current_path: asset.current_path,
+                                 duration_ms: fileDurationMs,
+                                 trim_in_ms: trimInMs,
+                                 trim_out_ms: trimOutMs,
                                  fps: asset.fps || parseFps(asset.r_frame_rate),
                                  mezzanine_ok: asset.mezzanine_ok,
                                  total_frames: asset.total_frames,
@@ -1137,11 +1120,12 @@ export const useRundownStore = defineStore('rundown', () => {
                                  keyframe_safe_start_ms: asset.keyframe_safe_start_ms,
                                  warnings: asset.warnings,
                              };
+                             changed = true;
                          }
-                         updatePlaylistState(playlist.id, {
-                             items: [...playlist.items]
-                         });
-                         casparPlayoutService.refreshQueue?.(getPlayableItems(playlist.id) as any);
+                         if (changed) {
+                             updatePlaylistState(playlistId, { items: newItems });
+                             casparPlayoutService.refreshQueue?.(getPlayableItems(playlistId) as any);
+                         }
                      } catch (e) {
                          try {
                              const ingestor = useIngestorStatusStore();
@@ -1496,21 +1480,20 @@ export const useRundownStore = defineStore('rundown', () => {
             const existing = newItems[index];
             if (existing) {
                 newItems[index] = { ...existing, ...updates } as RundownItem;
-                playlist.items = newItems;
+                updatePlaylistState(playlist.id, { items: newItems });
             }
-            triggerRef(playlists);
             casparPlayoutService.refreshQueue?.(getPlayableItems(playlist.id) as any);
         } catch (error) {
             try {
                 const ingestor = useIngestorStatusStore();
                 ingestor.logError('ingestor-resolve', `Failed to resolve asset ${item.playoutvueId}: ${error}`);
             } catch {}
-            const existing = playlist.items[index];
-            playlist.items[index] = {
-                ...existing,
-                ingestorStatus: 'error'
-            } as RundownItem;
-            triggerRef(playlists);
+            const newErrorItems = [...playlist.items];
+            const existingErr = newErrorItems[index];
+            if (existingErr) {
+                newErrorItems[index] = { ...existingErr, ingestorStatus: 'error' as IngestorStatus } as RundownItem;
+                updatePlaylistState(playlist.id, { items: newErrorItems });
+            }
             console.error('[Ingestor] Failed to resolve asset', item.playoutvueId, error);
         }
     };
@@ -1553,21 +1536,21 @@ export const useRundownStore = defineStore('rundown', () => {
         let accumulatedTime = playingCurrentPlaylist
             ? (playStartTime.value || now)
             : (playlist.startFromTime
-                ? applyWeekdayAnchorInStore(parseClockAnchorInStore(playlist.startFromTime, now), playlist.startFromWeekday)
+                ? applyWeekdayAnchor(parseClockAnchor(playlist.startFromTime, now), playlist.startFromWeekday)
                 : now);
 
         return playlist.items.map((item, index) => {
             if (item.type === 'gap') {
                 const gapLabel = item.hardStartTime || item.filename.replace(/^Start @\s*/, '');
                 if (!playingCurrentPlaylist && gapLabel) {
-                    accumulatedTime = parseClockAnchorInStore(gapLabel, accumulatedTime);
+                    accumulatedTime = parseClockAnchor(gapLabel, accumulatedTime);
                 }
                 return {
                     epochMs: accumulatedTime,
-                    formatted: formatClockTimeInStore(accumulatedTime),
+                    formatted: formatClockTime(accumulatedTime),
                     kind: 'gap',
                     label: gapLabel || 'Gap line',
-                    dayLabel: weekdayLabelInStore(accumulatedTime)
+                    dayLabel: weekdayLabel(accumulatedTime)
                 };
             }
 
@@ -1576,10 +1559,10 @@ export const useRundownStore = defineStore('rundown', () => {
                 accumulatedTime += getItemDurationMs(item);
                 return {
                     epochMs: itemStart,
-                    formatted: formatClockTimeInStore(itemStart),
+                    formatted: formatClockTime(itemStart),
                     kind: 'done',
                     label: 'PLAYED',
-                    dayLabel: weekdayLabelInStore(itemStart)
+                    dayLabel: weekdayLabel(itemStart)
                 };
             }
             if (playingCurrentPlaylist && index === currentPlayingIndex.value) {
@@ -1587,10 +1570,10 @@ export const useRundownStore = defineStore('rundown', () => {
                 accumulatedTime += getItemDurationMs(item);
                 return {
                     epochMs: nextStart,
-                    formatted: formatClockTimeInStore(now), // Shows current time for active item
+                    formatted: formatClockTime(now), // Shows current time for active item
                     kind: 'now',
                     label: 'ON AIR',
-                    dayLabel: weekdayLabelInStore(now)
+                    dayLabel: weekdayLabel(now)
                 };
             }
 
@@ -1598,10 +1581,10 @@ export const useRundownStore = defineStore('rundown', () => {
             accumulatedTime += getItemDurationMs(item);
             return {
                 epochMs: itemStart,
-                formatted: formatClockTimeInStore(itemStart),
+                formatted: formatClockTime(itemStart),
                 kind: 'time',
                 label: '',
-                dayLabel: weekdayLabelInStore(itemStart)
+                dayLabel: weekdayLabel(itemStart)
             };
         });
     });
