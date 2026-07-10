@@ -1085,7 +1085,7 @@ async function advanceToNext(token: number, natural: boolean) {
 
                 const store = useRundownStore();
                 updateDisplayedTime(0);
-                currentCasparDurationMs.value = 0;
+                currentCasparDurationMs.value = durationMs;
 
                 activeGuard.clear();
 
