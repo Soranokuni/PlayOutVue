@@ -7,6 +7,7 @@ import { useIngestorStatusStore } from './ingestorStatus';
 import { playStartTime, casparPlayoutService } from '../services/caspar';
 import { useMediaLibraryStore } from './mediaLibrary';
 import { clampTrimIn, clampTrimOut } from '../utils/frameMath';
+import { savePlaybackState, loadPlaybackState, clearPlaybackState } from '../lib/playbackPersistence';
 
 export type ComplianceRating = 'none' | 'k' | '8' | '12' | '16' | '18';
 export type RundownItemType = 'video' | 'live' | 'graphic' | 'gap';
@@ -358,10 +359,7 @@ export const useRundownStore = defineStore('rundown', () => {
         playbackStartTime = startTime;
         playbackDurationMs = durationMs;
 
-        // Bug 3 Fix 2: Save state to localStorage
-        localStorage.setItem('playout_activePlayingUuid', itemId);
-        localStorage.setItem('playout_playbackStartTimestamp', String(playbackStartTime));
-        localStorage.setItem('playout_playbackDurationMs', String(durationMs));
+        savePlaybackState(itemId, playbackStartTime, durationMs);
 
         let lastProgressUpdate = 0;
         const progressLoop = () => {
@@ -401,29 +399,18 @@ export const useRundownStore = defineStore('rundown', () => {
         lastProgressTimerItemId = '';
         lastProgressTimerStartedAt = 0;
 
-        // Bug 3 Fix 2: Clean up localStorage
-        localStorage.removeItem('playout_activePlayingUuid');
-        localStorage.removeItem('playout_playbackStartTimestamp');
-        localStorage.removeItem('playout_playbackDurationMs');
+        clearPlaybackState();
     };
 
     const restorePlaybackState = () => {
-        const storedUuid = localStorage.getItem('playout_activePlayingUuid');
-        const storedStart = localStorage.getItem('playout_playbackStartTimestamp');
-        const storedDuration = localStorage.getItem('playout_playbackDurationMs');
+        const state = loadPlaybackState();
+        if (!state) return;
 
-        if (storedUuid && storedStart && storedDuration) {
-            const startTime = Number(storedStart);
-            const durationMs = Number(storedDuration);
-            const elapsed = Date.now() - startTime;
-
-            if (elapsed < durationMs) {
-                startPlaybackProgressTimer(storedUuid, durationMs, startTime);
-            } else {
-                localStorage.removeItem('playout_activePlayingUuid');
-                localStorage.removeItem('playout_playbackStartTimestamp');
-                localStorage.removeItem('playout_playbackDurationMs');
-            }
+        const elapsed = Date.now() - state.startTimestamp;
+        if (elapsed < state.durationMs) {
+            startPlaybackProgressTimer(state.uuid, state.durationMs, state.startTimestamp);
+        } else {
+            clearPlaybackState();
         }
     };
 
