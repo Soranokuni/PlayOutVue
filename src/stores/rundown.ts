@@ -928,12 +928,22 @@ export const useRundownStore = defineStore('rundown', () => {
                 ? (outPoint - inPoint) / 1000
                 : existing.plannedDuration);
 
+        // When trim changes also update `duration` (displayed in catalog)
+        // and `duration_ms` so they stay consistent with `plannedDuration`.
+        const newDuration = (updates.duration !== undefined)
+            ? updates.duration
+            : newPlannedDuration;
+        const newDurationMs = (updates.duration_ms !== undefined)
+            ? updates.duration_ms
+            : Math.round(newDuration * 1000);
+
         newItems[index] = { 
             ...existing, 
             ...updates,
             display_name: updates.display_name !== undefined ? updates.display_name : (updates.filename !== undefined ? updates.filename : existing.display_name),
             current_path: updates.current_path !== undefined ? updates.current_path : (updates.path !== undefined ? updates.path : existing.current_path),
-            duration_ms: updates.duration_ms !== undefined ? updates.duration_ms : (updates.duration !== undefined ? updates.duration * 1000 : existing.duration_ms),
+            duration: newDuration,
+            duration_ms: newDurationMs,
             plannedDuration: newPlannedDuration,
             trim_in_ms,
             trim_out_ms,
@@ -1087,28 +1097,18 @@ export const useRundownStore = defineStore('rundown', () => {
                              if (!itemId) continue;
                              const idx = playlist.items.findIndex(e => e.id === itemId);
                              if (idx === -1) continue;
-                             const existing = playlist.items[idx]!;
+                              const existing = playlist.items[idx]!;
 
-                             const nameLower = (asset.display_name || existing.filename || '').toLowerCase();
-                             const ratingLower = (asset.rating || '').toLowerCase();
-                             const isSubclip = nameLower.includes('sub-clip') || nameLower.includes('subclip') || ratingLower.includes('subclip');
-
-                             let inPoint = asset.trim_in_ms || 0;
-                             let outPoint = 0;
-                             let durationSec = (asset.duration_ms || 0) / 1000;
-                             
-                              if (isSubclip) {
-                                  const calculatedDuration = (asset.trim_out_ms || 0) - (asset.trim_in_ms || 0);
-                                  durationSec = calculatedDuration / 1000;
-                                  outPoint = asset.trim_out_ms || 0;
-                              } else {
-                                  outPoint = (asset.trim_out_ms && asset.trim_out_ms > 0)
-                                      ? asset.trim_out_ms
-                                      : (asset.duration_ms || 0);
-                                  durationSec = (outPoint - inPoint) / 1000;
-                              }
                               const fileDurationMs = asset.duration_ms || 0;
-                              const effectiveDurationMs = outPoint > inPoint ? (outPoint - inPoint) : fileDurationMs;
+                              const trimInMs = Math.max(0, asset.trim_in_ms || 0);
+                              const trimOutMs =
+                                  asset.trim_out_ms && asset.trim_out_ms > trimInMs
+                                      ? asset.trim_out_ms
+                                      : fileDurationMs;
+                              const effectiveDurationMs =
+                                  trimOutMs > trimInMs
+                                      ? trimOutMs - trimInMs
+                                      : fileDurationMs;
 
                               const meta = getMetadataFromAssetResponse(asset);
                               playlist.items[idx] = {
@@ -1117,8 +1117,8 @@ export const useRundownStore = defineStore('rundown', () => {
                                   path: asset.current_path || existing.path,
                                   displayPath: asset.current_path || existing.displayPath,
                                   duration: effectiveDurationMs / 1000,
-                                  inPoint,
-                                  outPoint: outPoint > 0 ? outPoint : 0,
+                                  inPoint: trimInMs,
+                                  outPoint: trimOutMs,
                                   plannedDuration: effectiveDurationMs / 1000,
                                   complianceRating: meta.ageRating,
                                   tp_flag: meta.tpFlag,
@@ -1128,8 +1128,8 @@ export const useRundownStore = defineStore('rundown', () => {
                                   virtual_folder: asset.virtual_folder,
                                   current_path: asset.current_path,
                                   duration_ms: fileDurationMs,
-                                  trim_in_ms: inPoint,
-                                  trim_out_ms: outPoint > 0 ? outPoint : 0,
+                                  trim_in_ms: trimInMs,
+                                  trim_out_ms: trimOutMs,
                                  fps: asset.fps || parseFps(asset.r_frame_rate),
                                  mezzanine_ok: asset.mezzanine_ok,
                                  total_frames: asset.total_frames,
@@ -1432,26 +1432,38 @@ export const useRundownStore = defineStore('rundown', () => {
                 apiBaseUrlOverride: null
             });
 
-            const nameLower = (response.display_name || item.filename || '').toLowerCase();
-            const ratingLower = (response.rating || '').toLowerCase();
-            const isSubclip = nameLower.includes('sub-clip') || nameLower.includes('subclip') || ratingLower.includes('subclip');
-
-            let inPoint = response.trim_in_ms || 0;
-            let outPoint = 0;
-            let durationSec = (response.duration_ms || 0) / 1000;
-
-            if (isSubclip) {
-                const calculatedDuration = (response.trim_out_ms || 0) - (response.trim_in_ms || 0);
-                durationSec = calculatedDuration / 1000;
-                outPoint = response.trim_out_ms || 0;
-            } else {
-                outPoint = (response.trim_out_ms && response.trim_out_ms > 0)
-                    ? response.trim_out_ms
-                    : (response.duration_ms || 0);
-                durationSec = (outPoint - inPoint) / 1000;
-            }
+            // Data-driven trim resolution — no name-based heuristics.
+            // trim_in_ms / trim_out_ms are absolute positions on the source
+            // timeline. duration_ms is the physical file's total duration.
+            // effectiveDurationMs = trim_out_ms - trim_in_ms is the playable
+            // range after trimming.
             const fileDurationMs = response.duration_ms || 0;
-            const effectiveDurationMs = outPoint > inPoint ? (outPoint - inPoint) : fileDurationMs;
+            const trimInMs = Math.max(0, response.trim_in_ms || 0);
+            const rawTrimOutMs = response.trim_out_ms;
+            const trimOutMs =
+                rawTrimOutMs && rawTrimOutMs > trimInMs
+                    ? rawTrimOutMs
+                    : fileDurationMs;
+            const effectiveDurationMs =
+                trimOutMs > trimInMs
+                    ? trimOutMs - trimInMs
+                    : fileDurationMs;
+
+            // Diagnostic: log the raw ingestor response so mismatches between
+            // the trim panel and the stored metadata are visible.
+            if (rawTrimOutMs !== trimOutMs || trimInMs > 0) {
+                console.info('[resolveAsset]', {
+                    id: item.playoutvueId,
+                    filename: response.display_name || item.filename,
+                    raw_duration_ms: fileDurationMs,
+                    raw_trim_in: response.trim_in_ms,
+                    raw_trim_out: rawTrimOutMs,
+                    effective_trim_in_ms: trimInMs,
+                    effective_trim_out_ms: trimOutMs,
+                    effective_duration_ms: effectiveDurationMs,
+                    effective_duration_sec: (effectiveDurationMs / 1000).toFixed(1),
+                });
+            }
 
             const meta = getMetadataFromAssetResponse(response);
             const updates: any = {
@@ -1459,8 +1471,8 @@ export const useRundownStore = defineStore('rundown', () => {
                 path: response.current_path || item.path,
                 displayPath: response.current_path || item.displayPath,
                 duration: effectiveDurationMs / 1000,
-                inPoint,
-                outPoint: outPoint > 0 ? outPoint : 0,
+                inPoint: trimInMs,
+                outPoint: trimOutMs,
                 plannedDuration: effectiveDurationMs / 1000,
                 complianceRating: meta.ageRating,
                 tp_flag: meta.tpFlag,
@@ -1470,8 +1482,8 @@ export const useRundownStore = defineStore('rundown', () => {
                 virtual_folder: response.virtual_folder,
                 current_path: response.current_path,
                 duration_ms: fileDurationMs,
-                trim_in_ms: inPoint,
-                trim_out_ms: outPoint > 0 ? outPoint : 0,
+                trim_in_ms: trimInMs,
+                trim_out_ms: trimOutMs,
                 fps: response.fps || parseFps(response.r_frame_rate),
                 mezzanine_ok: response.mezzanine_ok,
                 total_frames: response.total_frames,

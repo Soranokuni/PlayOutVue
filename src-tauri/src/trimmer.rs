@@ -208,6 +208,7 @@ pub async fn compute_frame_trim(
     trim_in_ms: i64,
     trim_out_ms: i64,
     db_state: State<'_, crate::scanner::DbState>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<FrameTrimResult, String> {
     // Look up the asset in the in-memory SQLite DB first. If it hasn't been
     // probed yet (the background scanner may still be running, or the file was
@@ -247,18 +248,71 @@ pub async fn compute_frame_trim(
     let fps = entry.fps_num as f64 / entry.fps_den as f64;
     let total_dur = if entry.duration_ms < 0 { 0 } else { entry.duration_ms };
 
+    let in_ms = trim_in_ms.max(0);
+    let requested_out_ms = if trim_out_ms <= 0 { total_dur } else { trim_out_ms };
+
+    // Diagnostic: log every trim computation so mismatches between parent-source
+    // trim coordinates and the actual file duration are visible in the Rust log.
+    // When trim points exceed the file bounds, the trim is clamped — but the
+    // frontend may still display the pre-clamped values. This log exposes the
+    // delta so an operator can identify the mismatch.
+    let out_clamped = requested_out_ms > total_dur;
+    let in_clamped = in_ms > total_dur;
+    if out_clamped || in_clamped {
+        diagnostics.push(
+            "warn",
+            "trim",
+            format!(
+                "CLAMPED path={:?} file_ms={} in_req={} out_req={} → in_eff={} out_eff={}",
+                path,
+                total_dur,
+                trim_in_ms,
+                trim_out_ms,
+                in_ms.min(total_dur),
+                requested_out_ms.min(total_dur)
+            ),
+        );
+    } else {
+        diagnostics.push(
+            "info",
+            "trim",
+            format!(
+                "OK path={:?} file_ms={} in_ms={} out_ms={} effective_ms={} fps={}/{}",
+                path,
+                total_dur,
+                in_ms,
+                requested_out_ms,
+                requested_out_ms.saturating_sub(in_ms),
+                entry.fps_num,
+                entry.fps_den
+            ),
+        );
+    }
+
     // Clamp trim_in_ms between 0 and the file's real duration. The previous
     // implementation trusted the DB duration blindly; an inflated DB duration
     // let IN points beyond the real file through, which produced a SEEK past
     // EOF and a corrupted LENGTH. Hard-clamp to [0, total_dur].
-    let in_ms = trim_in_ms.clamp(0, total_dur);
+    let in_ms = if in_ms > total_dur {
+        diagnostics.push(
+            "error",
+            "trim",
+            format!(
+                "BAD IN: trim_in_ms={} exceeds file duration={} for {:?}. Trim panel uses parent-source coordinates on a pre-extracted subclip file.",
+                in_ms, total_dur, path
+            ),
+        );
+        0
+    } else {
+        in_ms
+    };
 
     // Resolve the OUT point. trim_out_ms <= 0 or beyond the file means "play
     // to the end". Otherwise clamp it into (in_ms, total_dur].
     let out_ms = if trim_out_ms <= 0 || trim_out_ms > total_dur {
         total_dur
     } else {
-        trim_out_ms.clamp(in_ms, total_dur)
+        trim_out_ms.max(in_ms).min(total_dur)
     };
 
     if out_ms <= in_ms {
