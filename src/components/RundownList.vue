@@ -111,7 +111,8 @@ watch(
 
 const calcProgress = (item: RundownItem, index: number) => {
   if (index !== store.currentPlayingIndex) return 0;
-  const duration = lockedPlayingDurationMs.value || effectiveDurationMs(item, index);
+  const locked = lockedPlayingDurationMs.value;
+  const duration = locked > 0 ? locked : itemDurationMs(item);
   if (!duration || duration <= 0) return 0;
   return Math.max(0, Math.min(100, (currentPlayoutMs.value / duration) * 100));
 };
