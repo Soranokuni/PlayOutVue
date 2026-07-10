@@ -888,6 +888,13 @@ async function playItemAt(index: number, token: number) {
         // Hydrate the item
         const hydrated = hydratePlayoutItem(item);
 
+        // Zero the elapsed timer / playhead BEFORE dispatching PLAY so the old
+        // clip's position cannot bleed into the new clip's UI during the
+        // dispatch window (same state-leak fix as take()).
+        updateDisplayedTime(0);
+        currentCasparDurationMs.value = 0;
+        store.stopPlaybackProgressTimer();
+
         // Dispatch frame-accurate trim PLAY and register playback
         const dispatchResult = await dispatchPlay(
             hydrated,
@@ -1323,6 +1330,18 @@ export const casparPlayoutService: PlayoutService = {
                     nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');
                 }
             }
+
+            // STRICT STATE RESET BEFORE THE TAKE. Zero out the elapsed timer,
+            // playhead, and remaining-time *before* firing the PLAY command.
+            // Without this, the UI keeps rendering the previous clip's elapsed
+            // time (e.g. 5s, 11s…) until the first OSC tick from the new clip
+            // arrives, and any stale OSC /file/time packet still in flight from
+            // the old clip would thrash the freshly-zeroed state. Stopping the
+            // JS progress timer here also prevents the old countdown from
+            // ticking forward during the ~250ms dispatch window.
+            updateDisplayedTime(0);
+            currentCasparDurationMs.value = 0;
+            store.stopPlaybackProgressTimer();
 
             const dispatchResult = await dispatchPlay(
                 hydrated,

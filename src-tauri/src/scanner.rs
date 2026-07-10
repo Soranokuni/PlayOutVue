@@ -454,25 +454,58 @@ fn parse_duration_from_stream(stream: &StreamInfo) -> Option<f64> {
 }
 
 fn resolve_duration_secs(parsed: &FfprobeOutput) -> f64 {
-    let mut candidates = Vec::new();
+    // Authoritative duration resolution. The previous implementation collected
+    // every candidate (format.duration, format tags, AND every video/audio
+    // stream duration) and took the MAX. For files where an audio stream is
+    // longer than the video stream (or a tag carries a stale/wrong value),
+    // the MAX produced an INFLATED duration. That inflated value was stored
+    // in the asset DB and used by `compute_frame_trim` as `total_dur`, which
+    // in turn let the IN point exceed the real file length and produced a
+    // bogus SEEK past EOF plus a LENGTH that did not reflect OUT-IN.
+    //
+    // Fix: the VIDEO stream duration is authoritative for playout. Fall back
+    // to the container (format) duration only when the video stream doesn't
+    // report one. Audio stream durations are never used to inflate the
+    // duration — they can legitimately exceed video (e.g. longer audio tail)
+    // and must not drive the playout length.
 
-    if let Some(seconds) = parsed.format.duration.as_deref().and_then(parse_float) {
-        candidates.push(seconds);
-    }
+    let video_stream = parsed
+        .streams
+        .iter()
+        .find(|stream| stream.codec_type == "video");
 
-    if let Some(seconds) = parse_duration_from_tags(&parsed.format.tags) {
-        candidates.push(seconds);
-    }
-
-    for stream in parsed.streams.iter().filter(|stream| stream.codec_type == "video" || stream.codec_type == "audio") {
+    if let Some(stream) = video_stream {
         if let Some(seconds) = parse_duration_from_stream(stream) {
-            candidates.push(seconds);
+            if seconds.is_finite() && seconds > 0.0 {
+                return seconds;
+            }
         }
     }
 
-    candidates
-        .into_iter()
-        .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+    if let Some(seconds) = parsed.format.duration.as_deref().and_then(parse_float) {
+        if seconds.is_finite() && seconds > 0.0 {
+            return seconds;
+        }
+    }
+
+    if let Some(seconds) = parse_duration_from_tags(&parsed.format.tags) {
+        if seconds.is_finite() && seconds > 0.0 {
+            return seconds;
+        }
+    }
+
+    // Last resort: longest stream duration (video preferred, then audio) so we
+    // never return 0 when any stream reports a duration. This is bounded
+    // because we only reach here when the video stream and format both failed.
+    parsed
+        .streams
+        .iter()
+        .filter_map(|stream| {
+            if stream.codec_type != "video" && stream.codec_type != "audio" {
+                return None;
+            }
+            parse_duration_from_stream(stream).filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+        })
         .max_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal))
         .unwrap_or(0.0)
 }
