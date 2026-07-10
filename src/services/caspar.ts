@@ -24,6 +24,13 @@ const HEARTBEAT_INTERVAL_MS = 5_000;
 // --- Layer registry (TS mirror of src-tauri/src/caspar_layers.rs) ---
 // Single source of truth for layer numbers on the program channel. Keep in
 // sync with the Rust enum — see plan §1.1.
+//
+// CROSS-REFERENCE: src-tauri/src/caspar_layers.rs defines the Rust-side
+// `CasparLayer` enum with identical numeric values. Any layer added here MUST
+// also be added there, and vice-versa. The Rust `from_layer()` + `layer()`
+// methods must map the same numbers. Run `cargo test` in src-tauri after
+// changing either side to ensure the layer_numbers_match_registry_table test
+// still passes.
 export const CASPAR_LAYERS = {
     video: 10,
     live: 20,
@@ -664,6 +671,15 @@ const ensureFeedbackListener = async () => {
         if (!advanceUnlisten) {
             advanceUnlisten = await listen<PlaybackAdvancePayload>('caspar://advance', (event) => {
                 if (!isCasparPlaying.value) return;
+                // Stale-event guard: if the advance event's uuid doesn't match
+                // the item currently tracked by the JS queue, this is a
+                // late-arriving EOF event from a previous clip. Drop it —
+                // otherwise we'd advance a SECOND time, skipping the next item.
+                // The debounce (ADVANCE_DEBOUNCE_MS) is a second line of
+                // defense but can be beaten when the event arrives late enough.
+                if (event.payload.currentUuid && currentKey && event.payload.currentUuid !== currentKey) {
+                    return;
+                }
                 advanceNext(true).catch((error) => {
                     console.error('[CasparCG] advance error', error);
                 });
@@ -1069,8 +1085,15 @@ async function advanceToNext(token: number, natural: boolean) {
 
                 const store = useRundownStore();
                 updateDisplayedTime(0);
+                currentCasparDurationMs.value = 0;
 
                 activeGuard.clear();
+
+                // Snapshot wall-clock now, AFTER the async trim/path work.
+                // playStartTime.value (set at fn top) stays for ETA computation;
+                // this local timestamp goes to the progress timer so the first
+                // rAF tick doesn't include the transition gap.
+                const progressStartTime = Date.now();
 
                 // Prepare paths for registration
                 const nextItemPath = (await prepareCasparMediaPath(hydrated.path)).replace(/\\/g, '/').replace(/"/g, '');
@@ -1091,12 +1114,11 @@ async function advanceToNext(token: number, natural: boolean) {
                     }
                 }
 
-                // Register with our end-guard
-                registerPlayStart(hydrated.id, durationMs);
-
-                store.startPlaybackProgressTimer(hydrated.id, durationMs, playStartTime.value);
-
-                // Register playback with Rust backend watchdog
+                // Arms the Rust state machine BEFORE the JS progress timer:
+                // if caspar_register_playback fails, we won't have a running
+                // timer with no watchdog. The register .catch logs but doesn't
+                // throw; a register failure here is non-fatal for the timer
+                // since the OSC EOF advance + endGuard still work.
                 await invoke('caspar_register_playback', {
                     uuid: key,
                     durationMs: durationMs,
@@ -1107,6 +1129,11 @@ async function advanceToNext(token: number, natural: boolean) {
                 }).catch((e: any) => {
                     console.warn('[CasparCG] Failed to register playback on natural advance', e);
                 });
+
+                // Register with our end-guard and start the progress timer
+                // ONLY after the Rust watchdog is armed.
+                registerPlayStart(hydrated.id, durationMs);
+                store.startPlaybackProgressTimer(hydrated.id, durationMs, progressStartTime);
 
                 await preloadNextItemAt(nextIndex + 1);
 
@@ -1119,6 +1146,7 @@ async function advanceToNext(token: number, natural: boolean) {
             } catch (error: any) {
                 console.error('[CasparCG] advanceToNext natural error', error);
                 const store = useRundownStore();
+                store.stopPlaybackProgressTimer();
                 store.updateItem(nextItem.id, { ingestorStatus: 'error' });
                 setTimeout(() => {
                     advanceNext(false).catch(() => {});

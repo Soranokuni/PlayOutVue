@@ -3,6 +3,11 @@
 //! Channel 1 (PROGRAM_CHANNEL) only. Non-conflicting, documented layer map.
 //! See `.kilo/plans/1782466670944-mcr-casparcg-layer-state-revamp.md` §1.1.
 //!
+//! CROSS-REFERENCE: src/services/caspar.ts exports a `CASPAR_LAYERS` const
+//! mirroring these numeric values. Any layer added here MUST also be added
+//! there, and vice-versa. The TypeScript `CASPAR_LAYERS` object and this
+//! enum must stay numerically identical.
+//!
 //! | Layer | Purpose              | Producer type   | Lifecycle                  |
 //! |------:|----------------------|-----------------|----------------------------|
 //! | 10    | Program video        | FFmpeg/decoder  | Per item (PLAY/CLEAR)      |
