@@ -114,6 +114,94 @@ pub struct FrameTrimResult {
     pub fps_rational: String,
 }
 
+/// Robust timecode parser. Accepts MM:SS, HH:MM:SS, HH:MM:SS:FF (and
+/// S, SS.FF, MM:SS.FF variants) and returns the equivalent frame count at the
+/// given frame rate. Returns None when the string cannot be interpreted.
+///
+/// This replaces the fragile per-component math that previously failed on
+/// "6:04" / "34:26" style IN/OUT strings, fell through to a degenerate
+/// +2000ms fallback, and ultimately produced a bogus 2-minute LENGTH.
+pub fn parse_timecode_to_frames(tc: &str, fps: f64) -> Option<u32> {
+    let fps = if !fps.is_finite() || fps <= 0.0 { 25.0 } else { fps };
+    let trimmed = tc.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Pure integer frame count (e.g. "18390")
+    if !trimmed.contains(':') && !trimmed.contains('.') {
+        if let Ok(frames) = trimmed.parse::<u32>() {
+            return Some(frames);
+        }
+    }
+
+    // Split on ':' — each segment is numeric. A trailing fractional seconds
+    // segment (e.g. "01.5") is tolerated by parsing as f64.
+    let parts: Vec<&str> = trimmed.split(':').collect();
+    if parts.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+
+    let parsed: Vec<f64> = parts
+        .iter()
+        .map(|p| p.parse::<f64>())
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+
+    let (h, m, s, f) = match parsed.len() {
+        2 => (0.0, parsed[0], parsed[1], 0.0),                 // MM:SS
+        3 => (parsed[0], parsed[1], parsed[2], 0.0),          // HH:MM:SS
+        4 => (parsed[0], parsed[1], parsed[2], parsed[3]),    // HH:MM:SS:FF
+        _ => return None,
+    };
+
+    if h < 0.0 || m < 0.0 || s < 0.0 || f < 0.0 {
+        return None;
+    }
+
+    let total_seconds = h * 3600.0 + m * 60.0 + s;
+    let frames = (total_seconds * fps).round() + f.round();
+    if !frames.is_finite() || frames < 0.0 {
+        return None;
+    }
+    Some(frames as u32)
+}
+
+/// Parse a timecode string to milliseconds at the given frame rate. Mirrors
+/// `parse_timecode_to_frames` for callers that work in milliseconds (the UI
+/// trim controls, timeline triggers, etc.).
+pub fn parse_timecode_to_ms(tc: &str, fps: f64) -> Option<i64> {
+    let frames = parse_timecode_to_frames(tc, fps)?;
+    let fps = if !fps.is_finite() || fps <= 0.0 { 25.0 } else { fps };
+    let ms = (frames as f64 / fps) * 1000.0;
+    if !ms.is_finite() || ms < 0.0 {
+        return None;
+    }
+    Some(ms.round() as i64)
+}
+
+/// Tauri-exposed timecode parser so the Vue layer can validate/convert IN and
+/// OUT strings through the exact same code path the backend uses for frame
+/// math. Returns the frame count and millisecond equivalent.
+#[derive(serde::Serialize)]
+pub struct TimecodeParseResult {
+    pub frames: u32,
+    pub ms: i64,
+    pub fps: f64,
+}
+
+#[tauri::command]
+pub async fn parse_timecode(
+    tc: String,
+    fps: Option<f64>,
+) -> Result<TimecodeParseResult, String> {
+    let rate = fps.unwrap_or(25.0);
+    let frames = parse_timecode_to_frames(&tc, rate)
+        .ok_or_else(|| format!("Could not parse timecode '{}' (expected MM:SS, HH:MM:SS, or HH:MM:SS:FF)", tc))?;
+    let ms = parse_timecode_to_ms(&tc, rate).unwrap_or(0);
+    Ok(TimecodeParseResult { frames, ms, fps: rate })
+}
+
 #[tauri::command]
 pub async fn compute_frame_trim(
     path: String,
@@ -159,38 +247,42 @@ pub async fn compute_frame_trim(
     let fps = entry.fps_num as f64 / entry.fps_den as f64;
     let total_dur = if entry.duration_ms < 0 { 0 } else { entry.duration_ms };
 
-    // Clamp trim_in_ms between 0 and duration_ms
+    // Clamp trim_in_ms between 0 and the file's real duration. The previous
+    // implementation trusted the DB duration blindly; an inflated DB duration
+    // let IN points beyond the real file through, which produced a SEEK past
+    // EOF and a corrupted LENGTH. Hard-clamp to [0, total_dur].
     let in_ms = trim_in_ms.clamp(0, total_dur);
 
-    // Default trim_out_ms to total duration if <= 0 or > duration_ms
-    let mut out_ms = if trim_out_ms <= 0 || trim_out_ms > total_dur {
+    // Resolve the OUT point. trim_out_ms <= 0 or beyond the file means "play
+    // to the end". Otherwise clamp it into (in_ms, total_dur].
+    let out_ms = if trim_out_ms <= 0 || trim_out_ms > total_dur {
         total_dur
     } else {
-        trim_out_ms
+        trim_out_ms.clamp(in_ms, total_dur)
     };
 
     if out_ms <= in_ms {
-        let clamped_out = (in_ms + 2000).min(total_dur);
-        if clamped_out <= in_ms {
-            return Err(format!(
-                "Asset has zero or invalid duration ({}ms), cannot trim: {}",
-                total_dur, path
-            ));
-        }
-        tracing::warn!(
-            "Degenerate trim [{},{}] for {}, clamping out to {}",
-            in_ms, out_ms, path, clamped_out
-        );
-        out_ms = clamped_out;
+        // Degenerate trim (e.g. IN clamped to the very end because it exceeded
+        // the real file length). Previously this fell back to a hardcoded
+        // `in_ms + 2000` phantom window which is what produced the spurious
+        // ~2s/2min clip. Instead, surface a clear error so the caller marks
+        // the item as broken rather than silently playing a stub.
+        return Err(format!(
+            "Degenerate trim for {}: IN {}ms is at/after the file end ({}ms). \
+             The IN point exceeds the real media duration — adjust the trim.",
+            path, in_ms, total_dur
+        ));
     }
 
-    // Convert milliseconds to frame counts
+    // Convert milliseconds to frame counts. IN is floored, OUT is ceiled so
+    // the LENGTH is never shorter than the requested trim.
     let in_frame = ((in_ms as f64 / 1000.0) * fps).floor() as u32;
     let out_frame_raw = ((out_ms as f64 / 1000.0) * fps).ceil() as u32;
     let total_frames = ((total_dur as f64 / 1000.0) * fps).round() as u32;
 
-    // Ensure out_frame is capped at the calculated absolute total frame count of the file
-    let out_frame = std::cmp::min(out_frame_raw, total_frames);
+    // Hard cap OUT at the real total frame count (never produce a LENGTH that
+    // runs past the file — that was the other source of the 2-minute stub).
+    let out_frame = std::cmp::min(out_frame_raw, total_frames.max(1));
 
     let duration_frames = out_frame.saturating_sub(in_frame);
 
@@ -200,5 +292,64 @@ pub async fn compute_frame_trim(
         duration_frames,
         fps_rational: format!("{}/{}", entry.fps_num, entry.fps_den),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_timecode_mmss_25fps() {
+        // "6:04" → MM:SS = 364s → 9100 frames at 25fps
+        assert_eq!(parse_timecode_to_frames("6:04", 25.0), Some(9100));
+        assert_eq!(parse_timecode_to_ms("6:04", 25.0), Some(364_000));
+    }
+
+    #[test]
+    fn parse_timecode_mmss_50fps() {
+        // "34:26" → MM:SS = 2066s → 103300 frames at 50fps
+        assert_eq!(parse_timecode_to_frames("34:26", 50.0), Some(103_300));
+    }
+
+    #[test]
+    fn parse_timecode_hhmmss() {
+        // "01:06:04" = 1h 6m 4s = 3964s → 99100 frames at 25fps
+        assert_eq!(parse_timecode_to_frames("01:06:04", 25.0), Some(99_100));
+    }
+
+    #[test]
+    fn parse_timecode_hhmmssff() {
+        // "00:06:04:10" = 364s + 10 frames at 25fps = 9100 + 10 = 9110
+        assert_eq!(parse_timecode_to_frames("00:06:04:10", 25.0), Some(9110));
+        // 50fps: 364s = 18200 frames + 10 = 18210
+        assert_eq!(parse_timecode_to_frames("00:06:04:10", 50.0), Some(18_210));
+    }
+
+    #[test]
+    fn parse_timecode_bare_frame_count() {
+        // Pure integer is treated as a frame count
+        assert_eq!(parse_timecode_to_frames("18390", 50.0), Some(18_390));
+    }
+
+    #[test]
+    fn parse_timecode_rejects_garbage() {
+        assert_eq!(parse_timecode_to_frames("", 25.0), None);
+        assert_eq!(parse_timecode_to_frames("abc", 25.0), None);
+        assert_eq!(parse_timecode_to_frames("1:2:3:4:5", 25.0), None);
+        assert_eq!(parse_timecode_to_frames(":04", 25.0), None);
+    }
+
+    /// The 28-minute IN/OUT scenario from the bug report: IN=6:04, OUT=34:26
+    /// at 25fps must yield a ~28:22 (42550 frame) duration — not a 2-minute
+    /// stub. This locks in the corrected duration math.
+    #[test]
+    fn timecode_duration_28min_clip_25fps() {
+        let in_frames = parse_timecode_to_frames("6:04", 25.0).unwrap();
+        let out_frames = parse_timecode_to_frames("34:26", 25.0).unwrap();
+        let duration = out_frames - in_frames;
+        assert_eq!(duration, 42_550); // 1702s * 25
+        let duration_secs = duration as f64 / 25.0;
+        assert!((duration_secs - 1702.0).abs() < 0.5); // ~28:22, NOT 120s
+    }
 }
 

@@ -516,6 +516,21 @@ fn handle_playback_path_osc<R: Runtime>(
     let normalized_path = normalize_caspar_osc_path(path);
     s.current_file_path = normalized_path.clone();
 
+    // Confirm the foreground has switched to the registered clip so /file/time
+    // ticks are trusted again. A stale /file/path from the previous clip won't
+    // match `registered_current_path`, so the post-take thrash guard stays
+    // armed until the new clip is genuinely on air. For same-file subclips
+    // the guard was never armed, so this is a no-op.
+    let registered_norm = extract_raw_filename_lower(&s.registered_current_path);
+    if !registered_norm.is_empty() {
+        let path_norm = extract_raw_filename_lower(path);
+        if path_norm == registered_norm {
+            s.path_confirmed = true;
+        }
+    } else {
+        s.path_confirmed = true;
+    }
+
     if let Some(expected) = &s.expected_next_path {
         let path_norm = extract_raw_filename_lower(path);
         let expected_norm = extract_raw_filename_lower(expected);
@@ -639,6 +654,14 @@ pub struct PlaybackStateInner {
     /// file as its parent triggers an instant `osc-path-switch` advance the moment
     /// the parent starts playing — skipping the parent entirely.
     pub registered_current_path: String,
+    /// Post-take OSC thrash guard. Set `false` by `caspar_register_playback`
+    /// when the new clip's path differs from the one currently on air.
+    /// While `false`, `/file/time` OSC packets are suppressed (they belong to
+    /// the previous clip, still in flight over UDP after a manual take, and
+    /// would overwrite the zeroed elapsed timer with the old clip's position).
+    /// Set `true` again once `/file/path` OSC confirms the registered clip is
+    /// actually on air.
+    pub path_confirmed: bool,
     pub trim_in_ms: u64,
 }
 
@@ -662,6 +685,7 @@ impl Default for PlaybackStateInner {
             position_stalled_ticks: 0,
             position_ever_advanced: false,
             registered_current_path: String::new(),
+            path_confirmed: true,
             trim_in_ms: 0,
         }
     }
@@ -708,6 +732,17 @@ fn handle_playback_osc<R: Runtime>(
     let now = now_ms();
     let mut s = state.lock();
     if !s.is_playing || s.is_paused {
+        return;
+    }
+
+    // Post-take OSC thrash guard: if the foreground path hasn't been confirmed
+    // as the registered clip yet, ignore /file/time position updates. These
+    // packets belong to the previous clip (still in flight over UDP after a
+    // manual take) and would otherwise overwrite the zeroed elapsed timer with
+    // the old clip's position (e.g. 5s, 11s…). We still refresh the OSC
+    // heartbeat so the watchdog doesn't fire during the brief transition.
+    if !s.path_confirmed {
+        s.last_osc_at_ms = now;
         return;
     }
 
@@ -923,6 +958,17 @@ pub async fn caspar_register_playback(
     }
     s.expected_out_point_ms = out_point;
 
+    // OSC thrash guard. When the new clip's path differs from the clip
+    // currently on air, suppress /file/time ticks until OSC confirms the
+    // foreground has actually switched to the new path. This prevents stale
+    // position packets from the previous clip (still in flight over UDP right
+    // after a manual take) from overwriting the zeroed elapsed timer with the
+    // old clip's position (e.g. 5s, 11s…). Same-file subclips need no path
+    // switch, so the guard stays disarmed.
+    let old_registered = s.registered_current_path.clone();
+    s.path_confirmed = old_registered.is_empty()
+        || extract_raw_filename_lower(&old_registered) == extract_raw_filename_lower(&current_path);
+
     s.current_file_path = current_path.clone();
     s.registered_current_path = current_path;
     s.expected_next_path = next_path;
@@ -969,6 +1015,7 @@ pub async fn caspar_clear_playback(state: State<'_, CasparPlaybackState>) -> Res
     s.expected_out_point_ms = u64::MAX;
     s.current_file_path = String::new();
     s.registered_current_path = String::new();
+    s.path_confirmed = true;
     s.expected_next_path = None;
     s.advance_fired = false;
     s.stall_emitted = false;

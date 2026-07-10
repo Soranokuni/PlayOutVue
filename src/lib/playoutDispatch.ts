@@ -178,6 +178,17 @@ export async function dispatchPlay(
     const fieldMultiplier = computeFieldMultiplier(fileFps);
     const seekFields = trim.in_frame * fieldMultiplier;
     const lengthFields = trim.duration_frames * fieldMultiplier;
+    // Total file length in channel fields, used to sanity-check the trim. A
+    // stale or inflated IN point can produce seekFields beyond the file; in
+    // that case we drop the SEEK entirely so the clip starts from 0 instead
+    // of jumping into the middle (the manual-take jitter fix).
+    const totalFileFields = (trim.out_frame > 0 ? trim.out_frame : trim.in_frame + trim.duration_frames) * fieldMultiplier;
+    // SEEK is only valid when it's non-zero AND inside the file. LENGTH is
+    // only valid when the trim window is non-empty AND doesn't run past EOF.
+    // Appending them independently preserves a start-trim (IN=0, OUT<full)
+    // which still needs LENGTH to stop at the OUT point.
+    const hasInTrim = seekFields > 0 && seekFields < totalFileFields;
+    const hasOutTrim = lengthFields > 0 && (seekFields + lengthFields) <= totalFileFields;
 
     // 3. Calculate precise expected duration.
     // OSC position is relative to the trim start (the producer is SEEK'd to
@@ -204,8 +215,15 @@ export async function dispatchPlay(
         trimInMs: item.trim_in_ms || 0
     });
 
-    // 5. Send PLAY command (state machine is already armed for this item)
-    const cmd = `PLAY ${channel}-${layer} "${formattedPath}" SEEK ${seekFields} LENGTH ${lengthFields}`;
+    // 5. Send PLAY command (state machine is already armed for this item).
+    // SEEK and LENGTH are appended independently: a stale IN past EOF drops
+    // the SEEK (clip starts from 0), and a valid OUT limit still emits LENGTH
+    // to stop at the right point. When neither is valid, a clean PLAY runs
+    // the whole file. This is the manual-take jitter fix — a stale frontend
+    // IN point can never inject a SEEK that skips the start of the clip.
+    let cmd = `PLAY ${channel}-${layer} "${formattedPath}"`;
+    if (hasInTrim) cmd += ` SEEK ${seekFields}`;
+    if (hasOutTrim) cmd += ` LENGTH ${lengthFields}`;
     await invoke('caspar_send_command', { cmd });
 
     return { durationMs, expectedOutMs };
@@ -238,13 +256,22 @@ export async function dispatchLoadbg(
     // `auto=true` (default, used by the rundown preload path) appends AUTO so
     // CasparCG auto-transitions when the current producer ends. `auto=false`
     // (used by manual cue()) loads the clip into the background without
-    // scheduling an auto-transition.
+    // scheduling an auto-transition. Only append SEEK/LENGTH for a valid trim;
+    // a stale IN must never inject a bogus SEEK into the preload.
     const fileFps = parseFpsRational(trim.fps_rational) ?? 25;
     const fieldMultiplier = computeFieldMultiplier(fileFps);
     const seekFields = trim.in_frame * fieldMultiplier;
     const lengthFields = trim.duration_frames * fieldMultiplier;
+    const totalFileFields = (trim.out_frame > 0 ? trim.out_frame : trim.in_frame + trim.duration_frames) * fieldMultiplier;
+    const hasInTrim = seekFields > 0 && seekFields < totalFileFields;
+    const hasOutTrim = lengthFields > 0 && (seekFields + lengthFields) <= totalFileFields;
     const autoSuffix = auto ? ' AUTO' : '';
-    const cmd = `LOADBG ${channel}-${layer} "${formattedPath}" SEEK ${seekFields} LENGTH ${lengthFields}${autoSuffix}`;
+    // Same independent SEEK/LENGTH logic as dispatchPlay — a stale IN must
+    // never inject a bogus SEEK into the preload.
+    let cmd = `LOADBG ${channel}-${layer} "${formattedPath}"`;
+    if (hasInTrim) cmd += ` SEEK ${seekFields}`;
+    if (hasOutTrim) cmd += ` LENGTH ${lengthFields}`;
+    cmd += autoSuffix;
     await invoke('caspar_send_command', { cmd });
 
     // 4. Calculate duration and expected out point (relative to trim start).

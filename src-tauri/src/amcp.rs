@@ -324,9 +324,11 @@ pub fn clear_layer_cmd(channel: u8, layer: u16) -> String {
     format!("CLEAR {}-{}", channel, layer)
 }
 
-/// Build a `LOADBG <ch>-<layer> "path" SEEK X LENGTH Y AUTO` command.
-/// If `in_frame` or `out_frame` are greater than 0, format it with ` SEEK [in_frame] LENGTH [out_frame - in_frame]`.
-/// If `auto` is true, append ` AUTO`.
+/// Build a `LOADBG <ch>-<layer> "path"[ SEEK X][ LENGTH Y][ AUTO]` command.
+/// SEEK is only appended for a non-zero IN point; LENGTH is only appended for
+/// a non-degenerate trim window (OUT > IN). A stale or inflated IN point
+/// (where the caller has already clamped OUT <= IN) produces a clean LOADBG
+/// so a bogus SEEK can never jump the producer past the start of the file.
 #[allow(dead_code)]
 pub fn loadbg_cmd(
     channel: u8,
@@ -337,9 +339,14 @@ pub fn loadbg_cmd(
     auto: bool,
 ) -> String {
     let mut cmd = format!("LOADBG {}-{} \"{}\"", channel, layer, path);
-    if in_frame > 0 || out_frame > 0 {
+    if out_frame > in_frame {
+        if in_frame > 0 {
+            cmd.push_str(&format!(" SEEK {}", in_frame));
+        }
         let length = out_frame.saturating_sub(in_frame);
-        cmd.push_str(&format!(" SEEK {} LENGTH {}", in_frame, length));
+        if length > 0 {
+            cmd.push_str(&format!(" LENGTH {}", length));
+        }
     }
     if auto {
         cmd.push_str(" AUTO");
@@ -347,8 +354,11 @@ pub fn loadbg_cmd(
     cmd
 }
 
-/// Build a `PLAY <ch>-<layer> "path" SEEK X LENGTH Y` command for trimmed files,
-/// fallbacking to a simple `PLAY channel-layer "path"` if no trim is applied.
+/// Build a `PLAY <ch>-<layer> "path"[ SEEK X][ LENGTH Y]` command. This is
+/// the critical path for manual takes: a stale frontend IN point must NEVER
+/// inject a SEEK that skips the start of the clip. When the trim is absent or
+/// degenerate (OUT <= IN) the command degrades to a clean PLAY. SEEK is only
+/// appended for a non-zero IN; LENGTH is only appended for a real trim window.
 #[allow(dead_code)]
 pub fn play_trimmed_cmd(
     channel: u8,
@@ -358,9 +368,14 @@ pub fn play_trimmed_cmd(
     out_frame: u32,
 ) -> String {
     let mut cmd = format!("PLAY {}-{} \"{}\"", channel, layer, path);
-    if in_frame > 0 || out_frame > 0 {
+    if out_frame > in_frame {
+        if in_frame > 0 {
+            cmd.push_str(&format!(" SEEK {}", in_frame));
+        }
         let length = out_frame.saturating_sub(in_frame);
-        cmd.push_str(&format!(" SEEK {} LENGTH {}", in_frame, length));
+        if length > 0 {
+            cmd.push_str(&format!(" LENGTH {}", length));
+        }
     }
     cmd
 }
@@ -507,6 +522,39 @@ mod tests {
             play_trimmed_cmd(1, 10, "media/clip", 0, 0),
             "PLAY 1-10 \"media/clip\""
         );
+        assert_eq!(
+            play_trimmed_cmd(1, 10, "media/clip", 100, 250),
+            "PLAY 1-10 \"media/clip\" SEEK 100 LENGTH 150"
+        );
+    }
+
+    /// Stale/degenerate IN points must never inject a SEEK. When IN >= OUT
+    /// (e.g. a stale frontend IN that exceeds the real file), the command
+    /// degrades to a clean PLAY so the clip starts from 0 instead of jumping
+    /// into the middle. This is the manual-take jitter fix.
+    #[test]
+    fn test_play_trimmed_cmd_degenerate_trim_is_clean() {
+        // IN >= OUT: no SEEK/LENGTH (would jump past the start)
+        assert_eq!(
+            play_trimmed_cmd(1, 10, "media/clip", 300, 250),
+            "PLAY 1-10 \"media/clip\""
+        );
+        // IN == OUT: zero-length trim, clean PLAY
+        assert_eq!(
+            play_trimmed_cmd(1, 10, "media/clip", 250, 250),
+            "PLAY 1-10 \"media/clip\""
+        );
+    }
+
+    /// A start-trim (IN == 0, OUT < total) must still emit LENGTH so the
+    /// producer stops at the OUT point — but without a redundant SEEK 0.
+    #[test]
+    fn test_play_trimmed_cmd_start_trim_emits_length_only() {
+        assert_eq!(
+            play_trimmed_cmd(1, 10, "media/clip", 0, 250),
+            "PLAY 1-10 \"media/clip\" LENGTH 250"
+        );
+        // IN > 0 emits both SEEK and LENGTH
         assert_eq!(
             play_trimmed_cmd(1, 10, "media/clip", 100, 250),
             "PLAY 1-10 \"media/clip\" SEEK 100 LENGTH 150"
