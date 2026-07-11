@@ -10,6 +10,7 @@ export interface LibraryTrimItem {
     filename: string;
     type: string;
     duration?: number;
+    duration_ms?: number;
     inPoint?: number;
     outPoint?: number;
 }
@@ -37,6 +38,7 @@ const lockTrimItem = () => {
     filename: source.filename,
     type: source.type,
     duration: source.duration,
+    duration_ms: source.duration_ms,
     inPoint: source.inPoint,
     outPoint: source.outPoint
   } : null;
@@ -272,9 +274,9 @@ const probeDuration = async () => {
     try {
         const meta = await invoke<{ duration: string }>('scan_media', { filepath: item.value.path });
         const dur  = parseFloat(meta.duration) * 1000;
-        if (dur > 0 && totalDurationMs.value === 0) {
+        if (dur > 0) {
             totalDurationMs.value = dur;
-            if (outMs.value === 0) outMs.value = dur;
+            if (outMs.value === 0 || outMs.value > dur) outMs.value = dur;
           syncPlaybackDisplay(inMs.value || 0, true);
         }
     } catch { }
@@ -292,9 +294,12 @@ watch(() => props.isOpen, (open) => {
 
 watch([item, () => props.isOpen], ([val, open]) => {
   if (val && open) {
+    const fileDurationMs = (val as any).duration_ms && (val as any).duration_ms > 0
+      ? (val as any).duration_ms
+      : (val.duration && val.duration > 0 ? val.duration * 1000 : 0);
     inMs.value  = val.inPoint  || 0;
-    outMs.value = val.outPoint || (val.duration && val.duration > 0 ? val.duration * 1000 : 0);
-    totalDurationMs.value = val.duration && val.duration > 0 ? val.duration * 1000 : 0;
+    outMs.value = val.outPoint || fileDurationMs;
+    totalDurationMs.value = fileDurationMs;
   trimStatus.value = '';
   speed.value = 0;
   isVideoPlaying.value = false;

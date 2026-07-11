@@ -24,6 +24,8 @@ const SELECTION_REPEAT_INTERVAL_MS = 85;
 let sortableInstance: Sortable | null = null;
 const durationHydrationInFlight = new Set<string>();
 let lastSelectionMoveAt = 0;
+let crawlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let structuralDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 const contextMenu = ref({
   show: false,
@@ -90,10 +92,11 @@ const isNextUpRow = (index: number) => index === nextPlayableVisibleIndex.value;
 const isNextUpImminent = (index: number) => isNextUpRow(index) && currentRemainingMs.value > 0 && currentRemainingMs.value <= 10_000;
 
 const scheduledTimes = computed(() => {
-  return store.activeItemsETAs.map(eta => ({
+  return store.activeItemsETAs.map((eta, index) => ({
     kind: eta.kind,
-    text: eta.kind === 'gap' ? eta.label : eta.formatted,
-    dayLabel: eta.dayLabel
+    text: eta.kind === 'gap' ? eta.label : 
+          (eta.kind === 'now' ? store.nowDisplayTime : eta.formatted),
+    dayLabel: eta.kind === 'now' ? store.nowDisplayDay : eta.dayLabel
   }));
 });
 
@@ -194,20 +197,36 @@ const runPlaylistFrom = async (index: number) => {
   }
 };
 
-const itemsFingerprint = computed(() =>
+const structuralFingerprint = computed(() =>
   store.activeItems.map((item) =>
-    `${item.id}:${item.type}:${item.path}:${item.inPoint}:${item.outPoint}:${item.duration}:${item.plannedDuration}`
+    `${item.id}:${item.type}:${item.path}:${item.inPoint}:${item.outPoint}:${item.playoutvueId ?? ''}`
+  ).join('|')
+);
+
+const durationFingerprint = computed(() =>
+  store.activeItems.map((item) =>
+    `${item.id}:${item.duration}:${item.duration_ms ?? 0}`
   ).join('|')
 );
 
 watch(
-  itemsFingerprint,
+  structuralFingerprint,
   () => {
-    if (isPlayoutPlaying.value && store.isCurrentPlaylistOnAir) {
-      getActivePlayoutService().refreshQueue?.(store.getPlayableItems() as any).catch((error) => {
-        console.error('[Playback] Failed to refresh rundown queue', error);
-      });
-    }
+    if (structuralDebounceTimer) clearTimeout(structuralDebounceTimer);
+    structuralDebounceTimer = setTimeout(() => {
+      if (isPlayoutPlaying.value && store.isCurrentPlaylistOnAir) {
+        getActivePlayoutService().refreshQueue?.(store.getPlayableItems() as any).catch((error) => {
+          console.error('[Playback] Failed to refresh rundown queue', error);
+        });
+      }
+    }, 150);
+  },
+  { immediate: true }
+);
+
+watch(
+  durationFingerprint,
+  () => {
     hydrateMissingDurations().catch((error) => {
       console.warn('[Rundown] Duration hydration failed', error);
     });
@@ -218,26 +237,38 @@ watch(
 watch(
   () => settings.cgCrawlText,
   () => {
-    if (settings.cgCrawlActive) {
-      updateCrawlTickerText().catch((err) => {
-        console.error('[RundownList] Failed to update crawl text:', err);
-      });
-    }
+  if (crawlDebounceTimer) clearTimeout(crawlDebounceTimer);
+  if (structuralDebounceTimer) clearTimeout(structuralDebounceTimer);
+    crawlDebounceTimer = setTimeout(() => {
+      if (settings.cgCrawlActive) {
+        updateCrawlTickerText().catch((err) => {
+          console.error('[RundownList] Failed to update crawl text:', err);
+        });
+      }
+    }, 300);
   }
 );
 
 watch(
-  () => `${store.currentPlayingIndex}:${currentTotalPlayoutMs.value}:${store.isCurrentPlaylistOnAir}`,
-  () => {
-    const index = store.currentPlayingIndex;
-    if (!store.isCurrentPlaylistOnAir || index < 0 || currentTotalPlayoutMs.value <= 0) return;
-    const item = store.activeItems[index];
+  () => store.currentPlayingIndex,
+  (newIndex) => {
+    if (newIndex < 0 || !store.isCurrentPlaylistOnAir) return;
+    const item = store.activeItems[newIndex];
     if (!item || item.type !== 'video' || item.outPoint > item.inPoint || item.duration > 0 || (item.duration_ms ?? 0) > 0) return;
-    const seconds = currentTotalPlayoutMs.value / 1000;
-    store.updateItem(item.id, {
-      duration: seconds,
-      plannedDuration: item.plannedDuration || seconds
-    });
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts += 1;
+      if (currentTotalPlayoutMs.value > 0) {
+        clearInterval(interval);
+        const seconds = currentTotalPlayoutMs.value / 1000;
+        store.updateItem(item.id, {
+          duration: seconds,
+          plannedDuration: item.plannedDuration || seconds
+        });
+      } else if (attempts > 40) {
+        clearInterval(interval);
+      }
+    }, 500);
   }
 );
 
@@ -721,9 +752,7 @@ onMounted(() => {
       handle: '.rw-handle',
       onEnd: (evt: any) => {
         if (evt.oldIndex !== undefined && evt.newIndex !== undefined && evt.oldIndex !== evt.newIndex) {
-          setTimeout(() => {
-            store.reorderItems(evt.oldIndex, evt.newIndex);
-          }, 200);
+          store.reorderItems(evt.oldIndex, evt.newIndex);
         }
       }
     });
@@ -736,6 +765,7 @@ onMounted(() => {
 onUnmounted(() => {
   sortableInstance?.destroy();
   sortableInstance = null;
+  if (crawlDebounceTimer) clearTimeout(crawlDebounceTimer);
   window.removeEventListener('keydown', handleKey);
   window.removeEventListener('click', closeContextMenu);
 });
@@ -1048,7 +1078,7 @@ onUnmounted(() => {
   contain:layout style paint;
   content-visibility:auto;
   contain-intrinsic-size:40px;
-  cursor:pointer; user-select:none; transition:background 0.12s, border-color 0.12s, transform 0.12s, margin 0.12s;
+  cursor:pointer; user-select:none; transition:background 0.12s, border-color 0.12s, transform 0.12s;
 }
 .rw-row:hover { background:rgba(255,255,255,0.04); }
 .rw-row.selected { background:rgba(51,190,204,0.08); border-color:rgba(51,190,204,0.3); }
@@ -1066,10 +1096,10 @@ onUnmounted(() => {
   border-color:rgba(51,190,204,0.36);
 }
 .rw-row.drop-target-before {
-  margin-top:12px;
+  transform:translateY(12px);
 }
 .rw-row.drop-target-after {
-  margin-bottom:12px;
+  transform:translateY(-12px);
 }
 .rw-row.drop-target-before::before,
 .rw-row.drop-target-after::after {
