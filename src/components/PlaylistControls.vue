@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useRundownStore, type PlaylistFile, type AnyPlaylistFile } from '../stores/rundown';
 
@@ -158,14 +158,15 @@ const loadPlaylist = async (path: string, append = false) => {
     }
 };
 
-const clearRundown = () => {
+const clearRundown = async () => {
     if (!store.activeItems.length) {
         setStatus('Playlist is already empty');
         return;
     }
 
-    const confirmed = window.confirm(
-        `Clear ${store.activeItems.length} item${store.activeItems.length === 1 ? '' : 's'} from ${store.currentPlaylistName}?`
+    const confirmed = await ask(
+        `Clear ${store.activeItems.length} item${store.activeItems.length === 1 ? '' : 's'} from ${store.currentPlaylistName}?`,
+        { title: 'Clear Playlist', kind: 'warning' }
     );
     if (!confirmed) return;
 

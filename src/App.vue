@@ -9,7 +9,6 @@ import MediaInspector from './components/MediaInspector.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import PreviewMonitor from './components/PreviewMonitor.vue';
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
-import ClientDiagnosticsLog from './components/ClientDiagnosticsLog.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
@@ -20,7 +19,6 @@ const rundown  = useRundownStore();
 const isStreaming  = ref(false);
 const isSdiActive  = ref(false);
 const showSettings = ref(false);
-const showDiagnostics = ref(false);
 const ingestorStatus = useIngestorStatusStore();
 const playoutHalted = ref(false);
 let unlistenHeartbeat: (() => void) | null = null;
@@ -434,15 +432,7 @@ onUnmounted(() => {
 
       <IngestorStatusLight />
 
-      <button v-if="settings.debugMode" class="ctrl-btn" style="font-size:0.75rem; position:relative;" :class="{ active: showDiagnostics }" @click="showDiagnostics = !showDiagnostics">
-        Diagnostics
-      </button>
-
       <button class="ctrl-btn" style="font-size:0.78rem;" @click="showSettings = true">⚙ Settings</button>
-
-      <ClientDiagnosticsLog v-if="settings.debugMode" v-model="showDiagnostics">
-        <div style="display: none;"></div>
-      </ClientDiagnosticsLog>
 
       <div class="ctrl-meta-dock" ref="footerMetaRef">
         <button

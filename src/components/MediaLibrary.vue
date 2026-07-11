@@ -2,7 +2,7 @@
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { refDebounced } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { ask, save } from '@tauri-apps/plugin-dialog';
 import { useRundownStore, parseBroadcastRating, serializeBroadcastRating, getMetadataFromAssetResponse, type ComplianceRating } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
 import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDefaults';
@@ -648,14 +648,16 @@ function doDeleteSelected() {
     doDeleteAsset(asset.uuid);
 }
 
-function doDeleteAsset(uuid: string) {
+async function doDeleteAsset(uuid: string) {
     if (uuid.startsWith('local:')) {
-        // Local fallback assets can be hidden immediately.
         mediaLibrary.deleteAsset(uuid);
         return;
     }
-    // Ingestor-managed delete is client-side only until API support arrives.
-    if (!window.confirm('Hide this asset from the library?\n(The Ingestor API does not yet support deletion.) ')) return;
+    const confirmed = await ask(
+        'Hide this asset from the library?\n(The Ingestor API does not yet support deletion.)',
+        { title: 'Hide Asset', kind: 'warning' }
+    );
+    if (!confirmed) return;
     mediaLibrary.deleteAsset(uuid);
 }
 
@@ -664,8 +666,9 @@ async function doPurgeAsset(asset: LibraryAsset) {
         window.alert("Cannot purge local fallback assets.");
         return;
     }
-    const confirmed = window.confirm(
-        `WARNING: Are you absolutely sure you want to permanently delete and purge "${asset.display_name}"?\n\nThis will:\n1. Permanently DELETE the physical file on disk.\n2. Delete all database records and virtual sub-clips matching this asset's file path or fingerprint.\n\nTHIS ACTION CANNOT BE UNDONE!`
+    const confirmed = await ask(
+        `WARNING: Are you absolutely sure you want to permanently delete and purge "${asset.display_name}"?\n\nThis will:\n1. Permanently DELETE the physical file on disk.\n2. Delete all database records and virtual sub-clips matching this asset's file path or fingerprint.\n\nTHIS ACTION CANNOT BE UNDONE!`,
+        { title: 'Purge Asset', kind: 'warning' }
     );
     if (!confirmed) return;
 
@@ -1353,8 +1356,9 @@ const menuItems = computed<MenuItem[]>(() => {
               filename: trimAsset.display_name,
               type: 'video',
               duration: assetDurationSeconds(trimAsset),
+              duration_ms: trimAsset.duration_ms,
               inPoint: trimAsset.trim_in_ms,
-              outPoint: trimAsset.duration_ms > 0 ? trimAsset.duration_ms - trimAsset.trim_out_ms : 0,
+              outPoint: (trimAsset.trim_out_ms && trimAsset.trim_out_ms > 0) ? trimAsset.trim_out_ms : (trimAsset.duration_ms || 0),
             }
           : null"
         @saved="handleTrimSaved"
