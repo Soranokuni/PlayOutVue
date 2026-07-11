@@ -46,5 +46,5 @@ base64 = "0.22"
 panic = "abort" # Strip expensive panic clean-up logic
 codegen-units = 1 # Compile everything together for maximum optimization
 lto = true # Link Time Optimization (removes dead code)
-opt-level = "s" # Optimize for binary size ('z' is also good)
+opt-level = 3 # Optimize for runtime speed (real-time playout)
 strip = true # Automatically strip symbols from the binary
