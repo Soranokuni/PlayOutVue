@@ -38,7 +38,7 @@ const lockTrimItem = () => {
     filename: source.filename,
     type: source.type,
     duration: source.duration,
-    duration_ms: source.duration_ms,
+    duration_ms: (source as any).duration_ms,
     inPoint: source.inPoint,
     outPoint: source.outPoint
   } : null;
@@ -104,6 +104,8 @@ const loadVideoSrc = async (path: string | undefined) => {
 const inMs   = ref(0);
 const outMs  = ref(0);
 const totalDurationMs = ref(0);
+const fullFileDurationMs = ref(0);
+const viewTrimmed = ref(false);
 const isProbing  = ref(false);
 const isTrimming = ref(false);
 const isSmartTrimming = ref(false);
@@ -111,6 +113,13 @@ const trimStatus = ref('');
 const speed = ref(0); // for JKL display badge
 const FRAME_MS = 40; // 25fps
 const PLAYHEAD_UI_INTERVAL_MS = 120;
+
+const scrubDurationMs = computed(() => viewTrimmed.value ? Math.max(0, outMs.value - inMs.value) : totalDurationMs.value);
+const scrubOffsetMs = computed(() => viewTrimmed.value ? inMs.value : 0);
+const displayTotalMs = computed(() => viewTrimmed.value ? Math.max(0, outMs.value - inMs.value) : totalDurationMs.value);
+
+const scrubToAbsolute = (scrubMs: number) => scrubMs + scrubOffsetMs.value;
+const absoluteToScrub = (absMs: number) => Math.max(0, absMs - scrubOffsetMs.value);
 
 const clampMs = (ms: number) => Math.max(0, Math.min(ms, totalDurationMs.value || ms));
 const isLocalFilePath = (path?: string) => !!path && !/^https?:/i.test(path);
@@ -130,7 +139,9 @@ const updatePlayheadPosition = (ms: number) => {
   const clamped = clampMs(ms);
   lastKnownPlaybackMs = clamped;
   if (playheadRef.value) {
-    const left = totalDurationMs.value > 0 ? (clamped / totalDurationMs.value) * 100 : 0;
+    const scrubMs = absoluteToScrub(clamped);
+    const total = scrubDurationMs.value;
+    const left = total > 0 ? (scrubMs / total) * 100 : 0;
     playheadRef.value.style.left = `${left}%`;
   }
 };
@@ -204,11 +215,11 @@ const onTimeUpdate = () => {
 };
 
 const getMsFromEvent = (e: MouseEvent) => {
-    if (!timelineRef.value || totalDurationMs.value <= 0) return 0;
+    if (!timelineRef.value || scrubDurationMs.value <= 0) return 0;
     const rect = timelineRef.value.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const percentage = x / rect.width;
-    return Math.round(percentage * totalDurationMs.value);
+    return Math.round(scrubToAbsolute(percentage * scrubDurationMs.value));
 };
 
 const onTimelineMouseDown = (e: MouseEvent, target: 'in' | 'out' | 'playhead') => {
@@ -253,8 +264,13 @@ const onVideoLoaded = () => {
     }
     const dur = v.duration * 1000;
     if (dur > 0) {
+        fullFileDurationMs.value = dur;
         totalDurationMs.value = dur;
+        inMs.value = Math.max(0, Math.min(inMs.value, dur));
         if (outMs.value === 0 || outMs.value > dur) outMs.value = dur;
+        if (inMs.value > 0 && outMs.value < dur) {
+          viewTrimmed.value = true;
+        }
       syncPlaybackDisplay(inMs.value || 0, true);
     }
 };
@@ -334,13 +350,38 @@ const tcToMs = (tc: string): number => {
     if (p.length === 4) return (h*3600 + m*60 + s)*1000 + f*40;
     return (h*3600 + m*60 + s)*1000;
 };
-const applyInTC  = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) { inMs.value  = v; seekTo(v); } };
-const applyOutTC = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) outMs.value = v; };
+const applyInTC  = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) { inMs.value  = scrubToAbsolute(v); seekTo(scrubToAbsolute(v)); } };
+const applyOutTC = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) outMs.value = scrubToAbsolute(v); };
 const trimmedDuration = computed(() => {
     const d = outMs.value - inMs.value;
     return d > 0 ? `${(d/1000).toFixed(1)}s  (${msToTC(d)})` : '–';
 });
-const currentTimecode = computed(() => msToTC(playbackTime.value));
+const currentTimecode = computed(() => msToTC(absoluteToScrub(playbackTime.value)));
+
+const hasTrimRange = computed(() => outMs.value > 0 && inMs.value >= 0 && outMs.value > inMs.value && outMs.value < totalDurationMs.value + 1000);
+const inHandlePct = computed(() => {
+  const total = scrubDurationMs.value;
+  if (total <= 0) return 0;
+  return (absoluteToScrub(inMs.value) / total) * 100;
+});
+const outHandlePct = computed(() => {
+  const total = scrubDurationMs.value;
+  if (total <= 0) return 100;
+  return (absoluteToScrub(outMs.value) / total) * 100;
+});
+const rangeLeftPct = computed(() => inHandlePct.value);
+const rangeWidthPct = computed(() => Math.max(0, outHandlePct.value - inHandlePct.value));
+const scrubLabelStart = computed(() => msToTC(scrubOffsetMs.value));
+const scrubLabelEnd = computed(() => msToTC(scrubOffsetMs.value + scrubDurationMs.value));
+const displayInTC = computed(() => msToTC(absoluteToScrub(inMs.value)));
+const displayOutTC = computed(() => msToTC(absoluteToScrub(outMs.value)));
+
+const toggleViewTrimmed = () => {
+  viewTrimmed.value = !viewTrimmed.value;
+  if (viewTrimmed.value) {
+    seekTo(inMs.value);
+  }
+};
 
 const setInPoint = (ms = Math.round(currentVideoMs())) => {
   inMs.value = clampMs(ms);
@@ -552,7 +593,15 @@ const saveAsSubclip = () => {
         <div>
           <div class="text-accent" style="font-size:0.88rem;font-weight:600;">✂️ {{ item.filename }}</div>
           <div class="text-secondary" style="font-size:0.68rem;">
-            Total: {{ isProbing ? '⌛' : (totalDurationMs ? (totalDurationMs/1000).toFixed(2)+'s' : 'type timecodes') }}
+            <span v-if="viewTrimmed" style="color:var(--accent-blue,#33becc)">
+              Content: {{ (displayTotalMs/1000).toFixed(1) }}s
+            </span>
+            <span v-else>
+              Total: {{ isProbing ? '⌛' : (displayTotalMs ? (displayTotalMs/1000).toFixed(2)+'s' : 'type timecodes') }}
+            </span>
+            <span v-if="viewTrimmed && fullFileDurationMs" style="opacity:0.55">
+              &nbsp;|&nbsp;Full: {{ (fullFileDurationMs/1000).toFixed(1) }}s
+            </span>
             &nbsp;|&nbsp; Selection: <strong style="color:var(--accent-blue,#33becc)">{{ trimmedDuration }}</strong>
           </div>
         </div>
@@ -560,6 +609,15 @@ const saveAsSubclip = () => {
           <span>J</span>rewind &nbsp;<span>K</span>pause &nbsp;<span>L</span>fwd &nbsp;
           <span>I</span>set IN &nbsp;<span>O</span>set OUT &nbsp;<span>← →</span>1fr &nbsp;<span>⇧← →</span>10fr
         </div>
+        <button
+          v-if="hasTrimRange"
+          class="view-toggle-btn"
+          :class="{ active: viewTrimmed }"
+          @click="toggleViewTrimmed"
+          :title="viewTrimmed ? 'Show Full File' : 'Show Trimmed Range'"
+        >
+          {{ viewTrimmed ? '🔍 Trimmed' : '📁 Full File' }}
+        </button>
         <button class="icon-btn" @click="$emit('close')">✕</button>
       </div>
 
@@ -618,15 +676,15 @@ const saveAsSubclip = () => {
             <div class="unified-timeline" ref="timelineRef" @mousedown.left="onTimelineMouseDown($event, 'playhead')">
               <div class="tm-bg"></div>
               <div class="tm-range" :style="{
-                left:  totalDurationMs ? (inMs  / totalDurationMs * 100)+'%' : '0%',
-                width: totalDurationMs ? Math.max(0,(outMs - inMs)/totalDurationMs*100)+'%' : '100%'
+                left:  rangeLeftPct+'%',
+                width: rangeWidthPct+'%'
               }"></div>
               
-              <div class="tm-handle-wrapper" :style="{ left: totalDurationMs ? (inMs / totalDurationMs*100)+'%' : '0%' }" >
+              <div class="tm-handle-wrapper" :style="{ left: inHandlePct+'%' }" >
                  <div class="tm-handle tm-handle-in" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'in')">◂</div>
               </div>
               
-              <div class="tm-handle-wrapper" :style="{ left: totalDurationMs ? (outMs / totalDurationMs*100)+'%' : '100%' }">
+              <div class="tm-handle-wrapper" :style="{ left: outHandlePct+'%' }">
                  <div class="tm-handle tm-handle-out" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'out')">▸</div>
               </div>
 
@@ -636,8 +694,8 @@ const saveAsSubclip = () => {
             </div>
             
             <div style="display:flex;justify-content:space-between;margin-top:8px;">
-              <span class="text-secondary" style="font-size:0.6rem;">00:00:00:00</span>
-              <span class="text-secondary" style="font-size:0.6rem;">{{ msToTC(totalDurationMs) }}</span>
+              <span class="text-secondary" style="font-size:0.6rem;">{{ scrubLabelStart }}</span>
+              <span class="text-secondary" style="font-size:0.6rem;">{{ scrubLabelEnd }}</span>
             </div>
           </div>
 
@@ -645,7 +703,7 @@ const saveAsSubclip = () => {
           <div class="tc-grid">
             <div class="tc-group">
               <label class="text-secondary" style="font-size:0.68rem;">IN POINT</label>
-              <input class="tc-input" :value="msToTC(inMs)" @change="applyInTC" placeholder="00:00:00:00" spellcheck="false">
+              <input class="tc-input" :value="displayInTC" @change="applyInTC" placeholder="00:00:00:00" spellcheck="false">
               <div class="tc-actions">
                 <button class="mini-btn" @click="jumpToMarker('in')">Cue</button>
                 <button class="mini-btn" @click="setInPoint()">Set from playhead</button>
@@ -653,7 +711,7 @@ const saveAsSubclip = () => {
             </div>
             <div class="tc-group">
               <label class="text-secondary" style="font-size:0.68rem;">OUT POINT</label>
-              <input class="tc-input" :value="msToTC(outMs)" @change="applyOutTC" placeholder="00:00:00:00" spellcheck="false">
+              <input class="tc-input" :value="displayOutTC" @change="applyOutTC" placeholder="00:00:00:00" spellcheck="false">
               <div class="tc-actions">
                 <button class="mini-btn" @click="jumpToMarker('out')">Cue</button>
                 <button class="mini-btn" @click="setOutPoint()">Set from playhead</button>
@@ -763,6 +821,25 @@ const saveAsSubclip = () => {
 .section-divider { border-top:1px solid rgba(255,255,255,0.07);text-align:center; }
 .warning-badge { background:rgba(255,165,0,0.07);border:1px solid rgba(255,165,0,0.22);color:#ffa500;border-radius:4px;padding:3px 8px;font-size:0.68rem; }
 .trim-status { font-size:0.78rem;padding:4px 8px;background:rgba(0,0,0,0.3);border-radius:4px; }
+
+.view-toggle-btn {
+  padding:3px 8px;
+  border-radius:5px;
+  border:1px solid rgba(255,255,255,0.14);
+  background:rgba(255,255,255,0.04);
+  color:var(--text-secondary);
+  font-size:0.64rem;
+  font-weight:600;
+  cursor:pointer;
+  transition:0.15s;
+  white-space:nowrap;
+}
+.view-toggle-btn:hover { background:rgba(255,255,255,0.1); color:var(--text-primary); }
+.view-toggle-btn.active {
+  background:rgba(51,190,204,0.14);
+  border-color:rgba(51,190,204,0.4);
+  color:var(--accent-blue,#33becc);
+}
 
 @media (max-width: 900px) {
   .trim-body,

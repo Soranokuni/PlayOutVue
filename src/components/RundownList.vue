@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { ask } from '@tauri-apps/plugin-dialog';
 import Sortable from 'sortablejs';
 import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
@@ -296,8 +297,13 @@ const ctxDuplicate = () => {
   closeContextMenu();
 };
 
-const ctxDelete = () => {
+const ctxDelete = async () => {
   if (contextMenu.value.item && !isProtectedPlayingRow(contextMenu.value.index)) {
+    const confirmed = await ask(
+      `Delete "${getDisplayName(contextMenu.value.item)}" from ${store.currentPlaylistName}?`,
+      { title: 'Delete Item', kind: 'warning' }
+    );
+    if (!confirmed) { closeContextMenu(); return; }
     store.removeItem(contextMenu.value.item.id);
   }
   closeContextMenu();
@@ -452,10 +458,8 @@ const ensureSelectedRowVisible = (behavior: ScrollBehavior = 'auto') => {
   const selectedId = store.selectedItemId;
   if (!selectedId || !rundownListRef.value) return;
 
-  requestAnimationFrame(() => {
-    const row = rundownListRef.value?.querySelector<HTMLElement>(`.rw-row[data-item-id="${selectedId}"]`);
-    row?.scrollIntoView({ block: 'nearest', behavior });
-  });
+  const row = rundownListRef.value.querySelector<HTMLElement>(`.rw-row[data-item-id="${selectedId}"]`);
+  row?.scrollIntoView({ block: 'nearest', behavior });
 };
 
 const moveSelection = (direction: -1 | 1, repeated: boolean) => {
@@ -473,7 +477,7 @@ const moveSelection = (direction: -1 | 1, repeated: boolean) => {
   if (nextIndex === currentIndex || !items[nextIndex]) return;
 
   store.selectedItemId = items[nextIndex].id;
-  ensureSelectedRowVisible(repeated ? 'auto' : 'smooth');
+  ensureSelectedRowVisible('auto');
 };
 
 const createPlaylistTab = () => {
@@ -486,7 +490,14 @@ const renamePlaylistTab = (playlist: RundownPlaylist) => {
   store.renamePlaylist(playlist.id, value);
 };
 
-const closePlaylistTab = (playlist: RundownPlaylist) => {
+const closePlaylistTab = async (playlist: RundownPlaylist) => {
+  if (playlist.items.length > 0) {
+    const confirmed = await ask(
+      `Close playlist "${playlist.name}" with ${playlist.items.length} item${playlist.items.length === 1 ? '' : 's'}?`,
+      { title: 'Close Playlist', kind: 'warning' }
+    );
+    if (!confirmed) return;
+  }
   store.closePlaylist(playlist.id);
 };
 
@@ -503,7 +514,12 @@ const handleKey = (event: KeyboardEvent) => {
       return;
     }
     event.preventDefault();
-    store.removeItem(id);
+    ask(
+      `Delete "${getDisplayName(items[index]!)}" from ${store.currentPlaylistName}?`,
+      { title: 'Delete Item', kind: 'warning' }
+    ).then((confirmed) => {
+      if (confirmed) store.removeItem(id);
+    });
     return;
   }
 
@@ -630,6 +646,15 @@ const activeTimerLabel = (item: RundownItem, index: number) => {
 const ratingClass = (rating: string) => `rating-${rating || 'none'}`;
 
 const isProtectedPlayingRow = (index: number) => store.isCurrentPlaylistOnAir && index === store.currentPlayingIndex;
+
+const deleteRowItem = async (item: RundownItem, index: number) => {
+  if (isProtectedPlayingRow(index)) return;
+  const confirmed = await ask(
+    `Delete "${getDisplayName(item)}" from ${store.currentPlaylistName}?`,
+    { title: 'Delete Item', kind: 'warning' }
+  );
+  if (confirmed) store.removeItem(item.id);
+};
 
 const ratingToneClass = (rating: RundownItem['complianceRating']) => `tone-rating-${rating || 'none'}`;
 const indicatorToneClass = (indicator?: LibraryIndicator) => `tone-tag-${indicator || 'none'}`;
@@ -941,7 +966,7 @@ onUnmounted(() => {
         <!-- Row actions -->
         <div class="rw-actions">
           <button class="row-btn btn-play" :title="item.type === 'gap' ? 'Play next content after this gap line' : `Play from #${index+1}`" @click.stop="runPlaylistFrom(index)">▶</button>
-          <button v-if="!isProtectedPlayingRow(index)" class="row-btn row-btn-del" title="Remove (Del)" @click.stop="store.removeItem(item.id)">✕</button>
+          <button v-if="!isProtectedPlayingRow(index)" class="row-btn row-btn-del" title="Remove (Del)" @click.stop="deleteRowItem(item, index)">✕</button>
         </div>
       </div>
 
@@ -1066,7 +1091,7 @@ onUnmounted(() => {
   font-size:0.6rem; letter-spacing:0.08em; color:rgba(255,255,255,0.3);
   border-bottom:1px solid rgba(255,255,255,0.05); flex-shrink:0;
 }
-.rw-list { flex:1; overflow-y:auto; padding:6px 5px 10px; min-height:0; transition:background 0.15s; }
+.rw-list { flex:1; overflow-y:auto; padding:6px 5px 10px; min-height:0; transition:background 0.15s; contain:strict; }
 .rw-list.drag-over { background:rgba(51,190,204,0.04); outline:2px dashed rgba(51,190,204,0.3); outline-offset:-3px; border-radius:6px; }
 
 .rw-row {
@@ -1075,9 +1100,6 @@ onUnmounted(() => {
   min-height:40px; padding:0 6px;
   margin:3px 0;
   border-radius:6px; border:1px solid transparent;
-  contain:layout style paint;
-  content-visibility:auto;
-  contain-intrinsic-size:40px;
   cursor:pointer; user-select:none; transition:background 0.12s, border-color 0.12s, transform 0.12s;
 }
 .rw-row:hover { background:rgba(255,255,255,0.04); }
