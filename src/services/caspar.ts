@@ -291,7 +291,10 @@ const getLogosRoot = () => {
 
 const resolveLogoAsset = (filename: string): string => {
     const logosRoot = getLogosRoot();
-    if (!logosRoot) return '';
+    if (!logosRoot) {
+        console.warn(`[CasparCG] Cannot resolve logo asset "${filename}" — no logosPath or localMediaPath configured in Settings.`);
+        return '';
+    }
     const separator = /[\\/]$/.test(logosRoot) ? '' : '/';
     return `${logosRoot}${separator}${filename}`;
 };
@@ -927,7 +930,11 @@ async function playItemAt(index: number, token: number) {
         // Register play start with our end-guard
         registerPlayStart(hydrated.id, dispatchResult.durationMs);
 
-        store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, playStartTime.value);
+        // Snapshot wall-clock AFTER async dispatch so the first rAF tick does
+        // not include the 50-200ms IPC gap. Matches the natural advance path
+        // pattern (progressStartTime captured after all async prepare work).
+        const progressStartTime = Date.now();
+        store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, progressStartTime);
 
         // Preload next item immediately
         await preloadNextItemAt(index + 1);
@@ -1080,10 +1087,11 @@ async function advanceToNext(token: number, natural: boolean) {
                 const expectedOutMs = durationMs;
 
                 currentKey = key;
+                const store = useRundownStore();
+                store.stopPlaybackProgressTimer();
                 onAdvanceCallback?.(key);
                 await casparPlayoutService.applyComplianceForItem?.(nextItem);
 
-                const store = useRundownStore();
                 updateDisplayedTime(0);
                 currentCasparDurationMs.value = durationMs;
 
@@ -1340,42 +1348,22 @@ export const casparPlayoutService: PlayoutService = {
             }
 
             // For video: force a hard PLAY via the frame-accurate dispatch path
-            // (SEEK/LENGTH + register playback). Unifies take() with the rundown
-            // path so there is exactly one AMCP shape and one deadline
-            // computation, eliminating the old buildClipOptions/IN-OUT divergence
-            // (plan §3). computeDurationMsFromTrim throws on degenerate trims,
-            // which propagates to the catch below (item marked error, auto-advance).
             const hydrated = hydratePlayoutItem(item);
 
             const index = queuedItems.findIndex(it => queueKey(it) === key);
-            const nextItem = index !== -1 ? queuedItems[index + 1] : null;
-            let nextPath: string | null = null;
-            if (nextItem && nextItem.type === 'video') {
-                const nextRawPath = nextItem.path || nextItem.shortPath;
-                try {
-                    nextPath = (await prepareCasparMediaPath(nextRawPath)).replace(/\\/g, '/').replace(/"/g, '');
-                } catch (e) {
-                    nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');
-                }
-            }
 
-            // STRICT STATE RESET BEFORE THE TAKE. Zero out the elapsed timer,
-            // playhead, and remaining-time *before* firing the PLAY command.
-            // Without this, the UI keeps rendering the previous clip's elapsed
-            // time (e.g. 5s, 11s…) until the first OSC tick from the new clip
-            // arrives, and any stale OSC /file/time packet still in flight from
-            // the old clip would thrash the freshly-zeroed state. Stopping the
-            // JS progress timer here also prevents the old countdown from
-            // ticking forward during the ~250ms dispatch window.
+            // STRICT STATE RESET BEFORE THE TAKE
             updateDisplayedTime(0);
             currentCasparDurationMs.value = 0;
             store.stopPlaybackProgressTimer();
 
+            // Pass null for nextPath — preparing it blocks the PLAY command.
+            // The preload runs right after dispatch anyway.
             const dispatchResult = await dispatchPlay(
                 hydrated,
                 PROGRAM_CHANNEL,
                 CASPAR_LAYERS.video,
-                nextPath
+                null
             );
 
             isCasparPlaying.value = true;
@@ -1443,9 +1431,8 @@ export const casparPlayoutService: PlayoutService = {
         return [];
     },
 
-    async syncLiveInputScene() {
-        return;
-    },
+    /// Removed no-op stub. When live-input scene routing is needed, implement
+    /// AMCP routing for the live input layer (20) here.
 
     /// Station logo (layer 30) — always-on persistent branding.
     /// Reads strictly from the CG configuration path for Layer 30 (settings.cg).

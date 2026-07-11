@@ -311,7 +311,8 @@ export const useRundownStore = defineStore('rundown', () => {
         updatePlaylistState(playlistId, { items: [...newItems] });
     };
 
-    let playbackInterval: number | null = null;
+    let playbackInterval: ReturnType<typeof setInterval> | null = null;
+    let visibilityCleanup: (() => void) | null = null;
     let playbackStartTime = 0;
     let playbackDurationMs = 0;
 
@@ -336,36 +337,48 @@ export const useRundownStore = defineStore('rundown', () => {
 
         savePlaybackState(itemId, playbackStartTime, durationMs);
 
-        let lastProgressUpdate = 0;
         const progressLoop = () => {
             if (!activePlayingUuid.value || playbackDurationMs <= 0) {
                 stopPlaybackProgressTimer();
                 return;
             }
             const now = Date.now();
-            if (now - lastProgressUpdate >= 250) {
-                lastProgressUpdate = now;
-                const elapsed = now - playbackStartTime;
-                const pct = Math.min(100, Math.max(0, (elapsed / playbackDurationMs) * 100));
-                playbackProgressPct.value = pct;
+            const elapsed = now - playbackStartTime;
+            const pct = Math.min(100, Math.max(0, (elapsed / playbackDurationMs) * 100));
+            playbackProgressPct.value = pct;
 
-                const remaining = Math.max(0, playbackDurationMs - elapsed);
-                playbackCountdownStr.value = formatCountdown(remaining);
+            const remaining = Math.max(0, playbackDurationMs - elapsed);
+            playbackCountdownStr.value = formatCountdown(remaining);
 
-                if (elapsed >= playbackDurationMs) {
-                    playbackProgressPct.value = 100;
-                    playbackCountdownStr.value = '-00:00';
-                }
+            if (elapsed >= playbackDurationMs) {
+                playbackProgressPct.value = 100;
+                playbackCountdownStr.value = '-00:00';
+                stopPlaybackProgressTimer();
             }
-            playbackInterval = requestAnimationFrame(progressLoop);
         };
-        playbackInterval = requestAnimationFrame(progressLoop);
+
+        playbackInterval = setInterval(progressLoop, 250);
+
+        const onVisChange = () => {
+            if (!activePlayingUuid.value) return;
+            if (document.hidden) {
+                if (playbackInterval) { clearInterval(playbackInterval); playbackInterval = null; }
+            } else {
+                if (!playbackInterval) playbackInterval = setInterval(progressLoop, 250);
+            }
+        };
+        document.addEventListener('visibilitychange', onVisChange);
+        visibilityCleanup = () => document.removeEventListener('visibilitychange', onVisChange);
     };
 
     const stopPlaybackProgressTimer = () => {
         if (playbackInterval) {
-            cancelAnimationFrame(playbackInterval);
+            clearInterval(playbackInterval);
             playbackInterval = null;
+        }
+        if (visibilityCleanup) {
+            visibilityCleanup();
+            visibilityCleanup = null;
         }
         activePlayingUuid.value = null;
         playbackProgressPct.value = 0;
@@ -834,11 +847,10 @@ export const useRundownStore = defineStore('rundown', () => {
     const reorderItems = (oldIndex: number, newIndex: number) => {
         const playlist = currentPlaylist.value;
         if (!playlist) return;
-        const movedItem = playlist.items[oldIndex];
-        if (!movedItem) return;
+        if (oldIndex === newIndex) return;
         const newItems = [...playlist.items];
-        newItems.splice(oldIndex, 1);
-        newItems.splice(newIndex, 0, movedItem);
+        const [moved] = newItems.splice(oldIndex, 1);
+        if (moved) newItems.splice(newIndex, 0, moved);
 
         let newCurrentPlayingIndex = playlist.currentPlayingIndex;
         if (newCurrentPlayingIndex >= 0) {
@@ -851,10 +863,9 @@ export const useRundownStore = defineStore('rundown', () => {
             }
         }
 
-        updatePlaylistState(playlist.id, {
-            items: newItems,
-            currentPlayingIndex: newCurrentPlayingIndex
-        });
+        playlist.items = newItems;
+        playlist.currentPlayingIndex = newCurrentPlayingIndex;
+        triggerRef(playlists);
         updateTrigger.value += 1;
     };
 
@@ -903,14 +914,14 @@ export const useRundownStore = defineStore('rundown', () => {
                 ? (outPoint - inPoint) / 1000
                 : existing.plannedDuration);
 
-        // When trim changes also update `duration` (displayed in catalog)
-        // and `duration_ms` so they stay consistent with `plannedDuration`.
+        // Preserve original file duration — never fall back to trimmed/planned
+        // duration. The trim state lives in inPoint/outPoint/trim_in_ms/trim_out_ms.
         const newDuration = (updates.duration !== undefined)
             ? updates.duration
-            : newPlannedDuration;
+            : existing.duration;
         const newDurationMs = (updates.duration_ms !== undefined)
             ? updates.duration_ms
-            : Math.round(newDuration * 1000);
+            : existing.duration_ms;
 
         newItems[index] = { 
             ...existing, 
@@ -925,7 +936,8 @@ export const useRundownStore = defineStore('rundown', () => {
             inPoint,
             outPoint,
         } as RundownItem;
-        triggerNuclearReactivity(playlist.id, newItems);
+        playlist.items = newItems;
+        triggerRef(playlists);
     };
 
     const clearRundown = () => {
@@ -1347,20 +1359,34 @@ export const useRundownStore = defineStore('rundown', () => {
 
             if (matches.length > 0) {
                 const currentIdx = playlist.currentPlayingIndex >= 0 ? playlist.currentPlayingIndex : 0;
-                let bestMatch = matches[0];
-                if (bestMatch) {
-                    let minDistance = Math.abs(bestMatch.idx - currentIdx);
+                // Prefer the next match AFTER currentIdx (forward direction).
+                // If distance=0 it means the already-playing instance — skip it
+                // to prevent no-advance loops when the same playoutvueId appears
+                // at multiple indices (e.g. same source file as multiple subclips).
+                let bestMatch: (typeof matches)[0] | null = null;
+                let bestDistance = Infinity;
 
+                for (const match of matches) {
+                    if (match.idx <= currentIdx) continue;
+                    const distance = match.idx - currentIdx;
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestMatch = match;
+                    }
+                }
+
+                if (!bestMatch) {
+                    // No forward match — wrap to items before currentIdx
                     for (const match of matches) {
-                        const distance = match.idx >= currentIdx 
-                            ? match.idx - currentIdx 
-                            : (playlist.items.length - currentIdx) + match.idx;
-                        
-                        if (distance < minDistance) {
-                            minDistance = distance;
+                        const distance = playlist.items.length - currentIdx + match.idx;
+                        if (distance < bestDistance) {
+                            bestDistance = distance;
                             bestMatch = match;
                         }
                     }
+                }
+
+                if (bestMatch) {
                     visibleIndex = bestMatch.idx;
                 }
             }
@@ -1531,13 +1557,15 @@ export const useRundownStore = defineStore('rundown', () => {
         if (!playlist) return [];
         
         const playingCurrentPlaylist = isCurrentPlaylistOnAir.value && currentPlayingIndex.value >= 0;
-        const now = clockMs.value;
-        
-        let accumulatedTime = playingCurrentPlaylist
-            ? (playStartTime.value || now)
+        const wallClock = clockMs.value;
+
+        const anchorEpoch = playingCurrentPlaylist
+            ? (playStartTime.value || wallClock)
             : (playlist.startFromTime
-                ? applyWeekdayAnchor(parseClockAnchor(playlist.startFromTime, now), playlist.startFromWeekday)
-                : now);
+                ? applyWeekdayAnchor(parseClockAnchor(playlist.startFromTime, wallClock), playlist.startFromWeekday)
+                : wallClock);
+        
+        let accumulatedTime = anchorEpoch;
 
         return playlist.items.map((item, index) => {
             if (item.type === 'gap') {
@@ -1570,10 +1598,10 @@ export const useRundownStore = defineStore('rundown', () => {
                 accumulatedTime += getItemDurationMs(item);
                 return {
                     epochMs: nextStart,
-                    formatted: formatClockTime(now), // Shows current time for active item
+                    formatted: formatClockTime(nextStart),
                     kind: 'now',
                     label: 'ON AIR',
-                    dayLabel: weekdayLabel(now)
+                    dayLabel: weekdayLabel(nextStart)
                 };
             }
 
@@ -1588,6 +1616,9 @@ export const useRundownStore = defineStore('rundown', () => {
             };
         });
     });
+
+    const nowDisplayTime = computed(() => formatClockTime(clockMs.value));
+    const nowDisplayDay = computed(() => weekdayLabel(clockMs.value));
 
     const updateItemMetadata = async (
         itemId: string,
@@ -1723,6 +1754,8 @@ export const useRundownStore = defineStore('rundown', () => {
         restorePlaybackState,
         clockMs,
         activeItemsETAs,
+        nowDisplayTime,
+        nowDisplayDay,
         updateItemMetadata
     };
 }, {
