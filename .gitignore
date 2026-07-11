@@ -74,3 +74,12 @@ src-tauri/target/
 target/
 
 test_color.mp4
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Local Logos
+/logos/
