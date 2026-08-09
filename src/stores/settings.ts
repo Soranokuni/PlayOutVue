@@ -36,6 +36,10 @@ export const useSettingsStore = defineStore('settings', {
         transitionFrames: 2,
         prerollFrames: 2,
 
+        // Crash recovery: re-issue PLAY ... SEEK at the crash-time position
+        // when CasparCG restarts while a clip was on air.
+        autoResumeAfterRestart: true,
+
         // Character Generator (CG) settings
         cg: {
             stationIdPath: '',

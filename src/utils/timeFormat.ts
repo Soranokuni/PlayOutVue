@@ -1,3 +1,12 @@
+const clockFormatter = new Intl.DateTimeFormat('el-GR', {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false
+});
+
+const weekdayFormatter = new Intl.DateTimeFormat('en-GB', { weekday: 'short' });
+
 export const applyWeekdayAnchor = (epochMs: number, weekday: number) => {
   const anchored = new Date(epochMs);
   anchored.setDate(anchored.getDate() - anchored.getDay() + weekday);
@@ -16,12 +25,7 @@ export const parseClockAnchor = (timeText: string, fallbackMs: number) => {
 };
 
 export const formatClockTime = (epochMs: number) =>
-  new Date(epochMs).toLocaleTimeString('el-GR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
+  clockFormatter.format(new Date(epochMs));
 
 export const weekdayLabel = (epochMs: number) =>
-  new Date(epochMs).toLocaleDateString('en-GB', { weekday: 'short' }).toLowerCase();
+  weekdayFormatter.format(new Date(epochMs)).toLowerCase();

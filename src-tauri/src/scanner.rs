@@ -676,6 +676,22 @@ fn load_cached_or_probe(
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+/// Probe a media file with ffprobe, bypassing the cache entirely, and return
+/// a fresh metadata entry. Last-resort fallback for the playback path: the
+/// ingestor copies the file into the CasparCG media folder *before* writing
+/// the sidecar JSON, so a manual take inside that window (or with a stale or
+/// invalid cache entry) would otherwise fail the pre-flight check and the
+/// rundown would skip the clip.
+pub fn probe_media_metadata<R: Runtime>(
+    app: Option<&AppHandle<R>>,
+    runtime_settings: Option<&RuntimeSettingsState>,
+    filepath: &str,
+    diagnostics: Option<&DiagnosticState>,
+) -> Result<CachedMediaEntry, String> {
+    let ffprobe = get_ffprobe_path(app, runtime_settings);
+    run_ffprobe(&ffprobe, filepath, diagnostics)
+}
+
 fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticState>) -> Result<CachedMediaEntry, String> {
     let mut command = Command::new(ffprobe);
     command.args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", filepath]);

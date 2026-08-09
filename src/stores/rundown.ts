@@ -294,16 +294,26 @@ export const useRundownStore = defineStore('rundown', () => {
 
     const updatePlaylistState = (playlistId: string, updates: Partial<RundownPlaylist>) => {
         const playlistIndex = playlists.value.findIndex((p) => p.id === playlistId);
-        if (playlistIndex !== -1) {
-            const playlist = playlists.value[playlistIndex]!;
-            const updatedPlaylist = {
-                ...playlist,
-                ...updates
-            };
-            const nextPlaylists = [...playlists.value];
-            nextPlaylists[playlistIndex] = updatedPlaylist;
-            playlists.value = nextPlaylists;
+        if (playlistIndex === -1) return;
+
+        const playlist = playlists.value[playlistIndex]!;
+        const keys = Object.keys(updates) as Array<keyof RundownPlaylist>;
+        const changedKeys = keys.filter((k) => playlist[k] !== updates[k]);
+        if (changedKeys.length === 0) return;
+
+        // Selection-only update: mutate directly without triggering global playlist array rebuilding
+        if (changedKeys.length === 1 && changedKeys[0] === 'selectedItemId') {
+            playlist.selectedItemId = updates.selectedItemId ?? null;
+            return;
         }
+
+        const updatedPlaylist = {
+            ...playlist,
+            ...updates
+        };
+        const nextPlaylists = [...playlists.value];
+        nextPlaylists[playlistIndex] = updatedPlaylist;
+        playlists.value = nextPlaylists;
         triggerRef(playlists);
     };
 
@@ -428,7 +438,7 @@ export const useRundownStore = defineStore('rundown', () => {
     const selectedItemId = computed<string | null>({
         get: () => currentPlaylist.value?.selectedItemId || null,
         set: (value) => {
-            if (!currentPlaylist.value) return;
+            if (!currentPlaylist.value || currentPlaylist.value.selectedItemId === value) return;
             updatePlaylistState(currentPlaylist.value.id, { selectedItemId: value });
         }
     });
@@ -1358,32 +1368,24 @@ export const useRundownStore = defineStore('rundown', () => {
                 .filter(({ item }) => item.playoutvueId && item.playoutvueId === uuid);
 
             if (matches.length > 0) {
-                const currentIdx = playlist.currentPlayingIndex >= 0 ? playlist.currentPlayingIndex : 0;
-                // Prefer the next match AFTER currentIdx (forward direction).
-                // If distance=0 it means the already-playing instance — skip it
-                // to prevent no-advance loops when the same playoutvueId appears
-                // at multiple indices (e.g. same source file as multiple subclips).
+                const currentIdx = playlist.currentPlayingIndex;
                 let bestMatch: (typeof matches)[0] | null = null;
-                let bestDistance = Infinity;
 
-                for (const match of matches) {
-                    if (match.idx <= currentIdx) continue;
-                    const distance = match.idx - currentIdx;
-                    if (distance < bestDistance) {
-                        bestDistance = distance;
-                        bestMatch = match;
-                    }
-                }
-
-                if (!bestMatch) {
-                    // No forward match — wrap to items before currentIdx
+                if (currentIdx >= 0) {
+                    let bestDistance = Infinity;
                     for (const match of matches) {
-                        const distance = playlist.items.length - currentIdx + match.idx;
+                        if (match.idx <= currentIdx) continue;
+                        const distance = match.idx - currentIdx;
                         if (distance < bestDistance) {
                             bestDistance = distance;
                             bestMatch = match;
                         }
                     }
+                    if (!bestMatch) {
+                        bestMatch = matches[0]!;
+                    }
+                } else {
+                    bestMatch = matches[0]!;
                 }
 
                 if (bestMatch) {

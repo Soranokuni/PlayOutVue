@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
+    "test": "vitest run",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -33,6 +34,7 @@
     "typescript": "~5.9.3",
     "vite": "^8.1.4",
     "vite-plugin-vue-devtools": "^8.1.5",
+    "vitest": "^4.1.10",
     "vue-tsc": "^3.2.5"
   },
   "engines": {

@@ -20,6 +20,16 @@ use tokio::time::timeout;
 const CASPAR_AMCP_ADDR: &str = "127.0.0.1:5250";
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_millis(750);
 pub(crate) const COMMAND_TIMEOUT: Duration = Duration::from_millis(3000);
+/// Maximum time to wait for the AMCP status line *after sending a command*.
+/// CasparCG replies asynchronously once the command actually executes —
+/// producer initialization (image/video), file loads, etc. can take well over
+/// a second. The 300ms `READ_GAP_TIMEOUT` is only valid for body data once
+/// the status line has started arriving; using it on the status line made
+/// every slow command abort, kill the connection, and get its reply delivered
+/// to `[destroyed-connection]` (the erratic connect/disconnect churn).
+pub(crate) const STATUS_LINE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Read-gap budget once a reply has started arriving (body data streams
+/// continuously; a stall there means the peer hung).
 pub(crate) const READ_GAP_TIMEOUT: Duration = Duration::from_millis(300);
 
 /// Typed AMCP response.
@@ -58,6 +68,16 @@ impl AmcpResponse {
     pub fn is_ok(&self) -> bool {
         self.status == AmcpStatus::Ok
     }
+}
+
+/// Validate an AMCP response for command success: 2xx codes are Ok, anything
+/// else yields a typed error naming the status code and the payload. `cmd`
+/// itself is NOT included here so the helper stays reusable/testable.
+pub fn validate_amcp_response(resp: &AmcpResponse) -> Result<(), String> {
+    if resp.is_ok() {
+        return Ok(());
+    }
+    Err(format!("{:?} (code {})\n{}", resp.status, resp.code, resp.body))
 }
 
 /// One queued command awaiting its reply.
@@ -107,20 +127,29 @@ impl AmcpClient {
             format!("{}\r\n", cmd.trim_end())
         };
 
+        let mut attempts = 0;
         loop {
+            attempts += 1;
+
             let (reply_tx, reply_rx) = oneshot::channel();
             let req = AmcpRequest {
                 cmd: normalized.clone(),
                 reply_tx,
             };
 
+            // Clone the sender and drop the worker mutex guard BEFORE awaiting
+            // the channel send, so concurrent callers are never blocked on this
+            // request's queueing.
             let send_result = {
-                let tx = self.worker.lock().await;
+                let tx = self.worker.lock().await.clone();
                 tx.send(req).await
             };
 
             // If the channel is closed (worker died), respawn before retrying.
             if let Err(_send_err) = send_result {
+                if attempts >= 2 {
+                    return Err("AMCP worker unavailable after respawn".to_string());
+                }
                 self.respawn_worker().await;
                 continue;
             }
@@ -226,31 +255,85 @@ async fn amcp_worker(mut rx: mpsc::Receiver<AmcpRequest>) {
     }
 }
 
-/// Read a complete AMCP reply: accumulate bytes until `\r\n\r\n` (blank line)
-/// terminates the frame, or the read-gap timeout fires, or the peer closes.
+/// Read a complete AMCP reply, framed by its status code:
+///
+/// - `200` (data block): status line + data terminated by a blank line
+///   (`\r\n\r\n`).
+/// - `201` (single data line): status line + exactly one more line.
+/// - everything else (`202` ack, `4xx`, `5xx`): the status line alone.
+///
+/// Previously every reply waited for the `\r\n\r\n` terminator or the 300 ms
+/// read-gap timeout, so single-line acks (e.g. `202 PLAY OK`) stalled every
+/// command by 300 ms. Framing on the status code returns them immediately.
+///
+/// The status line is waited on with `STATUS_LINE_TIMEOUT` (CasparCG executes
+/// commands asynchronously and may take seconds to ack a PLAY while the
+/// producer initializes), while body data keeps the short `READ_GAP_TIMEOUT`.
 async fn read_framed_reply(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = Vec::with_capacity(512);
     let mut chunk = [0u8; 4096];
 
-    loop {
-        match timeout(READ_GAP_TIMEOUT, stream.read(&mut chunk)).await {
-            Ok(Ok(0)) => break,
-            Ok(Ok(n)) => {
-                buf.extend_from_slice(&chunk[..n]);
-                // Frame complete when we see the blank-line terminator.
-                if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-                // Many single-line replies (e.g. `202 CG OK\r\n`) end without a
-                // trailing blank line; if the buffer is short and looks like a
-                // complete status-only line ending in \r\n, accept it on a gap.
-            }
-            Ok(Err(e)) => return Err(e.to_string()),
-            Err(_) => break, // read-gap timeout: treat current buffer as complete
+    // Status line must always arrive; EOF or a gap here is a transport error.
+    read_until(stream, &mut buf, &mut chunk, 0, b"\r\n", true, STATUS_LINE_TIMEOUT).await?;
+
+    let (code, _) = parse_status(&String::from_utf8_lossy(&buf));
+    match code {
+        200 => {
+            // Data block until the blank-line terminator.
+            read_until(stream, &mut buf, &mut chunk, 0, b"\r\n\r\n", false, READ_GAP_TIMEOUT).await?;
         }
+        201 => {
+            // Exactly one more line after the status line.
+            let first_nl = buf
+                .windows(2)
+                .position(|w| w == b"\r\n")
+                .map(|p| p + 2)
+                .unwrap_or(buf.len());
+            read_until(stream, &mut buf, &mut chunk, first_nl, b"\r\n", false, READ_GAP_TIMEOUT).await?;
+        }
+        _ => {}
     }
 
     Ok(String::from_utf8_lossy(&buf).to_string())
+}
+
+/// Read chunks until `buf[start..]` contains `terminator`, EOF, or the read
+/// timeout fires. When `require` is set, EOF/timeout before any terminator is
+/// an error; otherwise the partial buffer is accepted as complete.
+async fn read_until(
+    stream: &mut TcpStream,
+    buf: &mut Vec<u8>,
+    chunk: &mut [u8; 4096],
+    start: usize,
+    terminator: &[u8],
+    require: bool,
+    gap_timeout: Duration,
+) -> Result<(), String> {
+    let done = |buf: &Vec<u8>| {
+        buf[start.min(buf.len())..]
+            .windows(terminator.len())
+            .any(|w| w == terminator)
+    };
+
+    while !done(buf) {
+        match timeout(gap_timeout, stream.read(chunk)).await {
+            Ok(Ok(0)) => {
+                if require {
+                    return Err("connection closed before AMCP status line".to_string());
+                }
+                break;
+            }
+            Ok(Ok(n)) => buf.extend_from_slice(&chunk[..n]),
+            Ok(Err(e)) => return Err(e.to_string()),
+            Err(_) => {
+                if require {
+                    return Err("timed out reading AMCP status line".to_string());
+                }
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Parse the 3-digit status code from the first line of an AMCP reply.
@@ -384,12 +467,153 @@ pub fn play_trimmed_cmd(
 mod tests {
     use super::*;
     use crate::caspar_layers::PROGRAM_CHANNEL;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio::time::Instant;
+
+    /// Bind a loopback listener and serve `payload` to the first client.
+    async fn serve_reply(payload: &'static [u8]) -> (TcpStream, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let _ = sock.write_all(payload).await;
+        });
+        let client = TcpStream::connect(addr).await.unwrap();
+        (client, server)
+    }
 
     #[test]
     fn parse_status_ok() {
         let (code, status) = parse_status("202 CG OK\r\n");
         assert_eq!(code, 202);
         assert_eq!(status, AmcpStatus::Ok);
+    }
+
+    #[test]
+    fn validate_amcp_response_accepts_2xx() {
+        let resp = AmcpResponse {
+            code: 200,
+            status: AmcpStatus::Ok,
+            body: "200 OK\r\n".to_string(),
+        };
+        assert!(validate_amcp_response(&resp).is_ok());
+    }
+
+    #[test]
+    fn validate_amcp_response_rejects_4xx_with_code_and_body() {
+        let resp = AmcpResponse {
+            code: 404,
+            status: AmcpStatus::Error,
+            body: "404 FILE_NOT_FOUND\r\n".to_string(),
+        };
+        let err = validate_amcp_response(&resp).unwrap_err();
+        assert!(err.contains("404"), "error should carry the status code: {err}");
+        assert!(err.contains("FILE_NOT_FOUND"), "error should carry the payload: {err}");
+    }
+
+    #[test]
+    fn validate_amcp_response_rejects_5xx() {
+        let resp = AmcpResponse {
+            code: 501,
+            status: AmcpStatus::Server,
+            body: "501 SERVER ERROR\r\n".to_string(),
+        };
+        assert!(validate_amcp_response(&resp).is_err());
+    }
+
+    /// The core framing fix: a `202` ack must return as soon as the status
+    /// line is complete, NOT after the 300 ms read-gap timeout. Any stall is
+    /// an order of magnitude larger than the allowed bound.
+    #[tokio::test]
+    async fn read_framed_reply_202_returns_without_read_gap_stall() {
+        let (mut client, server) = serve_reply(b"202 PLAY OK\r\n").await;
+        let start = Instant::now();
+        let body = read_framed_reply(&mut client).await.unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(body, "202 PLAY OK\r\n");
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "202 ack stalled for {elapsed:?} (read-gap regression)"
+        );
+        server.await.unwrap();
+    }
+
+    /// `200` replies carry a data block terminated by a blank line.
+    #[tokio::test]
+    async fn read_framed_reply_200_reads_until_blank_line() {
+        let payload = b"200 OK\r\nmedia/A\r\nmedia/B\r\n\r\n";
+        let (mut client, server) = serve_reply(payload).await;
+        let body = read_framed_reply(&mut client).await.unwrap();
+        assert_eq!(body, "200 OK\r\nmedia/A\r\nmedia/B\r\n\r\n");
+        server.await.unwrap();
+    }
+
+    /// `201` replies carry exactly one data line after the status line.
+    #[tokio::test]
+    async fn read_framed_reply_201_reads_one_data_line() {
+        let payload = b"201 INFO\r\n1 2 3\r\n";
+        let (mut client, server) = serve_reply(payload).await;
+        let body = read_framed_reply(&mut client).await.unwrap();
+        assert_eq!(body, "201 INFO\r\n1 2 3\r\n");
+        server.await.unwrap();
+    }
+
+    /// Error/status codes (4xx/5xx) also return immediately after the line.
+    #[tokio::test]
+    async fn read_framed_reply_error_codes_return_immediately() {
+        let (mut client, server) = serve_reply(b"404 ERROR\r\n").await;
+        let start = Instant::now();
+        let body = read_framed_reply(&mut client).await.unwrap();
+        assert!(
+            start.elapsed() < Duration::from_millis(200),
+            "404 reply stalled on the read gap"
+        );
+        assert_eq!(body, "404 ERROR\r\n");
+        server.await.unwrap();
+    }
+
+    /// A peer that closes without sending a status line is a transport error,
+    /// not an empty success.
+    #[tokio::test]
+    async fn read_framed_reply_closed_connection_errors() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let _ = sock.shutdown().await;
+        });
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        assert!(read_framed_reply(&mut client).await.is_err());
+        server.await.unwrap();
+    }
+
+    /// Regression: CasparCG replies asynchronously AFTER the command executes
+    /// (producer init can take ~1s), so the status line may arrive long after
+    /// the 300 ms read-gap budget. The status-line wait must tolerate this —
+    /// otherwise the client aborts, drops the connection, and the reply lands
+    /// on `[destroyed-connection]` (the erratic connect/disconnect churn).
+    #[tokio::test]
+    async fn read_framed_reply_tolerates_slow_status_line() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            // Simulate CasparCG's async execution: the 202 ack only arrives
+            // ~900 ms after the command was sent (producer initialization).
+            tokio::time::sleep(Duration::from_millis(900)).await;
+            let _ = sock.write_all(b"202 PLAY OK\r\n").await;
+        });
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let start = Instant::now();
+        let body = read_framed_reply(&mut client).await.unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(body, "202 PLAY OK\r\n");
+        assert!(
+            elapsed >= Duration::from_millis(900),
+            "status line returned before the delayed reply ({elapsed:?})"
+        );
+        server.await.unwrap();
     }
 
     #[test]

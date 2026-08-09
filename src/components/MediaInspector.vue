@@ -56,7 +56,11 @@ const pushTrimToIngestor = async () => {
     pushTrimInFlight.value = true;
     try {
         const trimIn = item.trim_in_ms !== undefined ? item.trim_in_ms : item.inPoint;
-        const trimOut = item.trim_out_ms !== undefined ? item.trim_out_ms : (item.duration_ms && item.outPoint ? item.duration_ms - item.outPoint : (item.duration && item.outPoint ? Math.round(item.duration * 1000) - item.outPoint : 0));
+        // outPoint is the ABSOLUTE trim-out position on the source timeline
+        // (same semantics as trim_out_ms / the store's trim panel) — the old
+        // `duration_ms - outPoint` treated it as a relative length, pushing
+        // wrong trim points to the ingestor.
+        const trimOut = item.trim_out_ms !== undefined ? item.trim_out_ms : (item.outPoint || 0);
         await invoke('update_ingestor_trim', {
             uuid: item.playoutvueId,
             trim_in_ms: Math.round(trimIn),

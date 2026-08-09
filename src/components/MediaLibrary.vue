@@ -216,6 +216,22 @@ function mapApiRating(rating: string): ComplianceRating {
     return 'none';
 }
 
+// Parse-once cache for rating strings (plan §2.2): parseBroadcastRating is
+// called up to 4× per asset row per render and performs string splitting plus
+// JSON.parse. Keyed by uuid+rating so a metadata edit (which replaces the
+// serialized rating) invalidates the entry naturally.
+const ratingMetaCache = new Map<string, ReturnType<typeof parseBroadcastRating>>();
+
+function cachedRatingMeta(asset: LibraryAsset) {
+    const key = `${asset.uuid}|${asset.rating}`;
+    let meta = ratingMetaCache.get(key);
+    if (!meta) {
+        meta = parseBroadcastRating(asset.rating);
+        ratingMetaCache.set(key, meta);
+    }
+    return meta;
+}
+
 function normalizeVirtualFolder(value?: string | null): string {
     if (!value) return '/';
     const normalized = value.replace(/\\/g, '/').replace(/\/$/, '');
@@ -299,7 +315,11 @@ async function fetchAssetsFromLocalFallback(): Promise<LibraryAsset[]> {
     }
 }
 
+let fetchAssetsInFlight = false;
+
 async function fetchAssets(options: { force?: boolean } = {}) {
+    if (fetchAssetsInFlight) return;
+    fetchAssetsInFlight = true;
     isScanning.value = true;
     try {
         const apiAssets = await fetchAssetsFromApi();
@@ -329,6 +349,7 @@ async function fetchAssets(options: { force?: boolean } = {}) {
         }
     } finally {
         isScanning.value = false;
+        fetchAssetsInFlight = false;
     }
 }
 
@@ -362,7 +383,9 @@ function effectiveDurationSeconds(asset?: LibraryAsset): number {
 function makeRundownDraftFromAsset(asset: LibraryAsset) {
     const nameLower = (asset.display_name || '').toLowerCase();
     const ratingLower = (asset.rating || '').toLowerCase();
-    const isSubclip = nameLower.includes('sub-clip') || nameLower.includes('subclip') || ratingLower.includes('subclip');
+    const hasTrim = (asset.trim_in_ms && asset.trim_in_ms > 0) ||
+        (asset.trim_out_ms && asset.trim_out_ms > 0 && asset.trim_out_ms < (asset.duration_ms || Infinity)) ||
+        nameLower.includes('sub-clip') || nameLower.includes('subclip') || ratingLower.includes('subclip');
 
     let duration = assetDurationSeconds(asset);
     let effective = effectiveDurationSeconds(asset);
@@ -372,16 +395,20 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
         : (asset.duration_ms || 0);
     let durationMs = asset.duration_ms;
 
-    if (isSubclip) {
-        const calculatedDuration = (asset.trim_out_ms || 0) - (asset.trim_in_ms || 0);
-        durationMs = calculatedDuration;
+    if (hasTrim) {
+        // A virtual subclip or trimmed asset is a full copy of the source with trim points.
+        // Keep duration_ms as the PHYSICAL file duration so the trimmer can
+        // retrim against the whole file and the hydrator's out-point clamp
+        // never truncates the trim. Only the playable duration and
+        // plannedDuration reflect the trimmed range.
+        const calculatedDuration = Math.max(0, (asset.trim_out_ms || outPoint) - (asset.trim_in_ms || 0));
         duration = calculatedDuration / 1000;
         effective = calculatedDuration / 1000;
         inPoint = asset.trim_in_ms || 0;
-        outPoint = asset.trim_out_ms || 0;
+        outPoint = asset.trim_out_ms || outPoint;
     }
 
-    const meta = parseBroadcastRating(asset.rating);
+    const meta = cachedRatingMeta(asset);
     const compliance = meta.ageRating ||
         mediaDefaults.getCompliance(asset.uuid, asset.current_path);
     return {
@@ -443,7 +470,7 @@ function onAssetDoubleClick(asset: LibraryAsset) {
 
 function onAssetDragStart(event: DragEvent, asset: LibraryAsset) {
     mediaLibrary.selectedNodeId = `asset:${asset.uuid}`;
-    const meta = parseBroadcastRating(asset.rating);
+    const meta = cachedRatingMeta(asset);
     const payload = {
         playoutvueId: asset.uuid.startsWith('local:') ? undefined : asset.uuid,
         filename: asset.display_name,
@@ -859,12 +886,25 @@ onUnmounted(() => {
 });
 
 function onFolderDragOverPath(event: DragEvent, folderPath: string) {
+    // Ignore drags that are not ours (plan §2.2): only an asset drag or a
+    // folder drag should highlight a folder as a drop target. This prevents
+    // stray dragover events (rundown reorders, external OS drags) from
+    // painting drop markers on every folder.
+    const isFolderDrag = event.dataTransfer?.types.includes(FOLDER_DRAG_MIME) ?? false;
+    if (!draggingItem.value && !isFolderDrag) return;
     event.preventDefault();
     folderDropTargetId.value = `folder:${folderPath}`;
     if (event.dataTransfer) {
-        const isFolderDrag = event.dataTransfer.types.includes(FOLDER_DRAG_MIME);
         event.dataTransfer.dropEffect = isFolderDrag ? 'move' : 'copy';
     }
+}
+
+function onAssetDragEnd() {
+    // dragend fires for both successful drops and cancelled drags (Esc /
+    // dropped outside); a cancelled drag used to leave draggingItem set,
+    // which made every later dragover believe an asset drag was live.
+    draggingItem.value = null;
+    folderDropTargetId.value = null;
 }
 
 async function onFolderDropPath(event: DragEvent, folderPath: string) {
@@ -938,7 +978,7 @@ async function ctxSetAgeRating(rating: ComplianceRating) {
 async function ctxToggleTP() {
   const asset = contextMenu.value.node?.asset;
   if (asset) {
-    const meta = parseBroadcastRating(asset.rating);
+    const meta = cachedRatingMeta(asset);
     await mediaLibrary.updateAssetMetadata(asset.uuid, { tp_flag: !meta.tpFlag });
   }
   closeContextMenu();
@@ -1011,7 +1051,7 @@ const menuItems = computed<MenuItem[]>(() => {
   
   if (node.type === 'asset' && node.asset) {
     const asset = node.asset;
-    const ratingMeta = parseBroadcastRating(asset.rating);
+    const ratingMeta = cachedRatingMeta(asset);
     
     return [
       {
@@ -1301,6 +1341,7 @@ const menuItems = computed<MenuItem[]>(() => {
               @dblclick="onAssetDoubleClick(asset)"
               @contextmenu.prevent="onAssetContextMenu($event, asset)"
               @dragstart="onAssetDragStart($event, asset)"
+              @dragend="onAssetDragEnd"
             >
               <span class="chevron-spacer"></span>
               
@@ -1313,12 +1354,12 @@ const menuItems = computed<MenuItem[]>(() => {
                 <span class="lib-name-wrap">
                   <span class="lib-name">{{ asset.display_name }}</span>
                   <span class="mcr-badges">
-                    <span v-if="parseBroadcastRating(asset.rating).ageRating !== 'none'" class="mcr-badge badge-age" :class="`age-${parseBroadcastRating(asset.rating).ageRating}`">
-                      {{ parseBroadcastRating(asset.rating).ageRating.toUpperCase() }}
+                    <span v-if="cachedRatingMeta(asset).ageRating !== 'none'" class="mcr-badge badge-age" :class="`age-${cachedRatingMeta(asset).ageRating}`">
+                      {{ cachedRatingMeta(asset).ageRating.toUpperCase() }}
                     </span>
-                    <span v-if="parseBroadcastRating(asset.rating).tpFlag" class="mcr-badge badge-tp">TP</span>
-                    <span v-if="parseBroadcastRating(asset.rating).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${parseBroadcastRating(asset.rating).contentType}`">
-                      {{ parseBroadcastRating(asset.rating).contentType.toUpperCase() }}
+                    <span v-if="cachedRatingMeta(asset).tpFlag" class="mcr-badge badge-tp">TP</span>
+                    <span v-if="cachedRatingMeta(asset).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${cachedRatingMeta(asset).contentType}`">
+                      {{ cachedRatingMeta(asset).contentType.toUpperCase() }}
                     </span>
                   </span>
                 </span>

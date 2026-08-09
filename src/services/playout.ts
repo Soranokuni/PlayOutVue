@@ -23,7 +23,7 @@ export interface PlayoutService {
     readonly supports: PlayoutServiceCapabilities;
     connect(): Promise<void>;
     disconnect(): Promise<void>;
-    play(items: PlayoutItem[], startIndex: number): Promise<void>;
+    play(items: PlayoutItem[], startIndex: number, resumeSeekMs?: number): Promise<void>;
     pause?(): Promise<void>;
     stop(): Promise<void>;
     cue?(item: PlayoutItem): Promise<void>;
