@@ -1,6 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { RundownItem } from './rundownHydrator';
 import { useSettingsStore } from '../stores/settings';
+import {
+    parseFpsRational,
+    computeTrimFields,
+    buildPlayCommand,
+    buildLoadbgCommand,
+    type TrimCommandFields
+} from './trimCommands';
 
 export interface FrameTrimResult {
     in_frame: number;
@@ -23,13 +30,11 @@ export interface PlaybackReadiness {
     error: string;
 }
 
-function parseFpsRational(rational: string): number | null {
-    const parts = rational.split('/');
-    if (parts.length !== 2) return null;
-    const num = Number(parts[0]);
-    const den = Number(parts[1]);
-    if (!Number.isFinite(num) || !Number.isFinite(den) || num <= 0 || den <= 0) return null;
-    return num / den;
+function channelOutputRateHz(): number {
+    const settings = useSettingsStore();
+    // Keep the deployed 1080i50 behaviour as the fallback, while allowing a
+    // progressive 25fps channel to use frame units rather than doubled fields.
+    return settings.playoutProfile === 'PAL_1080P25' ? 25 : 50;
 }
 
 /**
@@ -42,44 +47,11 @@ async function verifyPlaybackReady(path: string): Promise<PlaybackReadiness> {
     try {
         return await invoke<PlaybackReadiness>('verify_playback_ready', { path });
     } catch (e) {
-        console.warn('[playoutDispatch] verify_playback_ready failed, continuing:', e);
-        return {
-            ready: true,
-            fileExists: true,
-            hasDbEntry: true,
-            hasSidecar: false,
-            qcPassed: true,
-            mezzanineOk: true,
-            warnings: [],
-            durationMs: 0,
-            fpsNum: 0,
-            fpsDen: 0,
-            error: '',
-        };
+        // Failing open here can turn a backend/database outage into an
+        // unvalidated PLAY. The caller classifies this as transient and holds
+        // a manual take rather than marking the item bad or playing blindly.
+        throw new Error(`Playback pre-flight unavailable for "${path}": ${String(e)}`);
     }
-}
-
-/// CasparCG channel output rate in fields/sec. The channel is configured as
-/// `1080i5000` (1080 interlaced, 50.000 fields/sec). CasparCG's AMCP protocol
-/// interprets SEEK and LENGTH values in units of the **channel output rate**,
-/// not the source file's frame rate.
-///
-/// For a 25fps progressive file on a 1080i50 channel, each source frame
-/// produces 2 output fields. So `LENGTH 836` (file frames) is interpreted by
-/// CasparCG as 836 fields = 16.72s — exactly **half** the real 33.44s duration.
-/// This was the root cause of clips freezing at the midpoint: the producer
-/// hit the LENGTH limit at half the file, froze on the last frame, and the
-/// position-based advance never fired because the OSC position (16,720ms) was
-/// far below the watchdog's expected out point (33,440ms).
-///
-/// The fix: multiply file-frame values by `channelOutputRate / fileFps` before
-/// sending them as AMCP SEEK/LENGTH. For 25fps → multiplier 2, for 50fps →
-/// multiplier 1. The watchdog duration (`computeDurationMsFromTrim`) stays in
-/// real time (file frames / file fps) and is unaffected.
-const CHANNEL_OUTPUT_RATE_HZ = 50;
-
-function computeFieldMultiplier(fileFps: number): number {
-    return Math.max(1, Math.round(CHANNEL_OUTPUT_RATE_HZ / fileFps));
 }
 
 /**
@@ -147,8 +119,10 @@ export async function dispatchPlay(
     item: RundownItem,
     channel: number,
     layer: number,
-    nextPath: string | null = null
-): Promise<{ durationMs: number; expectedOutMs: number }> {
+    nextPath: string | null = null,
+    resumeSeekMs: number = 0,
+    isStale?: () => boolean
+): Promise<{ durationMs: number; expectedOutMs: number } | null> {
     // 0. Pre-flight: verify file exists, has metadata, and passed QC
     const readiness = await verifyPlaybackReady(item.path);
     if (!readiness.ready) {
@@ -167,6 +141,18 @@ export async function dispatchPlay(
         preparePath(item.path)
     ]);
 
+    // NEVER silently play a trimmed clip from frame 0. When the trim in-point
+    // exceeds the physical file duration, Rust clamps it to 0 and the SEEK
+    // would be dropped — the "plays from the start of the file" bug. Surface
+    // a hard, retry-proof error instead so the item is flagged, not silently
+    // played from the wrong position.
+    if ((item.trim_in_ms || 0) > 100 && trim.in_frame === 0) {
+        throw new Error(
+            `Degenerate trim for "${item.path}": in-point ${item.trim_in_ms}ms exceeds the file duration, ` +
+            `so playback would start from frame 0. Adjust the trim or re-import the subclip.`
+        );
+    }
+
     // 2. Compute AMCP SEEK/LENGTH values. CasparCG interprets SEEK/LENGTH in
     // channel output units (fields on 1080i50 = 50Hz). `compute_frame_trim`
     // returns file-frame values, so we convert via the field multiplier.
@@ -174,21 +160,13 @@ export async function dispatchPlay(
     // For 50fps files: multiplier = 50/50 = 1 (each frame = 1 field).
     // Without this, 25fps clips play at half duration and freeze at the
     // midpoint because CasparCG plays `LENGTH` fields, not `LENGTH` frames.
+    // Crash-resume: `resumeSeekMs` is the elapsed content time (relative to the
+    // trim start) at which playback should continue. Convert to file frames and
+    // offset the SEEK past the trim IN point; shrink LENGTH to the remaining
+    // frames so the watchdog/OSC advance fires exactly at the new end.
     const fileFps = parseFpsRational(trim.fps_rational) ?? 25;
-    const fieldMultiplier = computeFieldMultiplier(fileFps);
-    const seekFields = trim.in_frame * fieldMultiplier;
-    const lengthFields = trim.duration_frames * fieldMultiplier;
-    // Total file length in channel fields, used to sanity-check the trim. A
-    // stale or inflated IN point can produce seekFields beyond the file; in
-    // that case we drop the SEEK entirely so the clip starts from 0 instead
-    // of jumping into the middle (the manual-take jitter fix).
-    const totalFileFields = (trim.out_frame > 0 ? trim.out_frame : trim.in_frame + trim.duration_frames) * fieldMultiplier;
-    // SEEK is only valid when it's non-zero AND inside the file. LENGTH is
-    // only valid when the trim window is non-empty AND doesn't run past EOF.
-    // Appending them independently preserves a start-trim (IN=0, OUT<full)
-    // which still needs LENGTH to stop at the OUT point.
-    const hasInTrim = seekFields > 0 && seekFields < totalFileFields;
-    const hasOutTrim = lengthFields > 0 && (seekFields + lengthFields) <= totalFileFields;
+    const resumeFrames = resumeSeekMs > 0 ? Math.round((resumeSeekMs / 1000) * fileFps) : 0;
+    const fields = computeTrimFields(trim, resumeFrames, channelOutputRateHz());
 
     // 3. Calculate precise expected duration.
     // OSC position is relative to the trim start (the producer is SEEK'd to
@@ -196,7 +174,11 @@ export async function dispatchPlay(
     // absolute trim_in_ms + durationMs. Using the absolute value sets the
     // advance threshold beyond the clip's end, so the position-based advance
     // never fires and the rundown freezes on any trimmed clip.
-    const durationMs = computeDurationMsFromTrim(trim, item.id);
+    // On resume, report the REMAINING duration (content duration minus the
+    // seek offset) — the progress timer, end guard and watchdog all count
+    // down from the resumed position.
+    const remainingDurationMs = Math.max(1, Math.round((fields.lengthFields / fields.fieldMultiplier / fileFps) * 1000));
+    const durationMs = resumeSeekMs > 0 ? remainingDurationMs : computeDurationMsFromTrim(trim, item.id);
     const expectedOutMs = durationMs;
 
     // 4. Register playback with Rust backend BEFORE sending the PLAY command.
@@ -206,24 +188,34 @@ export async function dispatchPlay(
     // take on a trimmed subclip (absolute OSC pos ~367800ms) would be
     // normalized against the old trim_in_ms=0, producing position_ms=367800,
     // which exceeds the old expected_out_point_ms → instant advance → black.
+    // On resume the trim anchor shifts by the seek offset: the producer
+    // reports the absolute file position (trimInMs + resumeSeekMs at the
+    // start), so subtracting `trimInMs + resumeSeekMs` yields 0 — matching
+    // the remaining-duration out point and the UI clock.
+    //
+    // Stale-guard: a take()/play() that bumped the play token while this
+    // dispatch was awaiting (verify/trim/path IPC) must NOT emit any physical
+    // command. Abort silently — the newer request owns the channel now.
+    if (isStale?.()) return null;
     await invoke('caspar_register_playback', {
         uuid: item.id,
         durationMs,
         expectedOutPointMs: expectedOutMs,
         currentPath: formattedPath,
         nextPath,
-        trimInMs: item.trim_in_ms || 0
+        trimInMs: (item.trim_in_ms || 0) + (resumeSeekMs > 0 ? resumeSeekMs : 0)
     });
+    if (isStale?.()) {
+        await invoke('caspar_clear_playback_if_uuid', { uuid: item.id }).catch(() => {});
+        return null;
+    }
 
     // 5. Send PLAY command (state machine is already armed for this item).
-    // SEEK and LENGTH are appended independently: a stale IN past EOF drops
-    // the SEEK (clip starts from 0), and a valid OUT limit still emits LENGTH
-    // to stop at the right point. When neither is valid, a clean PLAY runs
-    // the whole file. This is the manual-take jitter fix — a stale frontend
-    // IN point can never inject a SEEK that skips the start of the clip.
-    let cmd = `PLAY ${channel}-${layer} "${formattedPath}"`;
-    if (hasInTrim) cmd += ` SEEK ${seekFields}`;
-    if (hasOutTrim) cmd += ` LENGTH ${lengthFields}`;
+    // SEEK and LENGTH are appended independently by the pure builder: a stale
+    // IN past EOF drops the SEEK (clip starts from 0), and a valid OUT limit
+    // still emits LENGTH to stop at the right point. When neither is valid, a
+    // clean PLAY runs the whole file.
+    const cmd = buildPlayCommand(channel, layer, formattedPath, fields);
     await invoke('caspar_send_command', { cmd });
 
     return { durationMs, expectedOutMs };
@@ -233,8 +225,9 @@ export async function dispatchLoadbg(
     item: RundownItem,
     channel: number,
     layer: number,
-    auto: boolean = true
-): Promise<{ durationMs: number; expectedOutMs: number }> {
+    auto: boolean = true,
+    isStale?: () => boolean
+): Promise<{ durationMs: number; expectedOutMs: number } | null> {
     // 0. Pre-flight: verify file exists and has metadata (skip QC for preload)
     const readiness = await verifyPlaybackReady(item.path);
     if (!readiness.fileExists) {
@@ -248,6 +241,15 @@ export async function dispatchLoadbg(
         trimOutMs: item.trim_out_ms
     });
 
+    // Never silently preload a trimmed clip without its SEEK (the LOADBG
+    // "LENGTH <full> AUTO" bug). Same guard as dispatchPlay.
+    if ((item.trim_in_ms || 0) > 100 && trim.in_frame === 0) {
+        throw new Error(
+            `Degenerate trim for "${item.path}": in-point ${item.trim_in_ms}ms exceeds the file duration, ` +
+            `so the preload would start from frame 0. Adjust the trim or re-import the subclip.`
+        );
+    }
+
     // 2. prepare path
     const formattedPath = await preparePath(item.path);
 
@@ -256,22 +258,14 @@ export async function dispatchLoadbg(
     // `auto=true` (default, used by the rundown preload path) appends AUTO so
     // CasparCG auto-transitions when the current producer ends. `auto=false`
     // (used by manual cue()) loads the clip into the background without
-    // scheduling an auto-transition. Only append SEEK/LENGTH for a valid trim;
-    // a stale IN must never inject a bogus SEEK into the preload.
-    const fileFps = parseFpsRational(trim.fps_rational) ?? 25;
-    const fieldMultiplier = computeFieldMultiplier(fileFps);
-    const seekFields = trim.in_frame * fieldMultiplier;
-    const lengthFields = trim.duration_frames * fieldMultiplier;
-    const totalFileFields = (trim.out_frame > 0 ? trim.out_frame : trim.in_frame + trim.duration_frames) * fieldMultiplier;
-    const hasInTrim = seekFields > 0 && seekFields < totalFileFields;
-    const hasOutTrim = lengthFields > 0 && (seekFields + lengthFields) <= totalFileFields;
-    const autoSuffix = auto ? ' AUTO' : '';
-    // Same independent SEEK/LENGTH logic as dispatchPlay — a stale IN must
-    // never inject a bogus SEEK into the preload.
-    let cmd = `LOADBG ${channel}-${layer} "${formattedPath}"`;
-    if (hasInTrim) cmd += ` SEEK ${seekFields}`;
-    if (hasOutTrim) cmd += ` LENGTH ${lengthFields}`;
-    cmd += autoSuffix;
+    // scheduling an auto-transition.
+    const fields = computeTrimFields(trim, 0, channelOutputRateHz());
+    // Stale-guard: an in-flight preload superseded by a take()/play() must not
+    // land on the shared AMCP channel after the newer request (Bug B — rapid
+    // PLAY/LOADBG cycles). The caller checks the token after dispatch too, but
+    // that is too late: the command may already be on the wire.
+    if (isStale?.()) return null;
+    const cmd = buildLoadbgCommand(channel, layer, formattedPath, fields, auto);
     await invoke('caspar_send_command', { cmd });
 
     // 4. Calculate duration and expected out point (relative to trim start).

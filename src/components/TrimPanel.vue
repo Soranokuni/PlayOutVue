@@ -13,6 +13,7 @@ export interface LibraryTrimItem {
     duration_ms?: number;
     inPoint?: number;
     outPoint?: number;
+    fps?: number;
 }
 
 const store = useRundownStore();
@@ -40,7 +41,8 @@ const lockTrimItem = () => {
     duration: source.duration,
     duration_ms: (source as any).duration_ms,
     inPoint: source.inPoint,
-    outPoint: source.outPoint
+    outPoint: source.outPoint,
+    fps: (source as any).fps || 25
   } : null;
 };
 
@@ -111,7 +113,10 @@ const isTrimming = ref(false);
 const isSmartTrimming = ref(false);
 const trimStatus = ref('');
 const speed = ref(0); // for JKL display badge
-const FRAME_MS = 40; // 25fps
+const FRAME_MS = computed(() => {
+    const fps = item.value?.fps && item.value.fps > 0 ? item.value.fps : 25;
+    return 1000 / fps;
+});
 const PLAYHEAD_UI_INTERVAL_MS = 120;
 
 const scrubDurationMs = computed(() => viewTrimmed.value ? Math.max(0, outMs.value - inMs.value) : totalDurationMs.value);
@@ -268,10 +273,9 @@ const onVideoLoaded = () => {
         totalDurationMs.value = dur;
         inMs.value = Math.max(0, Math.min(inMs.value, dur));
         if (outMs.value === 0 || outMs.value > dur) outMs.value = dur;
-        if (inMs.value > 0 && outMs.value < dur) {
-          viewTrimmed.value = true;
-        }
-      syncPlaybackDisplay(inMs.value || 0, true);
+      // Seek the preview to the IN point so the visible frame matches the
+      // IN timecode (no auto viewTrimmed flip — trimmed view is opt-in).
+      seekTo(inMs.value || 0, true);
     }
 };
 
@@ -316,6 +320,7 @@ watch([item, () => props.isOpen], ([val, open]) => {
     inMs.value  = val.inPoint  || 0;
     outMs.value = val.outPoint || fileDurationMs;
     totalDurationMs.value = fileDurationMs;
+    viewTrimmed.value = false;
   trimStatus.value = '';
   speed.value = 0;
   isVideoPlaying.value = false;
@@ -340,23 +345,23 @@ const msToTC = (ms: number): string => {
     const h = Math.floor(ms / 3600000);
     const m = Math.floor((ms % 3600000) / 60000);
     const s = Math.floor((ms % 60000) / 1000);
-    const f = Math.floor((ms % 1000) / 40);
+    const f = Math.floor((ms % 1000) / FRAME_MS.value);
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}:${String(f).padStart(2,'0')}`;
 };
 const tcToMs = (tc: string): number => {
     const p = tc.split(':').map(Number);
     if (p.length < 3 || p.slice(0, p.length).some(isNaN)) return -1;
     const [h=0, m=0, s=0, f=0] = p;
-    if (p.length === 4) return (h*3600 + m*60 + s)*1000 + f*40;
+    if (p.length === 4) return (h*3600 + m*60 + s)*1000 + f*FRAME_MS.value;
     return (h*3600 + m*60 + s)*1000;
 };
-const applyInTC  = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) { inMs.value  = scrubToAbsolute(v); seekTo(scrubToAbsolute(v)); } };
-const applyOutTC = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) outMs.value = scrubToAbsolute(v); };
+const applyInTC  = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) { inMs.value  = Math.min(v, outMs.value); seekTo(inMs.value); } };
+const applyOutTC = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) outMs.value = Math.max(v, inMs.value); };
 const trimmedDuration = computed(() => {
     const d = outMs.value - inMs.value;
     return d > 0 ? `${(d/1000).toFixed(1)}s  (${msToTC(d)})` : '–';
 });
-const currentTimecode = computed(() => msToTC(absoluteToScrub(playbackTime.value)));
+const currentTimecode = computed(() => msToTC(playbackTime.value));
 
 const hasTrimRange = computed(() => outMs.value > 0 && inMs.value >= 0 && outMs.value > inMs.value && outMs.value < totalDurationMs.value + 1000);
 const inHandlePct = computed(() => {
@@ -373,8 +378,8 @@ const rangeLeftPct = computed(() => inHandlePct.value);
 const rangeWidthPct = computed(() => Math.max(0, outHandlePct.value - inHandlePct.value));
 const scrubLabelStart = computed(() => msToTC(scrubOffsetMs.value));
 const scrubLabelEnd = computed(() => msToTC(scrubOffsetMs.value + scrubDurationMs.value));
-const displayInTC = computed(() => msToTC(absoluteToScrub(inMs.value)));
-const displayOutTC = computed(() => msToTC(absoluteToScrub(outMs.value)));
+const displayInTC = computed(() => msToTC(inMs.value));
+const displayOutTC = computed(() => msToTC(outMs.value));
 
 const toggleViewTrimmed = () => {
   viewTrimmed.value = !viewTrimmed.value;
@@ -405,7 +410,7 @@ const jumpToMarker = (marker: 'start' | 'in' | 'out' | 'end') => {
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
 const currentVideoMs = () => lastKnownPlaybackMs || ((videoRef.value?.currentTime ?? 0) * 1000);
 const nudge = (frames: number) => {
-  seekTo(currentVideoMs() + frames * FRAME_MS);
+  seekTo(currentVideoMs() + frames * FRAME_MS.value);
 };
 const applySpeed = (s: number) => {
     const v = videoRef.value; if (!v) return;

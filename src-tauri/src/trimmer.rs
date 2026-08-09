@@ -2,6 +2,7 @@ use std::path::Path;
 use tauri::{AppHandle, Runtime, State};
 
 use crate::media_index;
+use crate::scanner::probe_media_metadata;
 use crate::transcoder_sidecar;
 use crate::runtime_settings::{resolve_tool_path, RuntimeSettingsState};
 
@@ -159,12 +160,21 @@ pub fn parse_timecode_to_frames(tc: &str, fps: f64) -> Option<u32> {
         return None;
     }
 
-    let total_seconds = h * 3600.0 + m * 60.0 + s;
-    let frames = (total_seconds * fps).round() + f.round();
+    let nominal_fps = if (fps - 29.97).abs() < 0.05 {
+        30.0
+    } else if (fps - 59.94).abs() < 0.05 {
+        60.0
+    } else if (fps - 23.976).abs() < 0.05 {
+        24.0
+    } else {
+        fps
+    };
+
+    let frames = (h * 3600.0 + m * 60.0 + s) * nominal_fps + f.round();
     if !frames.is_finite() || frames < 0.0 {
         return None;
     }
-    Some(frames as u32)
+    Some(frames.round() as u32)
 }
 
 /// Parse a timecode string to milliseconds at the given frame rate. Mirrors
@@ -203,19 +213,22 @@ pub async fn parse_timecode(
 }
 
 #[tauri::command]
-pub async fn compute_frame_trim(
+pub async fn compute_frame_trim<R: Runtime>(
     path: String,
     trim_in_ms: i64,
     trim_out_ms: i64,
+    app: AppHandle<R>,
+    runtime_settings: State<'_, RuntimeSettingsState>,
     db_state: State<'_, crate::scanner::DbState>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<FrameTrimResult, String> {
     // Look up the asset in the in-memory SQLite DB first. If it hasn't been
     // probed yet (the background scanner may still be running, or the file was
     // just added), fall back to (1) the transcoder sidecar JSON written next
-    // to the media, then (2) the portable JSON index. This prevents "Asset not
-    // found in database" errors on first playback. The resolved entry is
-    // upserted into the DB so subsequent lookups hit the fast path.
+    // to the media, then (2) the portable JSON index, then (3) a direct
+    // ffprobe of the file. This prevents "Asset not found in database" errors
+    // on first playback. The resolved entry is upserted into the DB so
+    // subsequent lookups hit the fast path.
     let entry = if let Some(e) = db_state.0.get_entry(&path)
         .filter(|e| e.fps_num > 0 && e.duration_ms > 0)
     {
@@ -234,6 +247,17 @@ pub async fn compute_frame_trim(
     {
         let _ = db_state.0.upsert(&e);
         e
+    } else if Path::new(&path).is_file() {
+        // Metadata race fallback: the file exists but has no cache entry,
+        // sidecar, or index entry yet — the ingestor copies the file before
+        // writing the sidecar JSON, and the scanner may still be behind (or
+        // hold a stale mid-copy entry filtered out above). Probing directly
+        // keeps the take from failing with "Asset not found" and skipping to
+        // the next item.
+        let entry = probe_media_metadata(Some(&app), Some(&runtime_settings), &path, Some(&diagnostics))
+            .map_err(|e| format!("Asset probe failed for {}: {}", path, e))?;
+        let _ = db_state.0.upsert(&entry);
+        entry
     } else {
         return Err(format!("Asset not found in database, sidecar, or portable index: {}", path));
     };

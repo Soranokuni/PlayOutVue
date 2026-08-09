@@ -29,6 +29,7 @@ const localState = ref({
     playoutProfile: 'PAL_1080I50' as 'PAL_1080I50' | 'PAL_1080P25',
     transitionFrames: 2,
     prerollFrames: 2,
+    autoResumeAfterRestart: true,
     ingestorApiBaseUrl: '',
     
     // CG settings
@@ -182,6 +183,7 @@ const mapLocalState = () => {
         playoutProfile: settings.playoutProfile,
         transitionFrames: settings.transitionFrames,
         prerollFrames: settings.prerollFrames,
+        autoResumeAfterRestart: settings.autoResumeAfterRestart !== false,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
         
         // CG settings
@@ -417,6 +419,19 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                       <div class="form-group">
                           <label>Operator Guidance</label>
                           <div class="hint-card">Use 2-frame transitions and 2–4 frames of preroll for low-latency 1080i/25 playout into DeckLink output.</div>
+                      </div>
+                  </div>
+              </section>
+
+              <section class="settings-section">
+                  <h3 class="text-secondary section-title">Crash Recovery</h3>
+                  <div class="form-grid">
+                      <div class="form-group">
+                          <label style="display:flex; align-items:center; gap:8px;">
+                              <input type="checkbox" v-model="localState.autoResumeAfterRestart">
+                              <span>Auto-resume after CasparCG restart</span>
+                          </label>
+                          <span class="hint-text">If CasparCG restarts while a clip is on air, playback automatically continues from the crash-time position. If the clip already finished during the downtime, the next item starts. A brief AMCP drop (network blip) with live OSC feedback is left untouched.</span>
                       </div>
                   </div>
               </section>

@@ -898,6 +898,14 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     s.advance_fired = true;
                     s.transition_triggered = true;
                     advance_reason = Some("eof-position-stall".to_string());
+                } else if advance_reason.is_none()
+                    && !s.position_ever_advanced
+                    && s.position_stalled_ticks >= 20
+                    && s.position_ms == 0
+                {
+                    s.advance_fired = true;
+                    s.transition_triggered = true;
+                    advance_reason = Some("frame-0-decode-stall".to_string());
                 }
                 (stall, advance_reason)
             };

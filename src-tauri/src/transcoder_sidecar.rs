@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::State;
+use tauri::{AppHandle, Runtime, State};
+
+use crate::runtime_settings::RuntimeSettingsState;
+use crate::scanner::{probe_media_metadata, DbState};
 
 /// Describes the original source media that was transcoded.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -221,9 +224,11 @@ pub struct PlaybackReadiness {
 }
 
 #[tauri::command]
-pub async fn verify_playback_ready(
+pub async fn verify_playback_ready<R: Runtime>(
     path: String,
-    db_state: State<'_, crate::scanner::DbState>,
+    app: AppHandle<R>,
+    runtime_settings: State<'_, RuntimeSettingsState>,
+    db_state: State<'_, DbState>,
 ) -> Result<PlaybackReadiness, String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
@@ -254,9 +259,9 @@ pub async fn verify_playback_ready(
         None => QcVerdict::default(),
     };
 
-    // Check DB for existing entry
-    let db_entry = db_state.0.get_entry(trimmed);
-    let mut has_db_entry = db_entry.is_some();
+    // Check DB for existing entry (re-checked after the fallbacks below so the
+    // reported duration/fps reflect whatever metadata source was resolved).
+    let mut has_db_entry = db_state.0.get_entry(trimmed).is_some();
 
     // If no DB entry but sidecar exists, populate the DB from the sidecar
     if !has_db_entry && file_exists {
@@ -270,11 +275,33 @@ pub async fn verify_playback_ready(
         }
     }
 
+    // Metadata race fallback: the ingestor copies the file into the CasparCG
+    // media folder BEFORE writing the sidecar JSON, and the background scanner
+    // may not have probed it yet (or may hold a stale entry from a mid-copy
+    // probe). A manual take inside that window would otherwise fail the
+    // pre-flight check and the rundown would skip the clip. Probe the file
+    // directly and upsert the result so playback proceeds.
+    if !has_db_entry && file_exists {
+        match probe_media_metadata(Some(&app), Some(&runtime_settings), trimmed, None) {
+            Ok(entry) => {
+                if let Err(e) = db_state.0.upsert(&entry) {
+                    eprintln!("[verify_playback_ready] DB upsert from ffprobe fallback failed: {}", e);
+                } else {
+                    has_db_entry = true;
+                }
+            }
+            Err(e) => {
+                eprintln!("[verify_playback_ready] ffprobe fallback failed for '{}': {}", trimmed, e);
+            }
+        }
+    }
+
     // Determine readiness: file exists + has metadata (DB or sidecar) + QC passed
     let has_metadata = has_db_entry || has_sidecar;
     let qc_passed = qc_verdict.ready || (!has_sidecar && has_db_entry);
     let ready = file_exists && has_metadata && qc_passed;
 
+    let db_entry = db_state.0.get_entry(trimmed);
     let (duration_ms, fps_num, fps_den) = match &db_entry {
         Some(entry) => (entry.duration_ms, entry.fps_num, entry.fps_den),
         None => match &sidecar {

@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
+import { ask } from '@tauri-apps/plugin-dialog';
 import { ref } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useRundownStore, type ComplianceRating, type IngestorStatus } from '../stores/rundown';
@@ -7,11 +8,18 @@ import type { PlayoutAdvanceCallback, PlayoutItem, PlayoutService } from './play
 import { hydrateItem, type RundownItem } from '../lib/rundownHydrator';
 import { dispatchPlay, dispatchLoadbg, computeDurationMsFromTrim, type FrameTrimResult } from '../lib/playoutDispatch';
 import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
+import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
+import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
 
 export const playStartTime = ref(0);
 export const playStartIndex = ref(0);
-let lastAdvanceTime = 0;
-const ADVANCE_DEBOUNCE_MS = 500;
+// Advance dedup is UUID-keyed, not time-keyed: a time window also swallows
+// legitimate advances for DIFFERENT items that follow a short clip closely
+// (Rust latches advance_fired and the JS side then freezes). Only a duplicate
+// advance for the SAME item inside the window is dropped.
+let lastAdvanceUuid: string | null = null;
+let lastAdvanceAt = 0;
+const ADVANCE_DEDUP_WINDOW_MS = 1000;
 
 const PROGRAM_CHANNEL = 1;
 const FRAME_MS = 40;
@@ -20,6 +28,66 @@ const RECONNECT_BASE_DELAY_MS = 750;
 const RECONNECT_MAX_DELAY_MS = 15_000;
 const RECONNECT_FOREGROUND_ATTEMPTS = 6;
 const HEARTBEAT_INTERVAL_MS = 5_000;
+
+// Dispatch retry policy: a manual take is single-shot today, so any transient
+// dispatch failure (ingestor still copying the file / sidecar JSON not yet
+// written, scanner probe lag, momentary CasparCG connection flap) throws and
+// take() auto-advances to the NEXT item — the "trimmed clip sometimes skips"
+// symptom. Retrying a few times absorbs those races; hard errors (missing
+// file, broken trim, QC rejection) fail fast.
+const DISPATCH_RETRY_ATTEMPTS = 3;
+const DISPATCH_RETRY_DELAY_MS = 400;
+
+/** Errors that retrying cannot fix — fail immediately. */
+function isHardDispatchError(error: unknown): boolean {
+    const msg = String((error as any)?.message || error || '').toLowerCase();
+    return (
+        msg.includes('degenerate trim') ||
+        msg.includes('file not found') ||
+        msg.includes('qc not passed') ||
+        msg.includes('mezzanine_ok=false') ||
+        msg.includes('critical')
+    );
+}
+
+/**
+ * dispatchPlay with bounded retries for transient failures. The Rust side is
+ * also hardened with an ffprobe last-resort fallback, so in practice a retry
+ * only fires on connection-level hiccups — but a single spurious throw must
+ * never skip an item the operator explicitly took.
+ */
+async function dispatchPlayWithRetry(
+    item: RundownItem,
+    channel: number,
+    layer: number,
+    nextPath: string | null,
+    resumeSeekMs = 0,
+    token?: number
+): Promise<{ durationMs: number; expectedOutMs: number } | null> {
+    // A dispatch that outlives its play token is obsolete: abort silently
+    // (no error, no retry) so a stale PLAY never lands on the AMCP channel
+    // after a newer take()/play() took control (Bug B).
+    const isStale = token !== undefined ? () => token !== playToken : undefined;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= DISPATCH_RETRY_ATTEMPTS; attempt++) {
+        try {
+            const result = await dispatchPlay(item, channel, layer, nextPath, resumeSeekMs, isStale);
+            if (result === null) return null;
+            return result;
+        } catch (error) {
+            lastError = error;
+            if (isHardDispatchError(error) || attempt === DISPATCH_RETRY_ATTEMPTS) {
+                throw error;
+            }
+            console.warn(
+                `[CasparCG] dispatchPlay attempt ${attempt}/${DISPATCH_RETRY_ATTEMPTS} failed, retrying in ${DISPATCH_RETRY_DELAY_MS}ms:`,
+                error
+            );
+            await new Promise((resolve) => setTimeout(resolve, DISPATCH_RETRY_DELAY_MS));
+        }
+    }
+    throw lastError;
+}
 
 // --- Layer registry (TS mirror of src-tauri/src/caspar_layers.rs) ---
 // Single source of truth for layer numbers on the program channel. Keep in
@@ -68,6 +136,7 @@ export const isCasparPlaying = ref(false);
 export const currentCasparTime = ref('00:00:00:00');
 export const currentCasparMs = ref(0);
 export const currentCasparDurationMs = ref(0);
+export const manualTakeFailure = ref<{ itemId: string; filename: string; message: string } | null>(null);
 
 // --- UUID-keyed queue (plan §2.2) ---
 // The queue is an ordered array; the current item is tracked by a stable key
@@ -81,6 +150,50 @@ let timelineTimers: ReturnType<typeof setTimeout>[] = [];
 function queueKey(item: PlayoutItem): string {
     return item.id;
 }
+
+/// Resolve the LIVE store item by id. The queue snapshot (`queuedItems`) is a
+/// shallow copy taken at play() time; ingestor trim resolution writes
+/// `trim_in_ms`/`trim_out_ms` to the store asynchronously and only re-syncs
+/// the snapshot through the debounced `refreshQueue`. Preloading and natural
+/// advances must read the live item so a LOADBG/PLAY never uses stale
+/// zeroed trims (Bug A — "plays from frame 0 instead of the in-point").
+const findLiveItemById = (id: string): PlayoutItem | null => {
+    try {
+        const store = useRundownStore();
+        for (const playlist of store.playlists) {
+            const found = playlist.items.find((i) => i.id === id);
+            if (found) return found as PlayoutItem;
+        }
+    } catch {
+        // store unavailable (early boot / SSR) — fall back to the snapshot
+    }
+    return null;
+};
+
+/// Normalized basename (lowercase, no extension) for comparing preloaded vs
+/// live clip paths without media-root/absolute-path noise.
+const normBasename = (p: string) => {
+    const s = String(p || '').replace(/\\/g, '/').toLowerCase();
+    const base = s.split('/').pop() || s;
+    return base.replace(/\.[^./\\]+$/, '');
+};
+
+// --- Crash-resume state (plan §C) ---
+// If CasparCG dies mid-clip and restarts, the producer is gone but our queue,
+// rundown store and persisted playback state survive. On reconnect we decide
+// (a) it was a transient blip and ticks resumed → do nothing, or (b) the
+// producer truly restarted → re-issue PLAY ... SEEK at the crash-time position
+// (or auto-advance if the clip finished during downtime).
+let wasPlayingOnDisconnect = false;
+let resumeEvalTimer: ReturnType<typeof setTimeout> | null = null;
+let resumeEvalToken = -1;
+let resumeInFlight = false;
+let lastOscTickAtMs = 0;
+let lastSnapshotAtMs = 0;
+/** Resume seek (ms into the current item's content) for the next playItemAt dispatch. */
+let pendingResumeSeekMs = 0;
+const RESUME_EVAL_DELAY_MS = 2000;
+const RESUME_TICK_SURVIVAL_MS = 1500;
 
 function parseTimeToMs(t: string | number): number {
     if (typeof t === 'number') return t * 1000;
@@ -103,6 +216,7 @@ let feedbackListenerPromise: Promise<void> | null = null;
 let feedbackUnlisten: (() => void) | null = null;
 let tickUnlisten: (() => void) | null = null;
 let advanceUnlisten: (() => void) | null = null;
+let confirmUnlisten: (() => void) | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
 let reconnectRequested = false;
@@ -116,6 +230,33 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 // checking this set, advanceToNext can fall back to playItemAt (which
 // sends an explicit PLAY) when the preload didn't happen.
 const preloadedKeys = new Set<string>();
+
+// Trim fingerprint of every successful preload (keyed by queue key). The
+// natural advance validates the on-air transition against the LIVE item's
+// current trim; a mismatch means the LOADBG carried stale (zeroed) trim and
+// the AUTO transition would play from frame 0 — force a hard PLAY instead
+// (validate-on-advance, plan Phase 1).
+const preloadedFingerprints = new Map<string, { trimInMs: number; trimOutMs: number; path: string }>();
+
+/// Waiters for Rust's `caspar://foreground-confirmed` event (Phase 4).
+let confirmWaiters: Array<{ uuid: string; resolve: (ok: boolean) => void }> = [];
+function waitForForegroundConfirmation(uuid: string, timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (ok: boolean) => {
+            if (!settled) {
+                settled = true;
+                resolve(ok);
+            }
+        };
+        const entry = { uuid, resolve: finish };
+        confirmWaiters.push(entry);
+        setTimeout(() => {
+            confirmWaiters = confirmWaiters.filter((w) => w !== entry);
+            finish(false);
+        }, timeoutMs);
+    });
+}
 
 const assertIngestorReady = (item: PlayoutItem) => {
     const status: IngestorStatus = (item as any).ingestorStatus || 'idle';
@@ -200,6 +341,10 @@ const markDisconnected = (reason: string, error?: unknown) => {
         console.warn(`[CasparCG] ${reason}`);
     }
 
+    // Remember that a clip was on air when the transport dropped so the
+    // reconnect handler can resume it after a genuine CasparCG restart.
+    wasPlayingOnDisconnect = isCasparPlaying.value && currentKey != null;
+
     isCasparConnected.value = false;
     stopHeartbeat();
     if (reconnectRequested) {
@@ -274,6 +419,11 @@ const disposeFeedbackListener = async () => {
         try { advanceUnlisten(); } catch { /* ignore */ }
         advanceUnlisten = null;
     }
+    if (confirmUnlisten) {
+        try { confirmUnlisten(); } catch { /* ignore */ }
+        confirmUnlisten = null;
+    }
+    confirmWaiters = [];
     // Release the ensureFeedbackListener singleton promise so a subsequent
     // connect() re-runs the listener setup. Without this, disconnect()→connect()
     // short-circuits in ensureFeedbackListener (feedbackListenerPromise != null)
@@ -339,8 +489,8 @@ const hydratePlayoutItem = (item: PlayoutItem): RundownItem => {
         path: item.path || item.shortPath,
         playoutvue_id: item.playoutvueId || item.id,
         duration_ms: item.duration_ms || (item.duration ? item.duration * 1000 : 0) || 0,
-        trim_in_ms: item.trim_in_ms ?? 0,
-        trim_out_ms: item.trim_out_ms ?? 0,
+        trim_in_ms: (item.trim_in_ms !== undefined && item.trim_in_ms > 0) ? item.trim_in_ms : (item.inPoint ?? 0),
+        trim_out_ms: (item.trim_out_ms !== undefined && item.trim_out_ms > 0) ? item.trim_out_ms : (item.outPoint && item.outPoint > 0 ? item.outPoint : 0),
         fps_num: item.fps_num ?? 0,
         fps_den: item.fps_den ?? 0,
         fps: item.fps,
@@ -377,6 +527,80 @@ const parseNumericXmlTag = (response: string, tagName: string) => {
 };
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/// Extract the foreground producer path from an `INFO <ch>-<layer>` response
+/// (CasparCG 2.x reports `Path:` / `File:` for file producers, and nothing for
+/// an empty layer).
+const parseForegroundPathFromInfo = (response: string) => {
+    const match = String(response || '').match(/^\s*(?:path|file)\s*:\s*(.+?)\s*$/im);
+    if (!match?.[1]) return '';
+    return match[1].trim().replace(/\\/g, '/').replace(/"/g, '');
+};
+
+/// Phase 4 defense-in-depth: after a natural advance commits (register + timer
+/// started), wait for Rust's `caspar://foreground-confirmed` — i.e. the OSC
+/// path/position proving the preloaded clip is genuinely on air. On timeout,
+/// verify via `INFO 1-10` and only re-issue a hard PLAY when the on-air clip is
+/// provably wrong (empty layer or an unrelated path). A still-pending
+/// transition (previous clip still foreground) is allowed an extra round.
+async function confirmAndRepairForeground(
+    key: string,
+    hydrated: RundownItem,
+    expectedPath: string,
+    prevPath: string,
+    token: number
+) {
+    try {
+        const confirmed = await waitForForegroundConfirmation(key, 1500);
+        if (confirmed) return;
+        if (token !== playToken || currentKey !== key) return;
+
+        for (let round = 0; round < 2; round += 1) {
+            if (round > 0) await wait(800);
+            if (token !== playToken || currentKey !== key) return;
+
+            let info = '';
+            try {
+                info = await sendRawCommand(`INFO ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
+            } catch {
+                // Transport/AMCP failure — the watchdog and end guard still
+                // own the advance; do not repair blindly.
+                return;
+            }
+
+            const onAir = parseForegroundPathFromInfo(info);
+            if (!onAir) {
+                // Empty layer: the AUTO transition never fired — hard PLAY.
+                await repairForegroundPlay(key, hydrated, token, 'empty layer after natural advance');
+                return;
+            }
+            const onAirNorm = normBasename(onAir);
+            const expectedNorm = normBasename(expectedPath);
+            if (expectedNorm && onAirNorm === expectedNorm) return;
+            const prevNorm = normBasename(prevPath);
+            if (prevNorm && onAirNorm === prevNorm) {
+                continue; // transition still pending — allow one more round
+            }
+            await repairForegroundPlay(key, hydrated, token, `foreground is "${onAir}" instead of the expected clip`);
+            return;
+        }
+    } catch (error) {
+        console.warn('[CasparCG] Foreground confirmation check failed', error);
+    }
+}
+
+async function repairForegroundPlay(key: string, hydrated: RundownItem, token: number, reason: string) {
+    if (token !== playToken || currentKey !== key) return;
+    console.warn(`[CasparCG] Repairing foreground: ${reason} — re-issuing hard PLAY with correct trim.`);
+    invoke('push_diagnostic_log', {
+        level: 'warn',
+        scope: 'caspar-playout',
+        message: `Foreground repair: ${reason} for ${hydrated.path}`
+    }).catch(() => {});
+    await dispatchPlayWithRetry(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, null, 0, token).catch((error) => {
+        console.warn('[CasparCG] Foreground repair PLAY failed', error);
+    });
+}
 
 const parseDurationFromCasparResponse = (response: string) => {
     if (!response) return 0;
@@ -657,16 +881,31 @@ const ensureFeedbackListener = async () => {
             // AUTO path when the next item was preloaded. This avoids a hard
             // `PLAY` cut (and the black frame it introduces) on EOF stalls.
             // If no preload exists, advanceToNext falls back to playItemAt
-            // (explicit PLAY) automatically.
-            advanceNext(true).catch((e) => console.error(e));
+            // (explicit PLAY) automatically. The itemId enables UUID-keyed
+            // advance dedup.
+            advanceNext(true, itemId).catch((e) => console.error(e));
         });
 
         if (!tickUnlisten) {
             tickUnlisten = await listen<PlaybackTickPayload>('caspar://playback-tick', (event) => {
-                const { positionMs, durationMs } = event.payload;
+                const { positionMs, durationMs, currentUuid } = event.payload;
+                lastOscTickAtMs = Date.now();
                 updateDisplayedTime(positionMs);
                 if (durationMs > 0 && currentCasparDurationMs.value <= 0) {
                     currentCasparDurationMs.value = durationMs;
+                }
+                if (currentUuid && Date.now() - lastSnapshotAtMs >= 1000) {
+                    const item = findLiveItemById(currentUuid);
+                    savePlaybackState(currentUuid, Date.now() - positionMs, durationMs || currentCasparDurationMs.value, {
+                        itemId: item?.id,
+                        path: item?.path,
+                        trimInMs: (item as any)?.trim_in_ms,
+                        trimOutMs: (item as any)?.trim_out_ms,
+                        positionMs,
+                        updatedAt: Date.now(),
+                        channelOutputRateHz: getSettingsSnapshot().playoutProfile === 'PAL_1080P25' ? 25 : 50,
+                    });
+                    lastSnapshotAtMs = Date.now();
                 }
             });
         }
@@ -678,16 +917,31 @@ const ensureFeedbackListener = async () => {
                 // the item currently tracked by the JS queue, this is a
                 // late-arriving EOF event from a previous clip. Drop it —
                 // otherwise we'd advance a SECOND time, skipping the next item.
-                // The debounce (ADVANCE_DEBOUNCE_MS) is a second line of
-                // defense but can be beaten when the event arrives late enough.
+                // The UUID-keyed dedup is a second line of defense.
                 if (event.payload.currentUuid && currentKey && event.payload.currentUuid !== currentKey) {
                     return;
                 }
-                advanceNext(true).catch((error) => {
+                advanceNext(true, event.payload.currentUuid).catch((error) => {
                     console.error('[CasparCG] advance error', error);
                 });
                 // Acknowledge the payload reference (currentUuid == the item that ended).
                 void event.payload.currentUuid;
+            });
+        }
+
+        if (!confirmUnlisten) {
+            confirmUnlisten = await listen<{ currentUuid: string | null }>('caspar://foreground-confirmed', (event) => {
+                const uuid = event.payload?.currentUuid;
+                if (!uuid || confirmWaiters.length === 0) return;
+                const remaining: typeof confirmWaiters = [];
+                for (const waiter of confirmWaiters) {
+                    if (waiter.uuid === uuid) {
+                        waiter.resolve(true);
+                    } else {
+                        remaining.push(waiter);
+                    }
+                }
+                confirmWaiters = remaining;
             });
         }
     })().catch((error) => {
@@ -711,8 +965,88 @@ const performHandshake = async () => {
 
     // Clear in-flight preloads, guard, and duration states on reconnect
     preloadedKeys.clear();
+    preloadedFingerprints.clear();
     currentCasparDurationMs.value = 0;
     activeGuard.clear();
+
+    scheduleResumeEvaluation();
+};
+
+/// Schedule the post-reconnect crash-resume evaluation. A single timer per
+/// reconnect cycle; token-guarded so a manual stop/take during the window
+/// cancels it.
+const scheduleResumeEvaluation = () => {
+    if (resumeEvalTimer) clearTimeout(resumeEvalTimer);
+    resumeEvalToken = playToken;
+    resumeEvalTimer = setTimeout(() => {
+        resumeEvalTimer = null;
+        evaluateResume().catch((error) => {
+            console.warn('[CasparCG] Resume evaluation failed', error);
+        });
+    }, RESUME_EVAL_DELAY_MS);
+};
+
+/// Decide what to do after a transport drop + reconnect:
+/// - OSC ticks still flowing → transient blip, producer survived → do nothing.
+/// - No persisted state (clip finished / user stopped) but we were mid-queue →
+///   advance the queue normally.
+/// - Clip still within its duration → re-issue PLAY ... SEEK at crash position.
+const evaluateResume = async () => {
+    if (resumeInFlight || playToken !== resumeEvalToken) return;
+    resumeInFlight = true;
+    try {
+        const settings = useSettingsStore();
+        if (settings.autoResumeAfterRestart === false) return;
+
+        if (Date.now() - lastOscTickAtMs < RESUME_TICK_SURVIVAL_MS) {
+            console.info('[CasparCG] OSC ticks survived the transport drop — no resume needed.');
+            return;
+        }
+
+        const state = loadPlaybackState();
+        if (!state) {
+            // Persisted state was cleared (clip ended during downtime or a
+            // stop happened). If the queue is still active, let it continue.
+            if (wasPlayingOnDisconnect && currentKey != null && isCasparPlaying.value) {
+                await advanceNext(true);
+            }
+            return;
+        }
+
+        const elapsed = state.positionMs && state.updatedAt
+            ? Math.min(state.durationMs, state.positionMs + Math.max(0, Date.now() - state.updatedAt))
+            : Date.now() - state.startTimestamp;
+        if (elapsed >= state.durationMs) {
+            // The interrupted clip finished while CasparCG was down — behave
+            // as if it ended normally and start the next item.
+            console.warn('[CasparCG] Clip finished during downtime — auto-advancing to the next item.');
+            await advanceNext(true);
+            return;
+        }
+
+        const index = queuedItems.findIndex((it) => it.id === state.itemId || queueKey(it) === state.uuid);
+        if (index === -1) {
+            console.warn('[CasparCG] Interrupted item no longer in the queue — skipping resume.');
+            clearPlaybackState();
+            return;
+        }
+
+        const label = state.path || queuedItems[index]?.filename || 'the interrupted item';
+        const shouldResume = await ask(
+            `CasparCG restarted while ${label} was on air. Resume at ${(elapsed / 1000).toFixed(1)} seconds into its trimmed window?`,
+            { title: 'Playback recovery', kind: 'warning', okLabel: 'Resume', cancelLabel: 'Stop' }
+        );
+        if (!shouldResume) {
+            clearPlaybackState();
+            await casparPlayoutService.stop();
+            return;
+        }
+        console.warn(`[CasparCG] Operator approved recovery for "${label}" at ${(elapsed / 1000).toFixed(1)}s.`);
+        await casparPlayoutService.play([...queuedItems], index, elapsed);
+    } finally {
+        resumeInFlight = false;
+        wasPlayingOnDisconnect = false;
+    }
 };
 
 const runReconnectAttempt = async (foreground: boolean) => {
@@ -789,9 +1123,15 @@ const sendRawCommand = async (cmd: string) => {
     }
 };
 
-async function preloadNextItemAt(index: number, retriesLeft = 6, delayMs = 500) {
+async function preloadNextItemAt(index: number, token: number = playToken, retriesLeft = 6, delayMs = 500) {
     if (index < 0 || index >= queuedItems.length) return;
-    const item = queuedItems[index];
+    const snapshotItem = queuedItems[index];
+    if (!snapshotItem || snapshotItem.type !== 'video') return;
+
+    // Resolve the LIVE store item: the queue snapshot may carry zeroed/stale
+    // trims from before the ingestor resolution ran (Bug A). Every retry
+    // re-reads the live item so late-resolved trims are picked up.
+    const item = findLiveItemById(queueKey(snapshotItem)) ?? snapshotItem;
     if (!item || item.type !== 'video' || item.ingestorStatus === 'error') return;
 
     // If item path is not resolved yet, or status is not ready, retry with
@@ -799,11 +1139,15 @@ async function preloadNextItemAt(index: number, retriesLeft = 6, delayMs = 500) 
     // total) so late-added ingestor assets still get preloaded. Log on final
     // give-up instead of silently dropping the preload - a dropped preload
     // causes a cold-play black cut when the AUTO trigger fires unprepared.
+    // The retry is token-guarded: a manual take or new play during the
+    // backoff invalidates the pending preload (a stale LOADBG AUTO would
+    // auto-transition onto the wrong clip).
     if (!item.path || item.ingestorStatus !== 'ready') {
         if (retriesLeft > 0) {
             const nextDelay = Math.round(delayMs * 1.5);
             setTimeout(() => {
-                preloadNextItemAt(index, retriesLeft - 1, nextDelay).catch(() => {});
+                if (token !== playToken) return;
+                preloadNextItemAt(index, token, retriesLeft - 1, nextDelay).catch(() => {});
             }, delayMs);
         } else {
             console.warn(`[CasparCG] preloadNextItemAt gave up after retries for item ${item.filename || item.id}`);
@@ -818,8 +1162,20 @@ async function preloadNextItemAt(index: number, retriesLeft = 6, delayMs = 500) 
 
     try {
         const hydrated = hydratePlayoutItem(item);
-        await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video);
-        preloadedKeys.add(queueKey(item));
+        // Pre-send stale guard: the caller also checks the token after
+        // dispatch, but by then the LOADBG may already be on the wire after a
+        // newer take()/play() (Bug B). Passing the guard into dispatchLoadbg
+        // aborts the send itself.
+        const result = await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, true, () => token !== playToken);
+        if (result === null) return;
+        if (token === playToken) {
+            preloadedKeys.add(queueKey(item));
+            preloadedFingerprints.set(queueKey(item), {
+                trimInMs: hydrated.trim_in_ms,
+                trimOutMs: hydrated.trim_out_ms,
+                path: hydrated.path
+            });
+        }
     } catch (error) {
         console.warn('[CasparCG] Failed to preload next item', item.filename, error);
     }
@@ -830,8 +1186,17 @@ async function preloadNextItemAt(index: number, retriesLeft = 6, delayMs = 500) 
 /// is set — advance fires from `caspar://advance` (OSC EOF or watchdog deadline).
 async function playItemAt(index: number, token: number) {
     try {
-        const item = queuedItems[index];
-        if (!item || token !== playToken) return;
+        const snapshotItem = queuedItems[index];
+        if (!snapshotItem || token !== playToken) return;
+
+        // Prefer the LIVE store item: the snapshot may carry zeroed trims
+        // (Bug A). Falls back to the snapshot when the store no longer has it.
+        const item = findLiveItemById(queueKey(snapshotItem)) ?? snapshotItem;
+
+        // Consume the crash-resume seek offset atomically at the top so a
+        // failed dispatch below can never leak it into the next item.
+        const resumeSeekMs = pendingResumeSeekMs;
+        pendingResumeSeekMs = 0;
 
         // Skip items with error status immediately
         if (item.ingestorStatus === 'error') {
@@ -844,12 +1209,21 @@ async function playItemAt(index: number, token: number) {
 
         assertIngestorReady(item);
 
-        const key = queueKey(item);
+        // Claim the current key SYNCHRONOUSLY, before `ensureItemDurationMs`
+        // (which can take ~1s doing CLS/INFO queries). If a stale advance from
+        // the previous item's EOF fires while duration is resolving, it would
+        // otherwise see the OLD currentKey, pass the guard and take us to the
+        // wrong next item (plan §1.4).
+        currentKey = queueKey(item);
+        const key = currentKey;
         const durationMs = await ensureItemDurationMs(item);
+        // A take()/play()/advance during duration resolution invalidates this
+        // play request — abort before any side effect (plan §1.4).
+        if (token !== playToken) return;
 
-        currentKey = key;
         onAdvanceCallback?.(key);
         await casparPlayoutService.applyComplianceForItem?.(item);
+        if (token !== playToken) return;
 
         const store = useRundownStore();
 
@@ -862,6 +1236,7 @@ async function playItemAt(index: number, token: number) {
             playStartTime.value = Date.now();
             await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
             await sendRawCommand(liveCommand);
+            if (token !== playToken) return;
             isCasparPlaying.value = true;
             consecutiveSkips = 0;
             updateDisplayedTime(0);
@@ -880,7 +1255,7 @@ async function playItemAt(index: number, token: number) {
                 console.warn('[CasparCG] Failed to register live playback', e);
             });
 
-            await preloadNextItemAt(index + 1);
+            await preloadNextItemAt(index + 1, token);
             return;
         }
 
@@ -900,6 +1275,7 @@ async function playItemAt(index: number, token: number) {
                 nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');
             }
         }
+        if (token !== playToken) return;
 
         activeGuard.clear();
         playStartTime.value = Date.now();
@@ -914,13 +1290,21 @@ async function playItemAt(index: number, token: number) {
         currentCasparDurationMs.value = 0;
         store.stopPlaybackProgressTimer();
 
-        // Dispatch frame-accurate trim PLAY and register playback
-        const dispatchResult = await dispatchPlay(
+        // Dispatch frame-accurate trim PLAY and register playback. On a
+        // crash-resume the pending seek offset continues the clip where it
+        // stopped (SEEK past the trim IN point, LENGTH = remaining frames).
+        // Retried on transient failures so a metadata/connection race never
+        // skips the clip to the next item.
+        const dispatchResult = await dispatchPlayWithRetry(
             hydrated,
             PROGRAM_CHANNEL,
             CASPAR_LAYERS.video,
-            nextPath
+            nextPath,
+            resumeSeekMs,
+            token
         );
+        if (dispatchResult === null) return; // superseded by a newer take()/play()
+        if (token !== playToken) return;
 
         isCasparPlaying.value = true;
         consecutiveSkips = 0;
@@ -937,7 +1321,7 @@ async function playItemAt(index: number, token: number) {
         store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, progressStartTime);
 
         // Preload next item immediately
-        await preloadNextItemAt(index + 1);
+        await preloadNextItemAt(index + 1, token);
 
         // Late-resolve duration if still unknown and re-register the deadline.
         // Pass the initial trim duration so the refresh can skip re-registration
@@ -1012,6 +1396,11 @@ async function advanceToNext(token: number, natural: boolean) {
 
     try {
         playToken += 1;
+        // The transition runs under its own token: any take()/play()/new
+        // advance during the awaits below bumps playToken and aborts this
+        // transition (plan §1.4 — manual takes must never be clobbered by an
+        // in-flight natural advance).
+        const transitionToken = playToken;
 
         if (currentKey == null) {
             await casparPlayoutService.stop();
@@ -1020,6 +1409,15 @@ async function advanceToNext(token: number, natural: boolean) {
         }
 
         const currentIndex = queuedItems.findIndex((it) => queueKey(it) === currentKey);
+        if (currentIndex === -1) {
+            // The current item is no longer in the queue snapshot (queue was
+            // rebuilt or cleared mid-playback). Stop instead of wrapping
+            // around to queuedItems[0] — the old behavior preloaded and then
+            // played the WRONG first row when the queue context changed.
+            await casparPlayoutService.stop();
+            onAdvanceCallback?.(null);
+            return;
+        }
         const nextIndex = currentIndex + 1;
 
         if (nextIndex >= queuedItems.length) {
@@ -1030,26 +1428,48 @@ async function advanceToNext(token: number, natural: boolean) {
 
         const currentItem = queuedItems[currentIndex];
         const nextItem = queuedItems[nextIndex];
+        if (!nextItem) {
+            await casparPlayoutService.stop();
+            onAdvanceCallback?.(null);
+            return;
+        }
 
         const nextKey = nextItem ? queueKey(nextItem) : '';
+        // Prefer the LIVE store item for the next clip: the queue snapshot may
+        // carry zeroed trims, and the LOADBG that is about to fire (or already
+        // fired) was built from the live item at preload time. Hydrating both
+        // sides from the same live source makes the fingerprint check below
+        // meaningful (Bug A).
+        const liveNextItem = findLiveItemById(nextKey) ?? nextItem;
+        const liveHydratedNext = hydratePlayoutItem(liveNextItem);
+        const fingerprint = preloadedFingerprints.get(nextKey);
+        const preloadMatches =
+            !!fingerprint &&
+            fingerprint.trimInMs === liveHydratedNext.trim_in_ms &&
+            fingerprint.trimOutMs === liveHydratedNext.trim_out_ms &&
+            normBasename(fingerprint.path) === normBasename(liveNextItem.path || liveNextItem.shortPath || '');
+
         // Only take the natural (no-PLAY) path when the next clip was
-        // successfully preloaded via LOADBG AUTO. If the preload failed
-        // (ingestor not ready, path unresolved), CasparCG has nothing to
-        // auto-transition to and the screen would freeze. Falling through
-        // to playItemAt sends an explicit PLAY, which is less seamless but
-        // guaranteed to start the clip.
+        // successfully preloaded via LOADBG AUTO **with the trim the live
+        // item now carries**. If the preload failed (ingestor not ready, path
+        // unresolved) or its trim fingerprint no longer matches (trim resolved
+        // or edited after the preload), the AUTO transition would play from
+        // frame 0 / the wrong window — fall through to playItemAt, which sends
+        // an explicit PLAY with the correct SEEK/LENGTH.
         const isNaturalVideoTransition =
             natural &&
             currentItem &&
             currentItem.type === 'video' &&
             nextItem &&
             nextItem.type === 'video' &&
-            preloadedKeys.has(nextKey);
+            preloadedKeys.has(nextKey) &&
+            preloadMatches;
 
         if (isNaturalVideoTransition && nextItem) {
             preloadedKeys.delete(nextKey);
-            if (nextItem.ingestorStatus === 'error') {
-                console.warn(`[CasparCG] Skipping item ${nextItem.filename} on natural advance because it is flagged with error status.`);
+            preloadedFingerprints.delete(nextKey);
+            if (liveNextItem.ingestorStatus === 'error') {
+                console.warn(`[CasparCG] Skipping item ${liveNextItem.filename} on natural advance because it is flagged with error status.`);
                 setTimeout(() => {
                     advanceNext(false).catch(() => {});
                 }, 100);
@@ -1057,18 +1477,19 @@ async function advanceToNext(token: number, natural: boolean) {
             }
 
             try {
-                assertIngestorReady(nextItem);
-                const key = queueKey(nextItem);
+                assertIngestorReady(liveNextItem);
+                const key = queueKey(liveNextItem);
 
                 // Resolve duration before hydrating so the hydrator doesn't
                 // fabricate a fake clip for an unresolved item. This mirrors
                 // playItemAt (which calls ensureItemDurationMs). Without it, a
                 // next item with duration_ms=0 hydrates to a 0/2000ms sentinel
                 // and plays as a 2-second phantom clip.
-                await ensureItemDurationMs(nextItem);
+                await ensureItemDurationMs(liveNextItem);
+                if (transitionToken !== playToken) return;
 
-                // Hydrate the next item
-                const hydrated = hydratePlayoutItem(nextItem);
+                // Hydrate the next item (from the LIVE item — freshest trims)
+                const hydrated = hydratePlayoutItem(liveNextItem);
 
                 // Call compute_frame_trim to get frame-accurate values
                 const trim = await invoke<FrameTrimResult>('compute_frame_trim', {
@@ -1076,6 +1497,7 @@ async function advanceToNext(token: number, natural: boolean) {
                     trimInMs: hydrated.trim_in_ms,
                     trimOutMs: hydrated.trim_out_ms
                 });
+                if (transitionToken !== playToken) return;
 
                 // Calculate precise expected duration. OSC position is
                 // relative to the trim start (the producer is SEEK'd), so
@@ -1090,7 +1512,8 @@ async function advanceToNext(token: number, natural: boolean) {
                 const store = useRundownStore();
                 store.stopPlaybackProgressTimer();
                 onAdvanceCallback?.(key);
-                await casparPlayoutService.applyComplianceForItem?.(nextItem);
+                await casparPlayoutService.applyComplianceForItem?.(liveNextItem);
+                if (transitionToken !== playToken) return;
 
                 updateDisplayedTime(0);
                 currentCasparDurationMs.value = durationMs;
@@ -1105,6 +1528,7 @@ async function advanceToNext(token: number, natural: boolean) {
 
                 // Prepare paths for registration
                 const nextItemPath = (await prepareCasparMediaPath(hydrated.path)).replace(/\\/g, '/').replace(/"/g, '');
+                if (transitionToken !== playToken) return;
 
                 const nextNextItem = queuedItems[nextIndex + 1];
                 let nextNextPath: string | null = null;
@@ -1121,6 +1545,7 @@ async function advanceToNext(token: number, natural: boolean) {
                         nextNextPath = nextNextRawPath.replace(/\\/g, '/').replace(/"/g, '');
                     }
                 }
+                if (transitionToken !== playToken) return;
 
                 // Arms the Rust state machine BEFORE the JS progress timer:
                 // if caspar_register_playback fails, we won't have a running
@@ -1137,17 +1562,30 @@ async function advanceToNext(token: number, natural: boolean) {
                 }).catch((e: any) => {
                     console.warn('[CasparCG] Failed to register playback on natural advance', e);
                 });
+                if (transitionToken !== playToken) return;
 
                 // Register with our end-guard and start the progress timer
                 // ONLY after the Rust watchdog is armed.
                 registerPlayStart(hydrated.id, durationMs);
                 store.startPlaybackProgressTimer(hydrated.id, durationMs, progressStartTime);
 
-                await preloadNextItemAt(nextIndex + 1);
+                await preloadNextItemAt(nextIndex + 1, transitionToken);
+
+                // Phase 4: fire-and-forget foreground verification. The Rust
+                // state machine emits `caspar://foreground-confirmed` once OSC
+                // proves the new clip is on air; on timeout we verify via INFO
+                // and only hard-PLAY when the on-air clip is provably wrong.
+                void confirmAndRepairForeground(
+                    key,
+                    hydrated,
+                    nextItemPath,
+                    currentItem.path || currentItem.shortPath || '',
+                    transitionToken
+                );
 
                 setTimeout(() => {
                     const currentPlayToken = playToken;
-                    refreshCurrentProducerDuration(nextItem, key, currentPlayToken, durationMs).catch((error: any) => {
+                    refreshCurrentProducerDuration(liveNextItem, key, currentPlayToken, durationMs).catch((error: any) => {
                         console.warn('[CasparCG] Failed to refresh active producer duration', error);
                     });
                 }, 250);
@@ -1155,7 +1593,7 @@ async function advanceToNext(token: number, natural: boolean) {
                 console.error('[CasparCG] advanceToNext natural error', error);
                 const store = useRundownStore();
                 store.stopPlaybackProgressTimer();
-                store.updateItem(nextItem.id, { ingestorStatus: 'error' });
+                store.updateItem(liveNextItem.id, { ingestorStatus: 'error' });
                 setTimeout(() => {
                     advanceNext(false).catch(() => {});
                 }, 100);
@@ -1168,15 +1606,25 @@ async function advanceToNext(token: number, natural: boolean) {
     }
 }
 
-export async function advanceNext(natural = false) {
-    const now = Date.now();
+export async function advanceNext(natural = false, sourceUuid?: string | null) {
     if (natural) {
-        if (now - lastAdvanceTime < ADVANCE_DEBOUNCE_MS) {
-            console.warn('[CasparCG] Ignoring duplicate natural advanceNext request (debounced).');
+        // UUID-keyed dedup: drop only a duplicate natural advance for the SAME
+        // item inside the window (both the endGuard and the caspar://advance
+        // listener can fire for one transition). Advances for different items
+        // are NEVER dropped — the old time-window debounce froze the rundown
+        // when a short clip's legitimate advance fell inside the window while
+        // Rust had already latched advance_fired (plan §1.4).
+        if (
+            sourceUuid &&
+            sourceUuid === lastAdvanceUuid &&
+            Date.now() - lastAdvanceAt < ADVANCE_DEDUP_WINDOW_MS
+        ) {
+            console.warn('[CasparCG] Ignoring duplicate natural advance for the same item (deduped).');
             return;
         }
+        lastAdvanceUuid = sourceUuid ?? null;
+        lastAdvanceAt = Date.now();
     }
-    lastAdvanceTime = now;
 
     const token = playToken;
     await advanceToNext(token, natural);
@@ -1208,9 +1656,32 @@ export const casparPlayoutService: PlayoutService = {
         await disposeFeedbackListener();
     },
 
-    async play(items, startIndex) {
-        // Synchronously reset advance debounce window
-        lastAdvanceTime = Date.now();
+    async play(items, startIndex, resumeSeekMs = 0) {
+        // Synchronously take control BEFORE any await: bump the play token at
+        // the top so an in-flight take()/advance cannot clobber this play
+        // request, and open the advance dedup window for a fresh run
+        // (plan §1.4).
+        playToken += 1;
+        lastAdvanceUuid = null;
+        lastAdvanceAt = 0;
+        wasPlayingOnDisconnect = false;
+        if (resumeEvalTimer) clearTimeout(resumeEvalTimer);
+        resumeEvalTimer = null;
+
+        // Crash-resume seek offset, consumed by playItemAt's dispatch.
+        pendingResumeSeekMs = resumeSeekMs > 0 ? Math.round(resumeSeekMs) : 0;
+
+        // Claim the new current item SYNCHRONOUSLY, before any await. The
+        // stale-advance guard in the `caspar://advance` listener drops events
+        // whose uuid does not match `currentKey`; if we left the OLD key in
+        // place across the connect()/ensureFeedbackListener() awaits (and the
+        // duration-resolution window inside playItemAt), the previous clip's
+        // EOF advance could fire during the dispatch, advance from the OLD
+        // item's position and clobber this manual play with the old item's
+        // successor ("plays a file above the running one → skips to next").
+        currentKey = startIndex >= 0 && startIndex < items.length
+            ? queueKey(items[startIndex]!)
+            : null;
 
         await ensureFeedbackListener();
         if (!isCasparConnected.value) {
@@ -1219,7 +1690,7 @@ export const casparPlayoutService: PlayoutService = {
 
         queuedItems = items.map((i: any) => ({ ...i }));
         preloadedKeys.clear();
-        playToken += 1;
+        preloadedFingerprints.clear();
         playStartTime.value = Date.now();
         playStartIndex.value = startIndex;
 
@@ -1237,6 +1708,20 @@ export const casparPlayoutService: PlayoutService = {
         isCasparPlaying.value = false;
         // Tell Rust to suppress the watchdog/EOF advance while paused.
         await invoke('caspar_set_playback_paused', { paused: true }).catch(() => {});
+        const snapshot = loadPlaybackState();
+        if (snapshot) {
+            savePlaybackState(snapshot.uuid, Date.now() - currentCasparMs.value, snapshot.durationMs, {
+                itemId: snapshot.itemId,
+                playlistId: snapshot.playlistId,
+                path: snapshot.path,
+                trimInMs: snapshot.trimInMs,
+                trimOutMs: snapshot.trimOutMs,
+                positionMs: currentCasparMs.value,
+                updatedAt: Date.now(),
+                paused: true,
+                channelOutputRateHz: snapshot.channelOutputRateHz,
+            });
+        }
     },
 
     async stop() {
@@ -1245,9 +1730,14 @@ export const casparPlayoutService: PlayoutService = {
         currentCasparDurationMs.value = 0;
         currentKey = null;
         preloadedKeys.clear();
+        preloadedFingerprints.clear();
         updateDisplayedTime(0);
         timelineTimers.forEach(clearTimeout);
         timelineTimers = [];
+        pendingResumeSeekMs = 0;
+        wasPlayingOnDisconnect = false;
+        if (resumeEvalTimer) clearTimeout(resumeEvalTimer);
+        resumeEvalTimer = null;
         if (isCasparConnected.value) {
             // Targeted clears first (clean logging), then the nuclear fallback.
             await this.clearCompliance?.();
@@ -1291,9 +1781,14 @@ export const casparPlayoutService: PlayoutService = {
     },
 
     async take() {
-        // Synchronously reset advance debounce window and play start time
-        lastAdvanceTime = Date.now();
+        // Synchronously reset advance dedup and play start time
+        lastAdvanceUuid = null;
+        lastAdvanceAt = 0;
         playStartTime.value = Date.now();
+        pendingResumeSeekMs = 0;
+        wasPlayingOnDisconnect = false;
+        if (resumeEvalTimer) clearTimeout(resumeEvalTimer);
+        resumeEvalTimer = null;
 
         if (!isCasparConnected.value) {
             await this.connect();
@@ -1302,8 +1797,12 @@ export const casparPlayoutService: PlayoutService = {
         const item = store.selectedItem;
         if (!item) return;
 
+        manualTakeFailure.value = null;
+
         playToken += 1; // Flush/invalidate previous preloads or natural advance tokens
+        const token = playToken;
         preloadedKeys.clear();
+        preloadedFingerprints.clear();
 
         try {
             if (item.ingestorStatus === 'error') {
@@ -1312,6 +1811,20 @@ export const casparPlayoutService: PlayoutService = {
 
             const key = queueKey(item);
             currentKey = key;
+
+            // The clicked row may not be in the queue snapshot (queue built
+            // from another playlist, or stale). Rebuild the queue from the
+            // live playlist so the preload and the next natural advance
+            // target the correct rows — the old behavior left index -1 which
+            // preloaded queuedItems[0], i.e. the WRONG clip (Bug B).
+            let queueIndex = queuedItems.findIndex((it) => queueKey(it) === key);
+            if (queueIndex === -1) {
+                const fresh = store.getPlayableItems() as unknown as PlayoutItem[];
+                if (fresh.some((it) => it.id === key)) {
+                    queuedItems = fresh.map((i: any) => ({ ...i }));
+                    queueIndex = queuedItems.findIndex((it) => queueKey(it) === key);
+                }
+            }
 
             if (item.type === 'live') {
                 const liveCommand = buildLiveCommand(item.path);
@@ -1322,6 +1835,7 @@ export const casparPlayoutService: PlayoutService = {
                 await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
                 await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
                 await sendRawCommand(liveCommand);
+                if (token !== playToken) return;
                 isCasparPlaying.value = true;
                 updateDisplayedTime(0);
                 
@@ -1339,10 +1853,9 @@ export const casparPlayoutService: PlayoutService = {
                     nextPath: null,
                     trimInMs: 0
                 }).catch(() => {});
-                
-                const index = queuedItems.findIndex(it => queueKey(it) === key);
+                const index = queueIndex;
                 if (index !== -1) {
-                    await preloadNextItemAt(index + 1);
+                    await preloadNextItemAt(index + 1, token);
                 }
                 return;
             }
@@ -1350,47 +1863,76 @@ export const casparPlayoutService: PlayoutService = {
             // For video: force a hard PLAY via the frame-accurate dispatch path
             const hydrated = hydratePlayoutItem(item);
 
-            const index = queuedItems.findIndex(it => queueKey(it) === key);
-
             // STRICT STATE RESET BEFORE THE TAKE
             updateDisplayedTime(0);
             currentCasparDurationMs.value = 0;
             store.stopPlaybackProgressTimer();
 
-            // Pass null for nextPath — preparing it blocks the PLAY command.
-            // The preload runs right after dispatch anyway.
-            const dispatchResult = await dispatchPlay(
+            // Register the NEXT item's path with the Rust state machine so the
+            // OSC path-switch trigger can fire when the preload comes to the
+            // foreground (plan §1/§3). dispatchPlay no longer blocks on
+            // nextPath — it only forwards it to caspar_register_playback.
+            // Best-effort: an unresolved next item yields null, which simply
+            // leaves the path-switch trigger unarmed for this transition.
+            const nextQueueItem = queueIndex !== -1 ? queuedItems[queueIndex + 1] : null;
+            let nextPath: string | null = null;
+            if (nextQueueItem && nextQueueItem.type === 'video') {
+                const nextRawPath = nextQueueItem.path || nextQueueItem.shortPath || '';
+                if (nextRawPath) {
+                    try {
+                        nextPath = (await invoke<string>('prepare_caspar_media_path', {
+                            path: nextRawPath,
+                            mediaRoot: getSettingsSnapshot().localMediaPath || ''
+                        })).replace(/\\/g, '/').replace(/"/g, '');
+                    } catch (e) {
+                        nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');
+                    }
+                }
+            }
+
+            const dispatchResult = await dispatchPlayWithRetry(
                 hydrated,
                 PROGRAM_CHANNEL,
                 CASPAR_LAYERS.video,
-                null
+                nextPath,
+                0,
+                token
             );
+            if (dispatchResult === null || token !== playToken) return;
 
             isCasparPlaying.value = true;
             currentCasparDurationMs.value = dispatchResult.durationMs;
+            // Snapshot wall-clock AFTER the async dispatch (verify + trim +
+            // path + register + PLAY round-trips), so the first countdown tick
+            // doesn't include the 50-300ms IPC gap — matches playItemAt and
+            // the natural advance path. playStartTime.value (set at fn top)
+            // stays for ETA computation.
+            const progressStartTime = Date.now();
             registerPlayStart(hydrated.id, dispatchResult.durationMs);
-            store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, playStartTime.value);
+            store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, progressStartTime);
             updateDisplayedTime(0);
 
             onAdvanceCallback?.(key); // Notify UI progression immediately!
 
-            if (index !== -1) {
-                await preloadNextItemAt(index + 1);
+            if (queueIndex !== -1) {
+                await preloadNextItemAt(queueIndex + 1, token);
             }
         } catch (error: any) {
             console.error('[CasparCG] take error', error);
-            store.updateItem(item.id, { ingestorStatus: 'error' });
+            const failure = classifyPlayoutFailure(error);
+            if (shouldFlagItemFailure(failure)) {
+                store.updateItem(item.id, { ingestorStatus: 'error' });
+            }
             
             invoke('push_diagnostic_log', {
                 level: 'error',
                 scope: 'caspar-playout',
-                message: `Take error for ${item.filename}: ${error?.message || error}`
+                message: `Manual take ${failure.kind} failure for ${item.filename}: ${failure.message}`
             }).catch(() => {});
-
-            // Auto advance on failure!
-            setTimeout(() => {
-                advanceNext(false).catch(() => {});
-            }, 100);
+            // A manual operator action must never unexpectedly take the next
+            // row. Preserve program output and give the UI an explicit retry,
+            // skip, or cut-to-live decision.
+            manualTakeFailure.value = { itemId: item.id, filename: item.filename, message: failure.message };
         }
     },
 

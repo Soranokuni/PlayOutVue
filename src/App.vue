@@ -10,6 +10,7 @@ import SettingsModal from './components/SettingsModal.vue';
 import PreviewMonitor from './components/PreviewMonitor.vue';
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying } from './services/playout';
+import { advanceNext, manualTakeFailure } from './services/caspar';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
@@ -267,6 +268,17 @@ const toggleSdi = async () => {
 
 const cutToLive = async () => {
   await getActivePlayoutService().cutToLive?.();
+  manualTakeFailure.value = null;
+};
+
+const retryFailedTake = async () => {
+  manualTakeFailure.value = null;
+  await getActivePlayoutService().take?.();
+};
+
+const skipFailedTake = async () => {
+  manualTakeFailure.value = null;
+  await advanceNext(false);
 };
 onMounted(async () => {
   window.addEventListener('pointerdown', handleGlobalPointerDown);
@@ -389,6 +401,13 @@ onUnmounted(() => {
         <button v-if="isPlayoutConnected" class="ctrl-btn btn-live-now" @click="cutToLive" title="Cut to Live Source">
           🔴 LIVE NOW
         </button>
+      </div>
+
+      <div v-if="manualTakeFailure" class="take-failure" role="alert">
+        <span>TAKE HELD: {{ manualTakeFailure.filename }}</span>
+        <button class="ctrl-btn" @click="retryFailedTake">Retry</button>
+        <button class="ctrl-btn" @click="skipFailedTake">Skip</button>
+        <button class="ctrl-btn btn-live-now" @click="cutToLive">Live</button>
       </div>
 
       <div class="ctrl-divider"></div>
@@ -563,6 +582,7 @@ onUnmounted(() => {
 }
 .ctrl-divider    { width:1px; height:26px; background:rgba(255,255,255,0.1); flex-shrink:0; }
 .ctrl-play-wrap  { flex:0 0 auto; }
+.take-failure { display:flex; align-items:center; gap:5px; color:#fecaca; font-size:0.7rem; white-space:nowrap; }
 
 .ctrl-btn {
   background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
