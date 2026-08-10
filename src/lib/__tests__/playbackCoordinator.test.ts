@@ -159,4 +159,38 @@ describe('PlaybackCoordinator (Race Matrix & Identity Playout)', () => {
     const confirmB = coordinator.confirmTake(takeB!.intent.takeId, genBeforeStop, 1, 10, rundown);
     expect(confirmB).toBeNull();
   });
+
+  it('9. Same-source subclip direct-above regression: Subclip B sharing media path with C takes cleanly above C', () => {
+    // Both items point to the same physical file, but have distinct item IDs and trims
+    const subclipRundown: RundownItemRef[] = [
+      { id: 'subclip-1', enabled: true },
+      { id: 'subclip-2', enabled: true },
+    ];
+
+    // Put subclip-2 on air
+    const take2 = coordinator.initiateTake({ targetItemId: 'subclip-2', rundownRevision: 1, source: 'manual' }, subclipRundown);
+    const confirm2 = coordinator.confirmTake(take2!.intent.takeId, take2!.intent.playGeneration, 1, 10, subclipRundown);
+    expect(coordinator.onAirItemId).toBe('subclip-2');
+
+    // Operator takes subclip-1 (direct above, same source file)
+    const take1 = coordinator.initiateTake({ targetItemId: 'subclip-1', rundownRevision: 1, source: 'manual' }, subclipRundown);
+    expect(take1!.intent.playGeneration).toBe(take2!.intent.playGeneration + 1);
+
+    const confirm1 = coordinator.confirmTake(take1!.intent.takeId, take1!.intent.playGeneration, 1, 10, subclipRundown);
+    expect(confirm1).not.toBeNull();
+    expect(coordinator.onAirItemId).toBe('subclip-1');
+
+    // OSC /file/time packet from subclip-2 with old generation 1 arrives
+    const staleAdvance = coordinator.evaluateAutoAdvance(
+      {
+        generation: take2!.intent.playGeneration,
+        playbackInstanceId: confirm2!.playbackInstanceId,
+        itemId: 'subclip-2',
+      },
+      subclipRundown
+    );
+
+    expect(staleAdvance).toBeNull();
+    expect(coordinator.onAirItemId).toBe('subclip-1');
+  });
 });
