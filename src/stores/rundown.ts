@@ -56,6 +56,13 @@ export interface RundownItem {
     warnings?: string[];
 }
 
+export interface TrimWarningNotice {
+    filename: string;
+    deltaSeconds: number;
+    updatedCount: number;
+    timestamp: number;
+}
+
 export interface RundownPlaylist {
     id: string;
     name: string;
@@ -950,6 +957,76 @@ export const useRundownStore = defineStore('rundown', () => {
         triggerRef(playlists);
     };
 
+    const lastTrimWarning = ref<TrimWarningNotice | null>(null);
+    const dismissTrimWarning = () => { lastTrimWarning.value = null; };
+
+    const updateAssetTrim = (
+        identifier: { id?: string; uuid?: string; path?: string },
+        inMs: number,
+        outMs: number
+    ) => {
+        let totalDeltaMs = 0;
+        let affectedFilename = '';
+        let updatedCount = 0;
+
+        for (const playlist of playlists.value) {
+            const newItems = [...playlist.items];
+            let playlistModified = false;
+
+            for (let i = 0; i < newItems.length; i++) {
+                const item = newItems[i]!;
+                const matchById = identifier.id && item.id === identifier.id;
+                const matchByUuid = identifier.uuid && (item.playoutvueId === identifier.uuid || item.id === identifier.uuid);
+                const matchByPath = identifier.path && (item.path === identifier.path || item.current_path === identifier.path || item.shortPath === identifier.path);
+
+                if (matchById || matchByUuid || matchByPath) {
+                    const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
+                    const oldInMs = item.trim_in_ms ?? item.inPoint ?? 0;
+                    const oldOutMs = item.trim_out_ms ?? (item.outPoint > 0 ? item.outPoint : totalMs);
+                    const oldDurationMs = (oldOutMs > oldInMs && oldInMs >= 0) ? (oldOutMs - oldInMs) : totalMs;
+
+                    const newInMs = Math.max(0, Math.round(inMs));
+                    const newOutMs = Math.max(newInMs, Math.round(outMs));
+                    const newDurationMs = newOutMs - newInMs;
+
+                    const deltaMs = newDurationMs - oldDurationMs;
+                    totalDeltaMs += deltaMs;
+                    affectedFilename = item.filename || item.display_name || 'Asset';
+                    updatedCount++;
+
+                    newItems[i] = {
+                        ...item,
+                        inPoint: newInMs,
+                        outPoint: newOutMs,
+                        trim_in_ms: newInMs,
+                        trim_out_ms: newOutMs,
+                        plannedDuration: newDurationMs / 1000,
+                    };
+                    playlistModified = true;
+                }
+            }
+
+            if (playlistModified) {
+                playlist.items = newItems;
+            }
+        }
+
+        if (updatedCount > 0) {
+            triggerRef(playlists);
+            updateTrigger.value += 1;
+
+            const deltaSeconds = totalDeltaMs / 1000;
+            if (Math.abs(deltaSeconds) >= 0.1) {
+                lastTrimWarning.value = {
+                    filename: affectedFilename,
+                    deltaSeconds,
+                    updatedCount,
+                    timestamp: Date.now()
+                };
+            }
+        }
+    };
+
     const clearRundown = () => {
         const playlist = currentPlaylist.value;
         if (!playlist) return;
@@ -1374,8 +1451,7 @@ export const useRundownStore = defineStore('rundown', () => {
                 if (currentIdx >= 0) {
                     let bestDistance = Infinity;
                     for (const match of matches) {
-                        if (match.idx <= currentIdx) continue;
-                        const distance = match.idx - currentIdx;
+                        const distance = Math.abs(match.idx - currentIdx);
                         if (distance < bestDistance) {
                             bestDistance = distance;
                             bestMatch = match;
@@ -1758,7 +1834,10 @@ export const useRundownStore = defineStore('rundown', () => {
         activeItemsETAs,
         nowDisplayTime,
         nowDisplayDay,
-        updateItemMetadata
+        updateItemMetadata,
+        lastTrimWarning,
+        dismissTrimWarning,
+        updateAssetTrim
     };
 }, {
     persist: true

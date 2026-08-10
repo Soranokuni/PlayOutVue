@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import Sortable from 'sortablejs';
@@ -461,7 +461,7 @@ const ensureSelectedRowVisible = (behavior: ScrollBehavior = 'auto') => {
   row?.scrollIntoView({ block: 'nearest', behavior });
 };
 
-const moveSelection = (direction: -1 | 1) => {
+const moveSelectionDelta = (delta: number) => {
   const items = store.activeItems;
   if (!items.length) return;
 
@@ -469,14 +469,23 @@ const moveSelection = (direction: -1 | 1) => {
     ? items.findIndex((item) => item.id === store.selectedItemId)
     : -1;
 
-  const nextIndex = currentIndex === -1
-    ? (direction > 0 ? 0 : items.length - 1)
-    : Math.max(0, Math.min(items.length - 1, currentIndex + direction));
+  let nextIndex: number;
+  if (currentIndex === -1) {
+    nextIndex = delta > 0 ? 0 : items.length - 1;
+  } else {
+    nextIndex = Math.max(0, Math.min(items.length - 1, currentIndex + delta));
+  }
 
-  if (nextIndex === currentIndex || !items[nextIndex]) return;
+  if (!items[nextIndex]) return;
 
-  store.selectedItemId = items[nextIndex].id;
-  ensureSelectedRowVisible();
+  store.selectedItemId = items[nextIndex]!.id;
+  nextTick(() => {
+    ensureSelectedRowVisible('auto');
+  });
+};
+
+const moveSelection = (direction: -1 | 1) => {
+  moveSelectionDelta(direction);
 };
 
 const createPlaylistTab = () => {
@@ -528,10 +537,43 @@ const handleKey = (event: KeyboardEvent) => {
     return;
   }
 
-  if (!event.ctrlKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-    event.preventDefault();
-    moveSelection(event.key === 'ArrowUp' ? -1 : 1);
-    return;
+  if (!event.ctrlKey && !event.shiftKey) {
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveSelectionDelta(-1);
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveSelectionDelta(1);
+      return;
+    }
+    if (event.key === 'PageUp') {
+      event.preventDefault();
+      moveSelectionDelta(-10);
+      return;
+    }
+    if (event.key === 'PageDown') {
+      event.preventDefault();
+      moveSelectionDelta(10);
+      return;
+    }
+    if (event.key === 'Home') {
+      event.preventDefault();
+      if (items.length > 0) {
+        store.selectedItemId = items[0]!.id;
+        nextTick(() => ensureSelectedRowVisible('auto'));
+      }
+      return;
+    }
+    if (event.key === 'End') {
+      event.preventDefault();
+      if (items.length > 0) {
+        store.selectedItemId = items[items.length - 1]!.id;
+        nextTick(() => ensureSelectedRowVisible('auto'));
+      }
+      return;
+    }
   }
 
   if (event.shiftKey && event.key === 'ArrowDown') {
@@ -802,6 +844,19 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Trim Duration Warning Banner -->
+    <div v-if="store.lastTrimWarning" class="trim-warning-banner" role="status">
+      <span class="tw-icon">⚠️</span>
+      <span class="tw-msg">
+        Duration updated for <strong>{{ store.lastTrimWarning.filename }}</strong>: 
+        Playlist total time adjusted by 
+        <span :class="store.lastTrimWarning.deltaSeconds >= 0 ? 'tw-pos' : 'tw-neg'">
+          {{ store.lastTrimWarning.deltaSeconds >= 0 ? '+' : '' }}{{ store.lastTrimWarning.deltaSeconds.toFixed(1) }}s
+        </span>.
+      </span>
+      <button class="tw-dismiss" @click="store.dismissTrimWarning()" title="Dismiss warning">×</button>
+    </div>
+
     <div class="playlist-tabs-row">
       <button
         v-for="playlist in store.playlists"
@@ -933,6 +988,22 @@ onUnmounted(() => {
   background: var(--bg-secondary);
   display:flex; justify-content:space-between; align-items:center; flex-shrink:0;
 }
+.trim-warning-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; font-size: 0.78rem; color: #fef08a;
+  background: linear-gradient(90deg, rgba(234, 179, 8, 0.25) 0%, rgba(202, 138, 4, 0.15) 100%);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.4);
+  flex-shrink: 0; animation: fadeIn 0.2s ease-out;
+}
+.tw-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tw-pos { color: #4ade80; font-weight: 700; }
+.tw-neg { color: #f87171; font-weight: 700; }
+.tw-dismiss {
+  background: transparent; border: none; color: #fef08a;
+  font-size: 1.1rem; cursor: pointer; padding: 0 4px; border-radius: 3px;
+  line-height: 1;
+}
+.tw-dismiss:hover { background: rgba(255, 255, 255, 0.15); }
 .clock-display {
   font-family:'Courier New',monospace; font-size:1.2rem; font-weight:700;
   letter-spacing:1.5px; color:var(--text-primary); text-shadow:0 0 10px var(--glass-border);

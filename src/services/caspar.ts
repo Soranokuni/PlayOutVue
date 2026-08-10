@@ -1166,7 +1166,7 @@ async function preloadNextItemAt(index: number, token: number = playToken, retri
         // dispatch, but by then the LOADBG may already be on the wire after a
         // newer take()/play() (Bug B). Passing the guard into dispatchLoadbg
         // aborts the send itself.
-        const result = await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, true, () => token !== playToken);
+        const result = await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, false, () => token !== playToken);
         if (result === null) return;
         if (token === playToken) {
             preloadedKeys.add(queueKey(item));
@@ -1184,7 +1184,7 @@ async function preloadNextItemAt(index: number, token: number = playToken, retri
 /// Play a single queued item by its array index. Registers it with the Rust
 /// state machine (uuid + duration) so Rust owns the advance. No JS advance timer
 /// is set — advance fires from `caspar://advance` (OSC EOF or watchdog deadline).
-async function playItemAt(index: number, token: number) {
+async function playItemAt(index: number, token: number, isManual: boolean = false) {
     try {
         const snapshotItem = queuedItems[index];
         if (!snapshotItem || token !== playToken) return;
@@ -1341,18 +1341,23 @@ async function playItemAt(index: number, token: number) {
     } catch (error: any) {
         console.error('[CasparCG] playItemAt error', error);
         
-        // Mark the rundown item visually as broken/missing
+        const failure = classifyPlayoutFailure(error);
         const store = useRundownStore();
         const item = queuedItems[index];
-        if (item) {
+        if (item && shouldFlagItemFailure(failure)) {
             store.updateItem(item.id, { ingestorStatus: 'error' });
         }
 
         invoke('push_diagnostic_log', {
             level: 'error',
             scope: 'caspar-playout',
-            message: `Playout error at index ${index} (${item?.filename || 'unknown'}): ${error?.message || error}`
+            message: `Playout error at index ${index} (${item?.filename || 'unknown'}): ${failure.message}`
         }).catch(() => {});
+
+        if (isManual && item) {
+            manualTakeFailure.value = { itemId: item.id, filename: item.filename, message: failure.message };
+            return;
+        }
 
         consecutiveSkips += 1;
         if (consecutiveSkips >= MAX_CONSECUTIVE_SKIPS) {
@@ -1369,7 +1374,7 @@ async function playItemAt(index: number, token: number) {
             return;
         }
 
-        // Automatically trigger advanceNext(false) to skip to the next playable clip!
+        // Automatically trigger advanceNext(false) only for natural advance failures!
         setTimeout(() => {
             advanceNext(false).catch(err => {
                 console.error('[CasparCG] auto skip failed', err);
@@ -1699,7 +1704,7 @@ export const casparPlayoutService: PlayoutService = {
             return;
         }
 
-        await playItemAt(startIndex, playToken);
+        await playItemAt(startIndex, playToken, true);
     },
 
     async pause() {
