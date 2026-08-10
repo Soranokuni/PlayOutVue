@@ -10,6 +10,9 @@ import { dispatchPlay, dispatchLoadbg, computeDurationMsFromTrim, type FrameTrim
 import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
+import { PlaybackCoordinator } from '../lib/playbackCoordinator';
+
+export const playbackCoordinator = new PlaybackCoordinator();
 
 export const playStartTime = ref(0);
 export const playStartIndex = ref(0);
@@ -1804,11 +1807,16 @@ export const casparPlayoutService: PlayoutService = {
 
         manualTakeFailure.value = null;
 
+        const takeResult = playbackCoordinator.initiateTake(
+            { targetItemId: item.id, rundownRevision: (store as any).rundownRevision || 0, source: 'manual' },
+            store.getPlayableItems() as any
+        );
+
         playToken += 1; // Flush/invalidate previous preloads or natural advance tokens
         const token = playToken;
         preloadedKeys.clear();
         preloadedFingerprints.clear();
-
+        
         try {
             if (item.ingestorStatus === 'error') {
                 throw new Error(`Cannot play item "${item.filename}" because it has an error status.`);
@@ -1904,6 +1912,16 @@ export const casparPlayoutService: PlayoutService = {
                 token
             );
             if (dispatchResult === null || token !== playToken) return;
+
+            if (takeResult) {
+                playbackCoordinator.confirmTake(
+                    takeResult.intent.takeId,
+                    takeResult.intent.playGeneration,
+                    PROGRAM_CHANNEL,
+                    CASPAR_LAYERS.video,
+                    store.getPlayableItems() as any
+                );
+            }
 
             isCasparPlaying.value = true;
             currentCasparDurationMs.value = dispatchResult.durationMs;
