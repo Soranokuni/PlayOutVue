@@ -14,6 +14,7 @@ export interface FrameTrimResult {
     out_frame: number;
     duration_frames: number;
     fps_rational: string;
+    start_frame_degenerate?: boolean;
 }
 
 export interface PlaybackReadiness {
@@ -121,7 +122,8 @@ export async function dispatchPlay(
     layer: number,
     nextPath: string | null = null,
     resumeSeekMs: number = 0,
-    isStale?: () => boolean
+    isStale?: () => boolean,
+    intent?: { playGeneration: number; takeId: string; rundownItemId?: string; trimRevision?: number }
 ): Promise<{ durationMs: number; expectedOutMs: number } | null> {
     // 0. Pre-flight: verify file exists, has metadata, and passed QC
     const readiness = await verifyPlaybackReady(item.path);
@@ -141,12 +143,7 @@ export async function dispatchPlay(
         preparePath(item.path)
     ]);
 
-    // NEVER silently play a trimmed clip from frame 0. When the trim in-point
-    // exceeds the physical file duration, Rust clamps it to 0 and the SEEK
-    // would be dropped — the "plays from the start of the file" bug. Surface
-    // a hard, retry-proof error instead so the item is flagged, not silently
-    // played from the wrong position.
-    if ((item.trim_in_ms || 0) > 100 && trim.in_frame === 0) {
+    if (trim.start_frame_degenerate) {
         throw new Error(
             `Degenerate trim for "${item.path}": in-point ${item.trim_in_ms}ms exceeds the file duration, ` +
             `so playback would start from frame 0. Adjust the trim or re-import the subclip.`
@@ -203,17 +200,18 @@ export async function dispatchPlay(
         expectedOutPointMs: expectedOutMs,
         currentPath: formattedPath,
         nextPath,
-        trimInMs: (item.trim_in_ms || 0) + (resumeSeekMs > 0 ? resumeSeekMs : 0)
+        trimInMs: (item.trim_in_ms || 0) + (resumeSeekMs > 0 ? resumeSeekMs : 0),
+        playGeneration: intent?.playGeneration,
+        takeId: intent?.takeId,
+        rundownItemId: intent?.rundownItemId || item.id,
+        playbackInstanceId: undefined,
+        trimRevision: intent?.trimRevision || 0,
+        trimOutMs: item.trim_out_ms || (durationMs > 0 ? durationMs : undefined)
     });
     if (isStale?.()) {
         await invoke('caspar_clear_playback_if_uuid', { uuid: item.id }).catch(() => {});
         return null;
     }
-
-    // 5. Send PLAY command (state machine is already armed for this item).
-    // SEEK and LENGTH are appended independently by the pure builder: a stale
-    // IN past EOF drops the SEEK (clip starts from 0), and a valid OUT limit
-    // still emits LENGTH to stop at the right point. When neither is valid, a
     // clean PLAY runs the whole file.
     const cmd = buildPlayCommand(channel, layer, formattedPath, fields);
     await invoke('caspar_send_command', { cmd });

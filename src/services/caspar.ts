@@ -10,7 +10,7 @@ import { dispatchPlay, dispatchLoadbg, computeDurationMsFromTrim, type FrameTrim
 import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
-import { PlaybackCoordinator } from '../lib/playbackCoordinator';
+import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordinator';
 
 export const playbackCoordinator = new PlaybackCoordinator();
 
@@ -914,21 +914,10 @@ const ensureFeedbackListener = async () => {
         }
 
         if (!advanceUnlisten) {
-            advanceUnlisten = await listen<PlaybackAdvancePayload>('caspar://advance', (event) => {
-                if (!isCasparPlaying.value) return;
-                // Stale-event guard: if the advance event's uuid doesn't match
-                // the item currently tracked by the JS queue, this is a
-                // late-arriving EOF event from a previous clip. Drop it —
-                // otherwise we'd advance a SECOND time, skipping the next item.
-                // The UUID-keyed dedup is a second line of defense.
-                if (event.payload.currentUuid && currentKey && event.payload.currentUuid !== currentKey) {
-                    return;
-                }
-                advanceNext(true, event.payload.currentUuid).catch((error) => {
-                    console.error('[CasparCG] advance error', error);
+            advanceUnlisten = await listen<QualifiedAdvanceEvent>('caspar://advance', (event) => {
+                requestAutoAdvance(event.payload).catch((error) => {
+                    console.error('[CasparCG] requestAutoAdvance error', error);
                 });
-                // Acknowledge the payload reference (currentUuid == the item that ended).
-                void event.payload.currentUuid;
             });
         }
 
@@ -1638,6 +1627,174 @@ export async function advanceNext(natural = false, sourceUuid?: string | null) {
     await advanceToNext(token, natural);
 }
 
+export type QualifiedAdvanceEvent = {
+    playGeneration: number;
+    takeId: string;
+    rundownItemId: string;
+    playbackInstanceId: string;
+    trimRevision: number;
+    reason: string;
+    observedPositionMs?: number;
+    expectedDurationMs?: number;
+    emittedAtMonotonicMs?: number;
+};
+
+export function assertPlaybackIntent(intent: PlaybackIntent): void {
+    if (
+        intent.playGeneration !== playbackCoordinator.playGeneration ||
+        intent.takeId !== playbackCoordinator.activeIntent?.takeId
+    ) {
+        throw new Error(
+            `Blocked playback command without current intent (intent gen=${intent.playGeneration}, active gen=${playbackCoordinator.playGeneration})`
+        );
+    }
+}
+
+export async function requestAutoAdvance(event: QualifiedAdvanceEvent): Promise<boolean> {
+    if (!isCasparPlaying.value) return false;
+
+    const targetItemId = playbackCoordinator.evaluateAutoAdvance(
+        {
+            generation: event.playGeneration,
+            takeId: event.takeId,
+            playbackInstanceId: event.playbackInstanceId,
+            itemId: event.rundownItemId,
+        },
+        useRundownStore().getPlayableItems() as any
+    );
+
+    if (!targetItemId) {
+        invoke('push_diagnostic_log', {
+            level: 'warn',
+            scope: 'caspar-playout',
+            message: `ADVANCE_REJECTED: Stale or unverified auto-advance event rejected (gen=${event.playGeneration}, item=${event.rundownItemId}, reason=${event.reason})`
+        }).catch(() => {});
+        return false;
+    }
+
+    const store = useRundownStore();
+    const takeResult = playbackCoordinator.initiateTake(
+        { targetItemId, rundownRevision: (store as any).rundownRevision || 0, source: 'auto' },
+        store.getPlayableItems() as any
+    );
+
+    if (!takeResult) {
+        return false;
+    }
+
+    invoke('push_diagnostic_log', {
+        level: 'info',
+        scope: 'caspar-playout',
+        message: `ADVANCE_ACCEPTED: Auto-advance to item ${targetItemId} initiated (gen=${takeResult.intent.playGeneration}, takeId=${takeResult.intent.takeId}, reason=${event.reason})`
+    }).catch(() => {});
+
+    const item = store.getPlayableItems().find((i: any) => i.id === targetItemId);
+    if (!item) return false;
+
+    return await playItemWithIntent(item as any, takeResult.intent);
+}
+
+export async function playItemWithIntent(item: PlayoutItem, intent: PlaybackIntent): Promise<boolean> {
+    assertPlaybackIntent(intent);
+    const store = useRundownStore();
+    manualTakeFailure.value = null;
+
+    try {
+        if (item.ingestorStatus === 'error') {
+            throw new Error(`Cannot play item "${item.filename}" because it has an error status.`);
+        }
+
+        const key = queueKey(item);
+        currentKey = key;
+
+        let queueIndex = queuedItems.findIndex((it) => queueKey(it) === key);
+        if (queueIndex === -1) {
+            const fresh = store.getPlayableItems() as unknown as PlayoutItem[];
+            if (fresh.some((it) => it.id === key)) {
+                queuedItems = fresh.map((i: any) => ({ ...i }));
+                queueIndex = queuedItems.findIndex((it) => queueKey(it) === key);
+            }
+        }
+
+        const hydrated = hydratePlayoutItem(item);
+        updateDisplayedTime(0);
+        currentCasparDurationMs.value = 0;
+        store.stopPlaybackProgressTimer();
+
+        const nextQueueItem = queueIndex !== -1 ? queuedItems[queueIndex + 1] : null;
+        let nextPath: string | null = null;
+        if (nextQueueItem && nextQueueItem.type === 'video') {
+            const nextRawPath = nextQueueItem.path || nextQueueItem.shortPath || '';
+            if (nextRawPath) {
+                try {
+                    nextPath = (await invoke<string>('prepare_caspar_media_path', {
+                        path: nextRawPath,
+                        mediaRoot: getSettingsSnapshot().localMediaPath || ''
+                    })).replace(/\\/g, '/').replace(/"/g, '');
+                } catch (e) {
+                    nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');
+                }
+            }
+        }
+
+        assertPlaybackIntent(intent);
+
+        const dispatchResult = await dispatchPlay(
+            hydrated,
+            PROGRAM_CHANNEL,
+            CASPAR_LAYERS.video,
+            nextPath,
+            0,
+            () => intent.playGeneration !== playbackCoordinator.playGeneration || intent.takeId !== playbackCoordinator.activeIntent?.takeId,
+            {
+                playGeneration: intent.playGeneration,
+                takeId: intent.takeId,
+                rundownItemId: intent.targetItemId,
+                trimRevision: intent.rundownRevisionAtIntent
+            }
+        );
+
+        if (dispatchResult === null || intent.playGeneration !== playbackCoordinator.playGeneration) return false;
+
+        const confirmed = playbackCoordinator.confirmTake(
+            intent.takeId,
+            intent.playGeneration,
+            PROGRAM_CHANNEL,
+            CASPAR_LAYERS.video,
+            store.getPlayableItems() as any
+        );
+
+        if (!confirmed) return false;
+
+        isCasparPlaying.value = true;
+        currentCasparDurationMs.value = dispatchResult.durationMs;
+        const progressStartTime = Date.now();
+        registerPlayStart(hydrated.id, dispatchResult.durationMs);
+        store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, progressStartTime);
+        updateDisplayedTime(0);
+
+        onAdvanceCallback?.(key);
+
+        if (queueIndex !== -1) {
+            await preloadNextItemAt(queueIndex + 1, intent.playGeneration);
+        }
+
+        return true;
+    } catch (error: any) {
+        console.error('[CasparCG] playItemWithIntent error', error);
+        const failure = classifyPlayoutFailure(error);
+        if (shouldFlagItemFailure(failure)) {
+            store.updateItem(item.id, { ingestorStatus: 'error' });
+        }
+        invoke('push_diagnostic_log', {
+            level: 'error',
+            scope: 'caspar-playout',
+            message: `Playout intent ${intent.takeId} ${failure.kind} failure for ${item.filename}: ${failure.message}`
+        }).catch(() => {});
+        return false;
+    }
+}
+
 export const casparPlayoutService: PlayoutService = {
     engine: 'casparcg',
     label: 'CASPAR',
@@ -1779,17 +1936,12 @@ export const casparPlayoutService: PlayoutService = {
             return;
         }
 
-        // Frame-accurate cue: LOADBG without AUTO, so the clip is prepared in
-        // the background for a later manual take but does not auto-transition.
-        // Routed through dispatchLoadbg (SEEK/LENGTH) so cue and the rundown
-        // preload path share one AMCP shape and one trim source (plan §3).
         const hydrated = hydratePlayoutItem(item);
         await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, false);
         updateDisplayedTime(0);
     },
 
     async take() {
-        // Synchronously reset advance dedup and play start time
         lastAdvanceUuid = null;
         lastAdvanceAt = 0;
         playStartTime.value = Date.now();
@@ -1812,151 +1964,17 @@ export const casparPlayoutService: PlayoutService = {
             store.getPlayableItems() as any
         );
 
-        playToken += 1; // Flush/invalidate previous preloads or natural advance tokens
-        const token = playToken;
+        if (!takeResult) {
+            const errorMsg = `Cannot take item "${item.filename}": PlaybackCoordinator rejected take intent.`;
+            manualTakeFailure.value = { itemId: item.id, filename: item.filename, message: errorMsg };
+            throw new Error(errorMsg);
+        }
+
+        playToken = takeResult.intent.playGeneration;
         preloadedKeys.clear();
         preloadedFingerprints.clear();
-        
-        try {
-            if (item.ingestorStatus === 'error') {
-                throw new Error(`Cannot play item "${item.filename}" because it has an error status.`);
-            }
 
-            const key = queueKey(item);
-            currentKey = key;
-
-            // The clicked row may not be in the queue snapshot (queue built
-            // from another playlist, or stale). Rebuild the queue from the
-            // live playlist so the preload and the next natural advance
-            // target the correct rows — the old behavior left index -1 which
-            // preloaded queuedItems[0], i.e. the WRONG clip (Bug B).
-            let queueIndex = queuedItems.findIndex((it) => queueKey(it) === key);
-            if (queueIndex === -1) {
-                const fresh = store.getPlayableItems() as unknown as PlayoutItem[];
-                if (fresh.some((it) => it.id === key)) {
-                    queuedItems = fresh.map((i: any) => ({ ...i }));
-                    queueIndex = queuedItems.findIndex((it) => queueKey(it) === key);
-                }
-            }
-
-            if (item.type === 'live') {
-                const liveCommand = buildLiveCommand(item.path);
-                if (!liveCommand) {
-                    throw new Error('No CasparCG live source configured. Set a Live Input Source in Settings.');
-                }
-                // Clear video layer to avoid holding the last video frame
-                await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
-                await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
-                await sendRawCommand(liveCommand);
-                if (token !== playToken) return;
-                isCasparPlaying.value = true;
-                updateDisplayedTime(0);
-                
-                const durationMs = itemDurationMs(item);
-                currentCasparDurationMs.value = durationMs;
-                store.startPlaybackProgressTimer(item.id, durationMs, playStartTime.value);
-                
-                onAdvanceCallback?.(key); // Notify UI progression immediately!
-
-                await invoke('caspar_register_playback', {
-                    uuid: key,
-                    durationMs,
-                    expectedOutPointMs: durationMs,
-                    currentPath: '',
-                    nextPath: null,
-                    trimInMs: 0
-                }).catch(() => {});
-                const index = queueIndex;
-                if (index !== -1) {
-                    await preloadNextItemAt(index + 1, token);
-                }
-                return;
-            }
-
-            // For video: force a hard PLAY via the frame-accurate dispatch path
-            const hydrated = hydratePlayoutItem(item);
-
-            // STRICT STATE RESET BEFORE THE TAKE
-            updateDisplayedTime(0);
-            currentCasparDurationMs.value = 0;
-            store.stopPlaybackProgressTimer();
-
-            // Register the NEXT item's path with the Rust state machine so the
-            // OSC path-switch trigger can fire when the preload comes to the
-            // foreground (plan §1/§3). dispatchPlay no longer blocks on
-            // nextPath — it only forwards it to caspar_register_playback.
-            // Best-effort: an unresolved next item yields null, which simply
-            // leaves the path-switch trigger unarmed for this transition.
-            const nextQueueItem = queueIndex !== -1 ? queuedItems[queueIndex + 1] : null;
-            let nextPath: string | null = null;
-            if (nextQueueItem && nextQueueItem.type === 'video') {
-                const nextRawPath = nextQueueItem.path || nextQueueItem.shortPath || '';
-                if (nextRawPath) {
-                    try {
-                        nextPath = (await invoke<string>('prepare_caspar_media_path', {
-                            path: nextRawPath,
-                            mediaRoot: getSettingsSnapshot().localMediaPath || ''
-                        })).replace(/\\/g, '/').replace(/"/g, '');
-                    } catch (e) {
-                        nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');
-                    }
-                }
-            }
-
-            const dispatchResult = await dispatchPlayWithRetry(
-                hydrated,
-                PROGRAM_CHANNEL,
-                CASPAR_LAYERS.video,
-                nextPath,
-                0,
-                token
-            );
-            if (dispatchResult === null || token !== playToken) return;
-
-            if (takeResult) {
-                playbackCoordinator.confirmTake(
-                    takeResult.intent.takeId,
-                    takeResult.intent.playGeneration,
-                    PROGRAM_CHANNEL,
-                    CASPAR_LAYERS.video,
-                    store.getPlayableItems() as any
-                );
-            }
-
-            isCasparPlaying.value = true;
-            currentCasparDurationMs.value = dispatchResult.durationMs;
-            // Snapshot wall-clock AFTER the async dispatch (verify + trim +
-            // path + register + PLAY round-trips), so the first countdown tick
-            // doesn't include the 50-300ms IPC gap — matches playItemAt and
-            // the natural advance path. playStartTime.value (set at fn top)
-            // stays for ETA computation.
-            const progressStartTime = Date.now();
-            registerPlayStart(hydrated.id, dispatchResult.durationMs);
-            store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, progressStartTime);
-            updateDisplayedTime(0);
-
-            onAdvanceCallback?.(key); // Notify UI progression immediately!
-
-            if (queueIndex !== -1) {
-                await preloadNextItemAt(queueIndex + 1, token);
-            }
-        } catch (error: any) {
-            console.error('[CasparCG] take error', error);
-            const failure = classifyPlayoutFailure(error);
-            if (shouldFlagItemFailure(failure)) {
-                store.updateItem(item.id, { ingestorStatus: 'error' });
-            }
-            
-            invoke('push_diagnostic_log', {
-                level: 'error',
-                scope: 'caspar-playout',
-                message: `Manual take ${failure.kind} failure for ${item.filename}: ${failure.message}`
-            }).catch(() => {});
-            // A manual operator action must never unexpectedly take the next
-            // row. Preserve program output and give the UI an explicit retry,
-            // skip, or cut-to-live decision.
-            manualTakeFailure.value = { itemId: item.id, filename: item.filename, message: failure.message };
-        }
+        await playItemWithIntent(item as any, takeResult.intent);
     },
 
     async clear() {

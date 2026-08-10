@@ -551,8 +551,16 @@ fn handle_playback_path_osc<R: Runtime>(
                 s.expected_next_path = None; // Clear the expected next path state to avoid deadlock
 
                 let advance = PlaybackAdvance {
+                    play_generation: s.play_generation,
+                    take_id: s.take_id.clone(),
+                    rundown_item_id: s.rundown_item_id.clone(),
+                    playback_instance_id: s.playback_instance_id.clone(),
+                    trim_revision: s.trim_revision,
                     current_uuid: s.current_uuid.clone(),
                     reason: "osc-path-switch".to_string(),
+                    observed_position_ms: s.position_ms,
+                    expected_duration_ms: s.duration_ms,
+                    emitted_at_monotonic_ms: now_ms(),
                 };
                 let app_clone = app.clone();
                 drop(s); // release lock before emit
@@ -614,8 +622,16 @@ pub struct PlaybackTick {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaybackAdvance {
+    pub play_generation: u64,
+    pub take_id: String,
+    pub rundown_item_id: String,
+    pub playback_instance_id: String,
+    pub trim_revision: u64,
     pub current_uuid: Option<String>,
     pub reason: String,
+    pub observed_position_ms: u64,
+    pub expected_duration_ms: u64,
+    pub emitted_at_monotonic_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -628,6 +644,11 @@ pub struct PlaybackStalled {
 /// Authoritative playback state, owned by Rust and updated from OSC.
 pub struct PlaybackStateInner {
     pub current_uuid: Option<String>,
+    pub play_generation: u64,
+    pub take_id: String,
+    pub rundown_item_id: String,
+    pub playback_instance_id: String,
+    pub trim_revision: u64,
     pub is_playing: bool,
     pub is_paused: bool,
     pub position_ms: u64,
@@ -645,35 +666,29 @@ pub struct PlaybackStateInner {
     /// Consecutive watchdog ticks where the position has not advanced.
     pub position_stalled_ticks: u32,
     /// Whether the position has advanced at least once since playback started.
-    /// Used to distinguish a startup delay from a genuine EOF stall.
     pub position_ever_advanced: bool,
-    /// The path the *current* item was registered with (`caspar_register_playback`'s
-    /// `current_path`). Unlike `current_file_path` (which is overwritten by every
-    /// OSC `/file/path` packet), this stays fixed for the item's lifetime so the
-    /// path-switch detector can tell a genuine foreground change from the current
-    /// item's own path echoing back. Without this, a subclip that shares the same
-    /// file as its parent triggers an instant `osc-path-switch` advance the moment
-    /// the parent starts playing — skipping the parent entirely.
     pub registered_current_path: String,
-    /// Post-take OSC thrash guard. Set `false` by `caspar_register_playback`
-    /// when the new clip's path differs from the one currently on air.
-    /// While `false`, `/file/time` OSC packets are suppressed (they belong to
-    /// the previous clip, still in flight over UDP after a manual take, and
-    /// would overwrite the zeroed elapsed timer with the old clip's position).
-    /// Set `true` again once `/file/path` OSC confirms the registered clip is
-    /// actually on air.
     pub path_confirmed: bool,
     pub trim_in_ms: u64,
-    /// Guard for fresh playback registration. While true, suppresses position-based
-    /// advance if incoming UDP packets report positions near expected end (in-flight
-    /// packets from previous item). Cleared once OSC reports position near start.
+    pub trim_out_ms: u64,
     pub awaiting_position_reset: bool,
+
+    // Native Timing Gate & Progress Validation
+    pub started_at_monotonic_ms: u64,
+    pub auto_advance_not_before_ms: u64,
+    pub accepted_post_take_samples: u8,
+    pub last_observed_position_ms: u64,
 }
 
 impl Default for PlaybackStateInner {
     fn default() -> Self {
         PlaybackStateInner {
             current_uuid: None,
+            play_generation: 0,
+            take_id: String::new(),
+            rundown_item_id: String::new(),
+            playback_instance_id: String::new(),
+            trim_revision: 0,
             is_playing: false,
             is_paused: false,
             position_ms: 0,
@@ -692,7 +707,12 @@ impl Default for PlaybackStateInner {
             registered_current_path: String::new(),
             path_confirmed: true,
             trim_in_ms: 0,
+            trim_out_ms: 0,
             awaiting_position_reset: false,
+            started_at_monotonic_ms: 0,
+            auto_advance_not_before_ms: 0,
+            accepted_post_take_samples: 0,
+            last_observed_position_ms: 0,
         }
     }
 }
@@ -708,22 +728,28 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Pure advance decision (plan §2.1 / §5): exactly one advance per item.
-/// Fires when within `ADVANCE_THRESHOLD_MS` of the end, but never when paused or
-/// once already fired. Extracted for unit testing the state-machine invariants.
+/// Pure advance decision: exactly one advance per item.
+/// Requires: position near end, now_ms >= auto_advance_not_before_ms, and required progress samples.
 pub fn playback_should_advance(
     is_playing: bool,
     is_paused: bool,
     advance_fired: bool,
     expected_out_point_ms: u64,
     position_ms: u64,
+    now_monotonic_ms: u64,
+    auto_advance_not_before_ms: u64,
+    accepted_post_take_samples: u8,
+    effective_duration_ms: u64,
 ) -> bool {
+    let min_samples = if effective_duration_ms >= 2000 { 2 } else { 1 };
     is_playing
         && !is_paused
         && !advance_fired
         && position_ms > 0
         && expected_out_point_ms > 0
         && position_ms >= expected_out_point_ms.saturating_sub(ADVANCE_THRESHOLD_MS)
+        && now_monotonic_ms >= auto_advance_not_before_ms
+        && accepted_post_take_samples >= min_samples
 }
 
 /// Update playback state from a program-layer `/file/time` OSC message and emit
@@ -758,7 +784,6 @@ fn handle_playback_osc<R: Runtime>(
             if pos >= s.trim_in_ms && pos <= start_window_end {
                 s.awaiting_position_reset = false;
             } else {
-                // In-flight UDP packet from previously playing clip; ignore position update & advance
                 s.last_osc_at_ms = now;
                 return;
             }
@@ -769,7 +794,12 @@ fn handle_playback_osc<R: Runtime>(
     }
 
     if let Some(pos) = position_ms {
-        s.position_ms = pos.saturating_sub(s.trim_in_ms);
+        let norm_pos = pos.saturating_sub(s.trim_in_ms);
+        s.position_ms = norm_pos;
+        if norm_pos >= s.last_observed_position_ms.saturating_add(100) {
+            s.accepted_post_take_samples = s.accepted_post_take_samples.saturating_add(1);
+            s.last_observed_position_ms = norm_pos;
+        }
     }
     if let Some(dur) = duration_ms {
         if dur > 0 && (s.expected_out_point_ms == 0 || s.expected_out_point_ms == u64::MAX || (dur as i64 - s.expected_out_point_ms as i64).abs() < 5000) {
@@ -778,10 +808,7 @@ fn handle_playback_osc<R: Runtime>(
     }
     s.last_osc_at_ms = now;
 
-    // Track position stalls for EOF freeze detection. When the producer
-    // hits EOF before the expected out point (e.g. due to an inflated DB
-    // duration causing a LENGTH larger than the remaining frames), the
-    // OSC position stops advancing while OSC packets keep arriving.
+    // Track position stalls for EOF freeze detection.
     if position_ms.is_some() {
         if s.position_ms > s.last_position_ms + 40 {
             s.position_ever_advanced = true;
@@ -792,6 +819,9 @@ fn handle_playback_osc<R: Runtime>(
         s.last_position_ms = s.position_ms;
     }
 
+    let effective_dur = s.trim_out_ms.saturating_sub(s.trim_in_ms);
+    let effective_dur = if effective_dur == 0 { s.expected_out_point_ms } else { effective_dur };
+
     // Position-based advance check (primary advance mechanism)
     if playback_should_advance(
         s.is_playing,
@@ -799,15 +829,27 @@ fn handle_playback_osc<R: Runtime>(
         s.advance_fired,
         s.expected_out_point_ms,
         s.position_ms,
+        now,
+        s.auto_advance_not_before_ms,
+        s.accepted_post_take_samples,
+        effective_dur,
     ) {
         s.advance_fired = true;
         s.transition_triggered = true;
         let advance = PlaybackAdvance {
+            play_generation: s.play_generation,
+            take_id: s.take_id.clone(),
+            rundown_item_id: s.rundown_item_id.clone(),
+            playback_instance_id: s.playback_instance_id.clone(),
+            trim_revision: s.trim_revision,
             current_uuid: s.current_uuid.clone(),
             reason: "osc-position".to_string(),
+            observed_position_ms: s.position_ms,
+            expected_duration_ms: s.duration_ms,
+            emitted_at_monotonic_ms: now,
         };
         let app_clone = app.clone();
-        drop(s); // release lock before emit to prevent deadlocks
+        drop(s);
         tauri::async_runtime::spawn(async move {
             let _ = app_clone.emit("caspar://advance", advance);
         });
@@ -831,9 +873,7 @@ fn handle_playback_osc<R: Runtime>(
 }
 
 /// Spawn the watchdog task that detects OSC stalls and arms a deadline
-/// fallback advance so a CasparCG OSC freeze cannot hang the rundown. Spawned
-/// once from `configure_caspar_osc_listener` (which owns a concrete
-/// `AppHandle<R>`); the task reads the shared playback state thereafter.
+/// fallback advance so a CasparCG OSC freeze cannot hang the rundown.
 pub fn spawn_playback_watchdog<R: Runtime>(
     app: AppHandle<R>,
     state: Arc<Mutex<PlaybackStateInner>>,
@@ -842,7 +882,7 @@ pub fn spawn_playback_watchdog<R: Runtime>(
         loop {
             tokio::time::sleep(Duration::from_millis(WATCHDOG_TICK_MS)).await;
             let now = now_ms();
-            let (emit_stall, emit_advance_reason) = {
+            let (emit_stall, emit_advance_payload) = {
                 let mut s = state.lock();
                 if !s.is_playing || s.is_paused || s.current_uuid.is_none() || s.advance_fired {
                     continue;
@@ -855,8 +895,6 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                         s.stall_emitted = true;
                         stall = true;
                     }
-                    // Deadline fallback: once stalled, advance when the estimated
-                    // remaining playback time (from last known position) elapses.
                     let remaining = if s.expected_out_point_ms == u64::MAX {
                         u64::MAX
                     } else {
@@ -867,17 +905,17 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     } else {
                         s.last_osc_at_ms.saturating_add(remaining)
                     };
-                    if deadline != u64::MAX && now >= deadline {
+                    if deadline != u64::MAX && now >= deadline && now >= s.auto_advance_not_before_ms {
                         s.advance_fired = true;
                         s.transition_triggered = true;
                         advance_reason = Some("watchdog-deadline".to_string());
                     }
                 } else if gap >= 1500 {
-                    // Brief OSC gap — only advance if position was already near the end (EOF)
                     if s.position_ms > 0
                         && s.expected_out_point_ms > 0
                         && s.expected_out_point_ms != u64::MAX
                         && s.position_ms >= s.expected_out_point_ms.saturating_sub(2000)
+                        && now >= s.auto_advance_not_before_ms
                     {
                         s.advance_fired = true;
                         s.transition_triggered = true;
@@ -885,37 +923,12 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     }
                 }
 
-                // Position-stall EOF detection: OSC packets are still arriving
-                // (gap < 1500) but the position has not advanced for several
-                // ticks. This catches the case where the producer hits EOF
-                // before the expected out point — e.g. when the DB duration is
-                // inflated (ffprobe picking the max stream duration instead of
-                // the video duration), causing compute_frame_trim to produce a
-                // LENGTH larger than the remaining frames. CasparCG plays to
-                // EOF, the position freezes, but the watchdog's deadline is
-                // set far in the future. Without this check the rundown would
-                // freeze for the entire inflated duration.
-                //
-                // The check also requires the position to be reasonably close
-                // to the expected out point (within 5 seconds). Without this
-                // guard, a short subclip (e.g. 4s) whose watchdog was
-                // incorrectly armed with the FILE's full duration (e.g. 15s)
-                // would have its position stall at ~4000ms — far below the
-                // 15640ms expected out point — and the stall would fire after
-                // 3s, cutting the clip short. The proximity check ensures the
-                // stall only fires when the producer genuinely hit EOF near
-                // where it was expected to end.
-                // Note: if expected_out_point_ms == u64::MAX (unknown duration),
-                // proximity_threshold will be ~u64::MAX and this branch will never fire,
-                // which is correct — we can't do proximity-based stall detection without
-                // a known out point.
-                let proximity_threshold = s.expected_out_point_ms.saturating_mul(80) / 100;
                 if advance_reason.is_none()
                     && s.position_ever_advanced
-                    && s.position_stalled_ticks >= 12
-                    && s.position_ms > 500
+                    && s.position_stalled_ticks >= 6
                     && s.expected_out_point_ms != u64::MAX
-                    && s.position_ms >= proximity_threshold
+                    && s.position_ms >= s.expected_out_point_ms.saturating_sub(5000)
+                    && now >= s.auto_advance_not_before_ms
                 {
                     s.advance_fired = true;
                     s.transition_triggered = true;
@@ -924,12 +937,27 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     && !s.position_ever_advanced
                     && s.position_stalled_ticks >= 20
                     && s.position_ms == 0
+                    && now >= s.auto_advance_not_before_ms
                 {
                     s.advance_fired = true;
                     s.transition_triggered = true;
                     advance_reason = Some("frame-0-decode-stall".to_string());
                 }
-                (stall, advance_reason)
+
+                let payload = advance_reason.map(|reason| PlaybackAdvance {
+                    play_generation: s.play_generation,
+                    take_id: s.take_id.clone(),
+                    rundown_item_id: s.rundown_item_id.clone(),
+                    playback_instance_id: s.playback_instance_id.clone(),
+                    trim_revision: s.trim_revision,
+                    current_uuid: s.current_uuid.clone(),
+                    reason,
+                    observed_position_ms: s.position_ms,
+                    expected_duration_ms: s.duration_ms,
+                    emitted_at_monotonic_ms: now,
+                });
+
+                (stall, payload)
             };
 
             if emit_stall {
@@ -945,15 +973,8 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                     },
                 );
             }
-            if let Some(reason) = emit_advance_reason {
-                let uuid = state.lock().current_uuid.clone();
-                let _ = app.emit(
-                    "caspar://advance",
-                    PlaybackAdvance {
-                        current_uuid: uuid,
-                        reason,
-                    },
-                );
+            if let Some(payload) = emit_advance_payload {
+                let _ = app.emit("caspar://advance", payload);
             }
         }
     })
@@ -968,10 +989,21 @@ pub async fn caspar_register_playback(
     current_path: String,
     next_path: Option<String>,
     trim_in_ms: u64,
+    play_generation: Option<u64>,
+    take_id: Option<String>,
+    rundown_item_id: Option<String>,
+    playback_instance_id: Option<String>,
+    trim_revision: Option<u64>,
+    trim_out_ms: Option<u64>,
     state: State<'_, CasparPlaybackState>,
 ) -> Result<(), String> {
     let mut s = state.0.lock();
-    s.current_uuid = Some(uuid);
+    s.current_uuid = Some(uuid.clone());
+    s.play_generation = play_generation.unwrap_or(0);
+    s.take_id = take_id.unwrap_or_default();
+    s.rundown_item_id = rundown_item_id.unwrap_or_else(|| uuid.clone());
+    s.playback_instance_id = playback_instance_id.unwrap_or_default();
+    s.trim_revision = trim_revision.unwrap_or(0);
     s.is_playing = true;
     s.is_paused = false;
     s.position_ms = 0;
@@ -987,14 +1019,9 @@ pub async fn caspar_register_playback(
         }
     }
     s.expected_out_point_ms = out_point;
+    let t_out = trim_out_ms.unwrap_or_else(|| trim_in_ms.saturating_add(if out_point != u64::MAX { out_point } else { duration_ms }));
+    s.trim_out_ms = t_out;
 
-    // OSC thrash guard. When the new clip's path differs from the clip
-    // currently on air, suppress /file/time ticks until OSC confirms the
-    // foreground has actually switched to the new path. This prevents stale
-    // position packets from the previous clip (still in flight over UDP right
-    // after a manual take) from overwriting the zeroed elapsed timer with the
-    // old clip's position (e.g. 5s, 11s…). Same-file subclips need no path
-    // switch, so the guard stays disarmed.
     let old_registered = s.registered_current_path.clone();
     s.path_confirmed = old_registered.is_empty();
 
@@ -1010,6 +1037,17 @@ pub async fn caspar_register_playback(
     s.position_stalled_ticks = 0;
     s.position_ever_advanced = false;
     s.awaiting_position_reset = true;
+
+    // Native Monotonic Timing Gate & Sample Progress Init
+    let effective_duration_ms = t_out.saturating_sub(trim_in_ms);
+    let effective_duration_ms = if effective_duration_ms == 0 { out_point } else { effective_duration_ms };
+    let early_tolerance_ms = if effective_duration_ms >= 2000 { 300 } else { 0 };
+    let now_mono = now_ms();
+    s.started_at_monotonic_ms = now_mono;
+    s.auto_advance_not_before_ms = now_mono.saturating_add(effective_duration_ms.saturating_sub(early_tolerance_ms));
+    s.accepted_post_take_samples = 0;
+    s.last_observed_position_ms = 0;
+
     Ok(())
 }
 
@@ -1156,46 +1194,60 @@ mod tests {
     /// Advance fires exactly once near EOF and not before (plan §5 state machine).
     #[test]
     fn advance_fires_once_near_eof() {
+        let now = 10_000;
+        let not_before = 5_000;
+        let samples = 2;
+        let eff_dur = 10_000;
+
         // Mid-playback: no advance.
-        assert!(!playback_should_advance(true, false, false, 10_000, 5_000));
+        assert!(!playback_should_advance(true, false, false, 10_000, 5_000, now, not_before, samples, eff_dur));
         // Just before threshold: no advance.
-        assert!(!playback_should_advance(true, false, false, 10_000, 10_000 - ADVANCE_THRESHOLD_MS - 1));
+        assert!(!playback_should_advance(true, false, false, 10_000, 10_000 - ADVANCE_THRESHOLD_MS - 1, now, not_before, samples, eff_dur));
         // Within threshold: advance.
-        assert!(playback_should_advance(true, false, false, 10_000, 10_000 - ADVANCE_THRESHOLD_MS));
+        assert!(playback_should_advance(true, false, false, 10_000, 10_000 - ADVANCE_THRESHOLD_MS, now, not_before, samples, eff_dur));
         // At/over end: advance.
-        assert!(playback_should_advance(true, false, false, 10_000, 10_000));
+        assert!(playback_should_advance(true, false, false, 10_000, 10_000, now, not_before, samples, eff_dur));
+
+        // Timing gate block: now < not_before → no advance
+        assert!(!playback_should_advance(true, false, false, 10_000, 10_000, 4_000, not_before, samples, eff_dur));
+        // Insufficient samples block: samples < 2 → no advance for 10s clip
+        assert!(!playback_should_advance(true, false, false, 10_000, 10_000, now, not_before, 1, eff_dur));
 
         // Guard: once fired, never again (exactly one advance per item).
-        assert!(!playback_should_advance(true, false, true, 10_000, 10_000));
+        assert!(!playback_should_advance(true, false, true, 10_000, 10_000, now, not_before, samples, eff_dur));
     }
 
     #[test]
     fn trim_in_normalization_prevents_immediate_advance() {
+        let now = 145_360;
+        let not_before = 100_000;
+        let samples = 2;
+
         // Absolute OSC pos 367800ms, trim_in=367800ms → normalized=0 → no advance
         let trim_in: u64 = 367_800;
         let raw_pos: u64 = 367_800;
         let normalized = raw_pos.saturating_sub(trim_in);
         let out_point: u64 = 145_360;
-        assert!(!playback_should_advance(true, false, false, out_point, normalized));
+        assert!(!playback_should_advance(true, false, false, out_point, normalized, now, not_before, samples, out_point));
 
         // Near end: normalized=145200ms → advance fires
         let raw_near_end = trim_in + out_point - 100;
         let normalized_near_end = raw_near_end.saturating_sub(trim_in);
-        assert!(playback_should_advance(true, false, false, out_point, normalized_near_end));
+        assert!(playback_should_advance(true, false, false, out_point, normalized_near_end, now, not_before, samples, out_point));
     }
 
     /// Paused playback never advances (prevents the watchdog from advancing a
     /// frozen producer — the pause-flag fix).
     #[test]
     fn paused_never_advances() {
-        assert!(!playback_should_advance(true, true, false, 10_000, 10_000));
+        assert!(!playback_should_advance(true, true, false, 10_000, 10_000, 10_000, 5_000, 2, 10_000));
     }
 
     /// No duration (unknown) -> no advance via OSC EOF; the watchdog deadline
     /// handles the fallback path instead (plan §2.1).
     #[test]
     fn unknown_duration_no_osc_advance() {
-        assert!(!playback_should_advance(true, false, false, 0, 0));
+        assert!(!playback_should_advance(true, false, false, 0, 0, 10_000, 5_000, 2, 0));
     }
 
     /// mixer_safe_for_layer enforces no MIXER FILL on CG template layers 32/33
