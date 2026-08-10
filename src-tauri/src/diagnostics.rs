@@ -7,8 +7,52 @@ use tauri::State;
 use tokio::sync::mpsc;
 use tokio::io::AsyncWriteExt;
 use std::sync::OnceLock;
+use std::path::Path;
 
 static LOG_TX: OnceLock<mpsc::UnboundedSender<String>> = OnceLock::new();
+#[allow(dead_code)]
+static INSTALL_SALT: OnceLock<String> = OnceLock::new();
+
+#[allow(dead_code)]
+pub fn get_or_init_install_salt() -> &'static str {
+    INSTALL_SALT.get_or_init(|| {
+        if let Some(mut path) = dirs_next::data_dir() {
+            path.push("com.playout.client");
+            let _ = std::fs::create_dir_all(&path);
+            path.push("install.salt");
+            if let Ok(salt) = std::fs::read_to_string(&path) {
+                if !salt.trim().is_empty() {
+                    return salt.trim().to_string();
+                }
+            }
+            let new_salt = format!("{:x}{:x}", now_ms(), std::process::id());
+            let _ = std::fs::write(&path, &new_salt);
+            return new_salt;
+        }
+        "default-install-salt".to_string()
+    })
+}
+
+pub fn redact_path(path_str: &str) -> String {
+    let salt = get_or_init_install_salt();
+    let filename = Path::new(path_str)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    
+    // Hash path_str with salt
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in salt.bytes().chain(path_str.bytes()) {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("[REDACTED:{:016x}:{}]", hash, filename)
+}
+
+#[tauri::command]
+pub fn redact_path_for_diagnostics(path: String) -> String {
+    redact_path(&path)
+}
 
 pub fn init_background_logger() {
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -45,6 +89,12 @@ pub struct DiagnosticEntry {
     pub level: String,
     pub scope: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub take_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub play_generation: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
 }
 
 pub struct DiagnosticState {
@@ -78,7 +128,7 @@ impl DiagnosticState {
         let msg_str = message.into();
         let timestamp = now_ms();
 
-        // 1. Regardless of the UI toggle, write ALL errors and events to a physical log file
+        // Write to background log
         let log_line = format!(
             "{} [{}] {} {}\n",
             format_timestamp(timestamp),
@@ -91,7 +141,6 @@ impl DiagnosticState {
             let _ = tx.send(log_line);
         }
 
-        // 2. Only push to reactive in-memory buffer if enabled
         if !self.is_enabled() {
             return;
         }
@@ -100,17 +149,17 @@ impl DiagnosticState {
             timestamp_ms: timestamp,
             level: level.to_string(),
             scope: scope.to_string(),
-            message: msg_str.clone(),
+            message: msg_str,
+            take_id: None,
+            play_generation: None,
+            item_id: None,
         };
 
-        // In-memory circular buffer for frontend diagnostics panel
-        {
-            let mut entries = self.entries.lock();
-            if entries.len() >= MAX_DIAGNOSTIC_ENTRIES {
-                entries.pop_front();
-            }
-            entries.push_back(entry);
+        let mut entries = self.entries.lock();
+        if entries.len() >= MAX_DIAGNOSTIC_ENTRIES {
+            entries.pop_front();
         }
+        entries.push_back(entry);
     }
 
     pub fn recent(&self, limit: usize) -> Vec<DiagnosticEntry> {
@@ -178,4 +227,19 @@ fn now_ms() -> u64 {
 
 fn format_timestamp(timestamp_ms: u64) -> String {
     format!("{}", timestamp_ms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_redact_path_consistency() {
+        let path = "C:\\Media\\Video1.mp4";
+        let redacted1 = redact_path(path);
+        let redacted2 = redact_path(path);
+        assert_eq!(redacted1, redacted2);
+        assert!(redacted1.contains("Video1.mp4"));
+        assert!(redacted1.contains("[REDACTED:"));
+    }
 }
