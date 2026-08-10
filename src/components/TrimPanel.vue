@@ -510,13 +510,12 @@ const saveNonDestructive = () => {
     }
 
     const saveTask = async () => {
-      if (item.value?.id) {
-        store.updateItem(item.value.id, {
-          inPoint: inMs.value,
-          outPoint: outMs.value,
-          trim_in_ms: inMs.value,
-          trim_out_ms: outMs.value
-        });
+      if (item.value) {
+        store.updateAssetTrim(
+          { id: item.value.id, uuid: item.value.uuid, path: item.value.path },
+          inMs.value,
+          outMs.value
+        );
       }
 
       if (item.value?.uuid && !item.value.uuid.startsWith('local:')) {

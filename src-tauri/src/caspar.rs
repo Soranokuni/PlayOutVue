@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Runtime, State};
 use tokio::net::UdpSocket;
 use tokio::sync::oneshot;
 
-use crate::amcp::AmcpClient;
+use crate::amcp::{validate_amcp_response, AmcpClient};
 use crate::caspar_layers::CasparLayer;
 
 const DEFAULT_CASPAR_OSC_PORT: u16 = 6250;
@@ -298,6 +298,7 @@ pub async fn caspar_send_command(
     client: State<'_, AmcpClient>,
 ) -> Result<String, String> {
     let resp = client.send(&cmd).await?;
+    validate_amcp_response(&resp)?;
     Ok(resp.body)
 }
 
@@ -663,6 +664,10 @@ pub struct PlaybackStateInner {
     /// actually on air.
     pub path_confirmed: bool,
     pub trim_in_ms: u64,
+    /// Guard for fresh playback registration. While true, suppresses position-based
+    /// advance if incoming UDP packets report positions near expected end (in-flight
+    /// packets from previous item). Cleared once OSC reports position near start.
+    pub awaiting_position_reset: bool,
 }
 
 impl Default for PlaybackStateInner {
@@ -687,6 +692,7 @@ impl Default for PlaybackStateInner {
             registered_current_path: String::new(),
             path_confirmed: true,
             trim_in_ms: 0,
+            awaiting_position_reset: false,
         }
     }
 }
@@ -744,6 +750,22 @@ fn handle_playback_osc<R: Runtime>(
     if !s.path_confirmed {
         s.last_osc_at_ms = now;
         return;
+    }
+
+    if s.awaiting_position_reset {
+        if let Some(pos) = position_ms {
+            let start_window_end = s.trim_in_ms.saturating_add(2500);
+            if pos >= s.trim_in_ms && pos <= start_window_end {
+                s.awaiting_position_reset = false;
+            } else {
+                // In-flight UDP packet from previously playing clip; ignore position update & advance
+                s.last_osc_at_ms = now;
+                return;
+            }
+        } else {
+            s.last_osc_at_ms = now;
+            return;
+        }
     }
 
     if let Some(pos) = position_ms {
@@ -974,8 +996,7 @@ pub async fn caspar_register_playback(
     // old clip's position (e.g. 5s, 11s…). Same-file subclips need no path
     // switch, so the guard stays disarmed.
     let old_registered = s.registered_current_path.clone();
-    s.path_confirmed = old_registered.is_empty()
-        || extract_raw_filename_lower(&old_registered) == extract_raw_filename_lower(&current_path);
+    s.path_confirmed = old_registered.is_empty();
 
     s.current_file_path = current_path.clone();
     s.registered_current_path = current_path;
@@ -988,6 +1009,7 @@ pub async fn caspar_register_playback(
     s.last_position_ms = 0;
     s.position_stalled_ticks = 0;
     s.position_ever_advanced = false;
+    s.awaiting_position_reset = true;
     Ok(())
 }
 
