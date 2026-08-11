@@ -2,6 +2,8 @@
 import { computed } from 'vue';
 import type { RundownItem } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
+import StatusIndicator from './StatusIndicator.vue';
+import { resolveRundownStatusTone } from '../lib/statusResolver';
 
 // Extracted from RundownList.vue so each row re-renders only when ITS props
 // change (plan §2.2). All reactive values are passed as props from the parent
@@ -146,6 +148,14 @@ const rowStyle = computed(() => {
   }
   return {};
 });
+const itemStatusTone = computed(() =>
+  resolveRundownStatusTone(props.item, {
+    playing: props.playing,
+    nextUp: props.nextUp,
+    nextUpImminent: props.nextUpImminent,
+    atKind: props.atKind
+  })
+);
 </script>
 
 <template>
@@ -164,6 +174,7 @@ const rowStyle = computed(() => {
     <div class="rw-handle" :title="item.type === 'gap' ? 'Drag to move gap line' : 'Drag to reorder'">⋮⋮</div>
     <div class="rw-num">{{ item.type === 'gap' ? '⏱' : index + 1 }}</div>
     <div class="rw-signals">
+      <StatusIndicator :tone="itemStatusTone" variant="dot" />
       <span v-for="signal in rowSignals(item)" :key="signal.key" class="rw-signal" :class="signal.className" :title="signal.title"></span>
     </div>
     <div class="rw-type-icon" :style="{ color: typeColor(item.type) }">{{ typeIcon(item.type) }}</div>

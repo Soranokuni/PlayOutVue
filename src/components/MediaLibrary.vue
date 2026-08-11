@@ -12,6 +12,8 @@ import { draggingItem } from '../composables/useDragState';
 import { activeScope, activeLibraryContext } from '../composables/useOperatorShortcuts';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
+import StatusIndicator from './StatusIndicator.vue';
+import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 
@@ -1458,9 +1460,8 @@ const menuItems = computed<MenuItem[]>(() => {
               <span class="chevron-spacer"></span>
               
               <span class="lib-icon" @click.stop="onAssetClick(asset)">
-                <span v-if="asset.status === 'ready'">🎬</span>
-                <span v-else-if="asset.status === 'processing'">⏳</span>
-                <span v-else>📄</span>
+                <StatusIndicator :tone="resolveLibraryStatusTone(asset)" variant="dot" />
+                <span>🎬</span>
               </span>
               <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">
                 <span class="lib-name-wrap">
