@@ -84,6 +84,12 @@ export async function executeRegisteredCommand(commandId: string): Promise<boole
   return commandRegistry.execute(commandId, ctx);
 }
 
+let shortcutsMounted = false;
+
+export function resetShortcutsMountedStateForTesting() {
+  shortcutsMounted = false;
+}
+
 /**
  * Centralized application keyboard router composable.
  */
@@ -277,14 +283,18 @@ export function useOperatorShortcuts() {
   };
 
   const mountShortcuts = () => {
+    if (shortcutsMounted) return;
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener('keydown', handleKeyDown, { capture: true });
+      shortcutsMounted = true;
     }
   };
 
   const unmountShortcuts = () => {
+    if (!shortcutsMounted) return;
     if (typeof window !== 'undefined' && window.removeEventListener) {
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      shortcutsMounted = false;
     }
   };
 
