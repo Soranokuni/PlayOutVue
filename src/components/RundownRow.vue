@@ -251,12 +251,6 @@ const itemStatusTone = computed(() =>
 .rw-row.drop-target-after {
   border-color:rgba(51,190,204,0.36);
 }
-.rw-row.drop-target-before {
-  transform:translateY(12px);
-}
-.rw-row.drop-target-after {
-  transform:translateY(-12px);
-}
 .rw-row.drop-target-before::before,
 .rw-row.drop-target-after::after {
   content:'';

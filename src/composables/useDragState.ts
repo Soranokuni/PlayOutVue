@@ -2,9 +2,11 @@
 import { ref } from 'vue';
 import type { ComplianceRating } from '../stores/rundown';
 
-// Only the minimal fields needed to create a RundownItem.
-// The rundown store's makeItem() factory fills in inPoint, outPoint, plannedDuration, note etc.
+export type DragSource = 'library' | 'rundown' | 'external';
+
+// Minimal fields needed for drag payloads across components.
 export interface DragPayload {
+    source?: DragSource;
     filename: string;
     path: string;
     shortPath: string;
@@ -27,4 +29,3 @@ export interface DragPayload {
 }
 
 export const draggingItem = ref<DragPayload | null>(null);
-
