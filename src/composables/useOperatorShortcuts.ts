@@ -14,6 +14,44 @@ export const activeTrimmerContext = ref<TrimmerCommandContext | null>(null);
 export const activeLibraryContext = ref<LibraryCommandContext | null>(null);
 export const requireTakeConfirmation = ref<boolean>(false);
 
+let capturedActiveElement: HTMLElement | null = null;
+
+export function openCommandPalette(): void {
+  if (activeModalName.value && activeModalName.value !== 'command-palette') return;
+  capturedActiveElement = typeof document !== 'undefined' ? (document.activeElement as HTMLElement) || null : null;
+  activeModalName.value = 'command-palette';
+}
+
+export function closeCommandPalette(): void {
+  if (activeModalName.value === 'command-palette') {
+    activeModalName.value = null;
+  }
+  if (capturedActiveElement && typeof document !== 'undefined' && document.body.contains(capturedActiveElement)) {
+    capturedActiveElement.focus({ preventScroll: true });
+  } else if (typeof document !== 'undefined') {
+    const fallback = document.querySelector<HTMLElement>('[data-command-scope="rundown"], [data-command-scope="library"]');
+    fallback?.focus({ preventScroll: true });
+  }
+  capturedActiveElement = null;
+}
+
+export function createCurrentCommandContext(): CommandContext {
+  const scope = classifyActiveScope();
+  const rundown = useRundownStore();
+  return {
+    scope,
+    rundown,
+    selection: {
+      selectedItemIds: rundown.selectedItemIds,
+      primarySelectedId: rundown.selectedItemId
+    },
+    library: activeLibraryContext.value,
+    activeModal: activeModalName.value,
+    trimmer: activeTrimmerContext.value,
+    requireTakeConfirmation: requireTakeConfirmation.value
+  };
+}
+
 export function getVisiblePageSize(containerEl: HTMLElement | null): number {
   if (!containerEl) return 10;
   const firstRow = containerEl.querySelector<HTMLElement>('[data-item-id], [data-asset-id]');
@@ -139,6 +177,10 @@ export function useOperatorShortcuts() {
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
+      if (activeModalName.value === 'command-palette') {
+        closeCommandPalette();
+        return;
+      }
       if (activeModalName.value) {
         activeModalName.value = null;
         return;
@@ -150,11 +192,15 @@ export function useOperatorShortcuts() {
       return;
     }
 
-    // 3. Command Palette (Ctrl+K)
-    if (event.ctrlKey && (event.key === 'k' || event.key === 'K')) {
+    // 3. Command Palette (Ctrl+K / Cmd+K)
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
       event.preventDefault();
       event.stopPropagation();
-      activeModalName.value = 'command-palette';
+      if (activeModalName.value === 'command-palette') {
+        closeCommandPalette();
+      } else {
+        openCommandPalette();
+      }
       return;
     }
 

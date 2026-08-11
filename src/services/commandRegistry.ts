@@ -59,13 +59,23 @@ export interface CommandContext {
   requireTakeConfirmation?: boolean;
 }
 
+export type CommandCategory =
+  | 'Rundown'
+  | 'Library'
+  | 'Trimmer'
+  | 'Global'
+  | 'View'
+  | 'System';
+
 export interface CommandDefinition {
   id: string;
   label: string;
   scopes: ShortcutScope[];
   defaultShortcut?: string;
-  category?: 'Rundown' | 'Library' | 'Trimmer' | 'Global';
+  category?: CommandCategory;
   description?: string;
+  destructive?: boolean;
+  requiresConfirmation?: boolean;
   isVisible: (ctx: CommandContext) => boolean;
   isEnabled: (ctx: CommandContext) => boolean;
   disabledReason?: (ctx: CommandContext) => string | undefined;

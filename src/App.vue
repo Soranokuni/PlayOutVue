@@ -7,13 +7,14 @@ import MediaLibrary from './components/MediaLibrary.vue';
 import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
 import SettingsModal from './components/SettingsModal.vue';
+import CommandPaletteModal from './components/CommandPaletteModal.vue';
 import PreviewMonitor from './components/PreviewMonitor.vue';
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
-import { useOperatorShortcuts } from './composables/useOperatorShortcuts';
+import { useOperatorShortcuts, activeModalName, closeCommandPalette } from './composables/useOperatorShortcuts';
 import { advanceNext, manualTakeFailure } from './services/caspar';
 
 const settings = useSettingsStore();
@@ -514,6 +515,7 @@ onUnmounted(() => {
     </footer>
 
     <SettingsModal :is-open="showSettings" @close="showSettings = false" />
+    <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
   </main>
 </template>
 
