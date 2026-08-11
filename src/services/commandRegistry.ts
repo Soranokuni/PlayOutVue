@@ -31,10 +31,21 @@ export interface TrimmerCommandContext {
   onRevert?: () => void;
 }
 
+export interface LibraryCommandContext {
+  selectedAsset?: {
+    filename: string;
+    path: string;
+    duration?: number;
+  } | null;
+  appendSelectedToRundown?: () => void;
+  insertSelectedIntoRundown?: () => void;
+}
+
 export interface CommandContext {
   scope: ShortcutScope;
   rundown: ReturnType<typeof useRundownStore>;
   selection: SelectionSnapshot;
+  library?: LibraryCommandContext | null;
   activeModal: string | null;
   trimmer: TrimmerCommandContext | null;
   requireTakeConfirmation?: boolean;
@@ -49,6 +60,7 @@ export interface CommandDefinition {
   description?: string;
   isVisible: (ctx: CommandContext) => boolean;
   isEnabled: (ctx: CommandContext) => boolean;
+  disabledReason?: (ctx: CommandContext) => string | undefined;
   execute: (ctx: CommandContext) => Promise<void> | void;
 }
 
@@ -249,9 +261,24 @@ commandRegistry.register({
   defaultShortcut: 'F8',
   category: 'Library',
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library',
+  isEnabled: (ctx) => ctx.scope === 'library' && (!!ctx.library?.appendSelectedToRundown || !!ctx.library?.selectedAsset),
+  disabledReason: (ctx) => (ctx.scope !== 'library' ? 'Library surface is not active' : 'No library asset selected'),
   execute: (ctx) => {
-    // Handled via event listener in MediaLibrary
+    if (ctx.library?.appendSelectedToRundown) {
+      ctx.library.appendSelectedToRundown();
+    } else if (ctx.library?.selectedAsset) {
+      const dur = ctx.library.selectedAsset.duration || 10;
+      ctx.rundown.addItem({
+        filename: ctx.library.selectedAsset.filename,
+        type: 'video',
+        path: ctx.library.selectedAsset.path,
+        shortPath: ctx.library.selectedAsset.filename,
+        duration: dur,
+        seek: 0,
+        length: dur,
+        libraryIndicator: 'none'
+      });
+    }
   }
 });
 
@@ -262,9 +289,30 @@ commandRegistry.register({
   defaultShortcut: 'Shift+F8',
   category: 'Library',
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library',
+  isEnabled: (ctx) => ctx.scope === 'library' && (!!ctx.library?.insertSelectedIntoRundown || !!ctx.library?.selectedAsset),
+  disabledReason: (ctx) => (ctx.scope !== 'library' ? 'Library surface is not active' : 'No library asset selected'),
   execute: (ctx) => {
-    // Handled via event listener in MediaLibrary
+    if (ctx.library?.insertSelectedIntoRundown) {
+      ctx.library.insertSelectedIntoRundown();
+    } else if (ctx.library?.selectedAsset) {
+      const dur = ctx.library.selectedAsset.duration || 10;
+      const target = ctx.selection.primarySelectedId
+        ? { kind: 'after' as const, targetItemId: ctx.selection.primarySelectedId }
+        : { kind: 'append' as const };
+      ctx.rundown.insertLibraryItems({
+        items: [{
+          filename: ctx.library.selectedAsset.filename,
+          type: 'video',
+          path: ctx.library.selectedAsset.path,
+          shortPath: ctx.library.selectedAsset.filename,
+          duration: dur,
+          seek: 0,
+          length: dur,
+          libraryIndicator: 'none'
+        }],
+        target
+      });
+    }
   }
 });
 

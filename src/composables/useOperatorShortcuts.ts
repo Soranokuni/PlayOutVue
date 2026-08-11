@@ -3,6 +3,7 @@ import { useRundownStore } from '../stores/rundown';
 import {
   commandRegistry,
   type CommandContext,
+  type LibraryCommandContext,
   type ShortcutScope,
   type TrimmerCommandContext
 } from '../services/commandRegistry';
@@ -10,6 +11,7 @@ import {
 export const activeScope = ref<ShortcutScope>('rundown');
 export const activeModalName = ref<string | null>(null);
 export const activeTrimmerContext = ref<TrimmerCommandContext | null>(null);
+export const activeLibraryContext = ref<LibraryCommandContext | null>(null);
 export const requireTakeConfirmation = ref<boolean>(false);
 
 /**
@@ -119,6 +121,7 @@ export function useOperatorShortcuts() {
       scope,
       rundown,
       selection,
+      library: activeLibraryContext.value,
       activeModal: activeModalName.value,
       trimmer: activeTrimmerContext.value,
       requireTakeConfirmation: requireTakeConfirmation.value
@@ -147,15 +150,29 @@ export function useOperatorShortcuts() {
       return;
     }
 
-    // Explicit Action Key Guard for PR 1: Action keys are ignored by global listener
+    // Explicit Action Key Guard for Playback Take: Enter and Space are ignored (no playback)
     if (
       event.key === 'Enter' ||
       event.key === ' ' ||
-      event.code === 'Space' ||
-      event.code === 'F8' ||
-      event.key === 'Delete' ||
-      event.key === 'Backspace'
+      event.code === 'Space'
     ) {
+      return;
+    }
+
+    // F8 Library Action
+    if (event.code === 'F8' || event.key === 'F8') {
+      event.preventDefault();
+      event.stopPropagation();
+      const actionId = event.shiftKey ? 'library.insertSelected' : 'library.appendSelected';
+      await commandRegistry.execute(actionId, ctx);
+      return;
+    }
+
+    // Delete Rundown Selection Action
+    if ((event.key === 'Delete' || event.key === 'Backspace') && scope === 'rundown') {
+      event.preventDefault();
+      event.stopPropagation();
+      await commandRegistry.execute('rundown.deleteSelected', ctx);
       return;
     }
 
