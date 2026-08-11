@@ -18,6 +18,7 @@ export interface RundownItem {
     id: string;
     type: RundownItemType;
     playoutvueId?: string;
+    uuid?: string;
     path: string;
     displayPath: string;
     shortPath: string;
@@ -54,6 +55,9 @@ export interface RundownItem {
     gop_frames?: number;
     keyframe_safe_start_ms?: number;
     warnings?: string[];
+    parentAssetUuid?: string;
+    virtualSubclip?: boolean;
+    persistenceState?: 'persisted' | 'local-only';
 }
 
 export interface TrimWarningNotice {

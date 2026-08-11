@@ -4,6 +4,7 @@ import { useRundownStore } from '../stores/rundown';
 import { invoke } from '@tauri-apps/api/core';
 import { msToTimecode, parseTimecode, snapMsToFrame, getFrameRate, isDropFrameSupported } from '../lib/timecode';
 import { activeTrimmerContext } from '../composables/useOperatorShortcuts';
+import { createVirtualSubclip } from '../services/virtualSubclipService';
 
 export interface LibraryTrimItem {
     id?: string;
@@ -622,45 +623,60 @@ const subclipCapability = computed<SubclipCapability>(() => {
   };
 });
 
+const showSubclipModal = ref(false);
+const subclipNameInput = ref('');
+
+const openSubclipDialog = () => {
+  const currentItem = item.value;
+  if (!currentItem) return;
+  if (outMs.value > 0 && outMs.value <= inMs.value) {
+    trimStatus.value = '❌ OUT point must be greater than IN point.';
+    return;
+  }
+  subclipNameInput.value = `${currentItem.filename} (Sub-clip)`;
+  showSubclipModal.value = true;
+};
+
+const cancelSubclipDialog = () => {
+  showSubclipModal.value = false;
+};
+
+const confirmSubclipDialog = async () => {
+  const currentItem = item.value;
+  if (!currentItem) return;
+  const name = subclipNameInput.value.trim();
+  if (!name) {
+    trimStatus.value = '❌ Display name must not be empty.';
+    return;
+  }
+
+  showSubclipModal.value = false;
+  trimStatus.value = 'Processing sub-clip...';
+
+  const result = await createVirtualSubclip({
+    item: currentItem as any,
+    displayName: name,
+    trimInMs: inMs.value,
+    trimOutMs: outMs.value
+  });
+
+  if (result.state === 'failed') {
+    trimStatus.value = `❌ Sub-clip failed: ${result.error}`;
+    return;
+  }
+
+  if (result.item) {
+    store.addItem(result.item);
+    trimStatus.value = result.state === 'persisted' 
+      ? '✅ Virtual sub-clip created and persisted successfully!' 
+      : '✅ Local virtual sub-clip created (playlist only).';
+    emit('saved', { uuid: result.item.playoutvueId, outputPath: result.item.path });
+    setTimeout(() => emit('close'), 800);
+  }
+};
+
 const saveAsSubclip = () => {
-    const currentItem = item.value;
-    if (!currentItem) return;
-    if (outMs.value > 0 && outMs.value <= inMs.value) {
-      trimStatus.value = '❌ OUT point must be greater than IN point.';
-      return;
-    }
-    
-    const defaultName = `${currentItem.filename} (Sub-clip)`;
-    const newName = window.prompt("Enter a name for the new virtual sub-clip:", defaultName);
-    if (newName === null) {
-      return;
-    }
-    const trimmedName = newName.trim();
-    if (!trimmedName) {
-      trimStatus.value = '❌ Display name must not be empty.';
-      return;
-    }
-    
-    if (currentItem.uuid && !currentItem.uuid.startsWith('local:')) {
-      const saveTask = async () => {
-        trimStatus.value = 'Creating virtual sub-clip...';
-        const response = await invoke<any>('create_ingestor_subclip', {
-          uuid: currentItem.uuid,
-          display_name: trimmedName,
-          trim_in_ms: Math.round(inMs.value),
-          trim_out_ms: Math.round(outMs.value),
-          api_base_url_override: null
-        });
-        trimStatus.value = '✅ Virtual sub-clip created successfully!';
-        emit('saved', { uuid: response.uuid, outputPath: response.current_path });
-        setTimeout(() => emit('close'), 1000);
-      };
-      saveTask().catch((error) => {
-        trimStatus.value = `❌ Failed to create sub-clip: ${error}`;
-      });
-    } else {
-      trimStatus.value = '❌ Sub-clipping is only supported for server-side managed assets.';
-    }
+  openSubclipDialog();
 };
 </script>
 
@@ -818,6 +834,26 @@ const saveAsSubclip = () => {
         </div>
       </div>
     </div>
+
+    <!-- Custom Subclip Name Modal -->
+    <div v-if="showSubclipModal" class="subclip-modal-backdrop" @click.self="cancelSubclipDialog">
+      <div class="subclip-modal-dialog" role="dialog" aria-modal="true" aria-label="Name Sub-clip">
+        <h4 style="margin:0 0 8px 0;font-size:1rem;color:#f1f5f9;">Create Virtual Sub-clip</h4>
+        <p class="text-secondary" style="font-size:0.8rem;margin:0 0 12px 0;">Enter a display name for the new sub-clip:</p>
+        <input
+          v-model="subclipNameInput"
+          type="text"
+          class="subclip-name-input"
+          placeholder="Sub-clip name"
+          @keydown.enter="confirmSubclipDialog"
+          @keydown.esc="cancelSubclipDialog"
+        />
+        <div class="subclip-modal-actions" style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="trim-btn btn-primary" @click="confirmSubclipDialog">Create Sub-clip</button>
+          <button class="trim-btn" @click="cancelSubclipDialog">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -932,5 +968,41 @@ const saveAsSubclip = () => {
   .tc-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.subclip-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.subclip-modal-dialog {
+  width: 420px;
+  max-width: 90vw;
+  background: #1e2530;
+  border: 1px solid #344052;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+}
+
+.subclip-name-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: #11161d;
+  border: 1px solid #344052;
+  border-radius: 4px;
+  color: #f1f5f9;
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.subclip-name-input:focus {
+  border-color: #38bdf8;
 }
 </style>
