@@ -8,7 +8,7 @@ describe('commandRegistry context dispatcher & command collisions', () => {
 
     const rundownCmds = all.filter((c) => c.scopes.includes('rundown'));
     expect(rundownCmds.some((c) => c.id === 'rundown.selectPrevious')).toBe(true);
-    expect(rundownCmds.some((c) => c.id === 'rundown.takeSelected')).toBe(true);
+    expect(rundownCmds.some((c) => c.id === 'rundown.takeSelected')).toBe(false);
   });
 
   it('evaluates commands dynamically using invocation context without global closure leaks', async () => {

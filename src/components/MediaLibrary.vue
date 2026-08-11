@@ -1154,7 +1154,7 @@ const menuItems = computed<MenuItem[]>(() => {
 </script>
 
 <template>
-  <div class="lib-wrap media-library-panel" data-scope="library" tabindex="0" @focus="activeScope = 'library'">
+  <div class="lib-wrap media-library-panel" data-scope="library" data-command-scope="library" tabindex="0" @focus="activeScope = 'library'">
 
     <!-- Header -->
     <div class="lib-header">

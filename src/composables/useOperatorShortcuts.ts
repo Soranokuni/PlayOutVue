@@ -16,30 +16,40 @@ export const requireTakeConfirmation = ref<boolean>(false);
  * Determines current active scope based on DOM focus state and open modals.
  */
 export function classifyActiveScope(): ShortcutScope {
-  if (activeModalName.value) {
-    if (activeModalName.value === 'trimmer') return 'trimmer';
+  const active = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+
+  if (active?.closest('[data-command-scope="modal"]')) {
     return 'modal';
   }
 
-  const active = document.activeElement as HTMLElement | null;
-  if (!active) return activeScope.value;
+  if (active?.closest('[data-command-scope="command-palette"]')) {
+    return 'command-palette';
+  }
+
+  if (active?.closest('[data-command-scope="trimmer"]') || activeModalName.value === 'trimmer') {
+    return 'trimmer';
+  }
+
+  if (activeModalName.value) {
+    return 'modal';
+  }
 
   if (
-    active.isContentEditable ||
-    ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)
+    active?.isContentEditable ||
+    ['INPUT', 'TEXTAREA', 'SELECT'].includes(active?.tagName ?? '')
   ) {
     return 'text-input';
   }
 
-  if (active.closest('[role="listbox"][aria-label="Playlist rundown"]')) {
+  if (active?.closest('[data-command-scope="rundown"]') || active?.closest('[role="listbox"][aria-label="Playlist rundown"]')) {
     return 'rundown';
   }
 
-  if (active.closest('.media-library-panel') || active.closest('[data-scope="library"]')) {
+  if (active?.closest('[data-command-scope="library"]') || active?.closest('.media-library-panel')) {
     return 'library';
   }
 
-  return activeScope.value;
+  return activeScope.value || 'global';
 }
 
 /**
@@ -130,41 +140,19 @@ export function useOperatorShortcuts() {
       return;
     }
 
-    // 4. Physical Function Keys (F8, Shift+F8)
-    if (event.code === 'F8') {
-      if (scope === 'library') {
-        event.preventDefault();
-        event.stopPropagation();
-        const actionId = event.shiftKey ? 'library.insertSelected' : 'library.appendSelected';
-        await commandRegistry.execute(actionId, ctx);
-      }
+    // Explicit Action Key Guard for PR 1: Action keys are ignored by global listener
+    if (
+      event.key === 'Enter' ||
+      event.key === ' ' ||
+      event.code === 'Space' ||
+      event.code === 'F8' ||
+      event.key === 'Delete' ||
+      event.key === 'Backspace'
+    ) {
       return;
     }
 
-    // 5. Spacebar Take guard
-    if (event.key === ' ' || event.code === 'Space') {
-      if (isInteractiveControl(target)) {
-        return; // Allow native button click or checkbox toggle
-      }
-      if (scope === 'rundown' && ctx.selection.primarySelectedId) {
-        event.preventDefault();
-        event.stopPropagation();
-        await commandRegistry.execute('rundown.takeSelected', ctx);
-        return;
-      }
-    }
-
-    // 6. Enter Take
-    if (event.key === 'Enter') {
-      if (scope === 'rundown' && ctx.selection.primarySelectedId) {
-        event.preventDefault();
-        event.stopPropagation();
-        await commandRegistry.execute('rundown.takeSelected', ctx);
-        return;
-      }
-    }
-
-    // 7. Arrows / Navigation in Rundown
+    // 4. Navigation & Range Selection in Rundown
     if (scope === 'rundown') {
       if (!event.ctrlKey && !event.shiftKey && event.key === 'ArrowUp') {
         event.preventDefault();
@@ -203,20 +191,6 @@ export function useOperatorShortcuts() {
         return;
       }
 
-      // Reorder items via Ctrl+Up / Ctrl+Down
-      if (event.ctrlKey && event.key === 'ArrowUp') {
-        event.preventDefault();
-        event.stopPropagation();
-        rundown.moveSelectedItemsDelta(-1);
-        return;
-      }
-      if (event.ctrlKey && event.key === 'ArrowDown') {
-        event.preventDefault();
-        event.stopPropagation();
-        rundown.moveSelectedItemsDelta(1);
-        return;
-      }
-
       // Range select via Shift+Up / Shift+Down
       if (event.shiftKey && event.key === 'ArrowUp') {
         event.preventDefault();
@@ -228,40 +202,6 @@ export function useOperatorShortcuts() {
         event.preventDefault();
         event.stopPropagation();
         rundown.extendSelectionDelta(1);
-        return;
-      }
-
-      // Delete / Backspace
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        event.preventDefault();
-        event.stopPropagation();
-        await commandRegistry.execute('rundown.deleteSelected', ctx);
-        return;
-      }
-
-      // Clipboard operations (Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D)
-      if (event.ctrlKey && (event.key === 'c' || event.key === 'C')) {
-        event.preventDefault();
-        event.stopPropagation();
-        await commandRegistry.execute('rundown.copySelected', ctx);
-        return;
-      }
-      if (event.ctrlKey && (event.key === 'x' || event.key === 'X')) {
-        event.preventDefault();
-        event.stopPropagation();
-        await commandRegistry.execute('rundown.cutSelected', ctx);
-        return;
-      }
-      if (event.ctrlKey && (event.key === 'v' || event.key === 'V')) {
-        event.preventDefault();
-        event.stopPropagation();
-        await commandRegistry.execute('rundown.pasteAfterSelected', ctx);
-        return;
-      }
-      if (event.ctrlKey && (event.key === 'd' || event.key === 'D')) {
-        event.preventDefault();
-        event.stopPropagation();
-        await commandRegistry.execute('rundown.duplicateSelected', ctx);
         return;
       }
     }
