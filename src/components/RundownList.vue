@@ -509,7 +509,6 @@ const moveSelectionDelta = (delta: number) => {
   if (!items[nextIndex]) return;
 
   store.selectedItemId = items[nextIndex]!.id;
-  scheduleSelectedRowReveal();
 };
 
 const moveSelection = (direction: -1 | 1) => {

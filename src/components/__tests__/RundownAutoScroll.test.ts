@@ -20,12 +20,10 @@ describe('PR 3A Rundown Auto-Scroll Component Watcher', () => {
     }
   });
 
-  it('exercises actual RundownList.vue watcher on selectedItemId mutation and targets selected row', async () => {
+  it('exercises actual RundownList.vue watcher on selectedItemId mutation and targets selected row element', async () => {
     store.addItem({ filename: 'Item 1', type: 'video', path: '/1.mp4', duration: 10 });
     store.addItem({ filename: 'Item 2', type: 'video', path: '/2.mp4', duration: 10 });
     const id2 = store.activeItems[1].id;
-
-    const scrollSpy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
 
     const wrapper = mount(RundownList, {
       global: {
@@ -39,6 +37,9 @@ describe('PR 3A Rundown Auto-Scroll Component Watcher', () => {
         }
       }
     });
+
+    const selectedRow = wrapper.get(`[data-item-id="${id2}"]`);
+    const scrollSpy = vi.spyOn(selectedRow.element as HTMLElement, 'scrollIntoView').mockImplementation(() => {});
 
     store.selectedItemId = id2;
 

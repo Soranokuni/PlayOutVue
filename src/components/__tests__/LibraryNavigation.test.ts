@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
+import { mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
+import MediaLibrary from '../MediaLibrary.vue';
 import { useMediaLibraryStore } from '../../stores/mediaLibrary';
 import {
   commandRegistry,
@@ -162,5 +165,33 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
 
     expect(libraryStore.selectedAssetId).toBeNull();
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('mounts real MediaLibrary.vue component, exposes activeLibraryContext adapter, and processes window ArrowDown', async () => {
+    const wrapper = mount(MediaLibrary, {
+      global: {
+        stubs: {
+          ContextMenu: true
+        }
+      }
+    });
+
+    await nextTick();
+    const libContainer = wrapper.find('[data-command-scope="library"]');
+    expect(libContainer.exists()).toBe(true);
+
+    const el = libContainer.element as HTMLElement;
+    el.focus();
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      bubbles: true,
+      cancelable: true
+    });
+
+    window.dispatchEvent(event);
+
+    expect(libraryStore.selectedAssetId).toBe('asset-1');
+    wrapper.unmount();
   });
 });
