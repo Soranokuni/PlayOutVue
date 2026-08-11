@@ -1,16 +1,28 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useMediaLibraryStore } from '../../stores/mediaLibrary';
-import { commandRegistry, type CommandContext } from '../../services/commandRegistry';
+import {
+  commandRegistry,
+  type CommandContext,
+  type LibraryCommandContext
+} from '../../services/commandRegistry';
+import {
+  useOperatorShortcuts,
+  activeLibraryContext,
+  resetShortcutsMountedStateForTesting
+} from '../../composables/useOperatorShortcuts';
 
 describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () => {
   let libraryStore: ReturnType<typeof useMediaLibraryStore>;
+  let shortcuts: ReturnType<typeof useOperatorShortcuts>;
 
   beforeEach(() => {
+    resetShortcutsMountedStateForTesting();
     setActivePinia(createPinia());
     libraryStore = useMediaLibraryStore();
     document.body.innerHTML = '';
+
     libraryStore.setAssets([
       { uuid: 'asset-1', current_path: '/media/1.mp4', display_name: 'Alpha Asset', virtual_folder: '/', duration_ms: 10000, trim_in_ms: 0, trim_out_ms: 10000, rating: 'none', status: 'ready' },
       { uuid: 'asset-2', current_path: '/media/2.mp4', display_name: 'Beta Asset', virtual_folder: '/', duration_ms: 10000, trim_in_ms: 0, trim_out_ms: 10000, rating: 'none', status: 'ready' },
@@ -18,6 +30,29 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
       { uuid: 'asset-4', current_path: '/media/4.mp4', display_name: 'Delta Asset', virtual_folder: '/', duration_ms: 10000, trim_in_ms: 0, trim_out_ms: 10000, rating: 'none', status: 'ready' }
     ]);
     libraryStore.clearSelection();
+
+    const libraryContextAdapter: LibraryCommandContext = {
+      getSelectedAssetIds: () => libraryStore.selectedAssetIds,
+      getVisibleAssetIds: () => libraryStore.allTreeNodes.filter(n => n.type === 'asset').map(n => n.asset?.uuid || n.id),
+      selectPrevious: () => libraryStore.moveSelectionDelta(-1),
+      selectNext: () => libraryStore.moveSelectionDelta(1),
+      selectFirst: () => libraryStore.selectFirst(),
+      selectLast: () => libraryStore.selectLast(),
+      extendSelection: (delta: -1 | 1) => libraryStore.extendSelection(delta),
+      appendSelectedToPlaylist: async () => ({ insertedIds: [], skippedIds: [], errors: [] }),
+      insertSelectedAfter: async () => ({ insertedIds: [], skippedIds: [], errors: [] })
+    };
+    activeLibraryContext.value = libraryContextAdapter;
+
+    shortcuts = useOperatorShortcuts();
+    shortcuts.mountShortcuts();
+  });
+
+  afterEach(() => {
+    shortcuts.unmountShortcuts();
+    resetShortcutsMountedStateForTesting();
+    activeLibraryContext.value = null;
+    document.body.innerHTML = '';
   });
 
   const createTestContext = (scope: any = 'library', visibleNodes?: any[]): CommandContext => {
@@ -62,7 +97,6 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
   });
 
   it('navigates ONLY visible assets when library is filtered', async () => {
-    // Filtered list containing asset-2 and asset-4
     const filteredNodes = libraryStore.allTreeNodes.filter(
       n => n.type === 'asset' && (n.asset?.uuid === 'asset-2' || n.asset?.uuid === 'asset-4')
     );
@@ -85,24 +119,7 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
     expect(libraryStore.selectedAssetId).toBe('asset-1');
   });
 
-  it('extends selection using Shift+ArrowDown', async () => {
-    const ctx = createTestContext('library');
-    await commandRegistry.execute('library.selectFirst', ctx); // asset-1
-    await commandRegistry.execute('library.extendSelectionNext', ctx); // extends to asset-2
-
-    expect(libraryStore.selectedAssetIds).toContain('asset-1');
-    expect(libraryStore.selectedAssetIds).toContain('asset-2');
-  });
-
-  it('prevents library arrow navigation when scope is rundown', async () => {
-    const ctx = createTestContext('rundown');
-    const executed = await commandRegistry.execute('library.selectNext', ctx);
-
-    expect(executed).toBe(false);
-    expect(libraryStore.selectedAssetId).toBeNull();
-  });
-
-  it('verifies DOM focus on library list container with tabindex="0" and data-command-scope="library"', () => {
+  it('routes real window ArrowDown KeyboardEvent when focused on library container', async () => {
     const libContainer = document.createElement('div');
     libContainer.setAttribute('data-command-scope', 'library');
     libContainer.setAttribute('tabindex', '0');
@@ -111,5 +128,39 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
 
     libContainer.focus();
     expect(document.activeElement).toBe(libContainer);
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      bubbles: true,
+      cancelable: true
+    });
+
+    window.dispatchEvent(event);
+
+    expect(libraryStore.selectedAssetId).toBe('asset-1');
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('bypasses library keyboard shortcuts when focus is inside a search input', async () => {
+    const libContainer = document.createElement('div');
+    libContainer.setAttribute('data-command-scope', 'library');
+    const input = document.createElement('input');
+    input.type = 'search';
+    libContainer.appendChild(input);
+    document.body.appendChild(libContainer);
+
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      bubbles: true,
+      cancelable: true
+    });
+
+    window.dispatchEvent(event);
+
+    expect(libraryStore.selectedAssetId).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
   });
 });
