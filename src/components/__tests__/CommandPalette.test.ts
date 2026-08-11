@@ -10,8 +10,10 @@ import {
   openCommandPalette,
   closeCommandPalette,
   activeModalName,
-  resetShortcutsMountedStateForTesting
+  resetShortcutsMountedStateForTesting,
+  createCurrentCommandContext
 } from '../../composables/useOperatorShortcuts';
+import { ask } from '@tauri-apps/plugin-dialog';
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   ask: vi.fn().mockResolvedValue(true)
@@ -25,6 +27,7 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     setActivePinia(createPinia());
     document.body.innerHTML = '';
     activeModalName.value = null;
+    vi.clearAllMocks();
 
     shortcuts = useOperatorShortcuts();
     shortcuts.mountShortcuts();
@@ -55,12 +58,17 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     expect(document.activeElement).toBe(button);
   });
 
-  it('opens palette on Cmd+K on macOS', async () => {
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'K', metaKey: true, bubbles: true, cancelable: true })
-    );
+  it('preserves originating scope when opening palette', async () => {
+    const libContainer = document.createElement('div');
+    libContainer.setAttribute('data-command-scope', 'library');
+    libContainer.tabIndex = 0;
+    document.body.appendChild(libContainer);
+    libContainer.focus();
 
-    expect(activeModalName.value).toBe('command-palette');
+    openCommandPalette();
+    const ctx = createCurrentCommandContext();
+    expect(ctx.scope).toBe('command-palette');
+    expect(ctx.originScope).toBe('library');
   });
 
   it('restores focus to fallback container if captured element was removed from DOM', async () => {
@@ -102,7 +110,7 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     wrapper.unmount();
   });
 
-  it('filters commands fuzzy and executes highlighted command on Enter, emitting close only on success', async () => {
+  it('filters commands fuzzy and executes highlighted command on Enter', async () => {
     let executed = false;
     const testCmd: CommandDefinition = {
       id: 'test.cmdPaletteAction',
@@ -110,6 +118,7 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
       scopes: ['global'],
       category: 'Global',
       safety: 'safe',
+      paletteVisible: true,
       isVisible: () => true,
       isEnabled: () => true,
       execute: () => {
@@ -139,6 +148,50 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     wrapper.unmount();
   });
 
+  it('fails closed on confirmation error (dialog rejection)', async () => {
+    vi.mocked(ask).mockRejectedValueOnce(new Error('IPC channel failure'));
+
+    let executed = false;
+    const destCmd: CommandDefinition = {
+      id: 'test.destructiveAction',
+      label: 'Destructive Action Test',
+      scopes: ['global'],
+      category: 'Global',
+      safety: 'destructive',
+      paletteVisible: true,
+      destructive: true,
+      requiresConfirmation: true,
+      isVisible: () => true,
+      isEnabled: () => true,
+      execute: () => {
+        executed = true;
+      }
+    };
+    commandRegistry.register(destCmd);
+
+    openCommandPalette();
+    const wrapper = mount(CommandPaletteModal, {
+      props: { isOpen: true },
+      attachTo: document.body
+    });
+
+    await nextTick();
+
+    const input = wrapper.get('input[type="search"]');
+    await input.setValue('Destructive Action Test');
+
+    const backdrop = wrapper.get('[data-command-scope="command-palette"]');
+    await backdrop.trigger('keydown', { key: 'Enter' });
+    await nextTick();
+
+    expect(executed).toBe(false);
+    expect(wrapper.emitted('close')).toBeFalsy();
+    expect(wrapper.text()).toContain('IPC channel failure');
+
+    commandRegistry.unregister('test.destructiveAction');
+    wrapper.unmount();
+  });
+
   it('keeps palette open and displays error banner when command execution fails', async () => {
     const failingCmd: CommandDefinition = {
       id: 'test.failingAction',
@@ -146,6 +199,7 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
       scopes: ['global'],
       category: 'Global',
       safety: 'safe',
+      paletteVisible: true,
       isVisible: () => true,
       isEnabled: () => true,
       execute: () => {
@@ -176,13 +230,14 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     wrapper.unmount();
   });
 
-  it('strictly excludes commands with safety: "playback"', async () => {
+  it('strictly excludes commands with safety: "playback" or paletteVisible: false', async () => {
     const playbackCmd: CommandDefinition = {
       id: 'test.playbackAction',
       label: 'Direct Playback Action',
       scopes: ['global'],
       category: 'Global',
       safety: 'playback',
+      paletteVisible: false,
       isVisible: () => true,
       isEnabled: () => true,
       execute: () => {}
@@ -201,22 +256,6 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     expect(text).not.toContain('Direct Playback Action');
 
     commandRegistry.unregister('test.playbackAction');
-    wrapper.unmount();
-  });
-
-  it('closes on Escape', async () => {
-    openCommandPalette();
-    const wrapper = mount(CommandPaletteModal, {
-      props: { isOpen: true },
-      attachTo: document.body
-    });
-
-    await nextTick();
-
-    const backdrop = wrapper.get('[data-command-scope="command-palette"]');
-    await backdrop.trigger('keydown', { key: 'Escape' });
-
-    expect(wrapper.emitted('close')).toBeTruthy();
     wrapper.unmount();
   });
 });

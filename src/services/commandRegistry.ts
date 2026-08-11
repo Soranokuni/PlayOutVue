@@ -51,6 +51,7 @@ export interface LibraryCommandContext {
 
 export interface CommandContext {
   scope: ShortcutScope;
+  originScope?: ShortcutScope;
   rundown: ReturnType<typeof useRundownStore>;
   selection: SelectionSnapshot;
   library?: LibraryCommandContext | null;
@@ -73,11 +74,11 @@ export interface CommandDefinition {
   id: string;
   label: string;
   scopes: ShortcutScope[];
+  category: CommandCategory;
+  safety: CommandSafety;
+  paletteVisible: boolean;
   defaultShortcut?: string;
-  category?: CommandCategory;
   description?: string;
-  safety?: CommandSafety;
-  paletteVisible?: boolean;
   destructive?: boolean;
   requiresConfirmation?: boolean;
   isVisible: (ctx: CommandContext) => boolean;
@@ -130,6 +131,8 @@ commandRegistry.register({
   scopes: ['rundown'],
   defaultShortcut: 'Up',
   category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => ctx.rundown.activeItems.length > 0,
   execute: (ctx) => {
@@ -143,6 +146,8 @@ commandRegistry.register({
   scopes: ['rundown'],
   defaultShortcut: 'Down',
   category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => ctx.rundown.activeItems.length > 0,
   execute: (ctx) => {
@@ -156,6 +161,8 @@ commandRegistry.register({
   scopes: ['rundown'],
   defaultShortcut: 'Home',
   category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => ctx.rundown.activeItems.length > 0,
   execute: (ctx) => {
@@ -170,6 +177,8 @@ commandRegistry.register({
   scopes: ['rundown'],
   defaultShortcut: 'End',
   category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => ctx.rundown.activeItems.length > 0,
   execute: (ctx) => {
@@ -178,16 +187,18 @@ commandRegistry.register({
   }
 });
 
-
-
 commandRegistry.register({
   id: 'rundown.deleteSelected',
   label: 'Delete Selected Item(s)',
   scopes: ['rundown'],
   defaultShortcut: 'Delete',
   category: 'Rundown',
+  safety: 'destructive',
+  paletteVisible: true,
+  destructive: true,
+  requiresConfirmation: true,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.selection.selectedItemIds.length > 0,
+  isEnabled: (ctx) => ctx.selection.selectedItemIds.length > 0 || !!ctx.selection.primarySelectedId,
   execute: (ctx) => {
     const ids = ctx.selection.selectedItemIds.length > 0 
       ? ctx.selection.selectedItemIds 
@@ -202,6 +213,8 @@ commandRegistry.register({
   scopes: ['rundown'],
   defaultShortcut: 'Ctrl+C',
   category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
   isVisible: () => true,
   isEnabled: (ctx) => ctx.selection.selectedItemIds.length > 0 || !!ctx.selection.primarySelectedId,
   execute: (ctx) => {
@@ -215,6 +228,10 @@ commandRegistry.register({
   scopes: ['rundown'],
   defaultShortcut: 'Ctrl+X',
   category: 'Rundown',
+  safety: 'destructive',
+  paletteVisible: true,
+  destructive: true,
+  requiresConfirmation: true,
   isVisible: () => true,
   isEnabled: (ctx) => ctx.selection.selectedItemIds.length > 0 || !!ctx.selection.primarySelectedId,
   execute: (ctx) => {
@@ -228,8 +245,11 @@ commandRegistry.register({
   scopes: ['rundown'],
   defaultShortcut: 'Ctrl+V',
   category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
   isVisible: () => true,
   isEnabled: (ctx) => ctx.rundown.canPasteClipboard(),
+  disabledReason: (ctx) => (ctx.rundown.canPasteClipboard() ? undefined : 'Nothing in clipboard to paste'),
   execute: (ctx) => {
     ctx.rundown.pasteClipboardAfterSelection();
   }
@@ -241,6 +261,8 @@ commandRegistry.register({
   scopes: ['rundown'],
   defaultShortcut: 'Ctrl+D',
   category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.selection.primarySelectedId || ctx.selection.selectedItemIds.length > 0,
   execute: (ctx) => {
@@ -256,6 +278,8 @@ commandRegistry.register({
   scopes: ['rundown', 'global'],
   defaultShortcut: 'Ctrl+Z',
   category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
   isVisible: () => true,
   isEnabled: (ctx) => ctx.rundown.canUndo,
   execute: (ctx) => {
@@ -269,6 +293,8 @@ commandRegistry.register({
   scopes: ['rundown', 'global'],
   defaultShortcut: 'Ctrl+Shift+Z',
   category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
   isVisible: () => true,
   isEnabled: (ctx) => ctx.rundown.canRedo,
   execute: (ctx) => {
@@ -282,8 +308,10 @@ commandRegistry.register({
   scopes: ['library'],
   defaultShortcut: 'Up',
   category: 'Library',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  isEnabled: (ctx) => (ctx.originScope ?? ctx.scope) === 'library' && !!ctx.library,
   execute: (ctx) => {
     ctx.library?.selectPrevious();
   }
@@ -295,8 +323,10 @@ commandRegistry.register({
   scopes: ['library'],
   defaultShortcut: 'Down',
   category: 'Library',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  isEnabled: (ctx) => (ctx.originScope ?? ctx.scope) === 'library' && !!ctx.library,
   execute: (ctx) => {
     ctx.library?.selectNext();
   }
@@ -308,8 +338,10 @@ commandRegistry.register({
   scopes: ['library'],
   defaultShortcut: 'Home',
   category: 'Library',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  isEnabled: (ctx) => (ctx.originScope ?? ctx.scope) === 'library' && !!ctx.library,
   execute: (ctx) => {
     ctx.library?.selectFirst();
   }
@@ -321,8 +353,10 @@ commandRegistry.register({
   scopes: ['library'],
   defaultShortcut: 'End',
   category: 'Library',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  isEnabled: (ctx) => (ctx.originScope ?? ctx.scope) === 'library' && !!ctx.library,
   execute: (ctx) => {
     ctx.library?.selectLast();
   }
@@ -334,8 +368,10 @@ commandRegistry.register({
   scopes: ['library'],
   defaultShortcut: 'Shift+Up',
   category: 'Library',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  isEnabled: (ctx) => (ctx.originScope ?? ctx.scope) === 'library' && !!ctx.library,
   execute: (ctx) => {
     ctx.library?.extendSelection(-1);
   }
@@ -347,8 +383,10 @@ commandRegistry.register({
   scopes: ['library'],
   defaultShortcut: 'Shift+Down',
   category: 'Library',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  isEnabled: (ctx) => (ctx.originScope ?? ctx.scope) === 'library' && !!ctx.library,
   execute: (ctx) => {
     ctx.library?.extendSelection(1);
   }
@@ -360,10 +398,12 @@ commandRegistry.register({
   scopes: ['library'],
   defaultShortcut: 'F8',
   category: 'Library',
+  safety: 'safe',
+  paletteVisible: true,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library && ctx.library.getSelectedAssetIds().length > 0,
+  isEnabled: (ctx) => (ctx.scope === 'library' || ctx.originScope === 'library') && !!ctx.library && ctx.library.getSelectedAssetIds().length > 0,
   disabledReason: (ctx) => (
-    ctx.scope !== 'library'
+    (ctx.scope !== 'library' && ctx.originScope !== 'library')
       ? 'Library surface is not active'
       : (!ctx.library || ctx.library.getSelectedAssetIds().length === 0 ? 'No library asset selected' : undefined)
   ),
@@ -380,10 +420,12 @@ commandRegistry.register({
   scopes: ['library'],
   defaultShortcut: 'Shift+F8',
   category: 'Library',
+  safety: 'safe',
+  paletteVisible: true,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library && ctx.library.getSelectedAssetIds().length > 0,
+  isEnabled: (ctx) => (ctx.scope === 'library' || ctx.originScope === 'library') && !!ctx.library && ctx.library.getSelectedAssetIds().length > 0,
   disabledReason: (ctx) => (
-    ctx.scope !== 'library'
+    (ctx.scope !== 'library' && ctx.originScope !== 'library')
       ? 'Library surface is not active'
       : (!ctx.library || ctx.library.getSelectedAssetIds().length === 0 ? 'No library asset selected' : undefined)
   ),
@@ -400,6 +442,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: 'J',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer,
   execute: (ctx) => {
@@ -413,6 +457,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: 'K',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer,
   execute: (ctx) => {
@@ -426,6 +472,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: 'L',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer,
   execute: (ctx) => {
@@ -439,6 +487,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: ',',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer,
   execute: (ctx) => {
@@ -452,6 +502,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: '.',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer,
   execute: (ctx) => {
@@ -465,6 +517,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: 'I',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer,
   execute: (ctx) => {
@@ -478,6 +532,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: 'O',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer,
   execute: (ctx) => {
@@ -491,6 +547,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: 'Shift+I',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer,
   execute: (ctx) => {
@@ -504,6 +562,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: 'Shift+O',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer,
   execute: (ctx) => {
@@ -517,6 +577,8 @@ commandRegistry.register({
   scopes: ['trimmer'],
   defaultShortcut: 'Ctrl+Enter',
   category: 'Trimmer',
+  safety: 'safe',
+  paletteVisible: false,
   isVisible: () => true,
   isEnabled: (ctx) => !!ctx.trimmer && ctx.trimmer.isDirty,
   execute: (ctx) => {
