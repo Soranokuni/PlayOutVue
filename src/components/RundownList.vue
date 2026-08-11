@@ -15,6 +15,7 @@ import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
 import { activeScope } from '../composables/useOperatorShortcuts';
+import { calculatePointerDropTarget, toInsertionTarget, type TargetRowRect, type SemanticDropTarget } from '../lib/reorderHelper';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -672,17 +673,48 @@ const onRowSelect = (item: RundownItem, event?: MouseEvent) => {
 
 
 
+const getTargetRowRects = (): TargetRowRect[] => {
+  if (!rundownListRef.value) return [];
+  const containers = rundownListRef.value.querySelectorAll('.rw-row-container');
+  const rects: TargetRowRect[] = [];
+  containers.forEach((el, idx) => {
+    const item = store.activeItems[idx];
+    if (item) {
+      const rect = el.getBoundingClientRect();
+      rects.push({
+        id: item.id,
+        top: rect.top,
+        bottom: rect.bottom,
+        height: rect.height
+      });
+    }
+  });
+  return rects;
+};
+
 const resolveDropTarget = (event: DragEvent, index: number): { target: InsertionTarget; side: 'before' | 'after' } => {
-  const row = event.currentTarget as HTMLElement | null;
-  const targetItemId = store.activeItems[index]?.id;
-  if (!row || !targetItemId) {
-    return { target: { kind: 'append' }, side: 'before' };
+  const movingIds = store.selectedItemIds.length > 0
+    ? store.selectedItemIds
+    : (store.selectedItemId ? [store.selectedItemId] : []);
+
+  const endZoneEl = rundownListRef.value?.querySelector('.rundown-end-drop-zone');
+  const endZoneTop = endZoneEl ? endZoneEl.getBoundingClientRect().top : undefined;
+
+  const semantic = calculatePointerDropTarget({
+    clientY: event.clientY,
+    rows: getTargetRowRects(),
+    movingItemIds: movingIds,
+    endZoneTop
+  });
+
+  const insertion = toInsertionTarget(semantic);
+  if (!insertion || insertion.kind === 'append') {
+    return { target: { kind: 'append' }, side: 'after' };
   }
-  const rect = row.getBoundingClientRect();
-  const side = event.clientY > rect.top + rect.height / 2 ? 'after' as const : 'before' as const;
+
   return {
-    target: side === 'after' ? { kind: 'after', targetItemId } : { kind: 'before', targetItemId },
-    side
+    target: insertion,
+    side: insertion.kind === 'after' ? 'after' : 'before'
   };
 };
 
