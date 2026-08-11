@@ -86,7 +86,8 @@ export async function executeRegisteredCommand(commandId: string): Promise<boole
 
 let shortcutsMounted = false;
 
-export function resetShortcutsMountedStateForTesting() {
+/** @internal Test-only reset helper. Never call from production application code. */
+export function resetShortcutsMountedStateForTesting(): void {
   shortcutsMounted = false;
 }
 

@@ -27,7 +27,6 @@ describe('Real Window Keyboard Event Delivery & Focus Scope Integration', () => 
     }
 
     shortcuts = useOperatorShortcuts();
-    shortcuts.mountShortcuts();
   });
 
   afterEach(() => {
@@ -37,16 +36,24 @@ describe('Real Window Keyboard Event Delivery & Focus Scope Integration', () => 
     document.body.innerHTML = '';
   });
 
-  it('enforces idempotent listener registration preventing duplicate event handlers', () => {
-    const spy = vi.spyOn(window, 'addEventListener');
+  it('enforces idempotent listener registration preventing duplicate event handlers and verifying removal', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
     shortcuts.mountShortcuts();
     shortcuts.mountShortcuts();
 
-    const keydownCalls = spy.mock.calls.filter(([event]) => event === 'keydown');
-    expect(keydownCalls.length).toBe(0); // Already mounted in beforeEach once
+    const keydownAddCalls = addSpy.mock.calls.filter(([event]) => event === 'keydown');
+    expect(keydownAddCalls).toHaveLength(1);
+
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+    shortcuts.unmountShortcuts();
+
+    const keydownRemoveCalls = removeSpy.mock.calls.filter(([event]) => event === 'keydown');
+    expect(keydownRemoveCalls).toHaveLength(1);
   });
 
   it('handles real window.dispatchEvent ArrowDown event when rundown is focused', async () => {
+    shortcuts.mountShortcuts();
+
     const container = document.createElement('div');
     container.setAttribute('data-command-scope', 'rundown');
     container.setAttribute('tabindex', '0');
@@ -77,6 +84,8 @@ describe('Real Window Keyboard Event Delivery & Focus Scope Integration', () => 
   });
 
   it('bypasses rundown selection when real event is dispatched while focused inside an input', async () => {
+    shortcuts.mountShortcuts();
+
     const input = document.createElement('input');
     input.type = 'text';
     document.body.appendChild(input);
@@ -104,6 +113,8 @@ describe('Real Window Keyboard Event Delivery & Focus Scope Integration', () => 
   });
 
   it('bypasses rundown selection when real event is dispatched inside a modal container', async () => {
+    shortcuts.mountShortcuts();
+
     const modal = document.createElement('div');
     modal.setAttribute('data-command-scope', 'modal');
     modal.setAttribute('tabindex', '0');
