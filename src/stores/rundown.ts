@@ -68,11 +68,18 @@ export type InsertionTarget =
   | { kind: 'after'; targetItemId: string }
   | { kind: 'append' };
 
+export type MoveFailureReason =
+  | 'empty-operation'
+  | 'moving-items-not-found'
+  | 'invalid-target'
+  | 'no-op';
+
 export interface MoveResult {
   changed: boolean;
   movedItemIds: string[];
   target: InsertionTarget;
   newItems: RundownItem[];
+  reason?: MoveFailureReason;
 }
 
 export function calculateMove(
@@ -81,13 +88,26 @@ export function calculateMove(
     target: InsertionTarget
 ): MoveResult {
     if (!itemIds.length || !currentItems.length) {
-        return { changed: false, movedItemIds: [], target, newItems: currentItems };
+        return { changed: false, movedItemIds: [], target, newItems: currentItems, reason: 'empty-operation' };
     }
 
     const movingSet = new Set(itemIds);
     const movingItems = currentItems.filter(i => movingSet.has(i.id));
     if (!movingItems.length) {
-        return { changed: false, movedItemIds: [], target, newItems: currentItems };
+        return { changed: false, movedItemIds: [], target, newItems: currentItems, reason: 'moving-items-not-found' };
+    }
+
+    if (target.kind !== 'append') {
+        const targetExists = currentItems.some(i => i.id === target.targetItemId);
+        if (!targetExists || movingSet.has(target.targetItemId)) {
+            return {
+                changed: false,
+                movedItemIds: movingItems.map(i => i.id),
+                target,
+                newItems: currentItems,
+                reason: 'invalid-target'
+            };
+        }
     }
 
     const filteredList = currentItems.filter(i => !movingSet.has(i.id));
@@ -111,7 +131,8 @@ export function calculateMove(
         changed,
         movedItemIds: movingItems.map(i => i.id),
         target,
-        newItems
+        newItems,
+        reason: changed ? undefined : 'no-op'
     };
 }
 
