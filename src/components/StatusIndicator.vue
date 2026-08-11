@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-export type StatusTone = 'ready' | 'processing' | 'error' | 'warning' | 'idle';
+export type StatusTone =
+  | 'ready'
+  | 'processing'
+  | 'error'
+  | 'warning'
+  | 'on-air'
+  | 'armed'
+  | 'offline'
+  | 'unsaved-trim'
+  | 'idle';
+
 export type StatusVariant = 'dot' | 'pill' | 'banner';
 
 const props = withDefaults(defineProps<{
@@ -26,6 +36,10 @@ const defaultLabel = computed(() => {
     processing: 'Processing',
     error: 'Error',
     warning: 'Warning',
+    'on-air': 'ON AIR',
+    armed: 'ARMED',
+    offline: 'Offline',
+    'unsaved-trim': 'Unsaved Trim',
     idle: 'Idle'
   };
   return map[props.tone] || 'Unknown';
@@ -35,13 +49,13 @@ const defaultLabel = computed(() => {
 <template>
   <div
     class="status-indicator"
-    :class="[variant, toneClass, { pulse: pulse || tone === 'processing' }]"
+    :class="[variant, toneClass, { pulse: pulse || tone === 'processing' || tone === 'on-air' }]"
     role="status"
     :aria-label="defaultLabel"
   >
     <!-- Dot mode -->
     <template v-if="variant === 'dot'">
-      <span class="status-dot"></span>
+      <span class="status-dot" :title="defaultLabel"></span>
       <span v-if="label" class="status-label">{{ label }}</span>
     </template>
 
@@ -106,6 +120,34 @@ const defaultLabel = computed(() => {
   color: #fdba74;
 }
 
+.tone-on-air {
+  --status-color: #ef4444;
+  --status-bg: rgba(239, 68, 68, 0.2);
+  --status-border: rgba(239, 68, 68, 0.5);
+  color: #f87171;
+}
+
+.tone-armed {
+  --status-color: #06b6d4;
+  --status-bg: rgba(6, 182, 212, 0.15);
+  --status-border: rgba(6, 182, 212, 0.4);
+  color: #38bdf8;
+}
+
+.tone-offline {
+  --status-color: #64748b;
+  --status-bg: rgba(100, 116, 139, 0.15);
+  --status-border: rgba(100, 116, 139, 0.3);
+  color: #94a3b8;
+}
+
+.tone-unsaved-trim {
+  --status-color: #a855f7;
+  --status-bg: rgba(168, 85, 247, 0.15);
+  --status-border: rgba(168, 85, 247, 0.4);
+  color: #c084fc;
+}
+
 .tone-idle {
   --status-color: #64748b;
   --status-bg: rgba(100, 116, 139, 0.12);
@@ -159,6 +201,13 @@ const defaultLabel = computed(() => {
   100% {
     box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
     opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse .status-dot,
+  .status-dot {
+    animation: none !important;
   }
 }
 
