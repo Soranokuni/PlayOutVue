@@ -1466,7 +1466,7 @@ const menuItems = computed<MenuItem[]>(() => {
                 <span class="lib-name-wrap">
                   <span class="lib-name">{{ asset.display_name }}</span>
                   <span class="mcr-badges">
-                    <span v-if="cachedRatingMeta(asset).ageRating !== 'none'" class="mcr-badge badge-age" :class="`age-${cachedRatingMeta(asset).ageRating}`">
+                    <span v-if="cachedRatingMeta(asset).ageRating !== 'none'" data-testid="age-rating-badge" class="mcr-badge badge-age" :class="`age-${cachedRatingMeta(asset).ageRating}`">
                       {{ cachedRatingMeta(asset).ageRating.toUpperCase() }}
                     </span>
                     <span v-if="cachedRatingMeta(asset).tpFlag" class="mcr-badge badge-tp">TP</span>
