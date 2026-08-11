@@ -183,4 +183,50 @@ describe('Deterministic Drag & Drop & Move Invariants', () => {
     expect(res.changed).toBe(true);
     expect(store.activeItems.map(i => i.id)).toEqual([i3, i4, i1, i2]);
   });
+
+  it('inserts library items at exact before target row', () => {
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+    const targetId = store.activeItems[1].id;
+
+    const inserted = store.insertLibraryItems({
+      items: [{ filename: 'New Library Asset', path: '/new.mp4', type: 'video', duration: 10, seek: 0, length: 10 }],
+      target: { kind: 'before', targetItemId: targetId }
+    });
+
+    expect(inserted.length).toBe(1);
+    expect(store.activeItems.length).toBe(3);
+    expect(store.activeItems[1].path).toBe('/new.mp4');
+    expect(store.activeItems[2].id).toBe(targetId);
+  });
+
+  it('inserts library items at exact after target row', () => {
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+    const targetId = store.activeItems[0].id;
+
+    const inserted = store.insertLibraryItems({
+      items: [{ filename: 'New Library Asset', path: '/new.mp4', type: 'video', duration: 10, seek: 0, length: 10 }],
+      target: { kind: 'after', targetItemId: targetId }
+    });
+
+    expect(inserted.length).toBe(1);
+    expect(store.activeItems.length).toBe(3);
+    expect(store.activeItems[0].id).toBe(targetId);
+    expect(store.activeItems[1].path).toBe('/new.mp4');
+  });
+
+  it('inserts library items at append target when dropping below last row', () => {
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+
+    const inserted = store.insertLibraryItems({
+      items: [{ filename: 'New Library Asset', path: '/new.mp4', type: 'video', duration: 10, seek: 0, length: 10 }],
+      target: { kind: 'append' }
+    });
+
+    expect(inserted.length).toBe(1);
+    expect(store.activeItems.length).toBe(3);
+    expect(store.activeItems[2].path).toBe('/new.mp4');
+  });
 });

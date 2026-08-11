@@ -589,9 +589,11 @@ const onDragLeave = (event: DragEvent) => {
 
 const onDrop = async (event: DragEvent) => {
   event.preventDefault();
+  event.stopPropagation();
   isDragOver.value = false;
   if (!draggingItem.value) return;
-  await completeExternalDrop({ kind: 'append' });
+  const res = resolveDropTarget(event, 0);
+  await completeExternalDrop(res.target);
 };
 
 
@@ -675,10 +677,11 @@ const onRowSelect = (item: RundownItem, event?: MouseEvent) => {
 
 const getTargetRowRects = (): TargetRowRect[] => buildRowRectsFromDOM(rundownListRef.value);
 
-const resolveDropTarget = (event: DragEvent, index: number): { target: InsertionTarget; side: 'before' | 'after' } => {
-  const movingIds = store.selectedItemIds.length > 0
-    ? store.selectedItemIds
-    : (store.selectedItemId ? [store.selectedItemId] : []);
+const resolveDropTarget = (event: DragEvent, fallbackIndex?: number): { target: InsertionTarget; side: 'before' | 'after' } => {
+  const isLibrarySource = draggingItem.value?.source === 'library' || !draggingItem.value;
+  const movingIds = isLibrarySource
+    ? []
+    : (store.selectedItemIds.length > 0 ? store.selectedItemIds : (store.selectedItemId ? [store.selectedItemId] : []));
 
   const endZoneEl = rundownListRef.value?.querySelector('.rundown-end-drop-zone');
   const endZoneTop = endZoneEl ? endZoneEl.getBoundingClientRect().top : undefined;

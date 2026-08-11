@@ -543,6 +543,7 @@ function onAssetDragStart(event: DragEvent, asset: LibraryAsset) {
     mediaLibrary.selectedNodeId = `asset:${asset.uuid}`;
     const meta = cachedRatingMeta(asset);
     const payload = {
+        source: 'library' as const,
         playoutvueId: asset.uuid.startsWith('local:') ? undefined : asset.uuid,
         filename: asset.display_name,
         path: asset.current_path,
