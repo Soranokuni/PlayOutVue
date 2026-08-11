@@ -63,6 +63,12 @@ export interface TrimWarningNotice {
     timestamp: number;
 }
 
+export type InsertionTarget =
+  | { kind: 'before'; targetItemId: string }
+  | { kind: 'after'; targetItemId: string }
+  | { kind: 'append' };
+
+
 export interface RundownPlaylist {
     id: string;
     name: string;
@@ -298,6 +304,12 @@ export const useRundownStore = defineStore('rundown', () => {
     const playbackProgressPct = ref<number>(0);
     const playbackCountdownStr = ref<string>('');
     const updateTrigger = ref(0);
+
+    const selectedItemIds = ref<string[]>([]);
+    const clipboardItems = ref<RundownItem[]>([]);
+    const undoStack = ref<RundownItem[][]>([]);
+    const redoStack = ref<RundownItem[][]>([]);
+
 
     const updatePlaylistState = (playlistId: string, updates: Partial<RundownPlaylist>) => {
         const playlistIndex = playlists.value.findIndex((p) => p.id === playlistId);
@@ -1724,7 +1736,7 @@ export const useRundownStore = defineStore('rundown', () => {
         const serialized = serializeBroadcastRating({
             ageRating: age,
             tpFlag: tp,
-            contentType: content,
+contentType: content,
             timeline: timeline
         });
 
@@ -1757,7 +1769,7 @@ export const useRundownStore = defineStore('rundown', () => {
         if (dbUuid) {
             const mediaLibrary = useMediaLibraryStore();
             mediaLibrary.updateAsset(dbUuid, { rating: serialized });
-            
+
             // Also sync other items in rundown with same playoutvueId
             playlist.items.forEach((e, i) => {
                 if (e.playoutvueId === dbUuid && e.id !== itemId) {
@@ -1771,6 +1783,282 @@ export const useRundownStore = defineStore('rundown', () => {
                 }
             });
             triggerRef(playlists);
+        }
+    };
+
+    const canUndo = computed(() => undoStack.value.length > 0);
+    const canRedo = computed(() => redoStack.value.length > 0);
+
+    const saveUndoSnapshot = () => {
+        if (undoStack.value.length >= 100) undoStack.value.shift();
+        undoStack.value.push(JSON.parse(JSON.stringify(activeItems.value)));
+    };
+
+    const undo = () => {
+        if (undoStack.value.length === 0) return;
+        const snapshot = undoStack.value.pop()!;
+        redoStack.value.push(JSON.parse(JSON.stringify(activeItems.value)));
+        activeItems.value = snapshot;
+    };
+
+    const redo = () => {
+        if (redoStack.value.length === 0) return;
+        const snapshot = redoStack.value.pop()!;
+        undoStack.value.push(JSON.parse(JSON.stringify(activeItems.value)));
+        activeItems.value = snapshot;
+    };
+
+    const clearSelection = () => {
+        selectedItemId.value = null;
+        selectedItemIds.value = [];
+    };
+
+    const selectItem = (id: string | null, options?: { multi?: boolean; range?: boolean }) => {
+        if (!id) {
+            clearSelection();
+            return;
+        }
+
+        if (options?.multi) {
+            const set = new Set(selectedItemIds.value);
+            if (set.has(id)) {
+                set.delete(id);
+            } else {
+                set.add(id);
+            }
+            selectedItemIds.value = Array.from(set);
+            selectedItemId.value = id;
+        } else if (options?.range && selectedItemId.value && activeItems.value.length > 0) {
+            const idx1 = activeItems.value.findIndex(i => i.id === selectedItemId.value);
+            const idx2 = activeItems.value.findIndex(i => i.id === id);
+            if (idx1 >= 0 && idx2 >= 0) {
+                const start = Math.min(idx1, idx2);
+                const end = Math.max(idx1, idx2);
+                const rangeIds = activeItems.value.slice(start, end + 1).map(i => i.id);
+                selectedItemIds.value = rangeIds;
+                selectedItemId.value = id;
+            } else {
+                selectedItemId.value = id;
+                selectedItemIds.value = [id];
+            }
+        } else {
+            selectedItemId.value = id;
+            selectedItemIds.value = [id];
+        }
+    };
+
+    const moveSelectionDelta = (delta: number) => {
+        const items = activeItems.value;
+        if (!items.length) return;
+        const cur = selectedItemId.value ? items.findIndex(i => i.id === selectedItemId.value) : -1;
+        let next: number;
+        if (cur === -1) {
+            next = delta > 0 ? 0 : items.length - 1;
+        } else {
+            next = Math.max(0, Math.min(items.length - 1, cur + delta));
+        }
+        if (items[next]) {
+            selectItem(items[next]!.id);
+        }
+    };
+
+    const moveSelectionPage = (direction: -1 | 1) => {
+        moveSelectionDelta(direction * 10);
+    };
+
+    const extendSelectionDelta = (delta: number) => {
+        const items = activeItems.value;
+        if (!items.length) return;
+        const cur = selectedItemId.value ? items.findIndex(i => i.id === selectedItemId.value) : -1;
+        if (cur === -1) {
+            if (items[0]) selectItem(items[0].id);
+            return;
+        }
+        const next = Math.max(0, Math.min(items.length - 1, cur + delta));
+        if (items[next]) {
+            selectItem(items[next]!.id, { range: true });
+        }
+    };
+
+    const moveSelectedItemsDelta = (delta: number) => {
+        const items = activeItems.value;
+        if (!items.length) return;
+        const ids = selectedItemIds.value.length > 0 ? selectedItemIds.value : (selectedItemId.value ? [selectedItemId.value] : []);
+        if (!ids.length) return;
+
+        const indices = ids.map(id => items.findIndex(i => i.id === id)).filter(idx => idx >= 0).sort((a, b) => a - b);
+        if (!indices.length) return;
+
+        if (delta < 0 && indices[0]! <= 0) return;
+        if (delta > 0 && indices[indices.length - 1]! >= items.length - 1) return;
+
+        saveUndoSnapshot();
+        redoStack.value = [];
+
+        const newItems = [...items];
+        if (delta < 0) {
+            for (const idx of indices) {
+                const item = newItems[idx]!;
+                newItems.splice(idx, 1);
+                newItems.splice(idx - 1, 0, item);
+            }
+        } else {
+            for (let i = indices.length - 1; i >= 0; i--) {
+                const idx = indices[i]!;
+                const item = newItems[idx]!;
+                newItems.splice(idx, 1);
+                newItems.splice(idx + 1, 0, item);
+            }
+        }
+
+        activeItems.value = newItems;
+    };
+
+    const insertLibraryItems = (params: {
+        items: RundownDraft[];
+        target: InsertionTarget;
+        activePlaylistId?: string;
+    }): string[] => {
+        saveUndoSnapshot();
+        redoStack.value = [];
+
+        const playlistId = params.activePlaylistId || currentPlaylist.value?.id;
+        const targetPlaylist = getPlaylistById(playlistId) || currentPlaylist.value;
+        if (!targetPlaylist) return [];
+
+        const currentList = [...targetPlaylist.items];
+        let insertIndex = currentList.length;
+
+        if (params.target.kind === 'before') {
+            const targetId = params.target.targetItemId;
+            const idx = currentList.findIndex(i => i.id === targetId);
+            if (idx >= 0) insertIndex = idx;
+        } else if (params.target.kind === 'after') {
+            const targetId = params.target.targetItemId;
+            const idx = currentList.findIndex(i => i.id === targetId);
+            if (idx >= 0) insertIndex = idx + 1;
+        }
+
+        const createdItems = params.items.map(draft => makeItem(draft));
+        const createdIds = createdItems.map(i => i.id);
+
+        currentList.splice(insertIndex, 0, ...createdItems);
+        updatePlaylistState(targetPlaylist.id, { items: currentList });
+
+        if (createdIds.length > 0) {
+            selectItem(createdIds[0]!);
+            selectedItemIds.value = createdIds;
+        }
+
+        return createdIds;
+    };
+
+    const moveRundownItems = (params: {
+        itemIds: string[];
+        target: InsertionTarget;
+        activePlaylistId?: string;
+    }) => {
+        if (!params.itemIds.length) return;
+        saveUndoSnapshot();
+        redoStack.value = [];
+
+        const playlistId = params.activePlaylistId || currentPlaylist.value?.id;
+        const targetPlaylist = getPlaylistById(playlistId) || currentPlaylist.value;
+        if (!targetPlaylist) return;
+
+        const currentList = [...targetPlaylist.items];
+        const movingSet = new Set(params.itemIds);
+        const movingItems = currentList.filter(i => movingSet.has(i.id));
+
+        const filteredList = currentList.filter(i => !movingSet.has(i.id));
+
+        let insertIndex = filteredList.length;
+        if (params.target.kind === 'before') {
+            const targetId = params.target.targetItemId;
+            const idx = filteredList.findIndex(i => i.id === targetId);
+            if (idx >= 0) insertIndex = idx;
+        } else if (params.target.kind === 'after') {
+            const targetId = params.target.targetItemId;
+            const idx = filteredList.findIndex(i => i.id === targetId);
+            if (idx >= 0) insertIndex = idx + 1;
+        }
+
+        filteredList.splice(insertIndex, 0, ...movingItems);
+        updatePlaylistState(targetPlaylist.id, { items: filteredList });
+
+        if (movingItems.length > 0) {
+            selectItem(movingItems[0]!.id);
+            selectedItemIds.value = params.itemIds;
+        }
+    };
+
+    const removeItems = (ids: string[]) => {
+        if (!ids.length) return;
+        saveUndoSnapshot();
+        redoStack.value = [];
+
+        const items = [...activeItems.value];
+        const protectedIdx = isCurrentPlaylistOnAir.value ? currentPlayingIndex.value : -1;
+        const protectedId = protectedIdx >= 0 ? items[protectedIdx]?.id : null;
+
+        const toRemove = ids.filter(id => id !== protectedId);
+        if (!toRemove.length) return;
+
+        const removeSet = new Set(toRemove);
+        const updated = items.filter(i => !removeSet.has(i.id));
+        activeItems.value = updated;
+        clearSelection();
+    };
+
+    const copySelectionToClipboard = () => {
+        const ids = selectedItemIds.value.length > 0 ? selectedItemIds.value : (selectedItemId.value ? [selectedItemId.value] : []);
+        if (!ids.length) return;
+
+        const items = activeItems.value.filter(i => ids.includes(i.id));
+        clipboardItems.value = JSON.parse(JSON.stringify(items));
+    };
+
+    const cutSelectionToClipboard = () => {
+        copySelectionToClipboard();
+        const ids = selectedItemIds.value.length > 0 ? selectedItemIds.value : (selectedItemId.value ? [selectedItemId.value] : []);
+        removeItems(ids);
+    };
+
+    const canPasteClipboard = () => clipboardItems.value.length > 0;
+
+    const pasteClipboardAfterSelection = () => {
+        if (!clipboardItems.value.length) return;
+
+        const newDrafts: RundownDraft[] = clipboardItems.value.map(item => ({
+            ...item,
+            filename: `${item.filename} (Copy)`
+        }));
+
+        const target: InsertionTarget = selectedItemId.value
+            ? { kind: 'after', targetItemId: selectedItemId.value }
+            : { kind: 'append' };
+
+        insertLibraryItems({ items: newDrafts, target });
+    };
+
+    const playFromIndex = async (index: number) => {
+        const payload = buildPlaybackPayload(index);
+        if (!payload) return;
+
+        const { getActivePlayoutService, isPlayoutPlaying } = await import('../services/playout');
+        const service = getActivePlayoutService();
+        try {
+            if (isPlayoutPlaying.value && onAirPlaylistId.value && onAirPlaylistId.value !== payload.playlistId) {
+                await service.stop();
+                clearOnAirState();
+            }
+
+            setPlaylistOnAir(payload.playlistId, payload.startVisibleIndex);
+            selectedItemId.value = activeItems.value[payload.startVisibleIndex]?.id || null;
+            await service.play(payload.items as any, payload.startIndex);
+        } catch (error) {
+            clearOnAirState();
+            console.error('[Playback] Failed to start playlist', error);
         }
     };
 
@@ -1792,6 +2080,7 @@ export const useRundownStore = defineStore('rundown', () => {
         canScheduleCurrentPlaylist,
         activeItems,
         selectedItemId,
+        selectedItemIds,
         selectedItem,
         totalDuration,
         currentPlayingIndex,
@@ -1809,6 +2098,7 @@ export const useRundownStore = defineStore('rundown', () => {
         addGapMarker,
         addLiveItem,
         removeItem,
+        removeItems,
         duplicateItem,
         reorderItems,
         clearRundown,
@@ -1837,9 +2127,25 @@ export const useRundownStore = defineStore('rundown', () => {
         updateItemMetadata,
         lastTrimWarning,
         dismissTrimWarning,
-        updateAssetTrim
+        updateAssetTrim,
+        clearSelection,
+        selectItem,
+        moveSelectionDelta,
+        moveSelectionPage,
+        extendSelectionDelta,
+        moveSelectedItemsDelta,
+        insertLibraryItems,
+        moveRundownItems,
+        copySelectionToClipboard,
+        cutSelectionToClipboard,
+        pasteClipboardAfterSelection,
+        canPasteClipboard,
+        playFromIndex,
+        undo,
+        redo,
+        canUndo,
+        canRedo
     };
 }, {
     persist: true
 });
-

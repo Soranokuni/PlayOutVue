@@ -9,7 +9,9 @@ import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDef
 import { useIngestorStatusStore } from '../stores/ingestorStatus';
 import { useMediaLibraryStore, type LibraryAsset, type TreeNode } from '../stores/mediaLibrary';
 import { draggingItem } from '../composables/useDragState';
+import { activeScope } from '../composables/useOperatorShortcuts';
 import TrimPanel from './TrimPanel.vue';
+
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 
 const store = useRundownStore();
@@ -1152,7 +1154,8 @@ const menuItems = computed<MenuItem[]>(() => {
 </script>
 
 <template>
-  <div class="lib-wrap">
+  <div class="lib-wrap media-library-panel" data-scope="library" tabindex="0" @focus="activeScope = 'library'">
+
     <!-- Header -->
     <div class="lib-header">
       <div class="lib-header-copy">

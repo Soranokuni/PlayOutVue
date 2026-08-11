@@ -33,13 +33,14 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'select'): void;
+  (e: 'select', ev: MouseEvent): void;
   (e: 'contextmenu', ev: MouseEvent): void;
   (e: 'dragover', ev: DragEvent): void;
   (e: 'drop', ev: DragEvent): void;
   (e: 'play'): void;
   (e: 'delete'): void;
 }>();
+
 
 const typeIcon = (type: RundownItem['type']) => ({ video: '🎬', live: '📹', graphic: '🎨', gap: '⏱' }[type] || '📄');
 const typeColor = (type: RundownItem['type']) => ({ video: '#33becc', live: '#e63946', graphic: '#a8dadc', gap: '#df8e1d' }[type] || '#aaa');
@@ -150,10 +151,12 @@ const rowStyle = computed(() => {
 <template>
   <div
     class="rw-row"
+    role="option"
+    :aria-selected="selected"
     :data-item-id="item.id"
     :class="rowClass"
     :style="rowStyle"
-    @click="emit('select')"
+    @click="emit('select', $event)"
     @contextmenu.prevent="emit('contextmenu', $event)"
     @dragover="emit('dragover', $event)"
     @drop="emit('drop', $event)"
