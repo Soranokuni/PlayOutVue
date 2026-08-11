@@ -5,6 +5,16 @@ import { invoke } from '@tauri-apps/api/core';
 import { msToTimecode, parseTimecode, snapMsToFrame, getFrameRate, isDropFrameSupported } from '../lib/timecode';
 import { activeTrimmerContext } from '../composables/useOperatorShortcuts';
 import { createVirtualSubclip } from '../services/virtualSubclipService';
+import {
+  createTrimDraft,
+  setInAt,
+  setOutAt,
+  nudgeBoundary,
+  validateTrim,
+  isTrimDirty,
+  revertTrim,
+  type TrimDraft
+} from '../lib/trimController';
 
 export interface LibraryTrimItem {
     id?: string;
@@ -17,6 +27,10 @@ export interface LibraryTrimItem {
     inPoint?: number;
     outPoint?: number;
     fps?: number;
+    fps_num?: number;
+    fps_den?: number;
+    trim_in_ms?: number;
+    trim_out_ms?: number;
 }
 
 const store = useRundownStore();
@@ -439,16 +453,56 @@ const toggleViewTrimmed = () => {
   }
 };
 
+const trimDraft = computed<TrimDraft>(() =>
+  createTrimDraft(
+    inMs.value,
+    outMs.value,
+    totalDurationMs.value,
+    item.value?.fps_num,
+    item.value?.fps_den,
+    item.value?.fps
+  )
+);
+
+const isTrimDirtyState = computed(() => {
+  const baselineIn = item.value?.inPoint !== undefined ? Math.round(item.value.inPoint * 1000) : (item.value?.trim_in_ms ?? 0);
+  const baselineOut = item.value?.outPoint !== undefined ? Math.round(item.value.outPoint * 1000) : (item.value?.trim_out_ms ?? (totalDurationMs.value || 0));
+  return isTrimDirty(trimDraft.value, { inMs: baselineIn, outMs: baselineOut });
+});
+
 const setInPoint = (ms = Math.round(currentVideoMs())) => {
-  inMs.value = clampMs(ms);
+  const updated = setInAt(trimDraft.value, ms);
+  inMs.value = updated.inMs;
   if (inMs.value > outMs.value) outMs.value = inMs.value;
-  trimStatus.value = `IN: ${msToTC(inMs.value)}`;
+  const val = validateTrim(updated);
+  trimStatus.value = val.valid ? `IN: ${msToTC(inMs.value)}` : `❌ ${val.errors.join(', ')}`;
 };
 
 const setOutPoint = (ms = Math.round(currentVideoMs())) => {
-  outMs.value = clampMs(ms);
+  const updated = setOutAt(trimDraft.value, ms);
+  outMs.value = updated.outMs;
   if (outMs.value < inMs.value) inMs.value = outMs.value;
-  trimStatus.value = `OUT: ${msToTC(outMs.value)}`;
+  const val = validateTrim(updated);
+  trimStatus.value = val.valid ? `OUT: ${msToTC(outMs.value)}` : `❌ ${val.errors.join(', ')}`;
+};
+
+const nudgeMarkerBoundary = (boundary: 'in' | 'out', deltaFrames: number) => {
+  const updated = nudgeBoundary(trimDraft.value, boundary, deltaFrames);
+  inMs.value = updated.inMs;
+  outMs.value = updated.outMs;
+  const val = validateTrim(updated);
+  trimStatus.value = val.valid
+    ? `${boundary.toUpperCase()}: ${msToTC(boundary === 'in' ? inMs.value : outMs.value)}`
+    : `❌ ${val.errors.join(', ')}`;
+};
+
+const revertTrimToBaseline = () => {
+  const baselineIn = item.value?.trim_in_ms ?? 0;
+  const baselineOut = item.value?.trim_out_ms ?? (totalDurationMs.value || 0);
+  const reverted = revertTrim(trimDraft.value, { inMs: baselineIn, outMs: baselineOut });
+  inMs.value = reverted.inMs;
+  outMs.value = reverted.outMs;
+  trimStatus.value = 'Reverted trim points to baseline.';
 };
 
 const jumpToMarker = (marker: 'start' | 'in' | 'out' | 'end') => {
