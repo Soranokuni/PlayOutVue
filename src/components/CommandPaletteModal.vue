@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
+import { ask } from '@tauri-apps/plugin-dialog';
 import { commandRegistry, type CommandDefinition } from '../services/commandRegistry';
 import { searchCommands } from '../lib/commandSearch';
 import {
@@ -19,6 +20,8 @@ const query = ref('');
 const selectedIndex = ref(0);
 const inputRef = ref<HTMLInputElement | null>(null);
 const palettePanelRef = ref<HTMLElement | null>(null);
+const executionError = ref<string | null>(null);
+const isExecuting = ref(false);
 const resultsId = 'command-palette-results';
 
 const currentContext = computed(() => {
@@ -29,6 +32,8 @@ const currentContext = computed(() => {
 const availableCommands = computed(() => {
   const ctx = currentContext.value;
   const all = commandRegistry.getAll().filter((cmd) => {
+    if (cmd.paletteVisible === false) return false;
+    if (cmd.safety === 'playback') return false;
     if (cmd.id.includes('takeSelected') || cmd.id.includes('playFromIndex')) return false;
     if (ctx && !cmd.isVisible(ctx)) return false;
     return true;
@@ -61,6 +66,8 @@ watch(
     if (open) {
       query.value = '';
       selectedIndex.value = 0;
+      executionError.value = null;
+      isExecuting.value = false;
       nextTick(() => {
         inputRef.value?.focus();
       });
@@ -71,6 +78,7 @@ watch(
 
 watch(availableCommands, () => {
   selectedIndex.value = 0;
+  executionError.value = null;
 });
 
 const onPaletteKeyDown = (e: KeyboardEvent) => {
@@ -134,10 +142,18 @@ const onPaletteKeyDown = (e: KeyboardEvent) => {
     const focusables = Array.from(
       palettePanelRef.value.querySelectorAll<HTMLElement>('input, button, [tabindex]')
     ).filter((el) => !el.hasAttribute('disabled') && el.getAttribute('tabindex') !== '-1');
+
     if (!focusables.length) return;
 
     const first = focusables[0];
     const last = focusables[focusables.length - 1];
+
+    if (!palettePanelRef.value.contains(document.activeElement)) {
+      e.preventDefault();
+      e.stopPropagation();
+      first?.focus();
+      return;
+    }
 
     if (e.shiftKey && document.activeElement === first) {
       e.preventDefault();
@@ -151,17 +167,48 @@ const onPaletteKeyDown = (e: KeyboardEvent) => {
   }
 };
 
-const runCommand = async (cmd: CommandDefinition) => {
-  const ctx = createCurrentCommandContext();
-  if (!cmd.isVisible(ctx) || !cmd.isEnabled(ctx)) return;
+async function confirmAction(label: string): Promise<boolean> {
+  try {
+    return await ask(`Are you sure you want to execute "${label}"?`, {
+      title: 'Confirm Command',
+      kind: 'warning'
+    });
+  } catch {
+    // Fallback in non-Tauri / test environments
+    return true;
+  }
+}
 
-  if (cmd.requiresConfirmation || cmd.destructive) {
-    const confirmed = window.confirm('Are you sure you want to execute "' + cmd.label + '"?');
+const runCommand = async (cmd: CommandDefinition) => {
+  if (isExecuting.value) return;
+
+  const ctx = createCurrentCommandContext();
+  if (!cmd.isVisible(ctx) || !cmd.isEnabled(ctx)) {
+    executionError.value = cmd.disabledReason ? cmd.disabledReason(ctx) || 'Command is disabled' : 'Command is currently disabled';
+    return;
+  }
+
+  if (cmd.requiresConfirmation || cmd.destructive || cmd.safety === 'destructive') {
+    const confirmed = await confirmAction(cmd.label);
     if (!confirmed) return;
   }
 
-  emit('close');
-  await commandRegistry.execute(cmd.id, ctx);
+  try {
+    isExecuting.value = true;
+    executionError.value = null;
+
+    const executed = await commandRegistry.execute(cmd.id, ctx);
+    if (!executed) {
+      executionError.value = 'Command is no longer available';
+      return;
+    }
+
+    emit('close');
+  } catch (error) {
+    executionError.value = error instanceof Error ? error.message : 'Command execution failed';
+  } finally {
+    isExecuting.value = false;
+  }
 };
 
 const runSelected = () => {
@@ -207,6 +254,10 @@ const runSelected = () => {
           <kbd class="palette-esc-kbd">ESC</kbd>
         </div>
 
+        <div v-if="executionError" class="palette-error-banner" role="alert">
+          ⚠️ {{ executionError }}
+        </div>
+
         <div :id="resultsId" class="palette-list" role="listbox" aria-label="Available commands">
           <button
             v-for="(cmd, index) in availableCommands"
@@ -217,7 +268,7 @@ const runSelected = () => {
             :class="{ active: index === selectedIndex, disabled: !isCommandEnabled(cmd) }"
             role="option"
             :aria-selected="index === selectedIndex"
-            :disabled="!isCommandEnabled(cmd)"
+            :disabled="!isCommandEnabled(cmd) || isExecuting"
             @click="runCommand(cmd)"
             @mouseenter="selectedIndex = index"
           >
@@ -304,6 +355,15 @@ const runSelected = () => {
   background: #2a3441;
   color: #94a3b8;
   border: 1px solid #344052;
+}
+
+.palette-error-banner {
+  padding: 8px 16px;
+  background: #7f1d1d;
+  color: #fca5a5;
+  font-size: 0.82rem;
+  font-weight: 500;
+  border-bottom: 1px solid #991b1b;
 }
 
 .palette-list {

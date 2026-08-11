@@ -13,7 +13,11 @@ import {
   resetShortcutsMountedStateForTesting
 } from '../../composables/useOperatorShortcuts';
 
-describe('PR 4 Command Palette Modal & Focus Trapping', () => {
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  ask: vi.fn().mockResolvedValue(true)
+}));
+
+describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
   let shortcuts: ReturnType<typeof useOperatorShortcuts>;
 
   beforeEach(() => {
@@ -59,6 +63,23 @@ describe('PR 4 Command Palette Modal & Focus Trapping', () => {
     expect(activeModalName.value).toBe('command-palette');
   });
 
+  it('restores focus to fallback container if captured element was removed from DOM', async () => {
+    const fallbackContainer = document.createElement('div');
+    fallbackContainer.setAttribute('data-command-scope', 'rundown');
+    fallbackContainer.tabIndex = 0;
+    document.body.appendChild(fallbackContainer);
+
+    const tempBtn = document.createElement('button');
+    document.body.appendChild(tempBtn);
+    tempBtn.focus();
+
+    openCommandPalette();
+    tempBtn.remove(); // Remove captured element
+
+    closeCommandPalette();
+    expect(document.activeElement).toBe(fallbackContainer);
+  });
+
   it('mounts CommandPaletteModal, focuses search input, and traps focus', async () => {
     openCommandPalette();
 
@@ -81,13 +102,14 @@ describe('PR 4 Command Palette Modal & Focus Trapping', () => {
     wrapper.unmount();
   });
 
-  it('filters commands fuzzy and executes highlighted command on Enter', async () => {
+  it('filters commands fuzzy and executes highlighted command on Enter, emitting close only on success', async () => {
     let executed = false;
     const testCmd: CommandDefinition = {
       id: 'test.cmdPaletteAction',
       label: 'Special Test Action',
       scopes: ['global'],
       category: 'Global',
+      safety: 'safe',
       isVisible: () => true,
       isEnabled: () => true,
       execute: () => {
@@ -111,12 +133,62 @@ describe('PR 4 Command Palette Modal & Focus Trapping', () => {
     await backdrop.trigger('keydown', { key: 'Enter' });
 
     expect(executed).toBe(true);
+    expect(wrapper.emitted('close')).toBeTruthy();
 
     commandRegistry.unregister('test.cmdPaletteAction');
     wrapper.unmount();
   });
 
-  it('strictly excludes takeSelected and playFromIndex commands', async () => {
+  it('keeps palette open and displays error banner when command execution fails', async () => {
+    const failingCmd: CommandDefinition = {
+      id: 'test.failingAction',
+      label: 'Failing Action',
+      scopes: ['global'],
+      category: 'Global',
+      safety: 'safe',
+      isVisible: () => true,
+      isEnabled: () => true,
+      execute: () => {
+        throw new Error('Database write error');
+      }
+    };
+    commandRegistry.register(failingCmd);
+
+    openCommandPalette();
+    const wrapper = mount(CommandPaletteModal, {
+      props: { isOpen: true },
+      attachTo: document.body
+    });
+
+    await nextTick();
+
+    const input = wrapper.get('input[type="search"]');
+    await input.setValue('Failing Action');
+
+    const backdrop = wrapper.get('[data-command-scope="command-palette"]');
+    await backdrop.trigger('keydown', { key: 'Enter' });
+    await nextTick();
+
+    expect(wrapper.emitted('close')).toBeFalsy();
+    expect(wrapper.text()).toContain('Database write error');
+
+    commandRegistry.unregister('test.failingAction');
+    wrapper.unmount();
+  });
+
+  it('strictly excludes commands with safety: "playback"', async () => {
+    const playbackCmd: CommandDefinition = {
+      id: 'test.playbackAction',
+      label: 'Direct Playback Action',
+      scopes: ['global'],
+      category: 'Global',
+      safety: 'playback',
+      isVisible: () => true,
+      isEnabled: () => true,
+      execute: () => {}
+    };
+    commandRegistry.register(playbackCmd);
+
     openCommandPalette();
     const wrapper = mount(CommandPaletteModal, {
       props: { isOpen: true },
@@ -126,9 +198,9 @@ describe('PR 4 Command Palette Modal & Focus Trapping', () => {
     await nextTick();
 
     const text = wrapper.text();
-    expect(text).not.toContain('takeSelected');
-    expect(text).not.toContain('playFromIndex');
+    expect(text).not.toContain('Direct Playback Action');
 
+    commandRegistry.unregister('test.playbackAction');
     wrapper.unmount();
   });
 

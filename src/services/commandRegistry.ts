@@ -67,6 +67,8 @@ export type CommandCategory =
   | 'View'
   | 'System';
 
+export type CommandSafety = 'safe' | 'destructive' | 'playback';
+
 export interface CommandDefinition {
   id: string;
   label: string;
@@ -74,6 +76,8 @@ export interface CommandDefinition {
   defaultShortcut?: string;
   category?: CommandCategory;
   description?: string;
+  safety?: CommandSafety;
+  paletteVisible?: boolean;
   destructive?: boolean;
   requiresConfirmation?: boolean;
   isVisible: (ctx: CommandContext) => boolean;
