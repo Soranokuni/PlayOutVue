@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import Sortable from 'sortablejs';
-import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist } from '../stores/rundown';
+import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist, type InsertionTarget } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
 import { draggingItem } from '../composables/useDragState';
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
@@ -14,10 +14,15 @@ import RundownRow from './RundownRow.vue';
 import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
+import { useOperatorShortcuts, activeScope } from '../composables/useOperatorShortcuts';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
+useOperatorShortcuts();
+
 const rundownListRef = ref<HTMLElement | null>(null);
+const focusList = () => rundownListRef.value?.focus({ preventScroll: true });
+
 const isDragOver = ref(false);
 const showLiveDialog = ref(false);
 const dropTargetIndex = ref<number | null>(null);
@@ -612,17 +617,32 @@ const onRowDragOver = (event: DragEvent, index: number) => {
   event.preventDefault();
   event.stopPropagation();
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  const target = resolveDropTarget(event, index);
-  dropTargetIndex.value = index;
-  dropTargetSide.value = target.side;
+  const res = resolveDropTarget(event, index);
+  dropTargetIndex.value = res.side === 'after' ? index + 1 : index;
+  dropTargetSide.value = res.side;
 };
 
 const onRowDrop = async (event: DragEvent, index: number) => {
   event.preventDefault();
   event.stopPropagation();
   isDragOver.value = false;
-  const target = resolveDropTarget(event, index);
-  await completeExternalDrop(target.insertIndex);
+  const res = resolveDropTarget(event, index);
+  await completeExternalDrop(res.target);
+};
+
+const onEndZoneDragOver = (event: DragEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  dropTargetIndex.value = store.activeItems.length;
+  dropTargetSide.value = 'after';
+};
+
+const onEndZoneDrop = async (event: DragEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+  isDragOver.value = false;
+  await completeExternalDrop({ kind: 'append' });
 };
 
 const onDragLeave = (event: DragEvent) => {
@@ -637,8 +657,9 @@ const onDrop = async (event: DragEvent) => {
   event.preventDefault();
   isDragOver.value = false;
   if (!draggingItem.value) return;
-  await completeExternalDrop(dropTargetIndex.value ?? undefined);
+  await completeExternalDrop({ kind: 'append' });
 };
+
 
 const msToClockDisplay = (ms: number) => {
   if (ms <= 0) return '00:00:00';
@@ -711,15 +732,23 @@ const clearDropTarget = () => {
   dropTargetSide.value = 'before';
 };
 
-const resolveDropTarget = (event: DragEvent, index: number) => {
+const onRowSelect = (item: RundownItem, event?: MouseEvent) => {
+  store.selectItem(item.id, { multi: event?.ctrlKey || event?.metaKey, range: event?.shiftKey });
+  focusList();
+};
+
+
+
+const resolveDropTarget = (event: DragEvent, index: number): { target: InsertionTarget; side: 'before' | 'after' } => {
   const row = event.currentTarget as HTMLElement | null;
-  if (!row) {
-    return { insertIndex: index, side: 'before' as const };
+  const targetItemId = store.activeItems[index]?.id;
+  if (!row || !targetItemId) {
+    return { target: { kind: 'append' }, side: 'before' };
   }
   const rect = row.getBoundingClientRect();
   const side = event.clientY > rect.top + rect.height / 2 ? 'after' as const : 'before' as const;
   return {
-    insertIndex: side === 'after' ? index + 1 : index,
+    target: side === 'after' ? { kind: 'after', targetItemId } : { kind: 'before', targetItemId },
     side
   };
 };
@@ -741,27 +770,25 @@ const buildDroppedPayload = async () => {
   return payload;
 };
 
-const completeExternalDrop = async (insertIndex?: number) => {
+const completeExternalDrop = async (target?: InsertionTarget) => {
   const payload = await buildDroppedPayload();
   if (!payload) return;
 
-  if (typeof insertIndex === 'number') {
-    store.insertItemAt(insertIndex, payload as any);
-  } else {
-    store.addItem(payload as any);
-  }
+  const insertionTarget = target || { kind: 'append' };
+  const insertedIds = store.insertLibraryItems({
+    items: [payload as any],
+    target: insertionTarget
+  });
 
-  const insertedIndex = typeof insertIndex === 'number'
-    ? Math.max(0, Math.min(insertIndex, store.activeItems.length - 1))
-    : store.activeItems.length - 1;
-  const insertedItem = store.activeItems[insertedIndex];
-  if (insertedItem && payload.type === 'video' && !(payload.duration > 0) && payload.path && !/^https?:/i.test(payload.path)) {
-    hydrateSingleItemDuration(insertedItem.id, payload.path).catch(() => {});
+  const firstId = insertedIds[0];
+  if (firstId && payload.type === 'video' && !(payload.duration > 0) && payload.path && !/^https?:/i.test(payload.path)) {
+    hydrateSingleItemDuration(firstId, payload.path).catch(() => {});
   }
 
   draggingItem.value = null;
   clearDropTarget();
 };
+
 
 const getDisplayName = (item: RundownItem) => {
   if (item.display_name) return item.display_name;
@@ -787,15 +814,22 @@ onMounted(() => {
       animation: 200,
       ghostClass: 'rw-ghost',
       handle: '.rw-handle',
+      draggable: '.rw-row-container',
       onEnd: (evt: any) => {
         if (evt.oldIndex !== undefined && evt.newIndex !== undefined && evt.oldIndex !== evt.newIndex) {
-          store.reorderItems(evt.oldIndex, evt.newIndex);
+          const movingItem = store.activeItems[evt.oldIndex];
+          const targetItem = store.activeItems[evt.newIndex];
+          if (movingItem) {
+            const target: InsertionTarget = evt.newIndex >= store.activeItems.length - 1 && evt.newIndex > evt.oldIndex
+              ? { kind: 'append' }
+              : (targetItem ? { kind: evt.newIndex > evt.oldIndex ? 'after' : 'before', targetItemId: targetItem.id } : { kind: 'append' });
+            store.moveRundownItems({ itemIds: [movingItem.id], target });
+          }
         }
       }
     });
   }
 
-  window.addEventListener('keydown', handleKey);
   window.addEventListener('click', closeContextMenu);
 });
 
@@ -803,9 +837,9 @@ onUnmounted(() => {
   sortableInstance?.destroy();
   sortableInstance = null;
   if (crawlDebounceTimer) clearTimeout(crawlDebounceTimer);
-  window.removeEventListener('keydown', handleKey);
   window.removeEventListener('click', closeContextMenu);
 });
+
 </script>
 
 <template>
@@ -900,7 +934,13 @@ onUnmounted(() => {
     <div
       class="rw-list custom-scroll"
       ref="rundownListRef"
+      role="listbox"
+      aria-multiselectable="true"
+      tabindex="0"
+      aria-label="Playlist rundown"
       :class="{ 'drag-over': isDragOver }"
+      @focus="activeScope = 'rundown'"
+      @click="focusList"
       @dragenter.prevent="onDragEnter"
       @dragover.prevent="onDragOver"
       @dragleave="onDragLeave"
@@ -909,6 +949,7 @@ onUnmounted(() => {
       <div
         v-for="(item, index) in store.activeItems"
         :key="item.id"
+        class="rw-row-container"
         v-memo="[
           item,
           index,
@@ -949,13 +990,26 @@ onUnmounted(() => {
           :at-kind="rowAtKind(index)"
           :at-text="rowAtText(index)"
           :play-protected="rowPlayProtected(index)"
-          @select="store.selectedItemId = item.id"
+          @select="onRowSelect(item, $event)"
           @contextmenu="onContextMenu($event, index, item)"
           @dragover="onRowDragOver($event, index)"
           @drop="onRowDrop($event, index)"
           @play="runPlaylistFrom(index)"
           @delete="deleteRowItem(item, index)"
         />
+      </div>
+
+      <!-- End Drop Zone -->
+      <div
+        class="rundown-end-drop-zone"
+        :class="{ 'is-active': dropTargetIndex === store.activeItems.length }"
+        data-drop-position="end"
+        aria-hidden="true"
+        @dragover.prevent="onEndZoneDragOver"
+        @drop.prevent="onEndZoneDrop"
+      >
+        <div class="end-drop-indicator-line"></div>
+        <span class="end-drop-badge">Append to end</span>
       </div>
 
       <div v-if="store.activeItems.length === 0" class="rw-empty">
@@ -1169,7 +1223,49 @@ onUnmounted(() => {
 }
 @keyframes pulse-dot {
   0% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.5; }
+  50% { transform: scale(1.4); opacity: 0.6; }
   100% { transform: scale(1); opacity: 1; }
+}
+
+.rw-list:focus-visible {
+  outline: 2px solid #00e5ff;
+  outline-offset: -2px;
+}
+
+.rundown-end-drop-zone {
+  position: relative;
+  height: 40px;
+  margin: 6px 4px 12px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(52, 64, 82, 0.6);
+  border-radius: 6px;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.rundown-end-drop-zone.is-active {
+  border-color: #00e5ff;
+  background-color: rgba(0, 229, 255, 0.12);
+  color: #00e5ff;
+}
+
+.end-drop-indicator-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #00e5ff;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.8);
+  display: none;
+}
+
+.rundown-end-drop-zone.is-active .end-drop-indicator-line {
+  display: block;
 }
 </style>

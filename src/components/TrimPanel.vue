@@ -2,6 +2,8 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import { invoke } from '@tauri-apps/api/core';
+import { msToTimecode, parseTimecode, snapMsToFrame, getFrameRate, isDropFrameSupported } from '../lib/timecode';
+import { activeTrimmerContext } from '../composables/useOperatorShortcuts';
 
 export interface LibraryTrimItem {
     id?: string;
@@ -21,6 +23,7 @@ const props = defineProps<{
     isOpen: boolean,
     libraryItem?: LibraryTrimItem | null
 }>();
+
 const emit  = defineEmits<{
   (e: 'close'): void;
   (e: 'saved', payload: { uuid?: string; outputPath: string }): void;
@@ -339,24 +342,71 @@ watch([item, () => props.isOpen], ([val, open]) => {
     }
 }, { immediate: true });
 
-// ── Timecodes ─────────────────────────────────────────────────────────────────
+// ── Timecodes & Frame Rates ───────────────────────────────────────────────────
+type SnapMode = 'frame' | 'none' | 'keyframe-preferred' | 'keyframe-only';
+const snapMode = ref<SnapMode>('frame');
+const tcError = ref('');
+const initialInMs = ref(0);
+const initialOutMs = ref(0);
+
+const activeRate = computed(() => {
+    const fps = item.value?.fps || 25;
+    return getFrameRate(undefined, undefined, fps);
+});
+
+const isDropFrameAvailable = computed(() => isDropFrameSupported(activeRate.value));
+
 const msToTC = (ms: number): string => {
     if (!Number.isFinite(ms)) return '00:00:00:00';
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    const s = Math.floor((ms % 60000) / 1000);
-    const f = Math.floor((ms % 1000) / FRAME_MS.value);
-    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}:${String(f).padStart(2,'0')}`;
+    return msToTimecode(ms, activeRate.value, isDropFrameAvailable.value);
 };
-const tcToMs = (tc: string): number => {
-    const p = tc.split(':').map(Number);
-    if (p.length < 3 || p.slice(0, p.length).some(isNaN)) return -1;
-    const [h=0, m=0, s=0, f=0] = p;
-    if (p.length === 4) return (h*3600 + m*60 + s)*1000 + f*FRAME_MS.value;
-    return (h*3600 + m*60 + s)*1000;
+
+const applyInTC = (e: Event) => {
+    const val = (e.target as HTMLInputElement).value;
+    const res = parseTimecode(val, activeRate.value, isDropFrameAvailable.value);
+    if (res.valid && res.ms !== undefined) {
+        tcError.value = '';
+        inMs.value = Math.min(res.ms, outMs.value);
+        seekTo(inMs.value);
+    } else {
+        tcError.value = res.error || 'Invalid IN timecode format';
+    }
 };
-const applyInTC  = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) { inMs.value  = Math.min(v, outMs.value); seekTo(inMs.value); } };
-const applyOutTC = (e: Event) => { const v = tcToMs((e.target as HTMLInputElement).value); if (v >= 0) outMs.value = Math.max(v, inMs.value); };
+
+const applyOutTC = (e: Event) => {
+    const val = (e.target as HTMLInputElement).value;
+    const res = parseTimecode(val, activeRate.value, isDropFrameAvailable.value);
+    if (res.valid && res.ms !== undefined) {
+        tcError.value = '';
+        outMs.value = Math.max(res.ms, inMs.value);
+    } else {
+        tcError.value = res.error || 'Invalid OUT timecode format';
+    }
+};
+
+const nudgeIn = (deltaFrames: number) => {
+    const frameMs = 1000 / (activeRate.value.fpsNum / activeRate.value.fpsDen);
+    const target = inMs.value + deltaFrames * frameMs;
+    inMs.value = clampMs(snapMsToFrame(target, activeRate.value.fpsNum, activeRate.value.fpsDen));
+    if (inMs.value > outMs.value) outMs.value = inMs.value;
+};
+
+const nudgeOut = (deltaFrames: number) => {
+    const frameMs = 1000 / (activeRate.value.fpsNum / activeRate.value.fpsDen);
+    const target = outMs.value + deltaFrames * frameMs;
+    outMs.value = clampMs(snapMsToFrame(target, activeRate.value.fpsNum, activeRate.value.fpsDen));
+    if (outMs.value < inMs.value) inMs.value = outMs.value;
+};
+
+const isDirty = computed(() => inMs.value !== initialInMs.value || outMs.value !== initialOutMs.value);
+
+const revertDraft = () => {
+    inMs.value = initialInMs.value;
+    outMs.value = initialOutMs.value;
+    tcError.value = '';
+    trimStatus.value = 'Reverted to initial trim state';
+};
+
 const trimmedDuration = computed(() => {
     const d = outMs.value - inMs.value;
     return d > 0 ? `${(d/1000).toFixed(1)}s  (${msToTC(d)})` : '–';
@@ -406,6 +456,7 @@ const jumpToMarker = (marker: 'start' | 'in' | 'out' | 'end') => {
   if (marker === 'out') return seekTo(outMs.value);
   seekTo(totalDurationMs.value);
 };
+
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
 const currentVideoMs = () => lastKnownPlaybackMs || ((videoRef.value?.currentTime ?? 0) * 1000);

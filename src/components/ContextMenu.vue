@@ -306,14 +306,12 @@ const onMouseLeaveSubmenu = () => {
   position: fixed;
   z-index: 10000;
   min-width: 220px;
-  background: rgba(28, 28, 28, 0.72);
-  backdrop-filter: blur(16px) saturate(125%);
-  -webkit-backdrop-filter: blur(16px) saturate(125%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0.75rem; /* rounded-xl */
+  background: #151a22;
+  border: 1px solid #344052;
+  border-radius: 0.5rem;
   box-shadow: 
-    0 10px 30px rgba(0, 0, 0, 0.5), 
-    inset 0 1px 1px rgba(255, 255, 255, 0.12);
+    0 10px 30px rgba(0, 0, 0, 0.6), 
+    inset 0 1px 1px rgba(255, 255, 255, 0.05);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: #e3e3e3;
   padding: 4px 0;
@@ -507,11 +505,14 @@ const onMouseLeaveSubmenu = () => {
 
 /* Teleported Submenu Flyout specific settings */
 .submenu-flyout {
-  min-width: 190px;
+  min-width: 220px;
   max-height: 50vh;
   overflow-y: auto;
   z-index: 10005;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: #151a22;
+  border: 1px solid #344052;
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
 }
 
 .submenu-active {
