@@ -3,13 +3,14 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { refDebounced } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { ask, save } from '@tauri-apps/plugin-dialog';
-import { useRundownStore, parseBroadcastRating, serializeBroadcastRating, getMetadataFromAssetResponse, type ComplianceRating } from '../stores/rundown';
+import { useRundownStore, parseBroadcastRating, serializeBroadcastRating, getMetadataFromAssetResponse, type ComplianceRating, type InsertionTarget } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
 import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDefaults';
 import { useIngestorStatusStore } from '../stores/ingestorStatus';
 import { useMediaLibraryStore, type LibraryAsset, type TreeNode } from '../stores/mediaLibrary';
 import { draggingItem } from '../composables/useDragState';
-import { activeScope } from '../composables/useOperatorShortcuts';
+import { activeScope, activeLibraryContext } from '../composables/useOperatorShortcuts';
+import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
 
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
@@ -444,10 +445,33 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
     };
 }
 
+function appendLibraryAssetToRundown(asset: LibraryAsset, target: InsertionTarget): LibraryInsertResult {
+    const durationMs = asset.duration_ms || (asset.fps && asset.total_frames ? (asset.total_frames / asset.fps) * 1000 : 0);
+    if (!durationMs || durationMs <= 0) {
+        return {
+            insertedIds: [],
+            skippedIds: [asset.uuid],
+            errors: [`Asset "${asset.display_name || asset.uuid}" duration is unavailable`]
+        };
+    }
+
+    const draft = makeRundownDraftFromAsset(asset);
+    const createdIds = store.insertLibraryItems({
+        items: [draft],
+        target
+    });
+
+    return {
+        insertedIds: createdIds,
+        skippedIds: [],
+        errors: []
+    };
+}
+
 async function addSelectedAssetToRundown() {
     const asset = mediaLibrary.selectedAsset;
     if (!asset) return;
-    store.addItem(makeRundownDraftFromAsset(asset));
+    appendLibraryAssetToRundown(asset, { kind: 'append' });
 }
 
 const FOLDER_DRAG_MIME = 'application/x-playout-folder';
@@ -854,6 +878,28 @@ watch(
 );
 
 onMounted(() => {
+    activeLibraryContext.value = {
+        getSelectedAssetIds: () => {
+            const asset = mediaLibrary.selectedAsset;
+            return asset ? [asset.uuid] : [];
+        },
+        appendSelectedToPlaylist: async (): Promise<LibraryInsertResult> => {
+            const asset = mediaLibrary.selectedAsset;
+            if (!asset) {
+                return { insertedIds: [], skippedIds: [], errors: ['No library asset selected'] };
+            }
+            return appendLibraryAssetToRundown(asset, { kind: 'append' });
+        },
+        insertSelectedAfter: async (targetId: string | null): Promise<LibraryInsertResult> => {
+            const asset = mediaLibrary.selectedAsset;
+            if (!asset) {
+                return { insertedIds: [], skippedIds: [], errors: ['No library asset selected'] };
+            }
+            const target = targetId ? { kind: 'after' as const, targetItemId: targetId } : { kind: 'append' as const };
+            return appendLibraryAssetToRundown(asset, target);
+        }
+    };
+
     refreshProbeStatus().catch(() => {});
     fetchAssets();
     if (settings.debugMode) refreshDebugPanel().catch(() => {});
@@ -862,9 +908,6 @@ onMounted(() => {
             scheduleLibraryWarmup(0);
         }
     }, 300000);
-    // Poll the Ingestor API for newly delivered transcoder files / subclips.
-    // A 30s cadence balances responsiveness against API load. Only re-fetches
-    // when the ingestor is online and no manual operation is in flight.
     libraryPollTimer = setInterval(() => {
         if (isScanning.value) return;
         if (!ingestorStatus.isIngestorOnline) return;
@@ -875,6 +918,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    activeLibraryContext.value = null;
     if (periodicWarmupTimer) {
         clearInterval(periodicWarmupTimer);
         periodicWarmupTimer = null;

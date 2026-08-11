@@ -159,8 +159,8 @@ export function useOperatorShortcuts() {
       return;
     }
 
-    // F8 Library Action
-    if (event.code === 'F8' || event.key === 'F8') {
+    // F8 Library Action (restricted to library scope)
+    if (scope === 'library' && (event.code === 'F8' || event.key === 'F8')) {
       event.preventDefault();
       event.stopPropagation();
       const actionId = event.shiftKey ? 'library.insertSelected' : 'library.appendSelected';
