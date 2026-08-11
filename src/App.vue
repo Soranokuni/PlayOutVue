@@ -86,6 +86,18 @@ const stopJankMonitor = () => {
   }
 };
 
+watch(
+  () => settings.debugMode,
+  (enabled) => {
+    if (enabled) {
+      startJankMonitor();
+    } else {
+      stopJankMonitor();
+    }
+  },
+  { immediate: true }
+);
+
 const footerMetaRef = ref<HTMLElement | null>(null);
 const showProductInfo = ref(false);
 const showQuickGuide = ref(false);

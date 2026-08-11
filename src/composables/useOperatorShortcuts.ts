@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted, ref } from 'vue';
+import { getCurrentInstance, onMounted, onUnmounted, ref } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import {
   commandRegistry,
@@ -276,18 +276,29 @@ export function useOperatorShortcuts() {
     }
   };
 
-  onMounted(() => {
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-  });
+  const mountShortcuts = () => {
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('keydown', handleKeyDown, { capture: true });
+    }
+  };
 
-  onUnmounted(() => {
-    window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  });
+  const unmountShortcuts = () => {
+    if (typeof window !== 'undefined' && window.removeEventListener) {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    }
+  };
+
+  if (getCurrentInstance()) {
+    onMounted(mountShortcuts);
+    onUnmounted(unmountShortcuts);
+  }
 
   return {
     activeScope,
     activeModalName,
     activeTrimmerContext,
-    requireTakeConfirmation
+    requireTakeConfirmation,
+    mountShortcuts,
+    unmountShortcuts
   };
 }

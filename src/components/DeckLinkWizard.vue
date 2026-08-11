@@ -291,7 +291,7 @@ watch(
 
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="modal-backdrop" @click.self="$emit('close')">
+    <div v-if="isOpen" class="modal-backdrop" data-command-scope="modal" @click.self="$emit('close')">
       <div class="glass-panel modal-content">
         <div class="modal-header">
           <div>
