@@ -641,7 +641,7 @@ const saveAsSubclip = () => {
 
 <template>
   <div v-if="isOpen && item" ref="panelRef" class="modal-backdrop" tabindex="0" style="outline: none;" @click.self="$emit('close')" @keydown.capture="handleKey">
-    <div class="glass-panel trim-panel">
+    <div class="glass-panel trim-panel" data-command-scope="trimmer">
 
       <!-- Header -->
       <div class="trim-header">

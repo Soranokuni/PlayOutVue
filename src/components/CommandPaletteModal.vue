@@ -87,7 +87,7 @@ const runSelected = () => {
       @click.self="emit('close')"
       @keydown="onKeyDown"
     >
-      <div class="command-palette-panel">
+      <div class="command-palette-panel" data-command-scope="command-palette">
         <div class="palette-input-wrapper">
           <span class="palette-search-icon">🔍</span>
           <input

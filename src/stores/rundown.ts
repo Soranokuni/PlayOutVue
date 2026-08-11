@@ -306,6 +306,7 @@ export const useRundownStore = defineStore('rundown', () => {
     const updateTrigger = ref(0);
 
     const selectedItemIds = ref<string[]>([]);
+    const selectionAnchorId = ref<string | null>(null);
     const clipboardItems = ref<RundownItem[]>([]);
     const undoStack = ref<RundownItem[][]>([]);
     const redoStack = ref<RundownItem[][]>([]);
@@ -319,12 +320,6 @@ export const useRundownStore = defineStore('rundown', () => {
         const keys = Object.keys(updates) as Array<keyof RundownPlaylist>;
         const changedKeys = keys.filter((k) => playlist[k] !== updates[k]);
         if (changedKeys.length === 0) return;
-
-        // Selection-only update: mutate directly without triggering global playlist array rebuilding
-        if (changedKeys.length === 1 && changedKeys[0] === 'selectedItemId') {
-            playlist.selectedItemId = updates.selectedItemId ?? null;
-            return;
-        }
 
         const updatedPlaylist = {
             ...playlist,
@@ -1811,6 +1806,7 @@ contentType: content,
     const clearSelection = () => {
         selectedItemId.value = null;
         selectedItemIds.value = [];
+        selectionAnchorId.value = null;
     };
 
     const selectItem = (id: string | null, options?: { multi?: boolean; range?: boolean }) => {
@@ -1828,8 +1824,13 @@ contentType: content,
             }
             selectedItemIds.value = Array.from(set);
             selectedItemId.value = id;
-        } else if (options?.range && selectedItemId.value && activeItems.value.length > 0) {
-            const idx1 = activeItems.value.findIndex(i => i.id === selectedItemId.value);
+            selectionAnchorId.value = id;
+        } else if (options?.range && activeItems.value.length > 0) {
+            const anchorId = selectionAnchorId.value || selectedItemId.value || id;
+            if (!selectionAnchorId.value) {
+                selectionAnchorId.value = anchorId;
+            }
+            const idx1 = activeItems.value.findIndex(i => i.id === anchorId);
             const idx2 = activeItems.value.findIndex(i => i.id === id);
             if (idx1 >= 0 && idx2 >= 0) {
                 const start = Math.min(idx1, idx2);
@@ -1840,10 +1841,12 @@ contentType: content,
             } else {
                 selectedItemId.value = id;
                 selectedItemIds.value = [id];
+                selectionAnchorId.value = id;
             }
         } else {
             selectedItemId.value = id;
             selectedItemIds.value = [id];
+            selectionAnchorId.value = id;
         }
     };
 

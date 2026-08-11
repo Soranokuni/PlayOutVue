@@ -10,10 +10,11 @@ import SettingsModal from './components/SettingsModal.vue';
 import PreviewMonitor from './components/PreviewMonitor.vue';
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying } from './services/playout';
-import { advanceNext, manualTakeFailure } from './services/caspar';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
+import { useOperatorShortcuts } from './composables/useOperatorShortcuts';
+import { advanceNext, manualTakeFailure } from './services/caspar';
 
 const settings = useSettingsStore();
 const rundown  = useRundownStore();
@@ -24,6 +25,8 @@ const ingestorStatus = useIngestorStatusStore();
 const playoutHalted = ref(false);
 let unlistenHeartbeat: (() => void) | null = null;
 let unlistenHalted: (() => void) | null = null;
+
+useOperatorShortcuts();
 
 // Performance / Jank Monitor
 let jankFrameId: number | null = null;
@@ -45,14 +48,13 @@ const startJankMonitor = () => {
     lastFrameTime = now;
     frameTimes.push(delta);
 
-    // a delta > 33ms is a dropped frame (jank)
     if (delta > 33) {
       jankCount++;
     }
 
     if (now - lastReportTime >= 5000) {
-      const avgFrameTime = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
-      const fps = 1000 / avgFrameTime;
+      const avgFrameTime = frameTimes.reduce((a, b) => a + b, 0) / (frameTimes.length || 1);
+      const fps = 1000 / (avgFrameTime || 1);
       const heapMemory = (performance as any).memory
         ? Math.round((performance as any).memory.usedJSHeapSize / (1024 * 1024))
         : null;
@@ -84,13 +86,6 @@ const stopJankMonitor = () => {
   }
 };
 
-watch(() => settings.debugMode, (enabled) => {
-  if (enabled) {
-    startJankMonitor();
-  } else {
-    stopJankMonitor();
-  }
-}, { immediate: true });
 const footerMetaRef = ref<HTMLElement | null>(null);
 const showProductInfo = ref(false);
 const showQuickGuide = ref(false);

@@ -6,6 +6,7 @@ export type ShortcutScope =
   | 'library'
   | 'trimmer'
   | 'text-input'
+  | 'command-palette'
   | 'modal';
 
 export interface SelectionSnapshot {
@@ -143,22 +144,7 @@ commandRegistry.register({
   }
 });
 
-commandRegistry.register({
-  id: 'rundown.takeSelected',
-  label: 'Take Selected Item',
-  scopes: ['rundown'],
-  defaultShortcut: 'Enter',
-  category: 'Rundown',
-  isVisible: () => true,
-  isEnabled: (ctx) => !!ctx.selection.primarySelectedId,
-  execute: async (ctx) => {
-    if (!ctx.selection.primarySelectedId) return;
-    const index = ctx.rundown.activeItems.findIndex((item) => item.id === ctx.selection.primarySelectedId);
-    if (index >= 0) {
-      await ctx.rundown.playFromIndex(index);
-    }
-  }
-});
+
 
 commandRegistry.register({
   id: 'rundown.deleteSelected',

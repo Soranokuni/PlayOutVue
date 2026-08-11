@@ -14,11 +14,10 @@ import RundownRow from './RundownRow.vue';
 import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
-import { useOperatorShortcuts, activeScope } from '../composables/useOperatorShortcuts';
+import { activeScope } from '../composables/useOperatorShortcuts';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
-useOperatorShortcuts();
 
 const rundownListRef = ref<HTMLElement | null>(null);
 const focusList = () => rundownListRef.value?.focus({ preventScroll: true });
@@ -934,6 +933,7 @@ onUnmounted(() => {
     <div
       class="rw-list custom-scroll"
       ref="rundownListRef"
+      data-command-scope="rundown"
       role="listbox"
       aria-multiselectable="true"
       tabindex="0"
