@@ -537,95 +537,6 @@ const closePlaylistTab = async (playlist: RundownPlaylist) => {
   store.closePlaylist(playlist.id);
 };
 
-const handleKey = (event: KeyboardEvent) => {
-  const target = event.target as HTMLElement | null;
-  if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
-
-  const id = store.selectedItemId;
-  const items = store.activeItems;
-  const index = id ? items.findIndex((item) => item.id === id) : -1;
-
-  if ((event.key === 'Delete' || event.key === 'Backspace') && id) {
-    if (index >= 0 && isProtectedPlayingRow(index)) {
-      return;
-    }
-    event.preventDefault();
-    ask(
-      `Delete "${getDisplayName(items[index]!)}" from ${store.currentPlaylistName}?`,
-      { title: 'Delete Item', kind: 'warning' }
-    ).then((confirmed) => {
-      if (confirmed) store.removeItem(id);
-    });
-    return;
-  }
-
-  if ((event.key === 'Enter' || event.key === ' ') && index !== -1) {
-    event.preventDefault();
-    runPlaylistFrom(index);
-    return;
-  }
-
-  if (!event.ctrlKey && !event.shiftKey) {
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      moveSelectionDelta(-1);
-      return;
-    }
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      moveSelectionDelta(1);
-      return;
-    }
-    if (event.key === 'PageUp') {
-      event.preventDefault();
-      moveSelectionDelta(-10);
-      return;
-    }
-    if (event.key === 'PageDown') {
-      event.preventDefault();
-      moveSelectionDelta(10);
-      return;
-    }
-    if (event.key === 'Home') {
-      event.preventDefault();
-      if (items.length > 0) {
-        store.selectedItemId = items[0]!.id;
-        scheduleSelectedRowReveal();
-      }
-      return;
-    }
-    if (event.key === 'End') {
-      event.preventDefault();
-      if (items.length > 0) {
-        store.selectedItemId = items[items.length - 1]!.id;
-        scheduleSelectedRowReveal();
-      }
-      return;
-    }
-  }
-
-  if (event.shiftKey && event.key === 'ArrowDown') {
-    event.preventDefault();
-    if (index !== -1) {
-      store.duplicateItem(id!);
-      store.selectedItemId = items[index + 1]?.id || id;
-    }
-    return;
-  }
-
-  if (event.ctrlKey) {
-    if (index === -1) return;
-    if (event.key === 'ArrowUp' && index > 0) {
-      event.preventDefault();
-      store.reorderItems(index, index - 1);
-    }
-    if (event.key === 'ArrowDown' && index < items.length - 1) {
-      event.preventDefault();
-      store.reorderItems(index, index + 1);
-    }
-  }
-};
-
 const onDragEnter = (event: DragEvent) => {
   event.preventDefault();
   isDragOver.value = true;
@@ -862,6 +773,10 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (scrollFrame !== null) {
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = null;
+  }
   sortableInstance?.destroy();
   sortableInstance = null;
   if (crawlDebounceTimer) clearTimeout(crawlDebounceTimer);

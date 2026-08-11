@@ -920,15 +920,19 @@ watch(
     { immediate: true }
 );
 
+const visibleAssetNodes = computed(() =>
+    mediaLibrary.allTreeNodes.filter((node) => node.type === 'asset')
+);
+
 onMounted(() => {
     activeLibraryContext.value = {
         getSelectedAssetIds: () => mediaLibrary.selectedAssetIds,
-        getVisibleAssetIds: () => mediaLibrary.allTreeNodes.filter((n) => n.type === 'asset').map((n) => n.asset?.uuid || n.id),
-        selectPrevious: () => mediaLibrary.moveSelectionDelta(-1),
-        selectNext: () => mediaLibrary.moveSelectionDelta(1),
-        selectFirst: () => mediaLibrary.selectFirst(),
-        selectLast: () => mediaLibrary.selectLast(),
-        extendSelection: (delta: -1 | 1) => mediaLibrary.extendSelection(delta),
+        getVisibleAssetIds: () => visibleAssetNodes.value.map((n) => n.asset?.uuid || n.id),
+        selectPrevious: () => mediaLibrary.moveSelectionDelta(-1, visibleAssetNodes.value),
+        selectNext: () => mediaLibrary.moveSelectionDelta(1, visibleAssetNodes.value),
+        selectFirst: () => mediaLibrary.selectFirst(visibleAssetNodes.value),
+        selectLast: () => mediaLibrary.selectLast(visibleAssetNodes.value),
+        extendSelection: (delta: -1 | 1) => mediaLibrary.extendSelection(delta, visibleAssetNodes.value),
         appendSelectedToPlaylist: async (): Promise<LibraryInsertResult> => {
             const asset = mediaLibrary.selectedAsset;
             if (!asset) {
@@ -1376,9 +1380,12 @@ const menuItems = computed<MenuItem[]>(() => {
     <div
       ref="libTreeRef"
       class="lib-tree custom-scroll"
+      data-command-scope="library"
       role="listbox"
       aria-label="Media library"
       aria-multiselectable="true"
+      tabindex="0"
+      @focus="activeScope = 'library'"
       @contextmenu.prevent
       style="overflow-y: auto;"
     >
