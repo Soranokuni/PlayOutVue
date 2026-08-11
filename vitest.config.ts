@@ -1,9 +1,7 @@
 import { fileURLToPath, URL } from 'node:url'
-
 import { defineConfig } from 'vitest/config'
 
-// Vitest shares the Vite `@` alias. Tests live under `src/**/__tests__/*` —
-// the same directories tsconfig.app.json excludes from the vue-tsc build.
+// Vitest shares the Vite `@` alias.
 export default defineConfig({
   resolve: {
     alias: {

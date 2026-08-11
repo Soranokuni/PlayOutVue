@@ -10,6 +10,7 @@ export interface VirtualSubclipRequestItem {
   filename?: string;
   display_name?: string;
   type?: any;
+  duration_ms?: number;
   fps?: number;
   fps_num?: number;
   fps_den?: number;
@@ -48,8 +49,16 @@ export async function createVirtualSubclip(
     return { state: 'failed', error: 'Source path is missing.' };
   }
 
+  if (trimInMs < 0) {
+    return { state: 'failed', error: 'IN point cannot be negative.' };
+  }
+
   if (trimOutMs <= trimInMs) {
     return { state: 'failed', error: 'OUT point must be greater than IN point.' };
+  }
+
+  if (typeof item.duration_ms === 'number' && item.duration_ms > 0 && trimOutMs > item.duration_ms) {
+    return { state: 'failed', error: 'OUT point exceeds source duration.' };
   }
 
   const trimmedName = displayName.trim();
@@ -57,8 +66,15 @@ export async function createVirtualSubclip(
     return { state: 'failed', error: 'Display name must not be empty.' };
   }
 
+  const parentAssetUuid = item.parentAssetUuid || item.uuid || item.playoutvueId;
+  if (!parentAssetUuid) {
+    return {
+      state: 'failed',
+      error: 'Cannot create subclip because the parent asset identity is missing.'
+    };
+  }
+
   const durationMs = Math.max(1, trimOutMs - trimInMs);
-  const parentAssetUuid = item.parentAssetUuid || item.uuid || item.playoutvueId || 'unknown-parent';
   const assetUuid = item.uuid || item.playoutvueId;
 
   // Persistent Path: Backend Transcoder/DB available with non-local asset UUID
@@ -72,6 +88,8 @@ export async function createVirtualSubclip(
         api_base_url_override: null
       });
 
+      const isReady = response?.status === 'ready' || response?.mezzanine_ok === true;
+
       const subclipItem: RundownItem = {
         id: crypto.randomUUID(),
         playoutvueId: response?.uuid || `subclip-${crypto.randomUUID()}`,
@@ -84,10 +102,10 @@ export async function createVirtualSubclip(
         libraryIndicator: 'none',
         duration: durationMs / 1000,
         duration_ms: durationMs,
-        seek: Math.round(trimInMs / 1000),
-        length: Math.round(durationMs / 1000),
-        inPoint: Math.round(trimInMs / 1000),
-        outPoint: Math.round(trimOutMs / 1000),
+        seek: trimInMs / 1000,
+        length: durationMs / 1000,
+        inPoint: trimInMs / 1000,
+        outPoint: trimOutMs / 1000,
         plannedDuration: durationMs / 1000,
         type: item.type || 'video',
         trim_in_ms: Math.round(trimInMs),
@@ -98,7 +116,7 @@ export async function createVirtualSubclip(
         complianceRating: item.complianceRating || 'none',
         complianceDescriptors: [],
         complianceText: '',
-        ingestorStatus: 'ready',
+        ingestorStatus: isReady ? 'ready' : 'processing',
         tp_flag: item.tp_flag,
         content_type: item.content_type,
         note: '',
@@ -126,13 +144,13 @@ export async function createVirtualSubclip(
     path: item.path,
     displayPath: item.path,
     shortPath: trimmedName,
-        libraryIndicator: 'none',
+    libraryIndicator: 'none',
     duration: durationMs / 1000,
     duration_ms: durationMs,
-    seek: Math.round(trimInMs / 1000),
-    length: Math.round(durationMs / 1000),
-    inPoint: Math.round(trimInMs / 1000),
-    outPoint: Math.round(trimOutMs / 1000),
+    seek: trimInMs / 1000,
+    length: durationMs / 1000,
+    inPoint: trimInMs / 1000,
+    outPoint: trimOutMs / 1000,
     plannedDuration: durationMs / 1000,
     type: item.type || 'video',
     trim_in_ms: Math.round(trimInMs),
