@@ -1,167 +1,133 @@
+// @vitest-environment happy-dom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useRundownStore } from '../../stores/rundown';
-import { useOperatorShortcuts, classifyActiveScope, activeModalName } from '../../composables/useOperatorShortcuts';
+import {
+  useOperatorShortcuts,
+  classifyActiveScope,
+  activeModalName,
+  resetShortcutsMountedStateForTesting
+} from '../../composables/useOperatorShortcuts';
 
-describe('Real Keyboard Events & Global Shortcut Router Integration', () => {
+describe('Real Window Keyboard Event Delivery & Focus Scope Integration', () => {
   let store: ReturnType<typeof useRundownStore>;
-  let originalDocument: any;
-  let originalWindow: any;
+  let shortcuts: ReturnType<typeof useOperatorShortcuts>;
 
   beforeEach(() => {
+    resetShortcutsMountedStateForTesting();
     setActivePinia(createPinia());
     store = useRundownStore();
     activeModalName.value = null;
+    document.body.innerHTML = '';
+
     if (store.playlists[0]) {
       store.activatePlaylist(store.playlists[0].id);
       store.playlists[0].items = [];
       store.clearSelection();
     }
-    originalDocument = (globalThis as any).document;
-    originalWindow = (globalThis as any).window;
+
+    shortcuts = useOperatorShortcuts();
+    shortcuts.mountShortcuts();
   });
 
   afterEach(() => {
-    (globalThis as any).document = originalDocument;
-    (globalThis as any).window = originalWindow;
+    shortcuts.unmountShortcuts();
+    resetShortcutsMountedStateForTesting();
     activeModalName.value = null;
+    document.body.innerHTML = '';
   });
 
-  it('verifies single root-level listener attachment and cleanup lifecycle', () => {
-    const listeners: Array<EventListenerOrEventListenerObject> = [];
-    const addEventListener = vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
-      if (type === 'keydown') listeners.push(listener);
-    });
-    const removeEventListener = vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
-      const idx = listeners.indexOf(listener);
-      if (idx !== -1) listeners.splice(idx, 1);
-    });
-
-    (globalThis as any).window = { addEventListener, removeEventListener };
-
-    const instance = useOperatorShortcuts();
-    instance.mountShortcuts();
-    expect(addEventListener).toHaveBeenCalledWith('keydown', expect.any(Function), { capture: true });
-    expect(listeners.length).toBe(1);
-
-    instance.unmountShortcuts();
-    expect(removeEventListener).toHaveBeenCalledWith('keydown', expect.any(Function), { capture: true });
-    expect(listeners.length).toBe(0);
-  });
-
-  it('routes ArrowDown keydown event to move selection down when rundown surface is focused', async () => {
-    store.addItem({ name: 'Clip 1', type: 'video', path: '/media/1.mp4', duration: 10 });
-    store.addItem({ name: 'Clip 2', type: 'video', path: '/media/2.mp4', duration: 15 });
-    store.addItem({ name: 'Clip 3', type: 'video', path: '/media/3.mp4', duration: 20 });
-
-    const id1 = store.activeItems[0].id;
-    const id2 = store.activeItems[1].id;
-    store.selectItem(id1);
-
-    const mockRundownElement = {
-      closest: (selector: string) => (selector.includes('rundown') ? {} : null),
-      tagName: 'DIV',
-      isContentEditable: false
-    };
-
-    let keydownHandler: any = null;
-    (globalThis as any).document = { activeElement: mockRundownElement };
-    (globalThis as any).window = {
-      addEventListener: (type: string, fn: any) => { if (type === 'keydown') keydownHandler = fn; },
-      removeEventListener: () => {}
-    };
-
-    const shortcuts = useOperatorShortcuts();
+  it('enforces idempotent listener registration preventing duplicate event handlers', () => {
+    const spy = vi.spyOn(window, 'addEventListener');
+    shortcuts.mountShortcuts();
     shortcuts.mountShortcuts();
 
-    expect(classifyActiveScope()).toBe('rundown');
-    expect(keydownHandler).toBeTypeOf('function');
+    const keydownCalls = spy.mock.calls.filter(([event]) => event === 'keydown');
+    expect(keydownCalls.length).toBe(0); // Already mounted in beforeEach once
+  });
 
-    // Dispatch ArrowDown event
-    const arrowDownEvent = {
+  it('handles real window.dispatchEvent ArrowDown event when rundown is focused', async () => {
+    const container = document.createElement('div');
+    container.setAttribute('data-command-scope', 'rundown');
+    container.setAttribute('tabindex', '0');
+    container.setAttribute('role', 'listbox');
+    document.body.appendChild(container);
+
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/media/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/media/2.mp4', duration: 15 });
+    const id1 = store.activeItems[0].id;
+    const id2 = store.activeItems[1].id;
+
+    store.selectItem(id1);
+    container.focus();
+    expect(document.activeElement).toBe(container);
+    expect(classifyActiveScope()).toBe('rundown');
+
+    const event = new KeyboardEvent('keydown', {
       key: 'ArrowDown',
       code: 'ArrowDown',
-      target: mockRundownElement,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn()
-    };
+      bubbles: true,
+      cancelable: true
+    });
 
-    await keydownHandler(arrowDownEvent);
-    expect(arrowDownEvent.preventDefault).toHaveBeenCalled();
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
     expect(store.selectedItemId).toBe(id2);
   });
 
-  it('bypasses rundown navigation when focus is inside a text input', async () => {
+  it('bypasses rundown selection when real event is dispatched while focused inside an input', async () => {
+    const input = document.createElement('input');
+    input.type = 'text';
+    document.body.appendChild(input);
+
     store.addItem({ name: 'Clip 1', type: 'video', path: '/media/1.mp4', duration: 10 });
     store.addItem({ name: 'Clip 2', type: 'video', path: '/media/2.mp4', duration: 15 });
     const id1 = store.activeItems[0].id;
+
     store.selectItem(id1);
-
-    const mockInputElement = {
-      tagName: 'INPUT',
-      isContentEditable: false,
-      closest: () => null
-    };
-
-    let keydownHandler: any = null;
-    (globalThis as any).document = { activeElement: mockInputElement };
-    (globalThis as any).window = {
-      addEventListener: (type: string, fn: any) => { if (type === 'keydown') keydownHandler = fn; },
-      removeEventListener: () => {}
-    };
-
-    const shortcuts = useOperatorShortcuts();
-    shortcuts.mountShortcuts();
-
+    input.focus();
+    expect(document.activeElement).toBe(input);
     expect(classifyActiveScope()).toBe('text-input');
 
-    const arrowDownEvent = {
+    const event = new KeyboardEvent('keydown', {
       key: 'ArrowDown',
       code: 'ArrowDown',
-      target: mockInputElement,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn()
-    };
+      bubbles: true,
+      cancelable: true
+    });
 
-    await keydownHandler(arrowDownEvent);
-    expect(arrowDownEvent.preventDefault).not.toHaveBeenCalled();
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
     expect(store.selectedItemId).toBe(id1);
   });
 
-  it('bypasses rundown navigation when modal surface is active', async () => {
+  it('bypasses rundown selection when real event is dispatched inside a modal container', async () => {
+    const modal = document.createElement('div');
+    modal.setAttribute('data-command-scope', 'modal');
+    modal.setAttribute('tabindex', '0');
+    document.body.appendChild(modal);
+
     store.addItem({ name: 'Clip 1', type: 'video', path: '/media/1.mp4', duration: 10 });
     store.addItem({ name: 'Clip 2', type: 'video', path: '/media/2.mp4', duration: 15 });
     const id1 = store.activeItems[0].id;
+
     store.selectItem(id1);
-
-    const mockModalElement = {
-      tagName: 'DIV',
-      isContentEditable: false,
-      closest: (selector: string) => (selector.includes('modal') ? {} : null)
-    };
-
-    let keydownHandler: any = null;
-    (globalThis as any).document = { activeElement: mockModalElement };
-    (globalThis as any).window = {
-      addEventListener: (type: string, fn: any) => { if (type === 'keydown') keydownHandler = fn; },
-      removeEventListener: () => {}
-    };
-
-    const shortcuts = useOperatorShortcuts();
-    shortcuts.mountShortcuts();
-
+    modal.focus();
+    expect(document.activeElement).toBe(modal);
     expect(classifyActiveScope()).toBe('modal');
 
-    const arrowDownEvent = {
+    const event = new KeyboardEvent('keydown', {
       key: 'ArrowDown',
       code: 'ArrowDown',
-      target: mockModalElement,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn()
-    };
+      bubbles: true,
+      cancelable: true
+    });
 
-    await keydownHandler(arrowDownEvent);
-    expect(arrowDownEvent.preventDefault).not.toHaveBeenCalled();
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
     expect(store.selectedItemId).toBe(id1);
   });
 });
