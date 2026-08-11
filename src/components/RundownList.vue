@@ -819,10 +819,15 @@ onMounted(() => {
           const movingItem = store.activeItems[evt.oldIndex];
           const targetItem = store.activeItems[evt.newIndex];
           if (movingItem) {
-            const target: InsertionTarget = evt.newIndex >= store.activeItems.length - 1 && evt.newIndex > evt.oldIndex
+            const movingIds = (store.selectedItemIds.includes(movingItem.id) && store.selectedItemIds.length > 1)
+              ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
+              : [movingItem.id];
+
+            const target: InsertionTarget = (evt.newIndex >= store.activeItems.length - 1 && evt.newIndex > evt.oldIndex)
               ? { kind: 'append' }
               : (targetItem ? { kind: evt.newIndex > evt.oldIndex ? 'after' : 'before', targetItemId: targetItem.id } : { kind: 'append' });
-            store.moveRundownItems({ itemIds: [movingItem.id], target });
+
+            store.moveRundownItems({ itemIds: movingIds, target });
           }
         }
       }

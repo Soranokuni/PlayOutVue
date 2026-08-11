@@ -68,6 +68,53 @@ export type InsertionTarget =
   | { kind: 'after'; targetItemId: string }
   | { kind: 'append' };
 
+export interface MoveResult {
+  changed: boolean;
+  movedItemIds: string[];
+  target: InsertionTarget;
+  newItems: RundownItem[];
+}
+
+export function calculateMove(
+    currentItems: RundownItem[],
+    itemIds: string[],
+    target: InsertionTarget
+): MoveResult {
+    if (!itemIds.length || !currentItems.length) {
+        return { changed: false, movedItemIds: [], target, newItems: currentItems };
+    }
+
+    const movingSet = new Set(itemIds);
+    const movingItems = currentItems.filter(i => movingSet.has(i.id));
+    if (!movingItems.length) {
+        return { changed: false, movedItemIds: [], target, newItems: currentItems };
+    }
+
+    const filteredList = currentItems.filter(i => !movingSet.has(i.id));
+
+    let insertIndex = filteredList.length;
+    if (target.kind === 'before') {
+        const idx = filteredList.findIndex(i => i.id === target.targetItemId);
+        if (idx >= 0) insertIndex = idx;
+    } else if (target.kind === 'after') {
+        const idx = filteredList.findIndex(i => i.id === target.targetItemId);
+        if (idx >= 0) insertIndex = idx + 1;
+    }
+
+    const newItems = [...filteredList];
+    newItems.splice(insertIndex, 0, ...movingItems);
+
+    const changed = currentItems.length !== newItems.length ||
+        currentItems.some((item, index) => item.id !== newItems[index]?.id);
+
+    return {
+        changed,
+        movedItemIds: movingItems.map(i => i.id),
+        target,
+        newItems
+    };
+}
+
 
 export interface RundownPlaylist {
     id: string;
@@ -1960,39 +2007,29 @@ contentType: content,
         itemIds: string[];
         target: InsertionTarget;
         activePlaylistId?: string;
-    }) => {
-        if (!params.itemIds.length) return;
+    }): MoveResult => {
+        const playlistId = params.activePlaylistId || currentPlaylist.value?.id;
+        const targetPlaylist = getPlaylistById(playlistId) || currentPlaylist.value;
+        if (!targetPlaylist || !params.itemIds.length) {
+            return { changed: false, movedItemIds: [], target: params.target, newItems: targetPlaylist?.items || [] };
+        }
+
+        const result = calculateMove(targetPlaylist.items, params.itemIds, params.target);
+        if (!result.changed) {
+            return result;
+        }
+
         saveUndoSnapshot();
         redoStack.value = [];
 
-        const playlistId = params.activePlaylistId || currentPlaylist.value?.id;
-        const targetPlaylist = getPlaylistById(playlistId) || currentPlaylist.value;
-        if (!targetPlaylist) return;
+        updatePlaylistState(targetPlaylist.id, { items: result.newItems });
 
-        const currentList = [...targetPlaylist.items];
-        const movingSet = new Set(params.itemIds);
-        const movingItems = currentList.filter(i => movingSet.has(i.id));
-
-        const filteredList = currentList.filter(i => !movingSet.has(i.id));
-
-        let insertIndex = filteredList.length;
-        if (params.target.kind === 'before') {
-            const targetId = params.target.targetItemId;
-            const idx = filteredList.findIndex(i => i.id === targetId);
-            if (idx >= 0) insertIndex = idx;
-        } else if (params.target.kind === 'after') {
-            const targetId = params.target.targetItemId;
-            const idx = filteredList.findIndex(i => i.id === targetId);
-            if (idx >= 0) insertIndex = idx + 1;
+        if (result.movedItemIds.length > 0) {
+            selectItem(result.movedItemIds[0]!);
+            selectedItemIds.value = result.movedItemIds;
         }
 
-        filteredList.splice(insertIndex, 0, ...movingItems);
-        updatePlaylistState(targetPlaylist.id, { items: filteredList });
-
-        if (movingItems.length > 0) {
-            selectItem(movingItems[0]!.id);
-            selectedItemIds.value = params.itemIds;
-        }
+        return result;
     };
 
     const removeItems = (ids: string[]) => {
