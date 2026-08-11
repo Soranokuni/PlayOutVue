@@ -217,20 +217,41 @@ export function useOperatorShortcuts() {
       return;
     }
 
+    // 4. Structural Shortcuts for Rundown Scope (Ctrl/Cmd + C, X, V, D, Z)
+    const isModifier = event.ctrlKey || event.metaKey;
+    if (scope === 'rundown' && isModifier) {
+      const key = event.key.toLowerCase();
+      const commandByKey: Record<string, string> = {
+        c: 'rundown.copySelected',
+        x: 'rundown.cutSelected',
+        v: 'rundown.pasteAfterSelected',
+        d: 'rundown.duplicateSelected',
+        z: event.shiftKey ? 'rundown.redo' : 'rundown.undo'
+      };
+
+      const commandId = commandByKey[key];
+      if (commandId) {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute(commandId, ctx);
+        return;
+      }
+    }
+
+    // Delete / Backspace in Rundown Scope
+    if ((event.key === 'Delete' || event.key === 'Backspace') && scope === 'rundown') {
+      event.preventDefault();
+      event.stopPropagation();
+      await commandRegistry.execute('rundown.deleteSelected', ctx);
+      return;
+    }
+
     // F8 Library Action (restricted to library scope)
     if (scope === 'library' && (event.code === 'F8' || event.key === 'F8')) {
       event.preventDefault();
       event.stopPropagation();
       const actionId = event.shiftKey ? 'library.insertSelected' : 'library.appendSelected';
       await commandRegistry.execute(actionId, ctx);
-      return;
-    }
-
-    // Delete Rundown Selection Action
-    if ((event.key === 'Delete' || event.key === 'Backspace') && scope === 'rundown') {
-      event.preventDefault();
-      event.stopPropagation();
-      await commandRegistry.execute('rundown.deleteSelected', ctx);
       return;
     }
 
