@@ -5,7 +5,8 @@ import { commandRegistry } from '../../services/commandRegistry';
 import {
   useOperatorShortcuts,
   resetShortcutsMountedStateForTesting,
-  activeModalName
+  activeModalName,
+  activeLibraryContext
 } from '../useOperatorShortcuts';
 
 describe('PR4A Structural Keyboard Shortcuts Routing', () => {
@@ -18,6 +19,18 @@ describe('PR4A Structural Keyboard Shortcuts Routing', () => {
     document.body.innerHTML = '';
     activeModalName.value = null;
 
+    activeLibraryContext.value = {
+      getSelectedAssetIds: () => ['asset-1'],
+      getVisibleAssetIds: () => ['asset-1'],
+      selectPrevious: () => {},
+      selectNext: () => {},
+      selectFirst: () => {},
+      selectLast: () => {},
+      extendSelection: () => {},
+      appendSelectedToPlaylist: async () => ({ insertedIds: [], skippedIds: [], errors: [] }),
+      insertSelectedAfter: async () => ({ insertedIds: [], skippedIds: [], errors: [] })
+    };
+
     executeSpy = vi.spyOn(commandRegistry, 'execute');
 
     shortcuts = useOperatorShortcuts();
@@ -28,6 +41,7 @@ describe('PR4A Structural Keyboard Shortcuts Routing', () => {
     shortcuts.unmountShortcuts();
     resetShortcutsMountedStateForTesting();
     activeModalName.value = null;
+    activeLibraryContext.value = null;
     document.body.innerHTML = '';
     vi.restoreAllMocks();
   });
@@ -184,7 +198,26 @@ describe('PR4A Structural Keyboard Shortcuts Routing', () => {
     expect(executeSpy).toHaveBeenCalledWith('library.appendSelected', expect.any(Object));
   });
 
-  it('does NOT execute library.appendSelected (F8) when focused in rundown scope', async () => {
+  it('executes library.appendSelected (F8) from rundown scope when a library asset is selected', async () => {
+    const rundownContainer = document.createElement('div');
+    rundownContainer.setAttribute('data-command-scope', 'rundown');
+    rundownContainer.tabIndex = 0;
+    document.body.appendChild(rundownContainer);
+    rundownContainer.focus();
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'F8', code: 'F8', bubbles: true, cancelable: true })
+    );
+
+    expect(executeSpy).toHaveBeenCalledWith('library.appendSelected', expect.any(Object));
+  });
+
+  it('does NOT execute library.appendSelected (F8) when NO library asset is selected', async () => {
+    activeLibraryContext.value = {
+      ...activeLibraryContext.value!,
+      getSelectedAssetIds: () => []
+    };
+
     const rundownContainer = document.createElement('div');
     rundownContainer.setAttribute('data-command-scope', 'rundown');
     rundownContainer.tabIndex = 0;

@@ -194,4 +194,44 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
     expect(libraryStore.selectedAssetId).toBe('asset-1');
     wrapper.unmount();
   });
+
+  it('keeps New, Rename, Move, and Delete action buttons reachable in MediaLibrary toolbar', () => {
+    const wrapper = mount(MediaLibrary, {
+      global: {
+        stubs: {
+          ContextMenu: true
+        }
+      }
+    });
+
+    const toolbar = wrapper.find('.lib-toolbar');
+    expect(toolbar.exists()).toBe(true);
+
+    const buttons = toolbar.findAll('button');
+    const buttonTexts = buttons.map(b => b.text());
+    expect(buttonTexts.some(t => t.includes('New'))).toBe(true);
+    expect(buttonTexts.some(t => t.includes('Rename'))).toBe(true);
+    expect(buttonTexts.some(t => t.includes('Move'))).toBe(true);
+    expect(buttonTexts.some(t => t.includes('Delete'))).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('does NOT execute Shift+F8 when focus is inside a text input or active dialog', async () => {
+    libraryStore.selectItem('asset-1');
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'F8',
+      code: 'F8',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true
+    });
+
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
 });

@@ -21,6 +21,29 @@ export interface CalculateDropTargetParams {
 }
 
 /**
+ * Queries DOM element containers with `data-item-id` attribute within container element.
+ * Reads stable item UUID from `data-item-id` rather than assuming array index.
+ */
+export function buildRowRectsFromDOM(container: HTMLElement | null): TargetRowRect[] {
+  if (!container) return [];
+  const elements = container.querySelectorAll<HTMLElement>('[data-item-id]');
+  const rects: TargetRowRect[] = [];
+  elements.forEach((el) => {
+    const id = el.getAttribute('data-item-id');
+    if (id) {
+      const rect = el.getBoundingClientRect();
+      rects.push({
+        id,
+        top: rect.top,
+        bottom: rect.bottom,
+        height: rect.height
+      });
+    }
+  });
+  return rects;
+}
+
+/**
  * Calculates a semantic drop target purely from pointer clientY and row viewport bounding rects.
  * Uses a single viewport coordinate system (clientY vs rowRect.top/bottom).
  * Filters out moving items to prevent off-by-one destination index calculations.

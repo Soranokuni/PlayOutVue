@@ -1,5 +1,6 @@
+// @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { calculatePointerDropTarget, toInsertionTarget, type TargetRowRect } from '../reorderHelper';
+import { calculatePointerDropTarget, toInsertionTarget, buildRowRectsFromDOM, type TargetRowRect } from '../reorderHelper';
 
 describe('PR 6B Pure Reorder Helper & Single Coordinate System', () => {
   const rows: TargetRowRect[] = [
@@ -96,5 +97,17 @@ describe('PR 6B Pure Reorder Helper & Single Coordinate System', () => {
     expect(toInsertionTarget({ kind: 'before', targetItemId: 'item-2' })).toEqual({ kind: 'before', targetItemId: 'item-2' });
     expect(toInsertionTarget({ kind: 'append' })).toEqual({ kind: 'append' });
     expect(toInsertionTarget({ kind: 'no-op', reason: 'same' })).toBeNull();
+  });
+
+  it('buildRowRectsFromDOM reads stable data-item-id attributes from DOM containers', () => {
+    const container = document.createElement('div');
+    container.innerHTML = `
+      <div data-item-id="uuid-alpha"></div>
+      <div data-item-id="uuid-beta"></div>
+    `;
+    const rects = buildRowRectsFromDOM(container);
+    expect(rects.length).toBe(2);
+    expect(rects[0].id).toBe('uuid-alpha');
+    expect(rects[1].id).toBe('uuid-beta');
   });
 });
