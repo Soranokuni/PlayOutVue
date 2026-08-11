@@ -31,6 +31,72 @@ describe('Deterministic Drag & Drop & Move Invariants', () => {
     expect(res.changed).toBe(false);
   });
 
+  it('does not append when before target is missing', () => {
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+    const items = store.activeItems;
+    const originalIds = items.map(i => i.id);
+
+    const result = calculateMove(items, [originalIds[0]], {
+      kind: 'before',
+      targetItemId: 'missing-id'
+    });
+
+    expect(result.changed).toBe(false);
+    expect(result.reason).toBe('invalid-target');
+    expect(result.newItems.map(i => i.id)).toEqual(originalIds);
+  });
+
+  it('does not append when after target is missing', () => {
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+    const items = store.activeItems;
+
+    const result = calculateMove(items, [items[0].id], {
+      kind: 'after',
+      targetItemId: 'missing-id'
+    });
+
+    expect(result.changed).toBe(false);
+    expect(result.reason).toBe('invalid-target');
+  });
+
+  it('does not move a block relative to a target inside the same block', () => {
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 3', type: 'video', path: '/3.mp4', duration: 10 });
+    const items = store.activeItems;
+    const [i1, i2] = items.map(i => i.id);
+
+    const result = calculateMove(items, [i1, i2], {
+      kind: 'after',
+      targetItemId: i2
+    });
+
+    expect(result.changed).toBe(false);
+    expect(result.reason).toBe('invalid-target');
+  });
+
+  it('does not create undo history for invalid drag targets', () => {
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+    const item1 = store.activeItems[0].id;
+
+    expect(store.canUndo).toBe(false);
+
+    const result = store.moveRundownItems({
+      itemIds: [item1],
+      target: {
+        kind: 'before',
+        targetItemId: 'deleted-id'
+      }
+    });
+
+    expect(result.changed).toBe(false);
+    expect(result.reason).toBe('invalid-target');
+    expect(store.canUndo).toBe(false);
+  });
+
   it('moveRundownItems does NOT save an undo snapshot if order is unchanged', () => {
     store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
     store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });

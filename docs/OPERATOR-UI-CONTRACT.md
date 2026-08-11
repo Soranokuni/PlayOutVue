@@ -190,6 +190,7 @@ Before committing a move:
 
 The drop zone on or below the final row must resolve to `{ kind: 'append' }`.
 Moving multiple rows must preserve their original relative order.
+Never treat a missing, stale, deleted, or moving-item drag target as append. Invalid targets must produce a no-op result (`changed: false`) and a diagnostic reason (`reason: 'invalid-target'`).
 
 ---
 

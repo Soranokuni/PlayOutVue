@@ -22,6 +22,7 @@ Use this skill whenever making UI modifications to PlayOutVue. All rules in [`do
 - **Text Input Bypass**: Retain native typing, cursor movement, copy/paste, and undo/redo inside `INPUT`, `TEXTAREA`, `SELECT`, and contenteditable elements.
 - **UUID Identity**: Item selection and mutations MUST be UUID-based. Never use list index as item identity.
 - **No-Op Undo Guard**: Calculate proposed moves first (`calculateMove`). Call `saveUndoSnapshot()` ONLY if `result.changed === true`.
+- **Invalid Drag Target Guard**: Never treat a missing, stale, deleted, or moving-item drag target as append. Invalid targets must produce a no-op result (`changed: false`) and a diagnostic reason (`reason: 'invalid-target'`).
 - **Structural Mutation Gate**: Ensure destructive or structural mutations verify current playlist revision, preserve on-air protections, and prompt for operator confirmation when necessary.
 
 ## 3. Testing Requirements
