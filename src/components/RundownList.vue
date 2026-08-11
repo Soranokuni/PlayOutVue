@@ -15,7 +15,7 @@ import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
 import { activeScope } from '../composables/useOperatorShortcuts';
-import { calculatePointerDropTarget, toInsertionTarget, type TargetRowRect, type SemanticDropTarget } from '../lib/reorderHelper';
+import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, type TargetRowRect, type SemanticDropTarget } from '../lib/reorderHelper';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -673,24 +673,7 @@ const onRowSelect = (item: RundownItem, event?: MouseEvent) => {
 
 
 
-const getTargetRowRects = (): TargetRowRect[] => {
-  if (!rundownListRef.value) return [];
-  const containers = rundownListRef.value.querySelectorAll('.rw-row-container');
-  const rects: TargetRowRect[] = [];
-  containers.forEach((el, idx) => {
-    const item = store.activeItems[idx];
-    if (item) {
-      const rect = el.getBoundingClientRect();
-      rects.push({
-        id: item.id,
-        top: rect.top,
-        bottom: rect.bottom,
-        height: rect.height
-      });
-    }
-  });
-  return rects;
-};
+const getTargetRowRects = (): TargetRowRect[] => buildRowRectsFromDOM(rundownListRef.value);
 
 const resolveDropTarget = (event: DragEvent, index: number): { target: InsertionTarget; side: 'before' | 'after' } => {
   const movingIds = store.selectedItemIds.length > 0
@@ -925,6 +908,7 @@ onUnmounted(() => {
         v-for="(item, index) in store.activeItems"
         :key="item.id"
         class="rw-row-container"
+        :data-item-id="item.id"
         v-memo="[
           item,
           index,

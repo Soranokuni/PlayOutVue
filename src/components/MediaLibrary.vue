@@ -1534,12 +1534,26 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-subtitle { color:var(--text-secondary); font-size:0.7rem; }
 
 .lib-toolbar {
-  display:flex; align-items:center; gap:6px;
-  padding:8px; border-bottom:1px solid var(--glass-border);
-  flex-shrink:0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+  min-width: 280px;
 }
-.lib-search { flex:1; }
-.toolbar-spacer { flex:1; }
+.lib-search {
+  flex: 1 1 120px;
+  min-width: 90px;
+}
+.lib-toolbar .icon-action {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+.toolbar-spacer { display: none; }
 
 .lib-debug-panel {
   padding:8px;

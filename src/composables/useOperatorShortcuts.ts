@@ -246,12 +246,17 @@ export function useOperatorShortcuts() {
       return;
     }
 
-    // F8 Library Action (restricted to library scope)
-    if (scope === 'library' && (event.code === 'F8' || event.key === 'F8')) {
+    // F8 Library Action (F8: append, Shift+F8: insert after rundown selection)
+    if (event.code === 'F8' || event.key === 'F8') {
       event.preventDefault();
       event.stopPropagation();
+      if (activeModalName.value) return; // Do not execute inside active dialogs
       const actionId = event.shiftKey ? 'library.insertSelected' : 'library.appendSelected';
-      await commandRegistry.execute(actionId, ctx);
+      const cmd = commandRegistry.get(actionId);
+      const f8Ctx: CommandContext = { ...ctx, originScope: 'library' };
+      if (cmd && cmd.isEnabled(f8Ctx)) {
+        await commandRegistry.execute(actionId, f8Ctx);
+      }
       return;
     }
 

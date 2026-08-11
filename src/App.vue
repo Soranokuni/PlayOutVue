@@ -199,7 +199,7 @@ const handleGlobalPointerDown = (event: PointerEvent) => {
 const applyResize = () => {
   resizeFrame = 0;
   if (isResizing.value === 'left') {
-    leftWidth.value = Math.max(220, Math.min(520, pendingResizeX));
+    leftWidth.value = Math.max(280, Math.min(520, pendingResizeX));
   } else if (isResizing.value === 'right') {
     rightWidth.value = Math.max(220, Math.min(520, window.innerWidth - pendingResizeX));
   }
@@ -356,7 +356,7 @@ onUnmounted(() => {
     </div>
     
     <aside class="panel panel-library glass-panel"><MediaLibrary /></aside>
-    <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = 260"></div>
+    <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = 280"></div>
     
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
     <div v-if="showRightPanel" class="resizer resizer-right" title="Drag to resize · double-click to reset" @mousedown="startResizeRight" @dblclick="rightWidth = 240"></div>
