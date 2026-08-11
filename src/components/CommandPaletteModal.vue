@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import { ask } from '@tauri-apps/plugin-dialog';
-import { commandRegistry, type CommandDefinition } from '../services/commandRegistry';
+import { commandRegistry, type CommandDefinition, type CommandSafety } from '../services/commandRegistry';
 import { searchCommands } from '../lib/commandSearch';
 import {
   createCurrentCommandContext,
@@ -29,11 +29,13 @@ const currentContext = computed(() => {
   return createCurrentCommandContext();
 });
 
+const paletteSafeCommands = new Set<CommandSafety>(['safe', 'destructive']);
+
 const availableCommands = computed(() => {
   const ctx = currentContext.value;
   const all = commandRegistry.getAll().filter((cmd) => {
-    if (cmd.paletteVisible === false) return false;
-    if (cmd.safety === 'playback') return false;
+    if (!cmd.paletteVisible) return false;
+    if (!paletteSafeCommands.has(cmd.safety)) return false;
     if (cmd.id.includes('takeSelected') || cmd.id.includes('playFromIndex')) return false;
     if (ctx && !cmd.isVisible(ctx)) return false;
     return true;
@@ -173,9 +175,10 @@ async function confirmAction(label: string): Promise<boolean> {
       title: 'Confirm Command',
       kind: 'warning'
     });
-  } catch {
-    // Fallback in non-Tauri / test environments
-    return true;
+  } catch (error) {
+    executionError.value =
+      error instanceof Error ? error.message : 'Confirmation dialog could not be opened.';
+    return false;
   }
 }
 

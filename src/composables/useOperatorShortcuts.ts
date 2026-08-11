@@ -15,9 +15,11 @@ export const activeLibraryContext = ref<LibraryCommandContext | null>(null);
 export const requireTakeConfirmation = ref<boolean>(false);
 
 let capturedActiveElement: HTMLElement | null = null;
+let commandPaletteOriginScope: ShortcutScope = 'rundown';
 
 export function openCommandPalette(): void {
   if (activeModalName.value && activeModalName.value !== 'command-palette') return;
+  commandPaletteOriginScope = classifyActiveScope();
   capturedActiveElement = typeof document !== 'undefined' ? (document.activeElement as HTMLElement) || null : null;
   activeModalName.value = 'command-palette';
 }
@@ -36,10 +38,12 @@ export function closeCommandPalette(): void {
 }
 
 export function createCurrentCommandContext(): CommandContext {
-  const scope = classifyActiveScope();
+  const currentScope = classifyActiveScope();
   const rundown = useRundownStore();
+  const paletteIsOpen = activeModalName.value === 'command-palette';
   return {
-    scope,
+    scope: currentScope,
+    originScope: paletteIsOpen ? commandPaletteOriginScope : currentScope,
     rundown,
     selection: {
       selectedItemIds: rundown.selectedItemIds,
