@@ -218,6 +218,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         const currentFolderPath = ref('/');
         const searchQuery = ref('');
         const selectedNodeId = ref<string | null>(null);
+        const selectedNodeIds = ref<string[]>([]);
+        const selectionAnchorNodeId = ref<string | null>(null);
         const expandedFolders = ref<string[]>(['/']);
         const deletedUuids = ref<string[]>([]);
         const transientFolders = ref<Record<string, string>>({});
@@ -307,6 +309,129 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             const uuid = selectedNodeId.value.slice(6);
             return assets.value.find((a) => a.uuid === uuid) || null;
         });
+
+        const selectedAssetId = computed<string | null>(() => {
+            if (!selectedNodeId.value?.startsWith('asset:')) return null;
+            return selectedNodeId.value.slice(6);
+        });
+
+        const selectedAssetIds = computed<string[]>(() => {
+            if (!selectedNodeIds.value.length) {
+                return selectedNodeId.value?.startsWith('asset:') ? [selectedNodeId.value.slice(6)] : [];
+            }
+            return selectedNodeIds.value
+                .filter((id) => id.startsWith('asset:'))
+                .map((id) => id.slice(6));
+        });
+
+        function selectNode(
+            id: string | null,
+            options: { multi?: boolean; range?: boolean; visibleNodes?: TreeNode[] } = {}
+        ) {
+            if (!id) {
+                selectedNodeId.value = null;
+                selectedNodeIds.value = [];
+                selectionAnchorNodeId.value = null;
+                return;
+            }
+
+            const nodes = options.visibleNodes || allTreeNodes.value;
+
+            if (options.range && selectionAnchorNodeId.value && nodes.length) {
+                const anchorIdx = nodes.findIndex((n) => n.id === selectionAnchorNodeId.value);
+                const targetIdx = nodes.findIndex((n) => n.id === id);
+                if (anchorIdx !== -1 && targetIdx !== -1) {
+                    const start = Math.min(anchorIdx, targetIdx);
+                    const end = Math.max(anchorIdx, targetIdx);
+                    const rangeIds = nodes.slice(start, end + 1).map((n) => n.id);
+                    selectedNodeIds.value = rangeIds;
+                    selectedNodeId.value = id;
+                    return;
+                }
+            }
+
+            if (options.multi) {
+                const set = new Set(selectedNodeIds.value);
+                if (set.has(id)) {
+                    set.delete(id);
+                    if (selectedNodeId.value === id) {
+                        selectedNodeId.value = Array.from(set).pop() || null;
+                    }
+                } else {
+                    set.add(id);
+                    selectedNodeId.value = id;
+                }
+                selectedNodeIds.value = Array.from(set);
+                selectionAnchorNodeId.value = id;
+                return;
+            }
+
+            selectedNodeId.value = id;
+            selectedNodeIds.value = [id];
+            selectionAnchorNodeId.value = id;
+        }
+
+        function moveSelectionDelta(delta: number, visibleNodes: TreeNode[] = allTreeNodes.value) {
+            const selectableNodes = visibleNodes.filter((n) => n.type === 'asset');
+            if (!selectableNodes.length) return;
+
+            const currentIdx = selectedNodeId.value
+                ? selectableNodes.findIndex((n) => n.id === selectedNodeId.value)
+                : -1;
+
+            let targetIdx: number;
+            if (currentIdx === -1) {
+                targetIdx = delta > 0 ? 0 : selectableNodes.length - 1;
+            } else {
+                targetIdx = Math.max(0, Math.min(selectableNodes.length - 1, currentIdx + delta));
+            }
+
+            const targetNode = selectableNodes[targetIdx];
+            if (targetNode) {
+                selectNode(targetNode.id, { visibleNodes });
+            }
+        }
+
+        function moveSelectionPage(delta: number, pageSize: number, visibleNodes: TreeNode[] = allTreeNodes.value) {
+            moveSelectionDelta(delta * pageSize, visibleNodes);
+        }
+
+        function selectFirst(visibleNodes: TreeNode[] = allTreeNodes.value) {
+            const selectableNodes = visibleNodes.filter((n) => n.type === 'asset');
+            if (!selectableNodes.length || !selectableNodes[0]) return;
+            selectNode(selectableNodes[0].id, { visibleNodes });
+        }
+
+        function selectLast(visibleNodes: TreeNode[] = allTreeNodes.value) {
+            const selectableNodes = visibleNodes.filter((n) => n.type === 'asset');
+            const last = selectableNodes[selectableNodes.length - 1];
+            if (!selectableNodes.length || !last) return;
+            selectNode(last.id, { visibleNodes });
+        }
+
+        function extendSelection(delta: number, visibleNodes: TreeNode[] = allTreeNodes.value) {
+            const selectableNodes = visibleNodes.filter((n) => n.type === 'asset');
+            if (!selectableNodes.length) return;
+
+            const currentIdx = selectedNodeId.value
+                ? selectableNodes.findIndex((n) => n.id === selectedNodeId.value)
+                : -1;
+
+            if (currentIdx === -1) {
+                selectFirst(visibleNodes);
+                return;
+            }
+
+            const targetIdx = Math.max(0, Math.min(selectableNodes.length - 1, currentIdx + delta));
+            const targetNode = selectableNodes[targetIdx];
+            if (targetNode) {
+                selectNode(targetNode.id, { range: true, visibleNodes });
+            }
+        }
+
+        function clearSelection() {
+            selectNode(null);
+        }
 
         const currentFolderAssets = computed<LibraryAsset[]>(() =>
             assets.value.filter(
@@ -651,6 +776,10 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             currentFolderPath,
             searchQuery,
             selectedNodeId,
+            selectedNodeIds,
+            selectionAnchorNodeId,
+            selectedAssetId,
+            selectedAssetIds,
             expandedFolders,
             deletedUuids,
             transientFolders,
@@ -660,6 +789,13 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             allTreeNodes,
             selectedAsset,
             currentFolderAssets,
+            selectNode,
+            moveSelectionDelta,
+            moveSelectionPage,
+            selectFirst,
+            selectLast,
+            extendSelection,
+            clearSelection,
             setAssets,
             updateAsset,
             navigateTo,

@@ -486,9 +486,52 @@ function onFolderDoubleClick(folderPath: string) {
     expandedFolders.value[folderPath] = !expandedFolders.value[folderPath];
 }
 
-function onAssetClick(asset: LibraryAsset) {
-    mediaLibrary.selectedNodeId = `asset:${asset.uuid}`;
+function isAssetSelected(uuid: string): boolean {
+    return mediaLibrary.selectedNodeIds.includes(`asset:${uuid}`) || mediaLibrary.selectedNodeId === `asset:${uuid}`;
 }
+
+function isAssetPrimarySelected(uuid: string): boolean {
+    return mediaLibrary.selectedNodeId === `asset:${uuid}`;
+}
+
+function onAssetClick(asset: LibraryAsset, event?: MouseEvent) {
+    mediaLibrary.selectNode(`asset:${asset.uuid}`, {
+        multi: event?.ctrlKey || event?.metaKey,
+        range: event?.shiftKey,
+    });
+    if (libTreeRef.value) {
+        libTreeRef.value.focus({ preventScroll: true });
+    }
+}
+
+let libraryScrollFrame: number | null = null;
+
+function scrollSelectedLibraryAssetIntoView() {
+    if (libraryScrollFrame !== null) {
+        cancelAnimationFrame(libraryScrollFrame);
+    }
+    libraryScrollFrame = requestAnimationFrame(() => {
+        libraryScrollFrame = null;
+        const id = mediaLibrary.selectedAssetId;
+        if (!id || !libTreeRef.value) return;
+
+        const row = libTreeRef.value.querySelector<HTMLElement>(
+            `[data-asset-id="${CSS.escape(id)}"]`
+        );
+
+        row?.scrollIntoView({
+            block: 'nearest',
+            behavior: 'auto',
+        });
+    });
+}
+
+watch(
+    () => mediaLibrary.selectedNodeId,
+    () => {
+        scrollSelectedLibraryAssetIntoView();
+    }
+);
 
 function onAssetDoubleClick(asset: LibraryAsset) {
     store.addItem(makeRundownDraftFromAsset(asset));
@@ -879,10 +922,13 @@ watch(
 
 onMounted(() => {
     activeLibraryContext.value = {
-        getSelectedAssetIds: () => {
-            const asset = mediaLibrary.selectedAsset;
-            return asset ? [asset.uuid] : [];
-        },
+        getSelectedAssetIds: () => mediaLibrary.selectedAssetIds,
+        getVisibleAssetIds: () => mediaLibrary.allTreeNodes.filter((n) => n.type === 'asset').map((n) => n.asset?.uuid || n.id),
+        selectPrevious: () => mediaLibrary.moveSelectionDelta(-1),
+        selectNext: () => mediaLibrary.moveSelectionDelta(1),
+        selectFirst: () => mediaLibrary.selectFirst(),
+        selectLast: () => mediaLibrary.selectLast(),
+        extendSelection: (delta: -1 | 1) => mediaLibrary.extendSelection(delta),
         appendSelectedToPlaylist: async (): Promise<LibraryInsertResult> => {
             const asset = mediaLibrary.selectedAsset;
             if (!asset) {
@@ -1327,7 +1373,15 @@ const menuItems = computed<MenuItem[]>(() => {
     </div>
 
     <!-- Tree List -->
-    <div ref="libTreeRef" class="lib-tree custom-scroll" @contextmenu.prevent style="overflow-y: auto;">
+    <div
+      ref="libTreeRef"
+      class="lib-tree custom-scroll"
+      role="listbox"
+      aria-label="Media library"
+      aria-multiselectable="true"
+      @contextmenu.prevent
+      style="overflow-y: auto;"
+    >
       <div v-if="isScanning && !folderGroups.length" class="lib-empty">⌛ Loading…</div>
       <div v-else-if="folderGroups.length === 0" class="lib-empty">
         {{ libraryQuery ? 'No matching assets found.' : '📂 No media found.\nSet the Ingestor API or media folder in ⚙️ Settings.' }}
@@ -1380,11 +1434,15 @@ const menuItems = computed<MenuItem[]>(() => {
               :key="asset.uuid"
               class="lib-row is-asset"
               :class="{
-                'is-selected': mediaLibrary.selectedNodeId === `asset:${asset.uuid}`
+                'is-selected': isAssetSelected(asset.uuid)
               }"
+              role="option"
+              :data-asset-id="asset.uuid"
+              :aria-selected="isAssetSelected(asset.uuid)"
+              :tabindex="isAssetPrimarySelected(asset.uuid) ? 0 : -1"
               :draggable="true"
               :style="{ paddingLeft: '26px' }"
-              @click="onAssetClick(asset)"
+              @click="onAssetClick(asset, $event)"
               @dblclick="onAssetDoubleClick(asset)"
               @contextmenu.prevent="onAssetContextMenu($event, asset)"
               @dragstart="onAssetDragStart($event, asset)"

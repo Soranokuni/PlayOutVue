@@ -14,6 +14,14 @@ export const activeTrimmerContext = ref<TrimmerCommandContext | null>(null);
 export const activeLibraryContext = ref<LibraryCommandContext | null>(null);
 export const requireTakeConfirmation = ref<boolean>(false);
 
+export function getVisiblePageSize(containerEl: HTMLElement | null): number {
+  if (!containerEl) return 10;
+  const firstRow = containerEl.querySelector<HTMLElement>('[data-item-id], [data-asset-id]');
+  if (!firstRow) return 10;
+  const rowHeight = firstRow.getBoundingClientRect().height;
+  return rowHeight > 0 ? Math.max(1, Math.floor(containerEl.clientHeight / rowHeight)) : 10;
+}
+
 /**
  * Determines current active scope based on DOM focus state and open modals.
  */
@@ -193,13 +201,17 @@ export function useOperatorShortcuts() {
       if (event.key === 'PageUp') {
         event.preventDefault();
         event.stopPropagation();
-        rundown.moveSelectionPage(-1);
+        const container = document.querySelector('[data-command-scope="rundown"]') as HTMLElement | null;
+        const pageSize = getVisiblePageSize(container);
+        rundown.moveSelectionDelta(-pageSize);
         return;
       }
       if (event.key === 'PageDown') {
         event.preventDefault();
         event.stopPropagation();
-        rundown.moveSelectionPage(1);
+        const container = document.querySelector('[data-command-scope="rundown"]') as HTMLElement | null;
+        const pageSize = getVisiblePageSize(container);
+        rundown.moveSelectionDelta(pageSize);
         return;
       }
       if (event.key === 'Home') {
@@ -222,10 +234,44 @@ export function useOperatorShortcuts() {
         rundown.extendSelectionDelta(-1);
         return;
       }
+    }
+
+    // 5. Navigation & Selection in Media Library
+    if (scope === 'library') {
+      if (!event.ctrlKey && !event.shiftKey && event.key === 'ArrowUp') {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('library.selectPrevious', ctx);
+        return;
+      }
+      if (!event.ctrlKey && !event.shiftKey && event.key === 'ArrowDown') {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('library.selectNext', ctx);
+        return;
+      }
+      if (event.shiftKey && event.key === 'ArrowUp') {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('library.extendSelectionPrevious', ctx);
+        return;
+      }
       if (event.shiftKey && event.key === 'ArrowDown') {
         event.preventDefault();
         event.stopPropagation();
-        rundown.extendSelectionDelta(1);
+        await commandRegistry.execute('library.extendSelectionNext', ctx);
+        return;
+      }
+      if (event.key === 'Home') {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('library.selectFirst', ctx);
+        return;
+      }
+      if (event.key === 'End') {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('library.selectLast', ctx);
         return;
       }
     }

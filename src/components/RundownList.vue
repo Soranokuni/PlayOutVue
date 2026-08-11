@@ -457,13 +457,39 @@ const menuItems = computed<MenuItem[]>(() => {
 });
 
 
-const ensureSelectedRowVisible = (behavior: ScrollBehavior = 'auto') => {
-  const selectedId = store.selectedItemId;
-  if (!selectedId || !rundownListRef.value) return;
+let scrollFrame: number | null = null;
 
-  const row = rundownListRef.value.querySelector<HTMLElement>(`.rw-row[data-item-id="${selectedId}"]`);
-  row?.scrollIntoView({ block: 'nearest', behavior });
-};
+function scheduleSelectedRowReveal() {
+  if (scrollFrame !== null) {
+    cancelAnimationFrame(scrollFrame);
+  }
+
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = null;
+
+    nextTick(() => {
+      const selectedId = store.selectedItemId;
+      if (!selectedId) return;
+
+      const row = rundownListRef.value?.querySelector<HTMLElement>(
+        `[data-item-id="${CSS.escape(selectedId)}"]`
+      );
+
+      row?.scrollIntoView({
+        block: 'nearest',
+        behavior: 'auto',
+      });
+    });
+  });
+}
+
+watch(
+  () => store.selectedItemId,
+  () => {
+    scheduleSelectedRowReveal();
+  },
+  { immediate: true }
+);
 
 const moveSelectionDelta = (delta: number) => {
   const items = store.activeItems;
@@ -483,9 +509,7 @@ const moveSelectionDelta = (delta: number) => {
   if (!items[nextIndex]) return;
 
   store.selectedItemId = items[nextIndex]!.id;
-  nextTick(() => {
-    ensureSelectedRowVisible('auto');
-  });
+  scheduleSelectedRowReveal();
 };
 
 const moveSelection = (direction: -1 | 1) => {
@@ -566,7 +590,7 @@ const handleKey = (event: KeyboardEvent) => {
       event.preventDefault();
       if (items.length > 0) {
         store.selectedItemId = items[0]!.id;
-        nextTick(() => ensureSelectedRowVisible('auto'));
+        scheduleSelectedRowReveal();
       }
       return;
     }
@@ -574,7 +598,7 @@ const handleKey = (event: KeyboardEvent) => {
       event.preventDefault();
       if (items.length > 0) {
         store.selectedItemId = items[items.length - 1]!.id;
-        nextTick(() => ensureSelectedRowVisible('auto'));
+        scheduleSelectedRowReveal();
       }
       return;
     }

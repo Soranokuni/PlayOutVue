@@ -39,6 +39,12 @@ export type LibraryInsertResult = {
 
 export interface LibraryCommandContext {
   getSelectedAssetIds(): string[];
+  getVisibleAssetIds(): string[];
+  selectPrevious(): void;
+  selectNext(): void;
+  selectFirst(): void;
+  selectLast(): void;
+  extendSelection(delta: -1 | 1): void;
   appendSelectedToPlaylist(): Promise<LibraryInsertResult>;
   insertSelectedAfter(rundownItemId: string | null): Promise<LibraryInsertResult>;
 }
@@ -253,6 +259,84 @@ commandRegistry.register({
   isEnabled: (ctx) => ctx.rundown.canRedo,
   execute: (ctx) => {
     ctx.rundown.redo();
+  }
+});
+
+commandRegistry.register({
+  id: 'library.selectPrevious',
+  label: 'Select Previous Library Asset',
+  scopes: ['library'],
+  defaultShortcut: 'Up',
+  category: 'Library',
+  isVisible: () => true,
+  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  execute: (ctx) => {
+    ctx.library?.selectPrevious();
+  }
+});
+
+commandRegistry.register({
+  id: 'library.selectNext',
+  label: 'Select Next Library Asset',
+  scopes: ['library'],
+  defaultShortcut: 'Down',
+  category: 'Library',
+  isVisible: () => true,
+  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  execute: (ctx) => {
+    ctx.library?.selectNext();
+  }
+});
+
+commandRegistry.register({
+  id: 'library.selectFirst',
+  label: 'Select First Library Asset',
+  scopes: ['library'],
+  defaultShortcut: 'Home',
+  category: 'Library',
+  isVisible: () => true,
+  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  execute: (ctx) => {
+    ctx.library?.selectFirst();
+  }
+});
+
+commandRegistry.register({
+  id: 'library.selectLast',
+  label: 'Select Last Library Asset',
+  scopes: ['library'],
+  defaultShortcut: 'End',
+  category: 'Library',
+  isVisible: () => true,
+  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  execute: (ctx) => {
+    ctx.library?.selectLast();
+  }
+});
+
+commandRegistry.register({
+  id: 'library.extendSelectionPrevious',
+  label: 'Extend Library Selection Previous',
+  scopes: ['library'],
+  defaultShortcut: 'Shift+Up',
+  category: 'Library',
+  isVisible: () => true,
+  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  execute: (ctx) => {
+    ctx.library?.extendSelection(-1);
+  }
+});
+
+commandRegistry.register({
+  id: 'library.extendSelectionNext',
+  label: 'Extend Library Selection Next',
+  scopes: ['library'],
+  defaultShortcut: 'Shift+Down',
+  category: 'Library',
+  isVisible: () => true,
+  isEnabled: (ctx) => ctx.scope === 'library' && !!ctx.library,
+  execute: (ctx) => {
+    ctx.library?.extendSelection(1);
   }
 });
 
