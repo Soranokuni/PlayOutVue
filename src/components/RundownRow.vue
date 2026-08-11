@@ -170,9 +170,6 @@ const rowStyle = computed(() => {
     <div class="rw-name" :title="getDisplayName(item)">
       <span class="rw-name-text">{{ getDisplayName(item) }}</span>
       <span class="rw-meta-badges">
-        <span v-if="item.complianceRating && item.complianceRating !== 'none'" class="mcr-badge badge-age" :class="`age-${item.complianceRating}`">
-          {{ item.complianceRating.toUpperCase() }}
-        </span>
         <span v-if="item.tp_flag" class="mcr-badge badge-tp">TP</span>
         <span v-if="item.content_type && item.content_type !== 'none'" class="mcr-badge badge-content" :class="`content-${item.content_type}`">
           {{ item.content_type.toUpperCase() }}
@@ -180,7 +177,7 @@ const rowStyle = computed(() => {
       </span>
     </div>
     <div class="rw-rating">
-      <span v-if="item.complianceRating && item.complianceRating !== 'none'" class="rw-rating-badge" :class="ratingClass(item.complianceRating)">{{ item.complianceRating.toUpperCase() }}</span>
+      <span v-if="item.complianceRating && item.complianceRating !== 'none'" data-testid="age-rating-badge" class="rw-rating-badge" :class="ratingClass(item.complianceRating)">{{ item.complianceRating.toUpperCase() }}</span>
       <span v-else class="rw-rating-empty">·</span>
     </div>
     <div class="rw-tag">

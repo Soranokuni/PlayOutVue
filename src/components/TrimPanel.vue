@@ -597,6 +597,31 @@ const saveNonDestructive = () => {
     });
 };
 
+export type SubclipCapability =
+  | { state: 'available'; label: string; reason?: string }
+  | { state: 'local-fallback'; label: string; reason: string }
+  | { state: 'unavailable'; label: string; reason: string };
+
+const subclipCapability = computed<SubclipCapability>(() => {
+  if (!item.value) {
+    return { state: 'unavailable', label: '🎬 Save Sub-clip', reason: 'No item selected' };
+  }
+  if (!item.value.path) {
+    return { state: 'unavailable', label: '🎬 Save Sub-clip', reason: 'Missing source path' };
+  }
+  if (outMs.value > 0 && outMs.value <= inMs.value) {
+    return { state: 'unavailable', label: '🎬 Save Sub-clip', reason: 'OUT point must be greater than IN point' };
+  }
+  if (item.value.uuid && !item.value.uuid.startsWith('local:')) {
+    return { state: 'available', label: '🎬 Save Virtual Sub-clip' };
+  }
+  return {
+    state: 'local-fallback',
+    label: '🎬 Save Local Sub-clip',
+    reason: 'Local asset without server identity. Sub-clip will be stored in playlist only.'
+  };
+});
+
 const saveAsSubclip = () => {
     const currentItem = item.value;
     if (!currentItem) return;
@@ -779,8 +804,13 @@ const saveAsSubclip = () => {
             <button class="trim-btn btn-primary" @click="saveNonDestructive">
               💾 Save Trim Points
             </button>
-            <button v-if="item && item.uuid && !item.uuid.startsWith('local:')" class="trim-btn btn-accurate" @click="saveAsSubclip">
-              🎬 Save as Virtual Sub-clip
+            <button
+              class="trim-btn btn-accurate"
+              :disabled="subclipCapability.state === 'unavailable'"
+              :title="subclipCapability.reason"
+              @click="saveAsSubclip"
+            >
+              {{ subclipCapability.label }}
             </button>
             <button class="trim-btn" @click="$emit('close')">Cancel</button>
           </div>
