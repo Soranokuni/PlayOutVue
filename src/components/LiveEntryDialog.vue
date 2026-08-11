@@ -20,7 +20,7 @@ const confirm = () => {
 </script>
 
 <template>
-  <div class="modal-backdrop">
+  <div class="modal-backdrop" data-command-scope="modal">
     <div class="glass-panel live-dialog">
       <div class="dialog-header">
         <span class="text-accent" style="font-weight:600;">📹 Add Live Entry</span>

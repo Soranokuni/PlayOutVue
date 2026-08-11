@@ -285,7 +285,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="modal-backdrop" @click.self="discardAndClose">
+    <div v-if="isOpen" class="modal-backdrop" data-command-scope="modal" @click.self="discardAndClose">
       <div class="glass-panel modal-content">
         <div class="modal-header">
           <h2 class="text-accent">System Configuration</h2>
