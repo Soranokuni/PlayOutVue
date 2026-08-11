@@ -165,4 +165,22 @@ describe('Deterministic Drag & Drop & Move Invariants', () => {
     expect(res.changed).toBe(true);
     expect(store.activeItems.map(i => i.id)).toEqual([i2, i3, i1]);
   });
+
+  it('moves multi-selected items upward cleanly without off-by-one errors', () => {
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 3', type: 'video', path: '/3.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 4', type: 'video', path: '/4.mp4', duration: 10 });
+
+    const [i1, i2, i3, i4] = store.activeItems.map(i => i.id);
+
+    // Move items [i3, i4] before i1
+    const res = store.moveRundownItems({
+      itemIds: [i3, i4],
+      target: { kind: 'before', targetItemId: i1 }
+    });
+
+    expect(res.changed).toBe(true);
+    expect(store.activeItems.map(i => i.id)).toEqual([i3, i4, i1, i2]);
+  });
 });

@@ -1,0 +1,100 @@
+import { describe, it, expect } from 'vitest';
+import { calculatePointerDropTarget, toInsertionTarget, type TargetRowRect } from '../reorderHelper';
+
+describe('PR 6B Pure Reorder Helper & Single Coordinate System', () => {
+  const rows: TargetRowRect[] = [
+    { id: 'item-1', top: 100, bottom: 140, height: 40 }, // Midpoint 120
+    { id: 'item-2', top: 140, bottom: 180, height: 40 }, // Midpoint 160
+    { id: 'item-3', top: 180, bottom: 220, height: 40 }, // Midpoint 200
+    { id: 'item-4', top: 220, bottom: 280, height: 60 }  // Variable height, Midpoint 250
+  ];
+
+  it('calculates before target when pointer clientY is above target row midpoint', () => {
+    // Top of item-2 is 140, midpoint is 160. Pointer at 150 (above midpoint)
+    const res = calculatePointerDropTarget({
+      clientY: 150,
+      rows,
+      movingItemIds: ['item-1']
+    });
+
+    expect(res).toEqual({ kind: 'before', targetItemId: 'item-2' });
+  });
+
+  it('calculates after target when pointer clientY is below target row midpoint', () => {
+    // Midpoint of item-2 is 160. Pointer at 170 (below midpoint)
+    const res = calculatePointerDropTarget({
+      clientY: 170,
+      rows,
+      movingItemIds: ['item-1']
+    });
+
+    expect(res).toEqual({ kind: 'after', targetItemId: 'item-2' });
+  });
+
+  it('calculates before first item when pointer is above top row', () => {
+    const res = calculatePointerDropTarget({
+      clientY: 50,
+      rows,
+      movingItemIds: ['item-3']
+    });
+
+    expect(res).toEqual({ kind: 'before', targetItemId: 'item-1' });
+  });
+
+  it('calculates append target when pointer is below bottom row or in end zone', () => {
+    const res = calculatePointerDropTarget({
+      clientY: 300,
+      rows,
+      movingItemIds: ['item-1'],
+      endZoneTop: 290
+    });
+
+    expect(res).toEqual({ kind: 'append' });
+  });
+
+  it('filters out moving items so destination index is not off-by-one', () => {
+    // Moving item-2, pointer over item-3 (top 180, bottom 220, midpoint 200). Pointer at 190 (above midpoint)
+    const res = calculatePointerDropTarget({
+      clientY: 190,
+      rows,
+      movingItemIds: ['item-2']
+    });
+
+    expect(res).toEqual({ kind: 'before', targetItemId: 'item-3' });
+  });
+
+  it('returns no-op when all rows are in moving items list', () => {
+    const res = calculatePointerDropTarget({
+      clientY: 150,
+      rows,
+      movingItemIds: ['item-1', 'item-2', 'item-3', 'item-4']
+    });
+
+    expect(res).toEqual({ kind: 'no-op', reason: 'all-items-moving' });
+  });
+
+  it('respects variable row heights accurately', () => {
+    // item-4 height is 60 (220 to 280), midpoint is 250.
+    // Pointer at 235 is above midpoint -> before item-4
+    const resBefore = calculatePointerDropTarget({
+      clientY: 235,
+      rows,
+      movingItemIds: ['item-1']
+    });
+    expect(resBefore).toEqual({ kind: 'before', targetItemId: 'item-4' });
+
+    // Pointer at 265 is below midpoint -> after item-4
+    const resAfter = calculatePointerDropTarget({
+      clientY: 265,
+      rows,
+      movingItemIds: ['item-1']
+    });
+    expect(resAfter).toEqual({ kind: 'after', targetItemId: 'item-4' });
+  });
+
+  it('maps SemanticDropTarget cleanly to InsertionTarget', () => {
+    expect(toInsertionTarget({ kind: 'before', targetItemId: 'item-2' })).toEqual({ kind: 'before', targetItemId: 'item-2' });
+    expect(toInsertionTarget({ kind: 'append' })).toEqual({ kind: 'append' });
+    expect(toInsertionTarget({ kind: 'no-op', reason: 'same' })).toBeNull();
+  });
+});
