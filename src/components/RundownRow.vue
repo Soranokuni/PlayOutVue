@@ -17,8 +17,8 @@ const props = defineProps<{
   played: boolean;
   nextUp: boolean;
   nextUpImminent: boolean;
-  dropBefore: boolean;
-  dropAfter: boolean;
+  dropBefore?: boolean;
+  dropAfter?: boolean;
   /** 0-100 gradient progress for the active row. */
   progressPct: number;
   /** 'green' = playing instance, 'red' = current playing index row. */
@@ -41,9 +41,9 @@ const emit = defineEmits<{
   (e: 'drop', ev: DragEvent): void;
   (e: 'play'): void;
   (e: 'delete'): void;
-  (e: 'dragstart', ev: DragEvent): void;
-  (e: 'dragend', ev: DragEvent): void;
+  (e: 'pointerdown-handle', ev: PointerEvent): void;
 }>();
+
 
 
 
@@ -176,10 +176,8 @@ const itemStatusTone = computed(() =>
   >
     <div
       class="rw-handle"
-      draggable="true"
       :title="item.type === 'gap' ? 'Drag to move gap line' : 'Drag to reorder'"
-      @dragstart="emit('dragstart', $event)"
-      @dragend="emit('dragend', $event)"
+      @pointerdown="emit('pointerdown-handle', $event)"
     >⋮⋮</div>
     <div class="rw-num">{{ item.type === 'gap' ? '⏱' : index + 1 }}</div>
     <div class="rw-signals">

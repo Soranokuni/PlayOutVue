@@ -167,3 +167,83 @@ export function toInsertionTarget(target: SemanticDropTarget): InsertionTarget |
   if (target.kind === 'append') return { kind: 'append' };
   return { kind: target.kind, targetItemId: target.targetItemId };
 }
+
+export interface RectLike {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  width: number;
+  height: number;
+}
+
+export interface GeometrySnapshot {
+  rowRects: TargetRowRect[];
+  containerRect: RectLike;
+  endZoneRect?: RectLike;
+  scrollTop: number;
+}
+
+export interface ResolvePointerDropTargetParams {
+  clientY: number;
+  snapshot: GeometrySnapshot | null;
+  movingItemIds: string[];
+  source: 'rundown' | 'library';
+  previousTarget?: ActiveDropTarget;
+}
+
+export function resolvePointerDropTarget(params: ResolvePointerDropTargetParams): ActiveDropTarget {
+  const { clientY, snapshot, movingItemIds, source, previousTarget } = params;
+  if (!snapshot || !snapshot.rowRects || snapshot.rowRects.length === 0) {
+    return { kind: 'append' };
+  }
+
+  const endZoneTop = snapshot.endZoneRect ? snapshot.endZoneRect.top : undefined;
+  const semantic = calculatePointerDropTarget({
+    clientY,
+    rows: snapshot.rowRects,
+    movingItemIds: source === 'library' ? [] : movingItemIds,
+    endZoneTop,
+    previousTarget
+  });
+
+  if (semantic.kind === 'before' || semantic.kind === 'after') {
+    return { kind: semantic.kind, targetItemId: semantic.targetItemId };
+  }
+  if (semantic.kind === 'append') {
+    return { kind: 'append' };
+  }
+  return { kind: 'none' };
+}
+
+export interface IndicatorGeometry {
+  top: number;
+  left: number;
+  width: number;
+  visible: boolean;
+}
+
+export function computeIndicatorGeometry(
+  target: ActiveDropTarget,
+  snapshot: GeometrySnapshot | null
+): IndicatorGeometry | null {
+  if (!snapshot || target.kind === 'none') return null;
+
+  const left = snapshot.containerRect.left + 8;
+  const width = snapshot.containerRect.width - 16;
+
+  if (target.kind === 'append') {
+    const lastRow = snapshot.rowRects.length > 0 ? snapshot.rowRects[snapshot.rowRects.length - 1] : undefined;
+    const top = snapshot.endZoneRect
+      ? snapshot.endZoneRect.top
+      : (lastRow ? lastRow.bottom : snapshot.containerRect.bottom - 40);
+    return { top, left, width, visible: true };
+  }
+
+  const row = snapshot.rowRects.find(r => r.id === target.targetItemId);
+  if (!row) return null;
+
+  const top = target.kind === 'before' ? row.top - 1 : row.bottom - 1;
+  return { top, left, width, visible: true };
+}
+
