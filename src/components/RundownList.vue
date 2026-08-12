@@ -15,7 +15,7 @@ import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
 import { activeScope } from '../composables/useOperatorShortcuts';
-import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, type TargetRowRect, type SemanticDropTarget } from '../lib/reorderHelper';
+import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget } from '../lib/reorderHelper';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -25,8 +25,21 @@ const focusList = () => rundownListRef.value?.focus({ preventScroll: true });
 
 const isDragOver = ref(false);
 const showLiveDialog = ref(false);
-const dropTargetIndex = ref<number | null>(null);
-const dropTargetSide = ref<'before' | 'after'>('before');
+const activeDropTarget = ref<ActiveDropTarget>({ kind: 'none' });
+
+const indicatorTarget = computed(() => {
+  const target = activeDropTarget.value;
+  if (target.kind === 'none') return null;
+  if (target.kind === 'append') {
+    return { index: store.activeItems.length, side: 'after' as const };
+  }
+  const idx = store.activeItems.findIndex(item => item.id === target.targetItemId);
+  if (idx < 0) return null;
+  return {
+    index: target.kind === 'after' ? idx + 1 : idx,
+    side: target.kind
+  };
+});
 let sortableInstance: Sortable | null = null;
 const durationHydrationInFlight = new Set<string>();
 let crawlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -545,31 +558,31 @@ const onDragEnter = (event: DragEvent) => {
 const onDragOver = (event: DragEvent) => {
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  scheduleDropTargetUpdate(event);
 };
 
-const onRowDragOver = (event: DragEvent, index: number) => {
+const onRowDragOver = (event: DragEvent, _index: number) => {
   event.preventDefault();
   event.stopPropagation();
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  const res = resolveDropTarget(event, index);
-  dropTargetIndex.value = res.side === 'after' ? index + 1 : index;
-  dropTargetSide.value = res.side;
+  scheduleDropTargetUpdate(event);
 };
 
-const onRowDrop = async (event: DragEvent, index: number) => {
+const onRowDrop = async (event: DragEvent, _index: number) => {
   event.preventDefault();
   event.stopPropagation();
   isDragOver.value = false;
-  const res = resolveDropTarget(event, index);
-  await completeExternalDrop(res.target);
+  const target = resolveDropTarget(event);
+  await completeExternalDrop(target);
+  clearDropTarget();
 };
 
 const onEndZoneDragOver = (event: DragEvent) => {
   event.preventDefault();
   event.stopPropagation();
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  dropTargetIndex.value = store.activeItems.length;
-  dropTargetSide.value = 'after';
+  cancelIndicatorFrame();
+  activeDropTarget.value = { kind: 'append' };
 };
 
 const onEndZoneDrop = async (event: DragEvent) => {
@@ -577,6 +590,7 @@ const onEndZoneDrop = async (event: DragEvent) => {
   event.stopPropagation();
   isDragOver.value = false;
   await completeExternalDrop({ kind: 'append' });
+  clearDropTarget();
 };
 
 const onDragLeave = (event: DragEvent) => {
@@ -592,8 +606,9 @@ const onDrop = async (event: DragEvent) => {
   event.stopPropagation();
   isDragOver.value = false;
   if (!draggingItem.value) return;
-  const res = resolveDropTarget(event, 0);
-  await completeExternalDrop(res.target);
+  const target = resolveDropTarget(event);
+  await completeExternalDrop(target);
+  clearDropTarget();
 };
 
 
@@ -663,21 +678,73 @@ const rowAtText = (index: number) => {
 };
 const rowPlayProtected = (index: number) => isProtectedPlayingRow(index);
 
-const clearDropTarget = () => {
-  dropTargetIndex.value = null;
-  dropTargetSide.value = 'before';
-};
-
 const onRowSelect = (item: RundownItem, event?: MouseEvent) => {
   store.selectItem(item.id, { multi: event?.ctrlKey || event?.metaKey, range: event?.shiftKey });
   focusList();
 };
 
-
-
 const getTargetRowRects = (): TargetRowRect[] => buildRowRectsFromDOM(rundownListRef.value);
 
-const resolveDropTarget = (event: DragEvent, fallbackIndex?: number): { target: InsertionTarget; side: 'before' | 'after' } => {
+let indicatorFrame: number | null = null;
+let latestPointerEvent: { clientY: number } | null = null;
+
+const cancelIndicatorFrame = () => {
+  if (indicatorFrame !== null) {
+    cancelAnimationFrame(indicatorFrame);
+    indicatorFrame = null;
+  }
+  latestPointerEvent = null;
+};
+
+const clearDropTarget = () => {
+  cancelIndicatorFrame();
+  activeDropTarget.value = { kind: 'none' };
+};
+
+const scheduleDropTargetUpdate = (event: DragEvent) => {
+  latestPointerEvent = { clientY: event.clientY };
+  if (indicatorFrame !== null) return;
+
+  indicatorFrame = requestAnimationFrame(() => {
+    indicatorFrame = null;
+    const pointer = latestPointerEvent;
+    latestPointerEvent = null;
+    if (!pointer) return;
+
+    const isLibrarySource = draggingItem.value?.source === 'library' || !draggingItem.value;
+    const movingIds = isLibrarySource
+      ? []
+      : (store.selectedItemIds.length > 0 ? store.selectedItemIds : (store.selectedItemId ? [store.selectedItemId] : []));
+
+    const endZoneEl = rundownListRef.value?.querySelector('.rundown-end-drop-zone');
+    const endZoneTop = endZoneEl ? endZoneEl.getBoundingClientRect().top : undefined;
+
+    const semantic = calculatePointerDropTarget({
+      clientY: pointer.clientY,
+      rows: getTargetRowRects(),
+      movingItemIds: movingIds,
+      endZoneTop,
+      previousTarget: activeDropTarget.value
+    });
+
+    const nextTarget: ActiveDropTarget = (semantic.kind === 'before' || semantic.kind === 'after')
+      ? { kind: semantic.kind, targetItemId: semantic.targetItemId }
+      : (semantic.kind === 'append' ? { kind: 'append' } : { kind: 'none' });
+
+    if (!sameDropTarget(activeDropTarget.value, nextTarget)) {
+      activeDropTarget.value = nextTarget;
+    }
+  });
+};
+
+const resolveDropTarget = (event?: DragEvent): InsertionTarget => {
+  const target = activeDropTarget.value;
+  if (target.kind === 'append') return { kind: 'append' };
+  if (target.kind === 'before' || target.kind === 'after') {
+    return { kind: target.kind, targetItemId: target.targetItemId };
+  }
+  if (!event) return { kind: 'append' };
+
   const isLibrarySource = draggingItem.value?.source === 'library' || !draggingItem.value;
   const movingIds = isLibrarySource
     ? []
@@ -693,15 +760,7 @@ const resolveDropTarget = (event: DragEvent, fallbackIndex?: number): { target: 
     endZoneTop
   });
 
-  const insertion = toInsertionTarget(semantic);
-  if (!insertion || insertion.kind === 'append') {
-    return { target: { kind: 'append' }, side: 'after' };
-  }
-
-  return {
-    target: insertion,
-    side: insertion.kind === 'after' ? 'after' : 'before'
-  };
+  return toInsertionTarget(semantic) || { kind: 'append' };
 };
 
 const buildDroppedPayload = async () => {
@@ -920,8 +979,8 @@ onUnmounted(() => {
           rowIsPlayed(index),
           isNextUpRow(index),
           isNextUpImminent(index),
-          dropTargetIndex === index && dropTargetSide === 'before',
-          dropTargetIndex === index && dropTargetSide === 'after',
+          indicatorTarget?.index === index && indicatorTarget?.side === 'before',
+          indicatorTarget?.index === index && indicatorTarget?.side === 'after',
           rowProgressPct(item, index),
           rowProgressTone(item, index),
           rowCountdown(item),
@@ -941,8 +1000,8 @@ onUnmounted(() => {
           :played="rowIsPlayed(index)"
           :next-up="isNextUpRow(index)"
           :next-up-imminent="isNextUpImminent(index)"
-          :drop-before="dropTargetIndex === index && dropTargetSide === 'before'"
-          :drop-after="dropTargetIndex === index && dropTargetSide === 'after'"
+          :drop-before="indicatorTarget?.index === index && indicatorTarget?.side === 'before'"
+          :drop-after="indicatorTarget?.index === index && indicatorTarget?.side === 'after'"
           :progress-pct="rowProgressPct(item, index)"
           :progress-tone="rowProgressTone(item, index)"
           :countdown="rowCountdown(item)"
@@ -964,7 +1023,7 @@ onUnmounted(() => {
       <!-- End Drop Zone -->
       <div
         class="rundown-end-drop-zone"
-        :class="{ 'is-active': dropTargetIndex === store.activeItems.length }"
+        :class="{ 'is-active': activeDropTarget.kind === 'append' }"
         data-drop-position="end"
         aria-hidden="true"
         @dragover.prevent="onEndZoneDragOver"
