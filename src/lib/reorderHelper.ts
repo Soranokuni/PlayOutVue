@@ -185,6 +185,7 @@ export interface GeometrySnapshot {
 }
 
 export interface ResolvePointerDropTargetParams {
+  clientX: number;
   clientY: number;
   snapshot: GeometrySnapshot | null;
   movingItemIds: string[];
@@ -193,8 +194,28 @@ export interface ResolvePointerDropTargetParams {
 }
 
 export function resolvePointerDropTarget(params: ResolvePointerDropTargetParams): ActiveDropTarget {
-  const { clientY, snapshot, movingItemIds, source, previousTarget } = params;
-  if (!snapshot || !snapshot.rowRects || snapshot.rowRects.length === 0) {
+  const { clientX, clientY, snapshot, movingItemIds, source, previousTarget } = params;
+  if (!snapshot || !snapshot.containerRect) {
+    return { kind: 'none' };
+  }
+
+  // Validate horizontal surface bounds
+  if (clientX < snapshot.containerRect.left || clientX > snapshot.containerRect.right) {
+    return { kind: 'none' };
+  }
+
+  // Validate vertical surface bounds
+  const maxVerticalBottom = Math.max(
+    snapshot.containerRect.bottom,
+    snapshot.endZoneRect?.bottom ?? 0
+  );
+
+  if (clientY < snapshot.containerRect.top || clientY > maxVerticalBottom) {
+    return { kind: 'none' };
+  }
+
+  // Empty playlist inside valid surface bounds -> append target
+  if (!snapshot.rowRects || snapshot.rowRects.length === 0) {
     return { kind: 'append' };
   }
 

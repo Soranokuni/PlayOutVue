@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { calculatePointerDropTarget, toInsertionTarget, buildRowRectsFromDOM, sameDropTarget, type TargetRowRect } from '../reorderHelper';
+import { calculatePointerDropTarget, resolvePointerDropTarget, toInsertionTarget, buildRowRectsFromDOM, sameDropTarget, type TargetRowRect } from '../reorderHelper';
 
 describe('PR 6B Pure Reorder Helper & Single Coordinate System', () => {
   const rows: TargetRowRect[] = [
@@ -121,6 +121,62 @@ describe('PR 6B Pure Reorder Helper & Single Coordinate System', () => {
     expect(sameDropTarget(t1, t2)).toBe(true);
     expect(sameDropTarget(t1, t3)).toBe(false);
     expect(sameDropTarget(t4, t5)).toBe(true);
+  });
+
+  it('resolvePointerDropTarget returns kind: none when pointer is outside container horizontal bounds', () => {
+    const snapshot = {
+      rowRects: rows,
+      containerRect: { top: 100, bottom: 300, left: 10, right: 300, width: 290, height: 200 },
+      scrollTop: 0
+    };
+
+    // Pointer at clientX = 0 (left of container, e.g. over media library sidebar)
+    const resLeft = resolvePointerDropTarget({
+      clientX: 0,
+      clientY: 150,
+      snapshot,
+      movingItemIds: [],
+      source: 'library'
+    });
+    expect(resLeft).toEqual({ kind: 'none' });
+
+    // Pointer at clientX = 400 (right of container)
+    const resRight = resolvePointerDropTarget({
+      clientX: 400,
+      clientY: 150,
+      snapshot,
+      movingItemIds: [],
+      source: 'library'
+    });
+    expect(resRight).toEqual({ kind: 'none' });
+  });
+
+  it('resolvePointerDropTarget returns kind: none when pointer is outside vertical container bounds', () => {
+    const snapshot = {
+      rowRects: rows,
+      containerRect: { top: 100, bottom: 300, left: 10, right: 300, width: 290, height: 200 },
+      scrollTop: 0
+    };
+
+    // Pointer above top (clientY = 50)
+    const resAbove = resolvePointerDropTarget({
+      clientX: 100,
+      clientY: 50,
+      snapshot,
+      movingItemIds: [],
+      source: 'library'
+    });
+    expect(resAbove).toEqual({ kind: 'none' });
+
+    // Pointer below bottom (clientY = 400)
+    const resBelow = resolvePointerDropTarget({
+      clientX: 100,
+      clientY: 400,
+      snapshot,
+      movingItemIds: [],
+      source: 'library'
+    });
+    expect(resBelow).toEqual({ kind: 'none' });
   });
 
   it('applies midpoint hysteresis deadband to prevent flickering near midpoint boundary', () => {

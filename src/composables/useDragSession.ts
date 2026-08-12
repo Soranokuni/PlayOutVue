@@ -67,6 +67,7 @@ function scheduleTargetResolution() {
     }
 
     const nextTarget = resolvePointerDropTarget({
+      clientX: point.x,
       clientY: point.y,
       snapshot: session.snapshot,
       movingItemIds: session.movingItemIds,
@@ -117,12 +118,29 @@ async function handleWindowPointerUp(event: PointerEvent) {
   if (session.pointerId !== event.pointerId) return;
 
   if (session.phase === 'dragging' && registeredSurface) {
+    session.currentPoint = { x: event.clientX, y: event.clientY };
+    const snapshot = registeredSurface.getSnapshot();
+    session.snapshot = snapshot;
+
+    const finalTarget = resolvePointerDropTarget({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      snapshot,
+      movingItemIds: session.movingItemIds,
+      source: session.source,
+      previousTarget: session.dropTarget
+    });
+
+    session.dropTarget = finalTarget;
     session.phase = 'committing';
     activeDragSession.value = { ...session };
-    try {
-      await registeredSurface.commit(session.dropTarget, session);
-    } catch (err) {
-      console.error('[DragSession] Commit failed:', err);
+
+    if (finalTarget.kind !== 'none') {
+      try {
+        await registeredSurface.commit(finalTarget, session);
+      } catch (err) {
+        console.error('[DragSession] Commit failed:', err);
+      }
     }
   }
 
