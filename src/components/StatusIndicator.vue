@@ -20,12 +20,14 @@ const props = withDefaults(defineProps<{
   label?: string;
   sublabel?: string;
   pulse?: boolean;
+  tooltip?: string;
 }>(), {
   tone: 'idle',
   variant: 'pill',
   label: '',
   sublabel: '',
-  pulse: false
+  pulse: false,
+  tooltip: ''
 });
 
 const toneClass = computed(() => `tone-${props.tone}`);
@@ -44,6 +46,8 @@ const defaultLabel = computed(() => {
   };
   return map[props.tone] || 'Unknown';
 });
+
+const tooltipText = computed(() => props.tooltip || defaultLabel.value);
 </script>
 
 <template>
@@ -52,10 +56,11 @@ const defaultLabel = computed(() => {
     :class="[variant, toneClass, { pulse: pulse || tone === 'processing' || tone === 'on-air' }]"
     role="status"
     :aria-label="defaultLabel"
+    :title="tooltipText"
   >
     <!-- Dot mode -->
     <template v-if="variant === 'dot'">
-      <span class="status-dot" :title="defaultLabel"></span>
+      <span class="status-dot" :title="tooltipText"></span>
       <span v-if="label" class="status-label">{{ label }}</span>
     </template>
 

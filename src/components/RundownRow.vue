@@ -159,6 +159,13 @@ const itemStatusTone = computed(() =>
     atKind: props.atKind
   })
 );
+
+const itemTooltip = computed(() => {
+  if (props.item.warnings && props.item.warnings.length > 0) {
+    return `Warning:\n• ${props.item.warnings.join('\n• ')}`;
+  }
+  return undefined;
+});
 </script>
 
 <template>
@@ -181,7 +188,7 @@ const itemStatusTone = computed(() =>
     >⋮⋮</div>
     <div class="rw-num">{{ item.type === 'gap' ? '⏱' : index + 1 }}</div>
     <div class="rw-signals">
-      <StatusIndicator :tone="itemStatusTone" variant="dot" />
+      <StatusIndicator :tone="itemStatusTone" variant="dot" :tooltip="itemTooltip" />
       <span v-for="signal in rowSignals(item)" :key="signal.key" class="rw-signal" :class="signal.className" :title="signal.title"></span>
     </div>
     <div class="rw-type-icon" :style="{ color: typeColor(item.type) }">{{ typeIcon(item.type) }}</div>

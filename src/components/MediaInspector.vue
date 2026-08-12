@@ -2,13 +2,27 @@
 import { computed, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useRundownStore, type ComplianceRating } from '../stores/rundown';
+import { useMediaLibraryStore } from '../stores/mediaLibrary';
 import ComplianceModule from './ComplianceModule.vue';
 import { getActivePlayoutService } from '../services/playout';
 
 const store = useRundownStore();
+const mediaLibrary = useMediaLibraryStore();
 const ingestorFetchInFlight = ref(false);
 const pushTrimInFlight = ref(false);
 const pushRatingInFlight = ref(false);
+
+const activeAsset = computed(() => mediaLibrary.selectedAsset);
+
+const warningsList = computed(() => {
+    if (store.selectedItem?.warnings && store.selectedItem.warnings.length > 0) {
+        return store.selectedItem.warnings;
+    }
+    if (!store.selectedItem && activeAsset.value?.warnings && activeAsset.value.warnings.length > 0) {
+        return activeAsset.value.warnings;
+    }
+    return [];
+});
 
 const transcodeInfo = computed(() => {
     const item = store.selectedItem;
@@ -56,10 +70,6 @@ const pushTrimToIngestor = async () => {
     pushTrimInFlight.value = true;
     try {
         const trimIn = item.trim_in_ms !== undefined ? item.trim_in_ms : item.inPoint;
-        // outPoint is the ABSOLUTE trim-out position on the source timeline
-        // (same semantics as trim_out_ms / the store's trim panel) — the old
-        // `duration_ms - outPoint` treated it as a relative length, pushing
-        // wrong trim points to the ingestor.
         const trimOut = item.trim_out_ms !== undefined ? item.trim_out_ms : (item.outPoint || 0);
         await invoke('update_ingestor_trim', {
             uuid: item.playoutvueId,
@@ -161,6 +171,19 @@ const getDisplayName = (item: any) => {
          Display: {{ store.selectedItem.displayPath }}
        </p>
 
+       <!-- Validation Warnings Section -->
+       <div v-if="warningsList.length > 0" class="inspector-group warnings-card" style="margin-bottom: 1rem; border-color: rgba(249, 115, 22, 0.4); background: rgba(249, 115, 22, 0.08);">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.5rem;">
+            <span style="font-size: 1rem;">⚠️</span>
+            <h4 class="text-warning" style="margin: 0; color: #fdba74;">Validation Warnings ({{ warningsList.length }})</h4>
+          </div>
+          <ul style="margin: 0; padding-left: 1.2rem; color: #fdba74; font-size: 0.8rem; line-height: 1.4;">
+            <li v-for="(warn, idx) in warningsList" :key="idx" style="margin-bottom: 4px; word-break: break-all;">
+              {{ warn }}
+            </li>
+          </ul>
+       </div>
+
         <div v-if="hasIngestorUuid" class="inspector-group" style="margin-bottom: 1rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
               <h4 class="text-accent" style="margin:0;">Ingestor</h4>
@@ -251,8 +274,47 @@ const getDisplayName = (item: any) => {
        </div>
 
     </div>
+    <div v-else-if="activeAsset" style="padding: 1rem; flex: 1; overflow-y: auto;">
+       <h3 class="text-primary">{{ activeAsset.display_name }}</h3>
+       <p class="text-secondary text-sm" style="margin-bottom: 0.5rem; word-break: break-all;">{{ activeAsset.current_path }}</p>
+
+       <!-- Validation Warnings Section -->
+       <div v-if="warningsList.length > 0" class="inspector-group warnings-card" style="margin-bottom: 1rem; border-color: rgba(249, 115, 22, 0.4); background: rgba(249, 115, 22, 0.08);">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.5rem;">
+            <span style="font-size: 1rem;">⚠️</span>
+            <h4 class="text-warning" style="margin: 0; color: #fdba74;">Validation Warnings ({{ warningsList.length }})</h4>
+          </div>
+          <ul style="margin: 0; padding-left: 1.2rem; color: #fdba74; font-size: 0.8rem; line-height: 1.4;">
+            <li v-for="(warn, idx) in warningsList" :key="idx" style="margin-bottom: 4px; word-break: break-all;">
+              {{ warn }}
+            </li>
+          </ul>
+       </div>
+
+       <div class="inspector-group">
+           <h4 class="text-accent">Library Asset Metadata</h4>
+           <div class="transcode-meta">
+               <div class="meta-row">
+                   <span class="meta-label">UUID</span>
+                   <span class="meta-value mono">{{ activeAsset.uuid }}</span>
+               </div>
+               <div class="meta-row">
+                   <span class="meta-label">Status</span>
+                   <span class="meta-value mono" :style="{ color: statusColor(activeAsset.status) }">{{ statusLabel(activeAsset.status) }}</span>
+               </div>
+               <div class="meta-row">
+                   <span class="meta-label">Duration</span>
+                   <span class="meta-value mono">{{ (activeAsset.duration_ms / 1000).toFixed(2) }}s ({{ activeAsset.duration_ms }} ms)</span>
+               </div>
+               <div v-if="activeAsset.trim_in_ms !== undefined || activeAsset.trim_out_ms !== undefined" class="meta-row">
+                   <span class="meta-label">Trim In / Out</span>
+                   <span class="meta-value mono">{{ activeAsset.trim_in_ms || 0 }} ms / {{ activeAsset.trim_out_ms || activeAsset.duration_ms }} ms</span>
+               </div>
+           </div>
+       </div>
+    </div>
     <div v-else class="empty-state">
-         <p class="text-secondary text-sm">Select an item in the rundown.</p>
+         <p class="text-secondary text-sm">Select an item in the rundown or library.</p>
     </div>
   </div>
 </template>
