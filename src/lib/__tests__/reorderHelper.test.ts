@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { calculatePointerDropTarget, resolvePointerDropTarget, toInsertionTarget, buildRowRectsFromDOM, sameDropTarget, type TargetRowRect } from '../reorderHelper';
+import { calculatePointerDropTarget, resolvePointerDropTarget, computeIndicatorGeometry, toInsertionTarget, buildRowRectsFromDOM, sameDropTarget, type TargetRowRect } from '../reorderHelper';
 
 describe('PR 6B Pure Reorder Helper & Single Coordinate System', () => {
   const rows: TargetRowRect[] = [
@@ -201,5 +201,25 @@ describe('PR 6B Pure Reorder Helper & Single Coordinate System', () => {
       hysteresisPx: 3
     });
     expect(resSwitch).toEqual({ kind: 'after', targetItemId: 'item-2' });
+  });
+
+  it('computes indicator geometry with label and isAppend fields', () => {
+    const snapshot = {
+      rowRects: [
+        { id: 'row-1', top: 100, bottom: 150, height: 50 },
+        { id: 'row-2', top: 150, bottom: 200, height: 50 }
+      ],
+      containerRect: { top: 100, bottom: 300, left: 10, right: 300, width: 290, height: 200 },
+      scrollTop: 0
+    };
+
+    const beforeGeom = computeIndicatorGeometry({ kind: 'before', targetItemId: 'row-1' }, snapshot);
+    expect(beforeGeom).toEqual({ top: 99, left: 18, width: 274, visible: true, label: 'Insert before', isAppend: false });
+
+    const afterGeom = computeIndicatorGeometry({ kind: 'after', targetItemId: 'row-1' }, snapshot);
+    expect(afterGeom).toEqual({ top: 149, left: 18, width: 274, visible: true, label: 'Insert after', isAppend: false });
+
+    const appendGeom = computeIndicatorGeometry({ kind: 'append' }, snapshot);
+    expect(appendGeom).toEqual({ top: 200, left: 18, width: 274, visible: true, label: 'Append to end', isAppend: true });
   });
 });

@@ -242,6 +242,8 @@ export interface IndicatorGeometry {
   left: number;
   width: number;
   visible: boolean;
+  label: string;
+  isAppend: boolean;
 }
 
 export function computeIndicatorGeometry(
@@ -258,13 +260,14 @@ export function computeIndicatorGeometry(
     const top = snapshot.endZoneRect
       ? snapshot.endZoneRect.top
       : (lastRow ? lastRow.bottom : snapshot.containerRect.bottom - 40);
-    return { top, left, width, visible: true };
+    return { top, left, width, visible: true, label: 'Append to end', isAppend: true };
   }
 
   const row = snapshot.rowRects.find(r => r.id === target.targetItemId);
   if (!row) return null;
 
   const top = target.kind === 'before' ? row.top - 1 : row.bottom - 1;
-  return { top, left, width, visible: true };
+  const label = target.kind === 'before' ? 'Insert before' : 'Insert after';
+  return { top, left, width, visible: true, label, isAppend: false };
 }
 
