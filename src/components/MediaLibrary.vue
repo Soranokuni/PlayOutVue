@@ -9,7 +9,7 @@ import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDef
 import { useIngestorStatusStore } from '../stores/ingestorStatus';
 import { useMediaLibraryStore, type LibraryAsset, type TreeNode } from '../stores/mediaLibrary';
 import { draggingItem, activeDragSession } from '../composables/useDragState';
-import { beginLibraryDrag } from '../composables/useDragSession';
+import { beginLibraryDrag, didCompletePointerDrag } from '../composables/useDragSession';
 import { activeScope, activeLibraryContext } from '../composables/useOperatorShortcuts';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
@@ -498,6 +498,11 @@ function isAssetPrimarySelected(uuid: string): boolean {
 }
 
 function onAssetClick(asset: LibraryAsset, event?: MouseEvent) {
+    if (didCompletePointerDrag()) {
+        event?.preventDefault();
+        event?.stopPropagation();
+        return;
+    }
     mediaLibrary.selectNode(`asset:${asset.uuid}`, {
         multi: event?.ctrlKey || event?.metaKey,
         range: event?.shiftKey,

@@ -6,6 +6,7 @@ import {
   beginRundownDrag,
   beginLibraryDrag,
   cancelDrag,
+  didCompletePointerDrag,
   type DropSurface
 } from '../useDragSession';
 import type { GeometrySnapshot, ActiveDropTarget } from '../../lib/reorderHelper';
@@ -143,6 +144,40 @@ describe('useDragSession singleton controller', () => {
     window.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, clientY: 120, pointerId: 1 }));
 
     expect(mockSurface.commit).not.toHaveBeenCalled();
+    expect(activeDragSession.value).toBeNull();
+  });
+
+  it('didCompletePointerDrag suppresses exactly one click event following a completed drag', () => {
+    registerRundownDropSurface(mockSurface);
+    const downEvent = new PointerEvent('pointerdown', { clientX: 100, clientY: 120, pointerId: 1 });
+    beginLibraryDrag({
+      pointerId: 1,
+      event: downEvent,
+      payload: { filename: 'test.mp4', path: '/test.mp4', shortPath: '', type: 'video', duration: 10, seek: 0, length: 10 }
+    });
+
+    // Before threshold: didCompletePointerDrag is false
+    expect(didCompletePointerDrag()).toBe(false);
+
+    // Move >= 5px -> enter dragging
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 126, pointerId: 1 }));
+
+    // After threshold: didCompletePointerDrag is true once, then resets to false
+    expect(didCompletePointerDrag()).toBe(true);
+    expect(didCompletePointerDrag()).toBe(false);
+  });
+
+  it('cancels drag session on unexpected lostpointercapture', () => {
+    registerRundownDropSurface(mockSurface);
+    const downEvent = new PointerEvent('pointerdown', { clientX: 100, clientY: 120, pointerId: 1 });
+    beginRundownDrag({ pointerId: 1, event: downEvent, movingItemIds: ['row-1'] });
+
+    // Move >= 5px
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 126, pointerId: 1 }));
+    expect(activeDragSession.value?.phase).toBe('dragging');
+
+    // Unexpected lostpointercapture (expectedCaptureRelease is false)
+    window.dispatchEvent(new PointerEvent('lostpointercapture', { pointerId: 1 }));
     expect(activeDragSession.value).toBeNull();
   });
 });

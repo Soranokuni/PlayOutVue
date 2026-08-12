@@ -24,6 +24,8 @@ export interface DragSession {
   snapshot: GeometrySnapshot | null;
   dropTarget: ActiveDropTarget;
   layoutVersion: number;
+  targetElement?: HTMLElement | null;
+  expectedCaptureRelease?: boolean;
 }
 
 export const activeDragSession = shallowRef<DragSession | null>(null);
@@ -32,6 +34,13 @@ export const indicatorGeometry = ref<IndicatorGeometry | null>(null);
 let registeredSurface: DropSurface | null = null;
 let indicatorFrame: number | null = null;
 let latestPointerPoint: { x: number; y: number } | null = null;
+let suppressNextClick = false;
+
+export function didCompletePointerDrag(): boolean {
+  const result = suppressNextClick;
+  suppressNextClick = false;
+  return result;
+}
 
 export function registerRundownDropSurface(surface: DropSurface): () => void {
   registeredSurface = surface;
@@ -96,6 +105,14 @@ function handleWindowPointerMove(event: PointerEvent) {
     const dist = Math.hypot(session.currentPoint.x - session.originPoint.x, session.currentPoint.y - session.originPoint.y);
     if (dist >= 5) {
       session.phase = 'dragging';
+      suppressNextClick = true;
+      if (session.targetElement && typeof session.targetElement.setPointerCapture === 'function') {
+        try {
+          session.targetElement.setPointerCapture(session.pointerId);
+        } catch {
+          // Ignore pointer capture failures on detached elements
+        }
+      }
       if (registeredSurface) {
         session.snapshot = registeredSurface.getSnapshot();
       }
@@ -117,6 +134,8 @@ async function handleWindowPointerUp(event: PointerEvent) {
   if (!session) return;
   if (session.pointerId !== event.pointerId) return;
 
+  let didCommit = false;
+
   if (session.phase === 'dragging' && registeredSurface) {
     session.currentPoint = { x: event.clientX, y: event.clientY };
     const snapshot = registeredSurface.getSnapshot();
@@ -136,6 +155,7 @@ async function handleWindowPointerUp(event: PointerEvent) {
     activeDragSession.value = { ...session };
 
     if (finalTarget.kind !== 'none') {
+      didCommit = true;
       try {
         await registeredSurface.commit(finalTarget, session);
       } catch (err) {
@@ -145,11 +165,23 @@ async function handleWindowPointerUp(event: PointerEvent) {
   }
 
   cancelDrag();
+  if (didCommit) {
+    suppressNextClick = true;
+  }
 }
 
 function handleWindowPointerCancel(event: PointerEvent) {
   const session = activeDragSession.value;
   if (session && session.pointerId === event.pointerId) {
+    cancelDrag();
+  }
+}
+
+function handleLostPointerCapture(event: PointerEvent) {
+  const session = activeDragSession.value;
+  if (!session || session.pointerId !== event.pointerId) return;
+  if (session.expectedCaptureRelease) return;
+  if (session.phase === 'pressing' || session.phase === 'dragging') {
     cancelDrag();
   }
 }
@@ -171,6 +203,7 @@ function removeWindowListeners() {
   window.removeEventListener('pointermove', handleWindowPointerMove);
   window.removeEventListener('pointerup', handleWindowPointerUp);
   window.removeEventListener('pointercancel', handleWindowPointerCancel);
+  window.removeEventListener('lostpointercapture', handleLostPointerCapture);
   window.removeEventListener('blur', handleWindowBlur);
   window.removeEventListener('keydown', handleWindowKeyDown);
 }
@@ -181,8 +214,15 @@ function attachWindowListeners() {
   window.addEventListener('pointermove', handleWindowPointerMove);
   window.addEventListener('pointerup', handleWindowPointerUp);
   window.addEventListener('pointercancel', handleWindowPointerCancel);
+  window.addEventListener('lostpointercapture', handleLostPointerCapture);
   window.addEventListener('blur', handleWindowBlur);
   window.addEventListener('keydown', handleWindowKeyDown);
+}
+
+function resolveTargetElement(event: PointerEvent): HTMLElement | null {
+  if (event.currentTarget instanceof HTMLElement) return event.currentTarget;
+  if (event.target instanceof HTMLElement) return event.target;
+  return null;
 }
 
 export function beginRundownDrag(params: {
@@ -190,9 +230,13 @@ export function beginRundownDrag(params: {
   event: PointerEvent;
   movingItemIds: string[];
 }): void {
+  if (params.event.button !== 0) return;
+
   if (activeDragSession.value) {
     cancelDrag();
   }
+
+  const targetElement = resolveTargetElement(params.event);
 
   const session: DragSession = {
     pointerId: params.pointerId,
@@ -203,7 +247,9 @@ export function beginRundownDrag(params: {
     currentPoint: { x: params.event.clientX, y: params.event.clientY },
     snapshot: null,
     dropTarget: { kind: 'none' },
-    layoutVersion: 0
+    layoutVersion: 0,
+    targetElement,
+    expectedCaptureRelease: false
   };
 
   activeDragSession.value = session;
@@ -215,9 +261,13 @@ export function beginLibraryDrag(params: {
   event: PointerEvent;
   payload: DragPayload;
 }): void {
+  if (params.event.button !== 0) return;
+
   if (activeDragSession.value) {
     cancelDrag();
   }
+
+  const targetElement = resolveTargetElement(params.event);
 
   const session: DragSession = {
     pointerId: params.pointerId,
@@ -229,7 +279,9 @@ export function beginLibraryDrag(params: {
     currentPoint: { x: params.event.clientX, y: params.event.clientY },
     snapshot: null,
     dropTarget: { kind: 'none' },
-    layoutVersion: 0
+    layoutVersion: 0,
+    targetElement,
+    expectedCaptureRelease: false
   };
 
   activeDragSession.value = session;
@@ -254,6 +306,25 @@ export function cancelDrag(): void {
     indicatorFrame = null;
   }
   latestPointerPoint = null;
+
+  const session = activeDragSession.value;
+  if (session && session.targetElement) {
+    session.expectedCaptureRelease = true;
+    if (typeof session.targetElement.releasePointerCapture === 'function') {
+      try {
+        if (typeof session.targetElement.hasPointerCapture === 'function') {
+          if (session.targetElement.hasPointerCapture(session.pointerId)) {
+            session.targetElement.releasePointerCapture(session.pointerId);
+          }
+        } else {
+          session.targetElement.releasePointerCapture(session.pointerId);
+        }
+      } catch {
+        // Ignore release errors
+      }
+    }
+  }
+
   removeWindowListeners();
 
   if (activeDragSession.value) {
@@ -262,4 +333,5 @@ export function cancelDrag(): void {
   indicatorGeometry.value = null;
   registeredSurface?.clearIndicator();
   activeDragSession.value = null;
+  suppressNextClick = false;
 }
