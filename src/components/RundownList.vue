@@ -5,7 +5,7 @@ import { ask } from '@tauri-apps/plugin-dialog';
 import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist, type InsertionTarget } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
 import { draggingItem } from '../composables/useDragState';
-import { registerRundownDropSurface, beginRundownDrag, indicatorGeometry, refreshGeometrySnapshot, type DropSurface, type DragSession } from '../composables/useDragSession';
+import { registerRundownDropSurface, beginRundownDrag, indicatorGeometry, activeDragSession, refreshGeometrySnapshot, type DropSurface, type DragSession } from '../composables/useDragSession';
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
@@ -632,6 +632,45 @@ const indicatorStyle = computed(() => {
   };
 });
 
+const indicatorLabel = computed(() => indicatorGeometry.value?.label || '');
+const indicatorIsAppend = computed(() => indicatorGeometry.value?.isAppend || false);
+
+let activeResizeObserver: ResizeObserver | null = null;
+
+function detachDragObservers() {
+  if (rundownListRef.value) {
+    rundownListRef.value.removeEventListener('scroll', refreshGeometrySnapshot);
+  }
+  if (activeResizeObserver) {
+    activeResizeObserver.disconnect();
+    activeResizeObserver = null;
+  }
+}
+
+function attachDragObservers() {
+  detachDragObservers();
+  if (rundownListRef.value) {
+    rundownListRef.value.addEventListener('scroll', refreshGeometrySnapshot, { passive: true });
+    if (typeof ResizeObserver !== 'undefined') {
+      activeResizeObserver = new ResizeObserver(() => {
+        refreshGeometrySnapshot();
+      });
+      activeResizeObserver.observe(rundownListRef.value);
+    }
+  }
+}
+
+watch(
+  () => activeDragSession.value?.phase,
+  (phase) => {
+    if (phase === 'dragging') {
+      attachDragObservers();
+    } else {
+      detachDragObservers();
+    }
+  }
+);
+
 const getDisplayName = (item: RundownItem) => {
   if (item.display_name) return item.display_name;
   if (item.current_path) {
@@ -776,6 +815,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  detachDragObservers();
   if (unregisterSurface) {
     unregisterSurface();
     unregisterSurface = null;
@@ -945,6 +985,7 @@ onUnmounted(() => {
       <!-- End Drop Zone -->
       <div
         class="rundown-end-drop-zone"
+        :class="{ 'is-active': activeDragSession?.dropTarget.kind === 'append' }"
         data-drop-position="end"
         aria-hidden="true"
       >
@@ -962,11 +1003,13 @@ onUnmounted(() => {
       <div
         v-if="indicatorStyle"
         class="rw-fixed-drop-indicator"
+        :class="{ 'is-append': indicatorIsAppend }"
         :style="indicatorStyle"
         aria-hidden="true"
       >
         <div class="rw-indicator-line"></div>
         <div class="rw-indicator-dot"></div>
+        <span class="rw-indicator-badge">{{ indicatorLabel }}</span>
       </div>
     </Teleport>
 
@@ -1225,8 +1268,10 @@ onUnmounted(() => {
 .rw-fixed-drop-indicator {
   position: fixed;
   pointer-events: none;
+  user-select: none;
   z-index: 9999;
   height: 0;
+  transition: none;
 }
 .rw-indicator-line {
   position: absolute;
@@ -1246,5 +1291,23 @@ onUnmounted(() => {
   border-radius: 50%;
   background: rgba(51, 190, 204, 1);
   box-shadow: 0 0 6px rgba(51, 190, 204, 0.8);
+}
+.rw-indicator-badge {
+  position: absolute;
+  top: -10px;
+  right: 0;
+  background: #33becc;
+  color: #0b0f19;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  user-select: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+.rw-fixed-drop-indicator.is-append .rw-indicator-badge {
+  background: #00e5ff;
 }
 </style>
