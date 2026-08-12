@@ -265,5 +265,18 @@ describe('Deterministic Drag & Drop & Move Invariants', () => {
     expect(content).not.toContain("import Sortable from 'sortablejs'");
     expect(content).not.toContain("Sortable.create");
   });
+
+  it('internal HTML5 drag handlers are absent from RundownList.vue reorder path', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const rundownListPath = path.resolve(__dirname, '../RundownList.vue');
+    const content = fs.readFileSync(rundownListPath, 'utf-8');
+
+    expect(content).not.toContain('onRowDragStart');
+    expect(content).not.toContain('onRowDragEnd');
+    expect(content).not.toContain('onRowDragOver');
+    expect(content).not.toContain('onRowDrop');
+  });
 });
+
 

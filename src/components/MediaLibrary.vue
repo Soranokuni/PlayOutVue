@@ -9,6 +9,7 @@ import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDef
 import { useIngestorStatusStore } from '../stores/ingestorStatus';
 import { useMediaLibraryStore, type LibraryAsset, type TreeNode } from '../stores/mediaLibrary';
 import { draggingItem, activeDragSession } from '../composables/useDragState';
+import { beginLibraryDrag } from '../composables/useDragSession';
 import { activeScope, activeLibraryContext } from '../composables/useOperatorShortcuts';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
@@ -537,6 +538,42 @@ watch(
 
 function onAssetDoubleClick(asset: LibraryAsset) {
     store.addItem(makeRundownDraftFromAsset(asset));
+}
+
+function onAssetPointerDown(event: PointerEvent, asset: LibraryAsset) {
+    if (event.button !== 0) return;
+    mediaLibrary.selectedNodeId = `asset:${asset.uuid}`;
+    const meta = cachedRatingMeta(asset);
+    const payload = {
+        source: 'library' as const,
+        playoutvueId: asset.uuid.startsWith('local:') ? undefined : asset.uuid,
+        filename: asset.display_name,
+        path: asset.current_path,
+        shortPath: '',
+        type: 'video' as const,
+        libraryIndicator: mediaDefaults.getIndicator(asset.uuid, asset.current_path),
+        inPoint: asset.trim_in_ms,
+        outPoint: asset.duration_ms > 0 ? asset.duration_ms - (asset.trim_out_ms || 0) : 0,
+        duration: assetDurationSeconds(asset),
+        plannedDuration: effectiveDurationSeconds(asset),
+        seek: 0,
+        length: 0,
+        complianceRating: meta.ageRating ||
+            mediaDefaults.getCompliance(asset.uuid, asset.current_path),
+        tp_flag: meta.tpFlag,
+        content_type: meta.contentType,
+        display_name: asset.display_name,
+        virtual_folder: asset.virtual_folder,
+        current_path: asset.current_path,
+        duration_ms: asset.duration_ms,
+        trim_in_ms: asset.trim_in_ms,
+        trim_out_ms: asset.trim_out_ms,
+    };
+    beginLibraryDrag({
+        pointerId: event.pointerId,
+        event,
+        payload
+    });
 }
 
 function onAssetDragStart(event: DragEvent, asset: LibraryAsset) {
@@ -1461,6 +1498,7 @@ const menuItems = computed<MenuItem[]>(() => {
               @click="onAssetClick(asset, $event)"
               @dblclick="onAssetDoubleClick(asset)"
               @contextmenu.prevent="onAssetContextMenu($event, asset)"
+              @pointerdown="onAssetPointerDown($event, asset)"
               @dragstart="onAssetDragStart($event, asset)"
               @dragend="onAssetDragEnd"
             >

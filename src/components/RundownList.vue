@@ -4,7 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist, type InsertionTarget } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
-import { draggingItem, activeDragSession, type DragSession } from '../composables/useDragState';
+import { draggingItem } from '../composables/useDragState';
+import { registerRundownDropSurface, beginRundownDrag, indicatorGeometry, refreshGeometrySnapshot, type DropSurface, type DragSession } from '../composables/useDragSession';
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
@@ -14,7 +15,7 @@ import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
 import { activeScope } from '../composables/useOperatorShortcuts';
-import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget } from '../lib/reorderHelper';
+import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget, type GeometrySnapshot } from '../lib/reorderHelper';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -621,44 +622,15 @@ const onRowSelect = (item: RundownItem, event?: MouseEvent) => {
   focusList();
 };
 
-const refreshDragSessionGeometry = () => {
-  if (rundownListRef.value && activeDragSession.value) {
-    activeDragSession.value.rowRects = buildRowRectsFromDOM(rundownListRef.value);
-    activeDragSession.value.scrollTop = rundownListRef.value.scrollTop;
-  }
-};
-
-const handleContainerScroll = () => {
-  if (activeDragSession.value) {
-    refreshDragSessionGeometry();
-  }
-};
-
-const startDragSessionListeners = () => {
-  if (rundownListRef.value) {
-    if (!scrollListenerActive) {
-      rundownListRef.value.addEventListener('scroll', handleContainerScroll, { passive: true });
-      scrollListenerActive = true;
-    }
-    if (!resizeObserver && typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(() => {
-        refreshDragSessionGeometry();
-      });
-      resizeObserver.observe(rundownListRef.value);
-    }
-  }
-};
-
-const stopDragSessionListeners = () => {
-  if (rundownListRef.value && scrollListenerActive) {
-    rundownListRef.value.removeEventListener('scroll', handleContainerScroll);
-    scrollListenerActive = false;
-  }
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-    resizeObserver = null;
-  }
-};
+const indicatorStyle = computed(() => {
+  const geom = indicatorGeometry.value;
+  if (!geom || !geom.visible) return null;
+  return {
+    top: `${geom.top}px`,
+    left: `${geom.left}px`,
+    width: `${geom.width}px`
+  };
+});
 
 const getDisplayName = (item: RundownItem) => {
   if (item.display_name) return item.display_name;
@@ -674,28 +646,8 @@ const getDisplayName = (item: RundownItem) => {
   return 'Untitled Asset';
 };
 
-const getTargetRowRects = (): TargetRowRect[] => buildRowRectsFromDOM(rundownListRef.value);
-
-let indicatorFrame: number | null = null;
-let latestPointerEvent: { clientY: number } | null = null;
-
-const cancelIndicatorFrame = () => {
-  if (indicatorFrame !== null) {
-    cancelAnimationFrame(indicatorFrame);
-    indicatorFrame = null;
-  }
-  latestPointerEvent = null;
-};
-
-const clearDropTarget = () => {
-  cancelIndicatorFrame();
-  stopDragSessionListeners();
-  activeDropTarget.value = { kind: 'none' };
-  activeDragSession.value = null;
-  draggingItem.value = null;
-};
-
-const onRowDragStart = (event: DragEvent, item: RundownItem) => {
+const onRowHandlePointerDown = (event: PointerEvent, item: RundownItem) => {
+  if (event.button !== 0) return;
   const selected = store.selectedItemIds.length > 0
     ? store.selectedItemIds
     : (store.selectedItemId ? [store.selectedItemId] : []);
@@ -704,154 +656,11 @@ const onRowDragStart = (event: DragEvent, item: RundownItem) => {
     ? store.activeItems.filter(i => selected.includes(i.id)).map(i => i.id)
     : [item.id];
 
-  const rowRects = buildRowRectsFromDOM(rundownListRef.value);
-  const scrollTop = rundownListRef.value?.scrollTop || 0;
-
-  const session: DragSession = {
-    source: 'rundown',
-    movingItemIds,
-    rowRects,
-    scrollTop
-  };
-
-  activeDragSession.value = session;
-  draggingItem.value = {
-    source: 'rundown',
-    filename: getDisplayName(item),
-    path: item.path || '',
-    shortPath: '',
-    type: item.type as any,
-    duration: item.duration || 0,
-    seek: 0,
-    length: 0
-  };
-
-  startDragSessionListeners();
-
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', item.id);
-  }
-};
-
-const onRowDragEnd = (_event: DragEvent) => {
-  clearDropTarget();
-};
-
-const onDragEnter = (event: DragEvent) => {
-  event.preventDefault();
-  isDragOver.value = true;
-};
-
-const scheduleDropTargetUpdate = (event: DragEvent) => {
-  latestPointerEvent = { clientY: event.clientY };
-  if (indicatorFrame !== null) return;
-
-  indicatorFrame = requestAnimationFrame(() => {
-    indicatorFrame = null;
-    const pointer = latestPointerEvent;
-    latestPointerEvent = null;
-    if (!pointer) return;
-
-    const isLibrarySource = activeDragSession.value?.source === 'library' ||
-      draggingItem.value?.source === 'library' ||
-      (!activeDragSession.value && !draggingItem.value);
-
-    const movingIds = isLibrarySource
-      ? []
-      : (activeDragSession.value?.movingItemIds ||
-          (store.selectedItemIds.length > 0
-            ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
-            : (store.selectedItemId ? [store.selectedItemId] : [])));
-
-    const endZoneEl = rundownListRef.value?.querySelector('.rundown-end-drop-zone');
-    const endZoneTop = endZoneEl ? endZoneEl.getBoundingClientRect().top : undefined;
-
-    const rows = (activeDragSession.value?.rowRects && activeDragSession.value.rowRects.length > 0)
-      ? activeDragSession.value.rowRects
-      : getTargetRowRects();
-
-    const semantic = calculatePointerDropTarget({
-      clientY: pointer.clientY,
-      rows,
-      movingItemIds: movingIds,
-      endZoneTop,
-      previousTarget: activeDropTarget.value
-    });
-
-    const nextTarget: ActiveDropTarget = (semantic.kind === 'before' || semantic.kind === 'after')
-      ? { kind: semantic.kind, targetItemId: semantic.targetItemId }
-      : (semantic.kind === 'append' ? { kind: 'append' } : { kind: 'none' });
-
-    if (!sameDropTarget(activeDropTarget.value, nextTarget)) {
-      activeDropTarget.value = nextTarget;
-    }
+  beginRundownDrag({
+    pointerId: event.pointerId,
+    event,
+    movingItemIds
   });
-};
-
-const onDragOver = (event: DragEvent) => {
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  scheduleDropTargetUpdate(event);
-};
-
-const onRowDragOver = (event: DragEvent, _index: number) => {
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  scheduleDropTargetUpdate(event);
-};
-
-const onEndZoneDragOver = (event: DragEvent) => {
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  cancelIndicatorFrame();
-  activeDropTarget.value = { kind: 'append' };
-};
-
-const onDragLeave = (event: DragEvent) => {
-  const relatedTarget = event.relatedTarget as Node | null;
-  if (!relatedTarget || !rundownListRef.value?.contains(relatedTarget)) {
-    isDragOver.value = false;
-    clearDropTarget();
-  }
-};
-
-const resolveDropTarget = (event?: DragEvent): InsertionTarget => {
-  const target = activeDropTarget.value;
-  if (target.kind === 'append') return { kind: 'append' };
-  if (target.kind === 'before' || target.kind === 'after') {
-    return { kind: target.kind, targetItemId: target.targetItemId };
-  }
-  if (!event) return { kind: 'append' };
-
-  const isLibrarySource = activeDragSession.value?.source === 'library' ||
-    draggingItem.value?.source === 'library' ||
-    (!activeDragSession.value && !draggingItem.value);
-
-  const movingIds = isLibrarySource
-    ? []
-    : (activeDragSession.value?.movingItemIds ||
-        (store.selectedItemIds.length > 0
-          ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
-          : (store.selectedItemId ? [store.selectedItemId] : [])));
-
-  const endZoneEl = rundownListRef.value?.querySelector('.rundown-end-drop-zone');
-  const endZoneTop = endZoneEl ? endZoneEl.getBoundingClientRect().top : undefined;
-
-  const rows = (activeDragSession.value?.rowRects && activeDragSession.value.rowRects.length > 0)
-    ? activeDragSession.value.rowRects
-    : getTargetRowRects();
-
-  const semantic = calculatePointerDropTarget({
-    clientY: event.clientY,
-    rows,
-    movingItemIds: movingIds,
-    endZoneTop
-  });
-
-  return toInsertionTarget(semantic) || { kind: 'append' };
 };
 
 const buildDroppedPayload = async () => {
@@ -871,108 +680,106 @@ const buildDroppedPayload = async () => {
   return payload;
 };
 
-const completeExternalDrop = async (target?: InsertionTarget) => {
-  const payload = await buildDroppedPayload();
-  if (!payload) return;
-
-  const insertionTarget = target || { kind: 'append' };
-  const insertedIds = store.insertLibraryItems({
-    items: [payload as any],
-    target: insertionTarget
-  });
-
-  const firstId = insertedIds[0];
-  if (firstId && payload.type === 'video' && !(payload.duration > 0) && payload.path && !/^https?:/i.test(payload.path)) {
-    hydrateSingleItemDuration(firstId, payload.path).catch(() => {});
-  }
-
-  draggingItem.value = null;
-  clearDropTarget();
-};
-
-const onRowDrop = async (event: DragEvent, _index: number) => {
+// Fallback HTML5 drop handler strictly for external OS file drops
+const onExternalFileDrop = async (event: DragEvent) => {
   event.preventDefault();
   event.stopPropagation();
   isDragOver.value = false;
 
-  const target = resolveDropTarget(event);
-  const isLibrarySource = activeDragSession.value?.source === 'library' ||
-    draggingItem.value?.source === 'library' ||
-    (!activeDragSession.value && draggingItem.value);
+  if (draggingItem.value) return; // Ignore internal drags here
 
-  if (isLibrarySource) {
-    await completeExternalDrop(target);
-  } else {
-    const movingIds = activeDragSession.value?.movingItemIds ||
-      (store.selectedItemIds.length > 0
-        ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
-        : (store.selectedItemId ? [store.selectedItemId] : []));
+  const files = event.dataTransfer?.files;
+  if (!files || files.length === 0) return;
 
-    if (target.kind === 'before' || target.kind === 'after' || target.kind === 'append') {
-      store.moveRundownItems({ itemIds: movingIds, target });
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (file && (file as any).path) {
+      store.addItem({
+        filename: file.name,
+        path: (file as any).path,
+        shortPath: '',
+        libraryIndicator: undefined as any,
+        type: 'video',
+        duration: 0,
+        seek: 0,
+        length: 0
+      });
     }
   }
-  clearDropTarget();
 };
 
-const onEndZoneDrop = async (event: DragEvent) => {
-  event.preventDefault();
-  event.stopPropagation();
-  isDragOver.value = false;
+let unregisterSurface: (() => void) | null = null;
 
-  const isLibrarySource = activeDragSession.value?.source === 'library' ||
-    draggingItem.value?.source === 'library' ||
-    (!activeDragSession.value && draggingItem.value);
-
-  if (isLibrarySource) {
-    await completeExternalDrop({ kind: 'append' });
-  } else {
-    const movingIds = activeDragSession.value?.movingItemIds ||
-      (store.selectedItemIds.length > 0
-        ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
-        : (store.selectedItemId ? [store.selectedItemId] : []));
-
-    store.moveRundownItems({ itemIds: movingIds, target: { kind: 'append' } });
+watch(
+  () => store.activeItems.length,
+  () => {
+    refreshGeometrySnapshot();
   }
-  clearDropTarget();
-};
-
-const onDrop = async (event: DragEvent) => {
-  event.preventDefault();
-  event.stopPropagation();
-  isDragOver.value = false;
-
-  const target = resolveDropTarget(event);
-  const isLibrarySource = activeDragSession.value?.source === 'library' ||
-    draggingItem.value?.source === 'library' ||
-    (!activeDragSession.value && draggingItem.value);
-
-  if (isLibrarySource) {
-    if (draggingItem.value) {
-      await completeExternalDrop(target);
-    }
-  } else {
-    const movingIds = activeDragSession.value?.movingItemIds ||
-      (store.selectedItemIds.length > 0
-        ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
-        : (store.selectedItemId ? [store.selectedItemId] : []));
-
-    if (target.kind === 'before' || target.kind === 'after' || target.kind === 'append') {
-      store.moveRundownItems({ itemIds: movingIds, target });
-    }
-  }
-  clearDropTarget();
-};
+);
 
 onMounted(() => {
   hydrateMissingDurations().catch((error) => {
     console.warn('[Rundown] Initial duration hydration failed', error);
   });
   window.addEventListener('click', closeContextMenu);
+
+  unregisterSurface = registerRundownDropSurface({
+    getSnapshot() {
+      const containerRect = rundownListRef.value
+        ? rundownListRef.value.getBoundingClientRect()
+        : { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 };
+
+      const endZoneEl = rundownListRef.value?.querySelector('.rundown-end-drop-zone');
+      const endZoneRect = endZoneEl ? endZoneEl.getBoundingClientRect() : undefined;
+
+      return {
+        rowRects: buildRowRectsFromDOM(rundownListRef.value),
+        containerRect,
+        endZoneRect,
+        scrollTop: rundownListRef.value?.scrollTop || 0
+      };
+    },
+    getContainerRect() {
+      return rundownListRef.value
+        ? rundownListRef.value.getBoundingClientRect()
+        : new DOMRect();
+    },
+    async commit(target: ActiveDropTarget, session: DragSession) {
+      if (target.kind === 'none') return;
+      const insertionTarget = (target.kind === 'before' || target.kind === 'after')
+        ? { kind: target.kind, targetItemId: target.targetItemId }
+        : { kind: 'append' as const };
+
+      if (session.source === 'library' && session.libraryPayload) {
+        const payload = session.libraryPayload;
+        const insertedIds = store.insertLibraryItems({
+          items: [payload as any],
+          target: insertionTarget
+        });
+        const firstId = insertedIds[0];
+        if (firstId && payload.type === 'video' && !(payload.duration > 0) && payload.path && !/^https?:/i.test(payload.path)) {
+          hydrateSingleItemDuration(firstId, payload.path).catch(() => {});
+        }
+      } else if (session.source === 'rundown') {
+        if (session.movingItemIds.length > 0) {
+          store.moveRundownItems({
+            itemIds: session.movingItemIds,
+            target: insertionTarget
+          });
+        }
+      }
+    },
+    clearIndicator() {
+      // Handled reactively
+    }
+  });
 });
 
 onUnmounted(() => {
-  clearDropTarget();
+  if (unregisterSurface) {
+    unregisterSurface();
+    unregisterSurface = null;
+  }
   if (scrollFrame !== null) {
     cancelAnimationFrame(scrollFrame);
     scrollFrame = null;
@@ -1083,10 +890,8 @@ onUnmounted(() => {
       :class="{ 'drag-over': isDragOver }"
       @focus="activeScope = 'rundown'"
       @click="focusList"
-      @dragenter.prevent="onDragEnter"
-      @dragover.prevent="onDragOver"
-      @dragleave="onDragLeave"
-      @drop.prevent="onDrop"
+      @dragover.prevent
+      @drop.prevent="onExternalFileDrop"
     >
       <div
         v-for="(item, index) in store.activeItems"
@@ -1101,8 +906,6 @@ onUnmounted(() => {
           rowIsPlayed(index),
           isNextUpRow(index),
           isNextUpImminent(index),
-          indicatorTarget?.index === index && indicatorTarget?.side === 'before',
-          indicatorTarget?.index === index && indicatorTarget?.side === 'after',
           rowProgressPct(item, index),
           rowProgressTone(item, index),
           rowCountdown(item),
@@ -1122,8 +925,6 @@ onUnmounted(() => {
           :played="rowIsPlayed(index)"
           :next-up="isNextUpRow(index)"
           :next-up-imminent="isNextUpImminent(index)"
-          :drop-before="indicatorTarget?.index === index && indicatorTarget?.side === 'before'"
-          :drop-after="indicatorTarget?.index === index && indicatorTarget?.side === 'after'"
           :progress-pct="rowProgressPct(item, index)"
           :progress-tone="rowProgressTone(item, index)"
           :countdown="rowCountdown(item)"
@@ -1135,10 +936,7 @@ onUnmounted(() => {
           :play-protected="rowPlayProtected(index)"
           @select="onRowSelect(item, $event)"
           @contextmenu="onContextMenu($event, index, item)"
-          @dragstart="onRowDragStart($event, item)"
-          @dragend="onRowDragEnd($event)"
-          @dragover="onRowDragOver($event, index)"
-          @drop="onRowDrop($event, index)"
+          @pointerdown-handle="onRowHandlePointerDown($event, item)"
           @play="runPlaylistFrom(index)"
           @delete="deleteRowItem(item, index)"
         />
@@ -1147,11 +945,8 @@ onUnmounted(() => {
       <!-- End Drop Zone -->
       <div
         class="rundown-end-drop-zone"
-        :class="{ 'is-active': activeDropTarget.kind === 'append' }"
         data-drop-position="end"
         aria-hidden="true"
-        @dragover.prevent="onEndZoneDragOver"
-        @drop.prevent="onEndZoneDrop"
       >
         <div class="end-drop-indicator-line"></div>
         <span class="end-drop-badge">Append to end</span>
@@ -1161,6 +956,19 @@ onUnmounted(() => {
         Drop media here or click 📹 Live
       </div>
     </div>
+
+    <!-- Fixed Overlay Drop Indicator -->
+    <Teleport to="body">
+      <div
+        v-if="indicatorStyle"
+        class="rw-fixed-drop-indicator"
+        :style="indicatorStyle"
+        aria-hidden="true"
+      >
+        <div class="rw-indicator-line"></div>
+        <div class="rw-indicator-dot"></div>
+      </div>
+    </Teleport>
 
     <!-- Custom Context Menu for Rundown -->
     <Teleport to="body">
@@ -1412,5 +1220,31 @@ onUnmounted(() => {
 
 .rundown-end-drop-zone.is-active .end-drop-indicator-line {
   display: block;
+}
+
+.rw-fixed-drop-indicator {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  height: 0;
+}
+.rw-indicator-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(51, 190, 204, 0.9);
+  box-shadow: 0 0 8px rgba(51, 190, 204, 0.6);
+}
+.rw-indicator-dot {
+  position: absolute;
+  top: -4px;
+  left: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(51, 190, 204, 1);
+  box-shadow: 0 0 6px rgba(51, 190, 204, 0.8);
 }
 </style>
