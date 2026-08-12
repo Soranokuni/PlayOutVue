@@ -82,4 +82,67 @@ describe('useDragSession singleton controller', () => {
     unregister();
     expect(activeDragSession.value).toBeNull();
   });
+
+  it('re-resolves final target on pointerup and commits exact valid target', async () => {
+    registerRundownDropSurface(mockSurface);
+    const downEvent = new PointerEvent('pointerdown', { clientX: 100, clientY: 120, pointerId: 1 });
+    beginLibraryDrag({
+      pointerId: 1,
+      event: downEvent,
+      payload: { filename: 'test.mp4', path: '/test.mp4', shortPath: '', type: 'video', duration: 10, seek: 0, length: 10 }
+    });
+
+    // Move >=5px into container bounds (X=100, Y=120 -> row-1 top half = before row-1)
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 126, pointerId: 1 }));
+
+    // Pointerup inside container over row-1 top half
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 124, pointerId: 1 }));
+
+    expect(mockSurface.commit).toHaveBeenCalledWith(
+      { kind: 'before', targetItemId: 'row-1' },
+      expect.anything()
+    );
+  });
+
+  it('performs zero store mutations if pointerup occurs outside rundown surface', async () => {
+    registerRundownDropSurface(mockSurface);
+    const downEvent = new PointerEvent('pointerdown', { clientX: 100, clientY: 120, pointerId: 1 });
+    beginLibraryDrag({
+      pointerId: 1,
+      event: downEvent,
+      payload: { filename: 'test.mp4', path: '/test.mp4', shortPath: '', type: 'video', duration: 10, seek: 0, length: 10 }
+    });
+
+    // Move >=5px into container bounds
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 126, pointerId: 1 }));
+
+    // Pointerup OUTSIDE container bounds (X=500 -> outside left/right)
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 500, clientY: 124, pointerId: 1 }));
+
+    expect(mockSurface.commit).not.toHaveBeenCalled();
+    expect(activeDragSession.value).toBeNull();
+  });
+
+  it('supports library drag entering rundown then moving back over library and releasing without mutation', async () => {
+    registerRundownDropSurface(mockSurface);
+    const downEvent = new PointerEvent('pointerdown', { clientX: 50, clientY: 120, pointerId: 1 });
+    beginLibraryDrag({
+      pointerId: 1,
+      event: downEvent,
+      payload: { filename: 'test.mp4', path: '/test.mp4', shortPath: '', type: 'video', duration: 10, seek: 0, length: 10 }
+    });
+
+    // Move into rundown container (X=100, Y=120)
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 120, pointerId: 1 }));
+    expect(activeDragSession.value?.phase).toBe('dragging');
+
+    // Move back over library (X=0 -> outside left boundary)
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, clientY: 120, pointerId: 1 }));
+
+    // Pointerup over library
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, clientY: 120, pointerId: 1 }));
+
+    expect(mockSurface.commit).not.toHaveBeenCalled();
+    expect(activeDragSession.value).toBeNull();
+  });
 });
