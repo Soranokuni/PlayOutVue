@@ -19,6 +19,7 @@ export interface DragSession {
   phase: DragPhase;
   movingItemIds: string[];
   libraryPayload?: DragPayload;
+  libraryDropOutside?: (point: { clientX: number; clientY: number }) => Promise<boolean> | boolean;
   originPoint: { x: number; y: number };
   currentPoint: { x: number; y: number };
   snapshot: GeometrySnapshot | null;
@@ -161,6 +162,15 @@ async function handleWindowPointerUp(event: PointerEvent) {
       } catch (err) {
         console.error('[DragSession] Commit failed:', err);
       }
+    } else if (session.source === 'library' && session.libraryDropOutside) {
+      try {
+        didCommit = await session.libraryDropOutside({
+          clientX: event.clientX,
+          clientY: event.clientY
+        });
+      } catch (err) {
+        console.error('[DragSession] Library drop fallback failed:', err);
+      }
     }
   }
 
@@ -260,6 +270,7 @@ export function beginLibraryDrag(params: {
   pointerId: number;
   event: PointerEvent;
   payload: DragPayload;
+  onDropOutside?: (point: { clientX: number; clientY: number }) => Promise<boolean> | boolean;
 }): void {
   if (params.event.button !== 0) return;
 
@@ -275,6 +286,7 @@ export function beginLibraryDrag(params: {
     phase: 'pressing',
     movingItemIds: [],
     libraryPayload: params.payload,
+    libraryDropOutside: params.onDropOutside,
     originPoint: { x: params.event.clientX, y: params.event.clientY },
     currentPoint: { x: params.event.clientX, y: params.event.clientY },
     snapshot: null,

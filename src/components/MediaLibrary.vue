@@ -8,7 +8,7 @@ import { useSettingsStore } from '../stores/settings';
 import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDefaults';
 import { useIngestorStatusStore } from '../stores/ingestorStatus';
 import { useMediaLibraryStore, type LibraryAsset, type TreeNode } from '../stores/mediaLibrary';
-import { draggingItem, activeDragSession } from '../composables/useDragState';
+import { draggingItem } from '../composables/useDragState';
 import { beginLibraryDrag, didCompletePointerDrag } from '../composables/useDragSession';
 import { activeScope, activeLibraryContext } from '../composables/useOperatorShortcuts';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
@@ -577,49 +577,14 @@ function onAssetPointerDown(event: PointerEvent, asset: LibraryAsset) {
     beginLibraryDrag({
         pointerId: event.pointerId,
         event,
-        payload
+        payload,
+        onDropOutside: ({ clientX, clientY }) => {
+            const folderElement = document.elementFromPoint(clientX, clientY)
+                ?.closest<HTMLElement>('[data-library-folder-path]');
+            const folderPath = folderElement?.dataset.libraryFolderPath;
+            return folderPath ? moveAssetToFolder(asset, folderPath) : false;
+        }
     });
-}
-
-function onAssetDragStart(event: DragEvent, asset: LibraryAsset) {
-    mediaLibrary.selectedNodeId = `asset:${asset.uuid}`;
-    const meta = cachedRatingMeta(asset);
-    const payload = {
-        source: 'library' as const,
-        playoutvueId: asset.uuid.startsWith('local:') ? undefined : asset.uuid,
-        filename: asset.display_name,
-        path: asset.current_path,
-        shortPath: '',
-        type: 'video' as const,
-        libraryIndicator: mediaDefaults.getIndicator(asset.uuid, asset.current_path),
-        inPoint: asset.trim_in_ms,
-        outPoint: asset.duration_ms > 0 ? asset.duration_ms - (asset.trim_out_ms || 0) : 0,
-        duration: assetDurationSeconds(asset),
-        plannedDuration: effectiveDurationSeconds(asset),
-        seek: 0,
-        length: 0,
-        complianceRating: meta.ageRating ||
-            mediaDefaults.getCompliance(asset.uuid, asset.current_path),
-        tp_flag: meta.tpFlag,
-        content_type: meta.contentType,
-        display_name: asset.display_name,
-        virtual_folder: asset.virtual_folder,
-        current_path: asset.current_path,
-        duration_ms: asset.duration_ms,
-        trim_in_ms: asset.trim_in_ms,
-        trim_out_ms: asset.trim_out_ms,
-    };
-    draggingItem.value = payload;
-    activeDragSession.value = {
-        source: 'library',
-        movingItemIds: [],
-        rowRects: [],
-        scrollTop: 0
-    };
-    if (event.dataTransfer) {
-        event.dataTransfer.setData('text/plain', asset.uuid);
-        event.dataTransfer.effectAllowed = 'copy';
-    }
 }
 
 function onFolderDragStart(event: DragEvent, folderPath: string) {
@@ -1046,12 +1011,20 @@ function onFolderDragOverPath(event: DragEvent, folderPath: string) {
     }
 }
 
-function onAssetDragEnd() {
-    // dragend fires for both successful drops and cancelled drags (Esc /
-    // dropped outside); a cancelled drag used to leave draggingItem set,
-    // which made every later dragover believe an asset drag was live.
-    draggingItem.value = null;
-    folderDropTargetId.value = null;
+async function moveAssetToFolder(asset: LibraryAsset, folderPath: string): Promise<boolean> {
+    if (!asset.uuid) return false;
+
+    if (!asset.uuid.startsWith('local:')) {
+        const result = await ingestorInvoke<void>(
+            'move_ingestor_asset',
+            { uuid: asset.uuid, virtual_folder: folderPath, api_base_url_override: null },
+            'ingestor-move'
+        );
+        if (result === null) return false;
+    }
+
+    mediaLibrary.moveAssetToFolder(asset.uuid, folderPath);
+    return true;
 }
 
 async function onFolderDropPath(event: DragEvent, folderPath: string) {
@@ -1067,33 +1040,8 @@ async function onFolderDropPath(event: DragEvent, folderPath: string) {
         }
     }
 
-    let uuid = '';
-    if (event.dataTransfer) {
-        uuid = event.dataTransfer.getData('text/plain');
-    }
-    if (!uuid && draggingItem.value) {
-        uuid = draggingItem.value.playoutvueId || `local:${draggingItem.value.path}`;
-    }
-    if (!uuid || uuid.startsWith('/') || uuid.startsWith('application/')) {
-        draggingItem.value = null;
-        return;
-    }
-
-    const isLocal = uuid.startsWith('local:');
-
-    if (!isLocal) {
-        const result = await ingestorInvoke<void>(
-            'move_ingestor_asset',
-            { uuid: uuid, virtual_folder: folderPath, api_base_url_override: null },
-            'ingestor-move'
-        );
-        if (result !== null) {
-            mediaLibrary.moveAssetToFolder(uuid, folderPath);
-        }
-    } else {
-        mediaLibrary.moveAssetToFolder(uuid, folderPath);
-    }
-
+    // Asset rows use the pointer drag controller. Native HTML5 drag/drop remains
+    // only for folders, so asset relocation is handled by onDropOutside above.
     draggingItem.value = null;
 }
 
@@ -1452,6 +1400,7 @@ const menuItems = computed<MenuItem[]>(() => {
               'is-selected': mediaLibrary.selectedNodeId === `folder:${group.folderName}`,
               'is-folder-drop-target': folderDropTargetId === `folder:${group.folderName}`
             }"
+            :data-library-folder-path="group.folderName"
             :draggable="true"
             @click="onFolderClick(group.folderName)"
             @dblclick="onFolderDoubleClick(group.folderName)"
@@ -1498,14 +1447,11 @@ const menuItems = computed<MenuItem[]>(() => {
               :data-asset-id="asset.uuid"
               :aria-selected="isAssetSelected(asset.uuid)"
               :tabindex="isAssetPrimarySelected(asset.uuid) ? 0 : -1"
-              :draggable="true"
               :style="{ paddingLeft: '26px' }"
               @click="onAssetClick(asset, $event)"
               @dblclick="onAssetDoubleClick(asset)"
               @contextmenu.prevent="onAssetContextMenu($event, asset)"
               @pointerdown="onAssetPointerDown($event, asset)"
-              @dragstart="onAssetDragStart($event, asset)"
-              @dragend="onAssetDragEnd"
             >
               <span class="chevron-spacer"></span>
               
