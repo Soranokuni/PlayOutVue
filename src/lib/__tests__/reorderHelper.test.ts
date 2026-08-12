@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { calculatePointerDropTarget, toInsertionTarget, buildRowRectsFromDOM, type TargetRowRect } from '../reorderHelper';
+import { calculatePointerDropTarget, toInsertionTarget, buildRowRectsFromDOM, sameDropTarget, type TargetRowRect } from '../reorderHelper';
 
 describe('PR 6B Pure Reorder Helper & Single Coordinate System', () => {
   const rows: TargetRowRect[] = [
@@ -109,5 +109,41 @@ describe('PR 6B Pure Reorder Helper & Single Coordinate System', () => {
     expect(rects.length).toBe(2);
     expect(rects[0].id).toBe('uuid-alpha');
     expect(rects[1].id).toBe('uuid-beta');
+  });
+
+  it('sameDropTarget correctly evaluates equality of active drop targets', () => {
+    const t1 = { kind: 'before' as const, targetItemId: 'item-1' };
+    const t2 = { kind: 'before' as const, targetItemId: 'item-1' };
+    const t3 = { kind: 'after' as const, targetItemId: 'item-1' };
+    const t4 = { kind: 'append' as const };
+    const t5 = { kind: 'append' as const };
+
+    expect(sameDropTarget(t1, t2)).toBe(true);
+    expect(sameDropTarget(t1, t3)).toBe(false);
+    expect(sameDropTarget(t4, t5)).toBe(true);
+  });
+
+  it('applies midpoint hysteresis deadband to prevent flickering near midpoint boundary', () => {
+    // item-2: top 140, bottom 180, midpoint 160.
+    // If previousTarget was 'before' item-2, midpoint shifts by +3 (to 163).
+    // Pointer at 161 (just past 160) stays 'before' due to deadband hysteresis!
+    const resHysteresis = calculatePointerDropTarget({
+      clientY: 161,
+      rows,
+      movingItemIds: [],
+      previousTarget: { kind: 'before', targetItemId: 'item-2' },
+      hysteresisPx: 3
+    });
+    expect(resHysteresis).toEqual({ kind: 'before', targetItemId: 'item-2' });
+
+    // Pointer at 165 (past 163) breaks hysteresis and switches to 'after'
+    const resSwitch = calculatePointerDropTarget({
+      clientY: 165,
+      rows,
+      movingItemIds: [],
+      previousTarget: { kind: 'before', targetItemId: 'item-2' },
+      hysteresisPx: 3
+    });
+    expect(resSwitch).toEqual({ kind: 'after', targetItemId: 'item-2' });
   });
 });

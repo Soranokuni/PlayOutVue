@@ -1,5 +1,11 @@
 import type { InsertionTarget } from '../stores/rundown';
 
+export type ActiveDropTarget =
+  | { kind: 'before'; targetItemId: string }
+  | { kind: 'after'; targetItemId: string }
+  | { kind: 'append' }
+  | { kind: 'none' };
+
 export type SemanticDropTarget =
   | { kind: 'before'; targetItemId: string }
   | { kind: 'after'; targetItemId: string }
@@ -18,6 +24,19 @@ export interface CalculateDropTargetParams {
   rows: TargetRowRect[];
   movingItemIds: string[];
   endZoneTop?: number;
+  previousTarget?: ActiveDropTarget;
+  hysteresisPx?: number;
+}
+
+/**
+ * Checks deep equality of two ActiveDropTarget objects.
+ */
+export function sameDropTarget(a: ActiveDropTarget, b: ActiveDropTarget): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'before' || a.kind === 'after') {
+    return (b.kind === 'before' || b.kind === 'after') && a.targetItemId === b.targetItemId;
+  }
+  return true;
 }
 
 /**
@@ -47,12 +66,12 @@ export function buildRowRectsFromDOM(container: HTMLElement | null): TargetRowRe
  * Calculates a semantic drop target purely from pointer clientY and row viewport bounding rects.
  * Uses a single viewport coordinate system (clientY vs rowRect.top/bottom).
  * Filters out moving items to prevent off-by-one destination index calculations.
- * Does not mutate store state.
+ * Supports a small hysteresis deadband to prevent flickering on midpoint boundaries.
  */
 export function calculatePointerDropTarget(
   params: CalculateDropTargetParams
 ): SemanticDropTarget {
-  const { clientY, rows, movingItemIds, endZoneTop } = params;
+  const { clientY, rows, movingItemIds, endZoneTop, previousTarget, hysteresisPx = 3 } = params;
 
   if (!rows || rows.length === 0) {
     return { kind: 'append' };
@@ -94,7 +113,21 @@ export function calculatePointerDropTarget(
     const row = targetableRows[i];
     if (!row) continue;
 
-    const midpoint = row.top + row.height / 2;
+    let midpoint = row.top + row.height / 2;
+
+    // Apply hysteresis deadband if resting near midpoint of previous target row
+    if (
+      previousTarget &&
+      (previousTarget.kind === 'before' || previousTarget.kind === 'after') &&
+      previousTarget.targetItemId === row.id
+    ) {
+      if (previousTarget.kind === 'before') {
+        midpoint += hysteresisPx;
+      } else {
+        midpoint -= hysteresisPx;
+      }
+    }
+
     if (clientY >= row.top && clientY <= row.bottom) {
       if (clientY < midpoint) {
         return { kind: 'before', targetItemId: row.id };
