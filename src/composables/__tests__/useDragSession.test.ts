@@ -124,6 +124,26 @@ describe('useDragSession singleton controller', () => {
     expect(activeDragSession.value).toBeNull();
   });
 
+  it('hands a library drop outside the rundown to its registered fallback', async () => {
+    registerRundownDropSurface(mockSurface);
+    const onDropOutside = vi.fn(async () => true);
+    const downEvent = new PointerEvent('pointerdown', { clientX: 100, clientY: 120, pointerId: 1 });
+    beginLibraryDrag({
+      pointerId: 1,
+      event: downEvent,
+      payload: { filename: 'test.mp4', path: '/test.mp4', shortPath: '', type: 'video', duration: 10, seek: 0, length: 10 },
+      onDropOutside
+    });
+
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 126, pointerId: 1 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 500, clientY: 124, pointerId: 1 }));
+    await Promise.resolve();
+
+    expect(mockSurface.commit).not.toHaveBeenCalled();
+    expect(onDropOutside).toHaveBeenCalledWith({ clientX: 500, clientY: 124 });
+    expect(activeDragSession.value).toBeNull();
+  });
+
   it('supports library drag entering rundown then moving back over library and releasing without mutation', async () => {
     registerRundownDropSurface(mockSurface);
     const downEvent = new PointerEvent('pointerdown', { clientX: 50, clientY: 120, pointerId: 1 });
