@@ -303,6 +303,64 @@ commandRegistry.register({
 });
 
 commandRegistry.register({
+  id: 'rundown.moveCurrentUp',
+  label: 'Move Current Item Up',
+  scopes: ['rundown'],
+  defaultShortcut: 'Ctrl/Cmd+Up',
+  category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
+  isVisible: () => true,
+  isEnabled: (ctx) => {
+    if (ctx.scope !== 'rundown' || !ctx.selection.primarySelectedId) return false;
+    const idx = ctx.rundown.activeItems.findIndex(i => i.id === ctx.selection.primarySelectedId);
+    return idx > 0;
+  },
+  execute: (ctx) => {
+    const currentId = ctx.selection.primarySelectedId;
+    if (!currentId) return;
+    const activeItems = ctx.rundown.activeItems;
+    const idx = activeItems.findIndex(i => i.id === currentId);
+    if (idx <= 0) return;
+    const targetItem = activeItems[idx - 1];
+    if (!targetItem) return;
+    ctx.rundown.moveRundownItems({
+      itemIds: [currentId],
+      target: { kind: 'before', targetItemId: targetItem.id }
+    });
+  }
+});
+
+commandRegistry.register({
+  id: 'rundown.moveCurrentDown',
+  label: 'Move Current Item Down',
+  scopes: ['rundown'],
+  defaultShortcut: 'Ctrl/Cmd+Down',
+  category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
+  isVisible: () => true,
+  isEnabled: (ctx) => {
+    if (ctx.scope !== 'rundown' || !ctx.selection.primarySelectedId) return false;
+    const idx = ctx.rundown.activeItems.findIndex(i => i.id === ctx.selection.primarySelectedId);
+    return idx >= 0 && idx < ctx.rundown.activeItems.length - 1;
+  },
+  execute: (ctx) => {
+    const currentId = ctx.selection.primarySelectedId;
+    if (!currentId) return;
+    const activeItems = ctx.rundown.activeItems;
+    const idx = activeItems.findIndex(i => i.id === currentId);
+    if (idx < 0 || idx >= activeItems.length - 1) return;
+    const targetItem = activeItems[idx + 1];
+    if (!targetItem) return;
+    ctx.rundown.moveRundownItems({
+      itemIds: [currentId],
+      target: { kind: 'after', targetItemId: targetItem.id }
+    });
+  }
+});
+
+commandRegistry.register({
   id: 'library.selectPrevious',
   label: 'Select Previous Library Asset',
   scopes: ['library'],

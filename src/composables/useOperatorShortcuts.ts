@@ -1,5 +1,6 @@
 import { getCurrentInstance, onMounted, onUnmounted, ref } from 'vue';
 import { useRundownStore } from '../stores/rundown';
+import { activeDragSession } from './useDragSession';
 import {
   commandRegistry,
   type CommandContext,
@@ -217,9 +218,17 @@ export function useOperatorShortcuts() {
       return;
     }
 
-    // 4. Structural Shortcuts for Rundown Scope (Ctrl/Cmd + C, X, V, D, Z)
+    // 4. Structural & Playlist Reorder Shortcuts for Rundown Scope (Ctrl/Cmd + C, X, V, D, Z, ArrowUp, ArrowDown)
     const isModifier = event.ctrlKey || event.metaKey;
-    if (scope === 'rundown' && isModifier) {
+    if (scope === 'rundown' && isModifier && !activeDragSession.value) {
+      if (!event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        const commandId = event.key === 'ArrowUp' ? 'rundown.moveCurrentUp' : 'rundown.moveCurrentDown';
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute(commandId, ctx);
+        return;
+      }
+
       const key = event.key.toLowerCase();
       const commandByKey: Record<string, string> = {
         c: 'rundown.copySelected',
