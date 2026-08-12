@@ -497,6 +497,13 @@ function isAssetPrimarySelected(uuid: string): boolean {
     return mediaLibrary.selectedNodeId === `asset:${uuid}`;
 }
 
+function getAssetTooltip(asset: LibraryAsset): string | undefined {
+    if (asset.warnings && asset.warnings.length > 0) {
+        return `Warning:\n• ${asset.warnings.join('\n• ')}`;
+    }
+    return undefined;
+}
+
 function onAssetClick(asset: LibraryAsset, event?: MouseEvent) {
     if (didCompletePointerDrag()) {
         event?.preventDefault();
@@ -1456,7 +1463,7 @@ const menuItems = computed<MenuItem[]>(() => {
               <span class="chevron-spacer"></span>
               
               <span class="lib-icon" @click.stop="onAssetClick(asset)">
-                <StatusIndicator :tone="resolveLibraryStatusTone(asset)" variant="dot" />
+                <StatusIndicator :tone="resolveLibraryStatusTone(asset)" variant="dot" :tooltip="getAssetTooltip(asset)" />
                 <span>🎬</span>
               </span>
               <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">
