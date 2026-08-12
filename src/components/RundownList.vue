@@ -2,10 +2,9 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
-import Sortable from 'sortablejs';
 import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist, type InsertionTarget } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
-import { draggingItem } from '../composables/useDragState';
+import { draggingItem, activeDragSession, type DragSession } from '../composables/useDragState';
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
@@ -40,7 +39,8 @@ const indicatorTarget = computed(() => {
     side: target.kind
   };
 });
-let sortableInstance: Sortable | null = null;
+let scrollListenerActive = false;
+let resizeObserver: ResizeObserver | null = null;
 const durationHydrationInFlight = new Set<string>();
 let crawlDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let structuralDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -550,68 +550,6 @@ const closePlaylistTab = async (playlist: RundownPlaylist) => {
   store.closePlaylist(playlist.id);
 };
 
-const onDragEnter = (event: DragEvent) => {
-  event.preventDefault();
-  isDragOver.value = true;
-};
-
-const onDragOver = (event: DragEvent) => {
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  scheduleDropTargetUpdate(event);
-};
-
-const onRowDragOver = (event: DragEvent, _index: number) => {
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  scheduleDropTargetUpdate(event);
-};
-
-const onRowDrop = async (event: DragEvent, _index: number) => {
-  event.preventDefault();
-  event.stopPropagation();
-  isDragOver.value = false;
-  const target = resolveDropTarget(event);
-  await completeExternalDrop(target);
-  clearDropTarget();
-};
-
-const onEndZoneDragOver = (event: DragEvent) => {
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  cancelIndicatorFrame();
-  activeDropTarget.value = { kind: 'append' };
-};
-
-const onEndZoneDrop = async (event: DragEvent) => {
-  event.preventDefault();
-  event.stopPropagation();
-  isDragOver.value = false;
-  await completeExternalDrop({ kind: 'append' });
-  clearDropTarget();
-};
-
-const onDragLeave = (event: DragEvent) => {
-  const relatedTarget = event.relatedTarget as Node | null;
-  if (!(event.currentTarget as HTMLElement)?.contains(relatedTarget)) {
-    isDragOver.value = false;
-    clearDropTarget();
-  }
-};
-
-const onDrop = async (event: DragEvent) => {
-  event.preventDefault();
-  event.stopPropagation();
-  isDragOver.value = false;
-  if (!draggingItem.value) return;
-  const target = resolveDropTarget(event);
-  await completeExternalDrop(target);
-  clearDropTarget();
-};
-
-
 const msToClockDisplay = (ms: number) => {
   if (ms <= 0) return '00:00:00';
   const totalSeconds = Math.floor(ms / 1000);
@@ -683,6 +621,59 @@ const onRowSelect = (item: RundownItem, event?: MouseEvent) => {
   focusList();
 };
 
+const refreshDragSessionGeometry = () => {
+  if (rundownListRef.value && activeDragSession.value) {
+    activeDragSession.value.rowRects = buildRowRectsFromDOM(rundownListRef.value);
+    activeDragSession.value.scrollTop = rundownListRef.value.scrollTop;
+  }
+};
+
+const handleContainerScroll = () => {
+  if (activeDragSession.value) {
+    refreshDragSessionGeometry();
+  }
+};
+
+const startDragSessionListeners = () => {
+  if (rundownListRef.value) {
+    if (!scrollListenerActive) {
+      rundownListRef.value.addEventListener('scroll', handleContainerScroll, { passive: true });
+      scrollListenerActive = true;
+    }
+    if (!resizeObserver && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        refreshDragSessionGeometry();
+      });
+      resizeObserver.observe(rundownListRef.value);
+    }
+  }
+};
+
+const stopDragSessionListeners = () => {
+  if (rundownListRef.value && scrollListenerActive) {
+    rundownListRef.value.removeEventListener('scroll', handleContainerScroll);
+    scrollListenerActive = false;
+  }
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+};
+
+const getDisplayName = (item: RundownItem) => {
+  if (item.display_name) return item.display_name;
+  if (item.current_path) {
+    const filename = item.current_path.split(/[/\\]/).pop();
+    if (filename && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filename)) {
+      return filename;
+    }
+  }
+  if (item.filename && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.filename)) {
+    return item.filename;
+  }
+  return 'Untitled Asset';
+};
+
 const getTargetRowRects = (): TargetRowRect[] => buildRowRectsFromDOM(rundownListRef.value);
 
 let indicatorFrame: number | null = null;
@@ -698,7 +689,58 @@ const cancelIndicatorFrame = () => {
 
 const clearDropTarget = () => {
   cancelIndicatorFrame();
+  stopDragSessionListeners();
   activeDropTarget.value = { kind: 'none' };
+  activeDragSession.value = null;
+  draggingItem.value = null;
+};
+
+const onRowDragStart = (event: DragEvent, item: RundownItem) => {
+  const selected = store.selectedItemIds.length > 0
+    ? store.selectedItemIds
+    : (store.selectedItemId ? [store.selectedItemId] : []);
+
+  const movingItemIds = selected.includes(item.id)
+    ? store.activeItems.filter(i => selected.includes(i.id)).map(i => i.id)
+    : [item.id];
+
+  const rowRects = buildRowRectsFromDOM(rundownListRef.value);
+  const scrollTop = rundownListRef.value?.scrollTop || 0;
+
+  const session: DragSession = {
+    source: 'rundown',
+    movingItemIds,
+    rowRects,
+    scrollTop
+  };
+
+  activeDragSession.value = session;
+  draggingItem.value = {
+    source: 'rundown',
+    filename: getDisplayName(item),
+    path: item.path || '',
+    shortPath: '',
+    type: item.type as any,
+    duration: item.duration || 0,
+    seek: 0,
+    length: 0
+  };
+
+  startDragSessionListeners();
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', item.id);
+  }
+};
+
+const onRowDragEnd = (_event: DragEvent) => {
+  clearDropTarget();
+};
+
+const onDragEnter = (event: DragEvent) => {
+  event.preventDefault();
+  isDragOver.value = true;
 };
 
 const scheduleDropTargetUpdate = (event: DragEvent) => {
@@ -711,17 +753,27 @@ const scheduleDropTargetUpdate = (event: DragEvent) => {
     latestPointerEvent = null;
     if (!pointer) return;
 
-    const isLibrarySource = draggingItem.value?.source === 'library' || !draggingItem.value;
+    const isLibrarySource = activeDragSession.value?.source === 'library' ||
+      draggingItem.value?.source === 'library' ||
+      (!activeDragSession.value && !draggingItem.value);
+
     const movingIds = isLibrarySource
       ? []
-      : (store.selectedItemIds.length > 0 ? store.selectedItemIds : (store.selectedItemId ? [store.selectedItemId] : []));
+      : (activeDragSession.value?.movingItemIds ||
+          (store.selectedItemIds.length > 0
+            ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
+            : (store.selectedItemId ? [store.selectedItemId] : [])));
 
     const endZoneEl = rundownListRef.value?.querySelector('.rundown-end-drop-zone');
     const endZoneTop = endZoneEl ? endZoneEl.getBoundingClientRect().top : undefined;
 
+    const rows = (activeDragSession.value?.rowRects && activeDragSession.value.rowRects.length > 0)
+      ? activeDragSession.value.rowRects
+      : getTargetRowRects();
+
     const semantic = calculatePointerDropTarget({
       clientY: pointer.clientY,
-      rows: getTargetRowRects(),
+      rows,
       movingItemIds: movingIds,
       endZoneTop,
       previousTarget: activeDropTarget.value
@@ -737,6 +789,35 @@ const scheduleDropTargetUpdate = (event: DragEvent) => {
   });
 };
 
+const onDragOver = (event: DragEvent) => {
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  scheduleDropTargetUpdate(event);
+};
+
+const onRowDragOver = (event: DragEvent, _index: number) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  scheduleDropTargetUpdate(event);
+};
+
+const onEndZoneDragOver = (event: DragEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  cancelIndicatorFrame();
+  activeDropTarget.value = { kind: 'append' };
+};
+
+const onDragLeave = (event: DragEvent) => {
+  const relatedTarget = event.relatedTarget as Node | null;
+  if (!relatedTarget || !rundownListRef.value?.contains(relatedTarget)) {
+    isDragOver.value = false;
+    clearDropTarget();
+  }
+};
+
 const resolveDropTarget = (event?: DragEvent): InsertionTarget => {
   const target = activeDropTarget.value;
   if (target.kind === 'append') return { kind: 'append' };
@@ -745,17 +826,27 @@ const resolveDropTarget = (event?: DragEvent): InsertionTarget => {
   }
   if (!event) return { kind: 'append' };
 
-  const isLibrarySource = draggingItem.value?.source === 'library' || !draggingItem.value;
+  const isLibrarySource = activeDragSession.value?.source === 'library' ||
+    draggingItem.value?.source === 'library' ||
+    (!activeDragSession.value && !draggingItem.value);
+
   const movingIds = isLibrarySource
     ? []
-    : (store.selectedItemIds.length > 0 ? store.selectedItemIds : (store.selectedItemId ? [store.selectedItemId] : []));
+    : (activeDragSession.value?.movingItemIds ||
+        (store.selectedItemIds.length > 0
+          ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
+          : (store.selectedItemId ? [store.selectedItemId] : [])));
 
   const endZoneEl = rundownListRef.value?.querySelector('.rundown-end-drop-zone');
   const endZoneTop = endZoneEl ? endZoneEl.getBoundingClientRect().top : undefined;
 
+  const rows = (activeDragSession.value?.rowRects && activeDragSession.value.rowRects.length > 0)
+    ? activeDragSession.value.rowRects
+    : getTargetRowRects();
+
   const semantic = calculatePointerDropTarget({
     clientY: event.clientY,
-    rows: getTargetRowRects(),
+    rows,
     movingItemIds: movingIds,
     endZoneTop
   });
@@ -799,62 +890,93 @@ const completeExternalDrop = async (target?: InsertionTarget) => {
   clearDropTarget();
 };
 
+const onRowDrop = async (event: DragEvent, _index: number) => {
+  event.preventDefault();
+  event.stopPropagation();
+  isDragOver.value = false;
 
-const getDisplayName = (item: RundownItem) => {
-  if (item.display_name) return item.display_name;
-  if (item.current_path) {
-    const filename = item.current_path.split(/[/\\]/).pop();
-    if (filename && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filename)) {
-      return filename;
+  const target = resolveDropTarget(event);
+  const isLibrarySource = activeDragSession.value?.source === 'library' ||
+    draggingItem.value?.source === 'library' ||
+    (!activeDragSession.value && draggingItem.value);
+
+  if (isLibrarySource) {
+    await completeExternalDrop(target);
+  } else {
+    const movingIds = activeDragSession.value?.movingItemIds ||
+      (store.selectedItemIds.length > 0
+        ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
+        : (store.selectedItemId ? [store.selectedItemId] : []));
+
+    if (target.kind === 'before' || target.kind === 'after' || target.kind === 'append') {
+      store.moveRundownItems({ itemIds: movingIds, target });
     }
   }
-  if (item.filename && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.filename)) {
-    return item.filename;
+  clearDropTarget();
+};
+
+const onEndZoneDrop = async (event: DragEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+  isDragOver.value = false;
+
+  const isLibrarySource = activeDragSession.value?.source === 'library' ||
+    draggingItem.value?.source === 'library' ||
+    (!activeDragSession.value && draggingItem.value);
+
+  if (isLibrarySource) {
+    await completeExternalDrop({ kind: 'append' });
+  } else {
+    const movingIds = activeDragSession.value?.movingItemIds ||
+      (store.selectedItemIds.length > 0
+        ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
+        : (store.selectedItemId ? [store.selectedItemId] : []));
+
+    store.moveRundownItems({ itemIds: movingIds, target: { kind: 'append' } });
   }
-  return 'Untitled Asset';
+  clearDropTarget();
+};
+
+const onDrop = async (event: DragEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+  isDragOver.value = false;
+
+  const target = resolveDropTarget(event);
+  const isLibrarySource = activeDragSession.value?.source === 'library' ||
+    draggingItem.value?.source === 'library' ||
+    (!activeDragSession.value && draggingItem.value);
+
+  if (isLibrarySource) {
+    if (draggingItem.value) {
+      await completeExternalDrop(target);
+    }
+  } else {
+    const movingIds = activeDragSession.value?.movingItemIds ||
+      (store.selectedItemIds.length > 0
+        ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
+        : (store.selectedItemId ? [store.selectedItemId] : []));
+
+    if (target.kind === 'before' || target.kind === 'after' || target.kind === 'append') {
+      store.moveRundownItems({ itemIds: movingIds, target });
+    }
+  }
+  clearDropTarget();
 };
 
 onMounted(() => {
   hydrateMissingDurations().catch((error) => {
     console.warn('[Rundown] Initial duration hydration failed', error);
   });
-
-  if (rundownListRef.value) {
-    sortableInstance = Sortable.create(rundownListRef.value, {
-      animation: 200,
-      ghostClass: 'rw-ghost',
-      handle: '.rw-handle',
-      draggable: '.rw-row-container',
-      onEnd: (evt: any) => {
-        if (evt.oldIndex !== undefined && evt.newIndex !== undefined && evt.oldIndex !== evt.newIndex) {
-          const movingItem = store.activeItems[evt.oldIndex];
-          const targetItem = store.activeItems[evt.newIndex];
-          if (movingItem) {
-            const movingIds = (store.selectedItemIds.includes(movingItem.id) && store.selectedItemIds.length > 1)
-              ? store.activeItems.filter(i => store.selectedItemIds.includes(i.id)).map(i => i.id)
-              : [movingItem.id];
-
-            const target: InsertionTarget = (evt.newIndex >= store.activeItems.length - 1 && evt.newIndex > evt.oldIndex)
-              ? { kind: 'append' }
-              : (targetItem ? { kind: evt.newIndex > evt.oldIndex ? 'after' : 'before', targetItemId: targetItem.id } : { kind: 'append' });
-
-            store.moveRundownItems({ itemIds: movingIds, target });
-          }
-        }
-      }
-    });
-  }
-
   window.addEventListener('click', closeContextMenu);
 });
 
 onUnmounted(() => {
+  clearDropTarget();
   if (scrollFrame !== null) {
     cancelAnimationFrame(scrollFrame);
     scrollFrame = null;
   }
-  sortableInstance?.destroy();
-  sortableInstance = null;
   if (crawlDebounceTimer) clearTimeout(crawlDebounceTimer);
   window.removeEventListener('click', closeContextMenu);
 });
@@ -1013,6 +1135,8 @@ onUnmounted(() => {
           :play-protected="rowPlayProtected(index)"
           @select="onRowSelect(item, $event)"
           @contextmenu="onContextMenu($event, index, item)"
+          @dragstart="onRowDragStart($event, item)"
+          @dragend="onRowDragEnd($event)"
           @dragover="onRowDragOver($event, index)"
           @drop="onRowDrop($event, index)"
           @play="runPlaylistFrom(index)"

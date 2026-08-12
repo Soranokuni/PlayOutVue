@@ -8,7 +8,7 @@ import { useSettingsStore } from '../stores/settings';
 import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDefaults';
 import { useIngestorStatusStore } from '../stores/ingestorStatus';
 import { useMediaLibraryStore, type LibraryAsset, type TreeNode } from '../stores/mediaLibrary';
-import { draggingItem } from '../composables/useDragState';
+import { draggingItem, activeDragSession } from '../composables/useDragState';
 import { activeScope, activeLibraryContext } from '../composables/useOperatorShortcuts';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
@@ -568,6 +568,12 @@ function onAssetDragStart(event: DragEvent, asset: LibraryAsset) {
         trim_out_ms: asset.trim_out_ms,
     };
     draggingItem.value = payload;
+    activeDragSession.value = {
+        source: 'library',
+        movingItemIds: [],
+        rowRects: [],
+        scrollTop: 0
+    };
     if (event.dataTransfer) {
         event.dataTransfer.setData('text/plain', asset.uuid);
         event.dataTransfer.effectAllowed = 'copy';

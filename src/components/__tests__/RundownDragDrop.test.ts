@@ -229,4 +229,41 @@ describe('Deterministic Drag & Drop & Move Invariants', () => {
     expect(store.activeItems.length).toBe(3);
     expect(store.activeItems[2].path).toBe('/new.mp4');
   });
+
+  it('moves non-contiguous selected items preserving visual order without including unselected items', () => {
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 3', type: 'video', path: '/3.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 4', type: 'video', path: '/4.mp4', duration: 10 });
+
+    const [i1, i2, i3, i4] = store.activeItems.map(i => i.id);
+
+    // Non-contiguous selection: select i1 and i3
+    const selectedIds = [i1, i3];
+    const movingItemIds = store.activeItems.filter(item => selectedIds.includes(item.id)).map(item => item.id);
+
+    expect(movingItemIds).toEqual([i1, i3]);
+
+    // Move [i1, i3] after i4
+    const res = store.moveRundownItems({
+      itemIds: movingItemIds,
+      target: { kind: 'after', targetItemId: i4 }
+    });
+
+    expect(res.changed).toBe(true);
+    // i2 and i4 remain in relative order, i1 and i3 moved to end in original order
+    expect(store.activeItems.map(i => i.id)).toEqual([i2, i4, i1, i3]);
+  });
+
+  it('SortableJS is not used for rundown reorder', async () => {
+    // Read RundownList.vue source dynamically to verify SortableJS import and instance creation are absent
+    const fs = await import('fs');
+    const path = await import('path');
+    const rundownListPath = path.resolve(__dirname, '../RundownList.vue');
+    const content = fs.readFileSync(rundownListPath, 'utf-8');
+
+    expect(content).not.toContain("import Sortable from 'sortablejs'");
+    expect(content).not.toContain("Sortable.create");
+  });
 });
+

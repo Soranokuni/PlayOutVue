@@ -41,7 +41,10 @@ const emit = defineEmits<{
   (e: 'drop', ev: DragEvent): void;
   (e: 'play'): void;
   (e: 'delete'): void;
+  (e: 'dragstart', ev: DragEvent): void;
+  (e: 'dragend', ev: DragEvent): void;
 }>();
+
 
 
 const typeIcon = (type: RundownItem['type']) => ({ video: '🎬', live: '📹', graphic: '🎨', gap: '⏱' }[type] || '📄');
@@ -171,7 +174,13 @@ const itemStatusTone = computed(() =>
     @dragover="emit('dragover', $event)"
     @drop="emit('drop', $event)"
   >
-    <div class="rw-handle" :title="item.type === 'gap' ? 'Drag to move gap line' : 'Drag to reorder'">⋮⋮</div>
+    <div
+      class="rw-handle"
+      draggable="true"
+      :title="item.type === 'gap' ? 'Drag to move gap line' : 'Drag to reorder'"
+      @dragstart="emit('dragstart', $event)"
+      @dragend="emit('dragend', $event)"
+    >⋮⋮</div>
     <div class="rw-num">{{ item.type === 'gap' ? '⏱' : index + 1 }}</div>
     <div class="rw-signals">
       <StatusIndicator :tone="itemStatusTone" variant="dot" />
