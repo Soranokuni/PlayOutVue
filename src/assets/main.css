@@ -1,43 +1,68 @@
 /* CasparCG SOTA Client Global Styles */
 
-:root {
-  /* Core Colors */
-  --bg-primary: #111827;
-  --bg-secondary: #1B1B1B;
-  --bg-tertiary: #2a2a2a;
-  --bg-surface: rgba(255, 255, 255, 0.03);
+:root,
+.dark-theme {
+  /* Core Colors - Broadcast Midnight */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --bg-surface: rgba(30, 41, 59, 0.7);
 
   /* Accents */
-  --accent-blue: #33BECC;
-  --accent-red: #E63946;
-  --accent-yellow: #F8B400;
+  --accent-blue: #38bdf8;
+  --accent-red: #f43f5e;
+  --accent-yellow: #fbbf24;
 
   /* Text */
-  --text-primary: #F9FAFB;
-  --text-secondary: #9CA3AF;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
 
   /* Layout */
-  --border-radius-base: 12px;
+  --border-radius-base: 10px;
   --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-bg: rgba(15, 23, 42, 0.85);
   color-scheme: dark;
 }
 
+/* Monokai Pro ("Engineering Dark / Nerd Mode") */
+.monokai-theme {
+  --bg-primary: #272822;
+  --bg-secondary: #1e1f1c;
+  --bg-tertiary: #383830;
+  --bg-surface: rgba(40, 41, 35, 0.85);
+
+  --accent-blue: #66d9ef;
+  --accent-red: #f92672;
+  --accent-yellow: #e6db74;
+  --accent-green: #a6e22e;
+  --accent-orange: #fd971f;
+
+  --text-primary: #f8f8f2;
+  --text-secondary: #a6a69c;
+
+  --border-radius-base: 8px;
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-bg: rgba(30, 31, 28, 0.9);
+  color-scheme: dark;
+}
+
+/* Clean Studio Light - High Contrast & Modern Slate */
 .light-theme {
-  --bg-primary: #eff1f5;
+  --bg-primary: #f1f5f9;
   --bg-secondary: #ffffff;
-  --bg-tertiary: #e6e9ef;
-  --bg-surface: rgba(255, 255, 255, 0.72);
+  --bg-tertiary: #e2e8f0;
+  --bg-surface: #ffffff;
 
-  --accent-blue: #1e66f5;
-  --accent-red: #d20f39;
-  --accent-yellow: #df8e1d;
+  --accent-blue: #0284c7;
+  --accent-red: #e11d48;
+  --accent-yellow: #d97706;
 
-  --text-primary: #4c4f69;
-  --text-secondary: #6c6f85;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
 
-  --glass-border: rgba(76, 79, 105, 0.12);
-  --glass-bg: rgba(255, 255, 255, 0.72);
+  --border-radius-base: 10px;
+  --glass-border: rgba(15, 23, 42, 0.12);
+  --glass-bg: #ffffff;
   color-scheme: light;
 }
 

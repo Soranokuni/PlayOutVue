@@ -23,6 +23,7 @@ const localState = ref({
     ffmpegBinPath: '',
     debugMode: false,
     logosPath: '',
+    theme: 'dark' as 'dark' | 'monokai' | 'light',
     qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
     decklinkOutputName: '',
     decklinkOutputDevice: 0,
@@ -182,6 +183,7 @@ const mapLocalState = () => {
         ffmpegBinPath: settings.ffmpegBinPath,
         debugMode: settings.debugMode,
         logosPath: settings.logosPath,
+        theme: settings.theme || 'dark',
         qcSensitivity: settings.qcSensitivity || 'production',
         decklinkOutputName: settings.decklinkOutputName || '',
         decklinkOutputDevice: settings.decklinkOutputDevice || 0,
@@ -320,6 +322,60 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
         <div class="modal-body custom-scroll">
           <!-- General & QC Tab -->
           <div v-if="activeTab === 'general'">
+
+              <!-- Visual Theme & Workplace Atmosphere -->
+              <section class="settings-section">
+                  <h3 class="text-secondary section-title">Visual Atmosphere & Theme</h3>
+                  <div class="qc-card-grid">
+                      <!-- Broadcast Midnight -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.theme === 'dark' }"
+                        @click="localState.theme = 'dark'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge badge-lenient">🌌 DARK (DEFAULT)</span>
+                          <input type="radio" value="dark" v-model="localState.theme">
+                        </div>
+                        <div class="qc-card-title">Broadcast Midnight</div>
+                        <p class="qc-desc">
+                          Deep slate surfaces for low eye fatigue in master control and studio environments.
+                        </p>
+                      </div>
+
+                      <!-- Monokai Pro -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.theme === 'monokai' }"
+                        @click="localState.theme = 'monokai'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge badge-strict">👾 MONOKAI PRO</span>
+                          <input type="radio" value="monokai" v-model="localState.theme">
+                        </div>
+                        <div class="qc-card-title">Engineering Dark ("Nerd Mode")</div>
+                        <p class="qc-desc">
+                          High-contrast charcoal surfaces with iconic Monokai lime green, cyan, and magenta syntax accents.
+                        </p>
+                      </div>
+
+                      <!-- Clean Studio Light -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.theme === 'light' }"
+                        @click="localState.theme = 'light'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge badge-prod">☀️ STUDIO LIGHT</span>
+                          <input type="radio" value="light" v-model="localState.theme">
+                        </div>
+                        <div class="qc-card-title">Clean Studio Light</div>
+                        <p class="qc-desc">
+                          High-contrast daylight theme with crisp slate typography and clear borders for well-lit rooms.
+                        </p>
+                      </div>
+                  </div>
+              </section>
 
               <!-- QC Warning Sensitivity Profile -->
               <section class="settings-section">

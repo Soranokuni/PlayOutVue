@@ -417,6 +417,11 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
     const meta = cachedRatingMeta(asset);
     const compliance = meta.ageRating ||
         mediaDefaults.getCompliance(asset.uuid, asset.current_path);
+
+    const statusVal = (asset.status === 'ready' || asset.status === 'processing' || asset.status === 'error' || asset.status === 'missing' || asset.status === 'idle')
+        ? asset.status
+        : (asset.mezzanine_ok ? 'ready' : 'idle');
+
     return {
         playoutvueId: asset.uuid.startsWith('local:') ? undefined : asset.uuid,
         inPoint,
@@ -439,12 +444,15 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
         duration_ms: durationMs,
         trim_in_ms: asset.trim_in_ms,
         trim_out_ms: asset.trim_out_ms,
+        ingestorStatus: statusVal as any,
         mezzanine_ok: asset.mezzanine_ok,
         fps: asset.fps,
+        fps_num: asset.fpsNum,
+        fps_den: asset.fpsDen,
         total_frames: asset.total_frames,
         gop_frames: asset.gop_frames,
         keyframe_safe_start_ms: asset.keyframe_safe_start_ms,
-        warnings: asset.warnings,
+        warnings: asset.warnings || [],
     };
 }
 
@@ -579,7 +587,15 @@ function onAssetPointerDown(event: PointerEvent, asset: LibraryAsset) {
         current_path: asset.current_path,
         duration_ms: asset.duration_ms,
         trim_in_ms: asset.trim_in_ms,
-        trim_out_ms: asset.trim_out_ms,
+        ingestorStatus: (asset.status || (asset.mezzanine_ok ? 'ready' : 'idle')) as any,
+        mezzanine_ok: asset.mezzanine_ok,
+        fps: asset.fps,
+        fps_num: asset.fpsNum,
+        fps_den: asset.fpsDen,
+        total_frames: asset.total_frames,
+        gop_frames: asset.gop_frames,
+        keyframe_safe_start_ms: asset.keyframe_safe_start_ms,
+        warnings: asset.warnings || [],
     };
     beginLibraryDrag({
         pointerId: event.pointerId,
@@ -634,7 +650,21 @@ function closeContextMenu() {
     contextMenu.value = { ...contextMenu.value, show: false, node: null };
 }
 
+function ctxInspect() {
+    const node = contextMenu.value.node;
+    if (node?.type === 'asset' && node.asset) {
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('playout:open-inspector', { detail: node.asset }));
+        }
+    }
+    closeContextMenu();
+}
+
 function ctxAppend() {
+    if (store.isRundownLocked) {
+        closeContextMenu();
+        return;
+    }
     const node = contextMenu.value.node;
     if (node?.type === 'asset' && node.asset) {
         store.addItem(makeRundownDraftFromAsset(node.asset));
@@ -643,6 +673,10 @@ function ctxAppend() {
 }
 
 function ctxInsertAfter() {
+    if (store.isRundownLocked) {
+        closeContextMenu();
+        return;
+    }
     const node = contextMenu.value.node;
     if (node?.type !== 'asset' || !node.asset) {
         closeContextMenu();
@@ -1158,12 +1192,19 @@ const menuItems = computed<MenuItem[]>(() => {
     return [
       {
         type: 'action',
+        label: '🔍 Inspect Clip (Ctrl+I)',
+        action: ctxInspect
+      },
+      {
+        type: 'action',
         label: 'Append to Rundown',
+        disabled: store.isRundownLocked,
         action: ctxAppend
       },
       {
         type: 'action',
         label: 'Insert After Selected',
+        disabled: store.isRundownLocked,
         action: ctxInsertAfter
       },
       { type: 'divider' },

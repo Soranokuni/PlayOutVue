@@ -198,8 +198,9 @@ commandRegistry.register({
   destructive: true,
   requiresConfirmation: true,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.selection.selectedItemIds.length > 0 || !!ctx.selection.primarySelectedId,
+  isEnabled: (ctx) => !ctx.rundown.isRundownLocked && (ctx.selection.selectedItemIds.length > 0 || !!ctx.selection.primarySelectedId),
   execute: (ctx) => {
+    if (ctx.rundown.isRundownLocked) return;
     const ids = ctx.selection.selectedItemIds.length > 0 
       ? ctx.selection.selectedItemIds 
       : (ctx.selection.primarySelectedId ? [ctx.selection.primarySelectedId] : []);
@@ -233,8 +234,9 @@ commandRegistry.register({
   destructive: true,
   requiresConfirmation: true,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.selection.selectedItemIds.length > 0 || !!ctx.selection.primarySelectedId,
+  isEnabled: (ctx) => !ctx.rundown.isRundownLocked && (ctx.selection.selectedItemIds.length > 0 || !!ctx.selection.primarySelectedId),
   execute: (ctx) => {
+    if (ctx.rundown.isRundownLocked) return;
     ctx.rundown.cutSelectionToClipboard();
   }
 });
@@ -248,9 +250,10 @@ commandRegistry.register({
   safety: 'safe',
   paletteVisible: true,
   isVisible: () => true,
-  isEnabled: (ctx) => ctx.rundown.canPasteClipboard(),
-  disabledReason: (ctx) => (ctx.rundown.canPasteClipboard() ? undefined : 'Nothing in clipboard to paste'),
+  isEnabled: (ctx) => !ctx.rundown.isRundownLocked && ctx.rundown.canPasteClipboard(),
+  disabledReason: (ctx) => (ctx.rundown.isRundownLocked ? 'Rundown is locked' : (ctx.rundown.canPasteClipboard() ? undefined : 'Nothing in clipboard to paste')),
   execute: (ctx) => {
+    if (ctx.rundown.isRundownLocked) return;
     ctx.rundown.pasteClipboardAfterSelection();
   }
 });
@@ -264,8 +267,9 @@ commandRegistry.register({
   safety: 'safe',
   paletteVisible: true,
   isVisible: () => true,
-  isEnabled: (ctx) => !!ctx.selection.primarySelectedId || ctx.selection.selectedItemIds.length > 0,
+  isEnabled: (ctx) => !ctx.rundown.isRundownLocked && (!!ctx.selection.primarySelectedId || ctx.selection.selectedItemIds.length > 0),
   execute: (ctx) => {
+    if (ctx.rundown.isRundownLocked) return;
     if (ctx.selection.primarySelectedId) {
       ctx.rundown.duplicateItem(ctx.selection.primarySelectedId);
     }
@@ -312,11 +316,12 @@ commandRegistry.register({
   paletteVisible: true,
   isVisible: () => true,
   isEnabled: (ctx) => {
-    if (ctx.scope !== 'rundown' || !ctx.selection.primarySelectedId) return false;
+    if (ctx.rundown.isRundownLocked || ctx.scope !== 'rundown' || !ctx.selection.primarySelectedId) return false;
     const idx = ctx.rundown.activeItems.findIndex(i => i.id === ctx.selection.primarySelectedId);
     return idx > 0;
   },
   execute: (ctx) => {
+    if (ctx.rundown.isRundownLocked) return;
     const currentId = ctx.selection.primarySelectedId;
     if (!currentId) return;
     const activeItems = ctx.rundown.activeItems;
@@ -341,11 +346,12 @@ commandRegistry.register({
   paletteVisible: true,
   isVisible: () => true,
   isEnabled: (ctx) => {
-    if (ctx.scope !== 'rundown' || !ctx.selection.primarySelectedId) return false;
+    if (ctx.rundown.isRundownLocked || ctx.scope !== 'rundown' || !ctx.selection.primarySelectedId) return false;
     const idx = ctx.rundown.activeItems.findIndex(i => i.id === ctx.selection.primarySelectedId);
     return idx >= 0 && idx < ctx.rundown.activeItems.length - 1;
   },
   execute: (ctx) => {
+    if (ctx.rundown.isRundownLocked) return;
     const currentId = ctx.selection.primarySelectedId;
     if (!currentId) return;
     const activeItems = ctx.rundown.activeItems;
@@ -459,13 +465,16 @@ commandRegistry.register({
   safety: 'safe',
   paletteVisible: true,
   isVisible: () => true,
-  isEnabled: (ctx) => (ctx.scope === 'library' || ctx.originScope === 'library') && !!ctx.library && ctx.library.getSelectedAssetIds().length > 0,
+  isEnabled: (ctx) => !ctx.rundown.isRundownLocked && (ctx.scope === 'library' || ctx.originScope === 'library') && !!ctx.library && ctx.library.getSelectedAssetIds().length > 0,
   disabledReason: (ctx) => (
-    (ctx.scope !== 'library' && ctx.originScope !== 'library')
-      ? 'Library surface is not active'
-      : (!ctx.library || ctx.library.getSelectedAssetIds().length === 0 ? 'No library asset selected' : undefined)
+    ctx.rundown.isRundownLocked
+      ? 'Rundown is locked'
+      : ((ctx.scope !== 'library' && ctx.originScope !== 'library')
+        ? 'Library surface is not active'
+        : (!ctx.library || ctx.library.getSelectedAssetIds().length === 0 ? 'No library asset selected' : undefined))
   ),
   execute: async (ctx) => {
+    if (ctx.rundown.isRundownLocked) return;
     if (ctx.library) {
       await ctx.library.appendSelectedToPlaylist();
     }
@@ -481,13 +490,16 @@ commandRegistry.register({
   safety: 'safe',
   paletteVisible: true,
   isVisible: () => true,
-  isEnabled: (ctx) => (ctx.scope === 'library' || ctx.originScope === 'library') && !!ctx.library && ctx.library.getSelectedAssetIds().length > 0,
+  isEnabled: (ctx) => !ctx.rundown.isRundownLocked && (ctx.scope === 'library' || ctx.originScope === 'library') && !!ctx.library && ctx.library.getSelectedAssetIds().length > 0,
   disabledReason: (ctx) => (
-    (ctx.scope !== 'library' && ctx.originScope !== 'library')
-      ? 'Library surface is not active'
-      : (!ctx.library || ctx.library.getSelectedAssetIds().length === 0 ? 'No library asset selected' : undefined)
+    ctx.rundown.isRundownLocked
+      ? 'Rundown is locked'
+      : ((ctx.scope !== 'library' && ctx.originScope !== 'library')
+        ? 'Library surface is not active'
+        : (!ctx.library || ctx.library.getSelectedAssetIds().length === 0 ? 'No library asset selected' : undefined))
   ),
   execute: async (ctx) => {
+    if (ctx.rundown.isRundownLocked) return;
     if (ctx.library) {
       await ctx.library.insertSelectedAfter(ctx.selection.primarySelectedId);
     }
@@ -641,5 +653,22 @@ commandRegistry.register({
   isEnabled: (ctx) => !!ctx.trimmer && ctx.trimmer.isDirty,
   execute: (ctx) => {
     ctx.trimmer?.onSave?.();
+  }
+});
+
+commandRegistry.register({
+  id: 'global.inspectSelected',
+  label: 'Inspect Clip Metadata & QC',
+  scopes: ['rundown', 'library', 'global'],
+  defaultShortcut: 'Ctrl/Cmd+I',
+  category: 'View',
+  safety: 'safe',
+  paletteVisible: true,
+  isVisible: () => true,
+  isEnabled: (ctx) => !!ctx.selection.primarySelectedId || !!ctx.library?.getSelectedAssetIds().length,
+  execute: () => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('playout:open-inspector'));
+    }
   }
 });

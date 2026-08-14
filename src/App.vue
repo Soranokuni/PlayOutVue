@@ -8,13 +8,12 @@ import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import CommandPaletteModal from './components/CommandPaletteModal.vue';
-import PreviewMonitor from './components/PreviewMonitor.vue';
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
-import { useOperatorShortcuts, activeModalName, closeCommandPalette } from './composables/useOperatorShortcuts';
+import { useOperatorShortcuts, activeModalName, closeCommandPalette, activeInspectorItem, openInspectorModal, closeInspectorModal } from './composables/useOperatorShortcuts';
 import { advanceNext, manualTakeFailure } from './services/caspar';
 
 const settings = useSettingsStore();
@@ -118,6 +117,7 @@ const shortcutGuide = [
   'Delete or Backspace: remove the selected row, except the one currently on air.',
   'Ctrl + Arrow Up or Arrow Down: move the selected row.',
   'Shift + Arrow Down: duplicate the selected row.',
+  'Ctrl + I: Inspect selected media clip metadata and QC probing.',
   'F8 in the media library: append the selected library item after the selected rundown row.'
 ];
 
@@ -125,21 +125,21 @@ const workflowGuide = [
   'Drag media from the library into the rundown to insert exactly where the cyan marker appears.',
   'Double-click a playlist tab to rename it, then keep offline playlists staged until you take them on air.',
   'Use gap lines plus Day and At to plan hard starts without changing the playout queue until playback begins.',
-  'Use the right panel for preview and inspection, and Settings for connections, media paths, and debug controls.'
+  'Right-click any clip to inspect probe metadata, QC status, and transcode parameters.',
+  'Use Settings for connections, media paths, themes, and QC sensitivity modes.'
 ];
 
-const leftWidth = useStorage('layout.leftWidth', 260);
-const rightWidth = useStorage('layout.rightWidth', 240);
-const showRightPanel = useStorage('layout.rightPanelVisible', false);
-const rightPanelTab = useStorage<'preview' | 'inspector'>('layout.rightPanelTab', 'preview');
-const isResizing = ref<'left'|'right'|null>(null);
-const isLightMode = useStorage('ui.isLightMode', false);
+const leftWidth = useStorage('layout.leftWidth', 280);
+const isResizing = ref<'left'|null>(null);
 let pendingResizeX = 0;
 let resizeFrame = 0;
 
-watch(isLightMode, (val) => {
-    if (val) document.body.classList.add('light-theme');
-    else document.body.classList.remove('light-theme');
+// Theme watcher
+watch(() => settings.theme, (theme) => {
+    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme');
+    if (theme === 'light') document.body.classList.add('light-theme');
+    else if (theme === 'monokai') document.body.classList.add('monokai-theme');
+    else document.body.classList.add('dark-theme');
 }, { immediate: true });
 
 watch(
@@ -199,14 +199,15 @@ const handleGlobalPointerDown = (event: PointerEvent) => {
 const applyResize = () => {
   resizeFrame = 0;
   if (isResizing.value === 'left') {
-    leftWidth.value = Math.max(280, Math.min(520, pendingResizeX));
-  } else if (isResizing.value === 'right') {
-    rightWidth.value = Math.max(220, Math.min(520, window.innerWidth - pendingResizeX));
+    leftWidth.value = Math.max(260, Math.min(600, pendingResizeX));
   }
 };
 
-const startResizeLeft = () => { isResizing.value = 'left';  window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp); };
-const startResizeRight = () => { isResizing.value = 'right'; window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp); };
+const startResizeLeft = () => {
+  isResizing.value = 'left';
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
+};
 
 const onMouseMove = (e: MouseEvent) => {
   pendingResizeX = e.clientX;
@@ -301,8 +302,13 @@ const skipFailedTake = async () => {
   manualTakeFailure.value = null;
   await advanceNext(false);
 };
+const handleInspectorOpenEvent = (event: any) => {
+  openInspectorModal(event.detail);
+};
+
 onMounted(async () => {
   window.addEventListener('pointerdown', handleGlobalPointerDown);
+  window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
   try {
     unlistenHeartbeat = await listen('ingestor-heartbeat',
       (event: { payload: { online: boolean; last_seen_at: number; error?: string } }) => {
@@ -340,6 +346,7 @@ onMounted(async () => {
 onUnmounted(() => {
   onMouseUp();
   window.removeEventListener('pointerdown', handleGlobalPointerDown);
+  window.removeEventListener('playout:open-inspector', handleInspectorOpenEvent);
   if (unlistenHeartbeat) {
     unlistenHeartbeat();
     unlistenHeartbeat = null;
@@ -355,8 +362,6 @@ onUnmounted(() => {
 <template>
   <main class="app-shell" :style="{
     '--left-w': `${leftWidth}px`,
-    '--right-w': showRightPanel ? `${rightWidth}px` : '0px',
-    '--right-resizer-w': showRightPanel ? '8px' : '0px',
     cursor: isResizing ? 'ew-resize' : 'default'
   }">
     <!-- Persistent Playout Halted Banner -->
@@ -372,18 +377,6 @@ onUnmounted(() => {
     <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = 280"></div>
     
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
-    <div v-if="showRightPanel" class="resizer resizer-right" title="Drag to resize · double-click to reset" @mousedown="startResizeRight" @dblclick="rightWidth = 240"></div>
-    
-    <aside v-if="showRightPanel" class="panel panel-right glass-panel">
-      <div class="panel-right-header">
-        <button class="panel-toggle-btn" :class="{ 'is-active': rightPanelTab === 'preview' }" @click="rightPanelTab = 'preview'">Preview</button>
-        <button class="panel-toggle-btn" :class="{ 'is-active': rightPanelTab === 'inspector' }" @click="rightPanelTab = 'inspector'">Inspector</button>
-      </div>
-      <div class="panel-right-body">
-        <PreviewMonitor v-if="rightPanelTab === 'preview'" />
-        <MediaInspector v-else />
-      </div>
-    </aside>
 
     <!-- Simplified Master Control Bar -->
     <footer class="control-bar glass-panel">
@@ -404,9 +397,9 @@ onUnmounted(() => {
         <button
           v-if="!isPlayoutPlaying"
           class="ctrl-btn btn-play"
-          :disabled="!isPlayoutConnected || !rundown.activeItems.length"
+          :disabled="!isPlayoutConnected || !rundown.activeItems.length || rundown.isRundownLocked"
           @click="playSelected"
-          title="Play playlist from selected item (or beginning)"
+          :title="rundown.isRundownLocked ? 'Rundown is Locked (Unlock to Play)' : 'Play playlist from selected item (or beginning)'"
         >
           ▶ PLAY
         </button>
@@ -487,14 +480,6 @@ onUnmounted(() => {
         <span class="lock-text">{{ rundown.isRundownLocked ? 'LOCKED' : 'UNLOCKED' }}</span>
       </button>
 
-      <button class="ctrl-btn" style="font-size:0.75rem; width:40px;" @click="isLightMode = !isLightMode" :title="isLightMode ? 'Switch to Dark Mode' : 'Switch to Light Mode'">
-        {{ isLightMode ? '🌙' : '☀️' }}
-      </button>
-
-      <button class="ctrl-btn" style="font-size:0.75rem;" @click="showRightPanel = !showRightPanel">
-        {{ showRightPanel ? 'Hide Side' : 'Show Side' }}
-      </button>
-
       <IngestorStatusLight />
 
       <button class="ctrl-btn" style="font-size:0.78rem;" @click="showSettings = true">⚙ Settings</button>
@@ -552,6 +537,7 @@ onUnmounted(() => {
       </div>
     </footer>
 
+    <MediaInspector :is-open="activeModalName === 'inspector'" :target-item="activeInspectorItem" @close="closeInspectorModal" />
     <SettingsModal :is-open="showSettings" @close="showSettings = false" />
     <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
   </main>
@@ -560,9 +546,9 @@ onUnmounted(() => {
 <style scoped>
 .app-shell {
   display: grid;
-  grid-template-columns: var(--left-w) 8px 1fr var(--right-resizer-w) var(--right-w);
+  grid-template-columns: var(--left-w) 8px 1fr;
   grid-template-rows: 1fr 58px;
-  grid-template-areas: "library r1 rundown r2 right" "ctrl ctrl ctrl ctrl ctrl";
+  grid-template-areas: "library r1 rundown" "ctrl ctrl ctrl";
   height: 100vh; gap: 0; padding: 5px; overflow: hidden;
   background: var(--bg-dark,#0d0d0d);
   user-select: none;
@@ -573,19 +559,6 @@ onUnmounted(() => {
 }
 .panel-library  { grid-area: library; overflow:hidden; }
 .panel-rundown  { grid-area: rundown; overflow:hidden; }
-.panel-right    { grid-area: right; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
-.panel-right-header {
-  display:flex;
-  gap:6px;
-  padding:8px;
-  border-bottom:1px solid var(--glass-border);
-  flex-shrink:0;
-}
-.panel-right-body {
-  flex:1;
-  min-height:0;
-  overflow:hidden;
-}
 .control-bar    { grid-area: ctrl; display:flex; align-items:center; gap:8px; padding:0 12px; margin-top:5px; position:relative; overflow:visible; }
 
 .resizer {
@@ -599,7 +572,6 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.1);
 }
 .resizer-left { grid-area: r1; }
-.resizer-right { grid-area: r2; }
 
 .panel-toggle-btn {
   flex:1;

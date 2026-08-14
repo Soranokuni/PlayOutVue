@@ -197,6 +197,7 @@ registerPlayoutAdvanceListener((uuid) => {
 });
 
 const runPlaylistFrom = async (index: number) => {
+  if (store.isRundownLocked) return;
   const payload = store.buildPlaybackPayload(index);
   if (!payload) return;
 
@@ -305,17 +306,38 @@ const closeContextMenu = () => {
   contextMenu.value = { ...contextMenu.value, show: false, item: null, index: -1 };
 };
 
+const ctxInspect = () => {
+  if (contextMenu.value.item) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('playout:open-inspector', { detail: contextMenu.value.item }));
+    }
+  }
+  closeContextMenu();
+};
+
 const ctxPlayFrom = () => {
+  if (store.isRundownLocked) {
+    closeContextMenu();
+    return;
+  }
   if (contextMenu.value.index !== -1) runPlaylistFrom(contextMenu.value.index);
   closeContextMenu();
 };
 
 const ctxDuplicate = () => {
+  if (store.isRundownLocked) {
+    closeContextMenu();
+    return;
+  }
   if (contextMenu.value.item) store.duplicateItem(contextMenu.value.item.id);
   closeContextMenu();
 };
 
 const ctxDelete = async () => {
+  if (store.isRundownLocked) {
+    closeContextMenu();
+    return;
+  }
   if (contextMenu.value.item && !isProtectedPlayingRow(contextMenu.value.index)) {
     const confirmed = await ask(
       `Delete "${getDisplayName(contextMenu.value.item)}" from ${store.currentPlaylistName}?`,
@@ -328,6 +350,7 @@ const ctxDelete = async () => {
 };
 
 const saveMetadata = async (playoutvueId: string | undefined, updates: { complianceRating?: ComplianceRating; tp_flag?: boolean; content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none' }, localItemId?: string) => {
+  if (store.isRundownLocked) return;
   if (localItemId) {
     await store.updateItemMetadata(localItemId, playoutvueId, updates);
   }
@@ -376,7 +399,7 @@ const topActionItems = computed<TopAction[]>(() => {
   const item = contextMenu.value.item;
   if (!item) return [];
 
-  const isDeleteDisabled = isProtectedPlayingRow(contextMenu.value.index);
+  const isDeleteDisabled = isProtectedPlayingRow(contextMenu.value.index) || store.isRundownLocked;
   
   return [
     {
@@ -399,7 +422,7 @@ const topActionItems = computed<TopAction[]>(() => {
     },
     {
       id: 'delete',
-      tooltip: isDeleteDisabled ? 'Delete (Protected)' : 'Delete Item',
+      tooltip: store.isRundownLocked ? 'Rundown Locked' : (isDeleteDisabled ? 'Delete (Protected)' : 'Delete Item'),
       action: ctxDelete,
       disabled: isDeleteDisabled
     }
@@ -413,12 +436,19 @@ const menuItems = computed<MenuItem[]>(() => {
   const list: MenuItem[] = [
     {
       type: 'action',
+      label: '🔍 Inspect Clip (Ctrl+I)',
+      action: ctxInspect
+    },
+    {
+      type: 'action',
       label: '▶ Play from here',
+      disabled: store.isRundownLocked,
       action: ctxPlayFrom
     },
     {
       type: 'action',
       label: '⧉ Duplicate',
+      disabled: store.isRundownLocked,
       action: ctxDuplicate
     }
   ];
@@ -580,7 +610,7 @@ const activeTimerLabel = (item: RundownItem, index: number) => {
 const isProtectedPlayingRow = (index: number) => store.isCurrentPlaylistOnAir && index === store.currentPlayingIndex;
 
 const deleteRowItem = async (item: RundownItem, index: number) => {
-  if (isProtectedPlayingRow(index)) return;
+  if (store.isRundownLocked || isProtectedPlayingRow(index)) return;
   const confirmed = await ask(
     `Delete "${getDisplayName(item)}" from ${store.currentPlaylistName}?`,
     { title: 'Delete Item', kind: 'warning' }

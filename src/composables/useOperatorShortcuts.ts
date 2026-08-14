@@ -38,6 +38,21 @@ export function closeCommandPalette(): void {
   capturedActiveElement = null;
 }
 
+export const activeInspectorItem = ref<any>(null);
+
+export function openInspectorModal(item?: any): void {
+  if (activeModalName.value && activeModalName.value !== 'inspector') return;
+  activeInspectorItem.value = item || null;
+  activeModalName.value = 'inspector';
+}
+
+export function closeInspectorModal(): void {
+  if (activeModalName.value === 'inspector') {
+    activeModalName.value = null;
+    activeInspectorItem.value = null;
+  }
+}
+
 export function createCurrentCommandContext(): CommandContext {
   const currentScope = classifyActiveScope();
   const rundown = useRundownStore();

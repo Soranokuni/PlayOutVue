@@ -5,7 +5,10 @@ import type { LibraryIndicator } from '../stores/mediaDefaults';
 import StatusIndicator from './StatusIndicator.vue';
 import { resolveRundownStatusTone } from '../lib/statusResolver';
 
+import { useRundownStore } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
+
+const rundown = useRundownStore();
 
 // Extracted from RundownList.vue so each row re-renders only when ITS props
 // change (plan §2.2). All reactive values are passed as props from the parent
@@ -238,8 +241,13 @@ const itemTooltip = computed(() => {
 
     <!-- Row actions -->
     <div class="rw-actions">
-      <button class="row-btn btn-play" :title="item.type === 'gap' ? 'Play next content after this gap line' : `Play from #${index+1}`" @click.stop="emit('play')">▶</button>
-      <button v-if="!playProtected" class="row-btn row-btn-del" title="Remove (Del)" @click.stop="emit('delete')">✕</button>
+      <button
+        class="row-btn btn-play"
+        :disabled="rundown.isRundownLocked"
+        :title="rundown.isRundownLocked ? 'Rundown is Locked' : (item.type === 'gap' ? 'Play next content after this gap line' : `Play from #${index+1}`)"
+        @click.stop="!rundown.isRundownLocked && emit('play')"
+      >▶</button>
+      <button v-if="!playProtected && !rundown.isRundownLocked" class="row-btn row-btn-del" title="Remove (Del)" @click.stop="emit('delete')">✕</button>
     </div>
   </div>
 </template>
