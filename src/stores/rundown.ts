@@ -639,7 +639,8 @@ export const useRundownStore = defineStore('rundown', () => {
             complianceText: item.complianceText || '',
             hardStartTime: item.hardStartTime || '',
             displayPath: (item as any).displayPath || item.path || '',
-            ingestorStatus: 'idle',
+            ingestorStatus: (item as any).ingestorStatus || (item.mezzanine_ok ? 'ready' : 'idle'),
+            playoutvueId: (item as any).playoutvueId || (item as any).uuid || (item as any).id || undefined,
             display_name: (item as any).display_name || item.filename || '',
             virtual_folder: (item as any).virtual_folder || '',
             current_path: (item as any).current_path || item.path || '',
@@ -650,10 +651,12 @@ export const useRundownStore = defineStore('rundown', () => {
             content_type: (item as any).content_type || 'none',
             mezzanine_ok: item.mezzanine_ok,
             fps: item.fps,
+            fps_num: (item as any).fps_num || (item as any).fpsNum,
+            fps_den: (item as any).fps_den || (item as any).fpsDen,
             total_frames: item.total_frames,
             gop_frames: item.gop_frames,
             keyframe_safe_start_ms: item.keyframe_safe_start_ms,
-            warnings: item.warnings,
+            warnings: item.warnings || (item as any).warnings || [],
         };
     };
 

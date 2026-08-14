@@ -16,6 +16,9 @@ export const useSettingsStore = defineStore('settings', {
         // Local logo and ratings asset folder
         logosPath: '',
 
+        // Visual Theme ('dark' | 'monokai' | 'light')
+        theme: 'dark' as 'dark' | 'monokai' | 'light',
+
         // Compliance & QC Sensitivity ('strict' = everything flagged, 'production' = subclip alignment ok, 'lenient' = only severe errors)
         qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
 
