@@ -1730,6 +1730,11 @@ export async function playItemWithIntent(item: PlayoutItem, intent: PlaybackInte
             }
         }
 
+        if (isLiveActive.value) {
+            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
+            isLiveActive.value = false;
+        }
+
         const hydrated = hydratePlayoutItem(item);
         updateDisplayedTime(0);
         currentCasparDurationMs.value = 0;
