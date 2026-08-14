@@ -136,6 +136,7 @@ interface PlaybackAdvancePayload {
 
 export const isCasparConnected = ref(false);
 export const isCasparPlaying = ref(false);
+export const isLiveActive = ref(false);
 export const currentCasparTime = ref('00:00:00:00');
 export const currentCasparMs = ref(0);
 export const currentCasparDurationMs = ref(0);
@@ -853,9 +854,17 @@ async function refreshCurrentProducerDuration(
 }
 
 const buildLiveCommand = (preferredSource?: string) => {
-    const source = (preferredSource || getSettingsSnapshot().liveInputSourceName || '').trim();
+    if (preferredSource && preferredSource.trim()) {
+        return `PLAY ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live} ${preferredSource.trim()}`;
+    }
+    const s = getSettingsSnapshot();
+    if (s.decklinkInputDevice && s.decklinkInputDevice > 0) {
+        const fmt = s.decklinkInputFormat && s.decklinkInputFormat !== 'auto' ? ` FORMAT ${s.decklinkInputFormat}` : '';
+        return `PLAY ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live} DECKLINK ${s.decklinkInputDevice}${fmt}`;
+    }
+    const source = (s.liveInputSourceName || '').trim();
     if (!source) return '';
-    return source ? `PLAY ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live} ${source}` : '';
+    return `PLAY ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live} ${source}`;
 };
 
 const sendRawCommandCore = async (cmd: string) => {
@@ -1249,6 +1258,11 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
 
             await preloadNextItemAt(index + 1, token);
             return;
+        }
+
+        if (isLiveActive.value) {
+            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
+            isLiveActive.value = false;
         }
 
         const nextItem = queuedItems[index + 1];
@@ -1892,6 +1906,7 @@ export const casparPlayoutService: PlayoutService = {
     async stop() {
         playToken += 1;
         isCasparPlaying.value = false;
+        isLiveActive.value = false;
         currentCasparDurationMs.value = 0;
         currentKey = null;
         preloadedKeys.clear();
@@ -1987,12 +2002,20 @@ export const casparPlayoutService: PlayoutService = {
         }
         const liveCommand = buildLiveCommand();
         if (!liveCommand) {
-            throw new Error('No CasparCG live source configured. Set a Live Input Source in Settings.');
+            throw new Error('No CasparCG live source configured. Set a DeckLink Input Device or Live Route in Settings.');
         }
         await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
         await sendRawCommand(liveCommand);
+        isLiveActive.value = true;
         isCasparPlaying.value = true;
         updateDisplayedTime(0);
+    },
+
+    async returnFromLive() {
+        if (isCasparConnected.value) {
+            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
+        }
+        isLiveActive.value = false;
     },
 
     async refreshQueue(items) {

@@ -686,7 +686,7 @@ const getDisplayName = (item: RundownItem) => {
 };
 
 const onRowHandlePointerDown = (event: PointerEvent, item: RundownItem) => {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || store.isRundownLocked) return;
   const selected = store.selectedItemIds.length > 0
     ? store.selectedItemIds
     : (store.selectedItemId ? [store.selectedItemId] : []);
@@ -784,7 +784,7 @@ onMounted(() => {
         : new DOMRect();
     },
     async commit(target: ActiveDropTarget, session: DragSession) {
-      if (target.kind === 'none') return;
+      if (target.kind === 'none' || store.isRundownLocked) return;
       const insertionTarget = (target.kind === 'before' || target.kind === 'after')
         ? { kind: target.kind, targetItemId: target.targetItemId }
         : { kind: 'append' as const };

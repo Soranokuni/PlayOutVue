@@ -1463,7 +1463,7 @@ const menuItems = computed<MenuItem[]>(() => {
               <span class="chevron-spacer"></span>
               
               <span class="lib-icon" @click.stop="onAssetClick(asset)">
-                <StatusIndicator :tone="resolveLibraryStatusTone(asset)" variant="dot" :tooltip="getAssetTooltip(asset)" />
+                <StatusIndicator :tone="resolveLibraryStatusTone(asset, settings.qcSensitivity)" variant="dot" :tooltip="getAssetTooltip(asset)" />
                 <span>🎬</span>
               </span>
               <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">

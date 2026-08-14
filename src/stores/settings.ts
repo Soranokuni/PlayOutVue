@@ -16,10 +16,14 @@ export const useSettingsStore = defineStore('settings', {
         // Local logo and ratings asset folder
         logosPath: '',
 
+        // Compliance & QC Sensitivity ('strict' = everything flagged, 'production' = subclip alignment ok, 'lenient' = only severe errors)
+        qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
+
         // Hardware Output
         decklinkOutputName: '',
         decklinkOutputDevice: 0,     // Blackmagic DeckLink device number for SDI output (0 = unset)
         decklinkInputDevice: 0,      // Blackmagic DeckLink device number for SDI ingest / live rebroadcast
+        decklinkInputFormat: '1080i5000', // e.g. 1080i5000, 1080p2500, auto
         liveInputSourceName: '',
         casparConfigPath: '',
         casparOscPort: 6250,

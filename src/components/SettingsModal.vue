@@ -23,6 +23,11 @@ const localState = ref({
     ffmpegBinPath: '',
     debugMode: false,
     logosPath: '',
+    qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
+    decklinkOutputName: '',
+    decklinkOutputDevice: 0,
+    decklinkInputDevice: 0,
+    decklinkInputFormat: '1080i5000',
     liveInputSourceName: '',
     casparConfigPath: '',
     casparOscPort: 6250,
@@ -177,6 +182,11 @@ const mapLocalState = () => {
         ffmpegBinPath: settings.ffmpegBinPath,
         debugMode: settings.debugMode,
         logosPath: settings.logosPath,
+        qcSensitivity: settings.qcSensitivity || 'production',
+        decklinkOutputName: settings.decklinkOutputName || '',
+        decklinkOutputDevice: settings.decklinkOutputDevice || 0,
+        decklinkInputDevice: settings.decklinkInputDevice || 0,
+        decklinkInputFormat: settings.decklinkInputFormat || '1080i5000',
         liveInputSourceName: settings.liveInputSourceName,
         casparConfigPath: settings.casparConfigPath,
         casparOscPort: settings.casparOscPort,
@@ -288,29 +298,103 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     <div v-if="isOpen" class="modal-backdrop" data-command-scope="modal" @click.self="discardAndClose">
       <div class="glass-panel modal-content">
         <div class="modal-header">
-          <h2 class="text-accent">System Configuration</h2>
-          <button class="glass-btn btn-icon" @click="discardAndClose">✕</button>
+          <div class="modal-title-row">
+            <span class="settings-badge">SYSTEM CONFIG</span>
+            <h2 class="text-accent modal-title">Broadcast Preferences</h2>
+          </div>
+          <button class="glass-btn btn-icon" @click="discardAndClose" title="Close Settings">✕</button>
         </div>
 
         <div class="settings-tabs">
-          <button class="settings-tab-btn" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">General</button>
-          <button class="settings-tab-btn" :class="{ active: activeTab === 'playout' }" @click="activeTab = 'playout'">Playout & Hardware</button>
-          <button class="settings-tab-btn" :class="{ active: activeTab === 'cg' }" @click="activeTab = 'cg'">CG & Layouts</button>
+          <button class="settings-tab-btn" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
+            <span>⚙️</span> General & QC
+          </button>
+          <button class="settings-tab-btn" :class="{ active: activeTab === 'playout' }" @click="activeTab = 'playout'">
+            <span>📺</span> Playout & Hardware
+          </button>
+          <button class="settings-tab-btn" :class="{ active: activeTab === 'cg' }" @click="activeTab = 'cg'">
+            <span>🎨</span> CG & Layouts
+          </button>
         </div>
 
         <div class="modal-body custom-scroll">
-          <!-- General Tab -->
+          <!-- General & QC Tab -->
           <div v-if="activeTab === 'general'">
-              <!-- Media & Assets Paths -->
+
+              <!-- QC Warning Sensitivity Profile -->
               <section class="settings-section">
-                  <h3 class="text-secondary section-title">External Assets</h3>
+                  <h3 class="text-secondary section-title">QC & Compliance Warning Sensitivity</h3>
+                  <div class="qc-card-grid">
+                      <!-- Production Standard -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.qcSensitivity === 'production' }"
+                        @click="localState.qcSensitivity = 'production'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge badge-prod">🎬 PRODUCTION (DEFAULT)</span>
+                          <input type="radio" value="production" v-model="localState.qcSensitivity">
+                        </div>
+                        <div class="qc-card-title">Production Standard</div>
+                        <p class="qc-desc">
+                          Balanced broadcast operation. Editorial subclips with non-keyframe In points are clean (<strong>green</strong>). Alarms trigger for real media corruptions or missing tracks.
+                        </p>
+                      </div>
+
+                      <!-- Engineering Strict -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.qcSensitivity === 'strict' }"
+                        @click="localState.qcSensitivity = 'strict'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge badge-strict">🔬 ENGINEERING STRICT</span>
+                          <input type="radio" value="strict" v-model="localState.qcSensitivity">
+                        </div>
+                        <div class="qc-card-title">Engineering / Nerd Mode</div>
+                        <p class="qc-desc">
+                          Deep QC inspection. Flags every notice (including non-keyframe alignment on subclips, slight loudness deviations, and GOP notices) with orange warnings.
+                        </p>
+                      </div>
+
+                      <!-- Broadcast Lenient -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.qcSensitivity === 'lenient' }"
+                        @click="localState.qcSensitivity = 'lenient'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge badge-lenient">🛡️ SAFE PLAYBACK</span>
+                          <input type="radio" value="lenient" v-model="localState.qcSensitivity">
+                        </div>
+                        <div class="qc-card-title">Broadcast Lenient</div>
+                        <p class="qc-desc">
+                          High tolerance. Ignores minor advisory tags; only alerts on fatal errors that would cause on-air blackout (missing file, unplayable format, zero duration).
+                        </p>
+                      </div>
+                  </div>
+              </section>
+
+              <!-- Ingestor API & Service Base -->
+              <section class="settings-section">
+                  <h3 class="text-secondary section-title">PlayoutTranscode Ingestor API</h3>
+                  <div class="form-group">
+                      <label>API Base URL</label>
+                      <input type="text" class="glass-input" v-model="localState.ingestorApiBaseUrl" placeholder="http://127.0.0.1:4353">
+                      <span class="hint-text">Base URL of the PlayoutTranscode Ingestor REST API for asset metadata, mezzanine validation, and virtual subclip persistence.</span>
+                  </div>
+              </section>
+
+              <!-- Media Storage & Directory Paths -->
+              <section class="settings-section">
+                  <h3 class="text-secondary section-title">Storage & Media Directories</h3>
                   <div class="form-group">
                       <label>Local Video Root Directory (Fallback)</label>
                       <div class="input-with-button">
                           <input type="text" class="glass-input" v-model="localState.localMediaPath" placeholder="C:/CasparCG/media">
                           <button class="glass-btn" style="flex-shrink: 0;" title="Browse folders" @click="pickPath('media')">📁</button>
                       </div>
-                      <span class="hint-text">Absolute path to the CasparCG media root. Used only as a fallback when the Ingestor API is offline, and must match the folder that CasparCG serves.</span>
+                      <span class="hint-text">Absolute path to CasparCG media root. Used as fallback when Ingestor API is offline.</span>
                   </div>
 
                   <div class="form-group">
@@ -319,7 +403,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           <input type="text" class="glass-input" v-model="localState.ffmpegBinPath" placeholder="Requirements/ffmpeg/bin">
                           <button class="glass-btn" style="flex-shrink: 0;" title="Browse FFmpeg bin folder" @click="pickPath('ffmpeg-bin')">📁</button>
                       </div>
-                      <span class="hint-text">Optional override. Leave blank to use Requirements/ffmpeg/bin next to the PlayOut installation.</span>
+                      <span class="hint-text">Optional override. Leave blank to use Requirements/ffmpeg/bin next to installation.</span>
                   </div>
 
                   <div class="form-group">
@@ -328,32 +412,20 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           <input type="text" class="glass-input" v-model="localState.logosPath" placeholder="C:/PlayOut/logos">
                           <button class="glass-btn" style="flex-shrink: 0;" title="Browse logos folder" @click="pickPath('logos')">📁</button>
                       </div>
-                      <span class="hint-text">Expected assets: logo.png, K.png, 8.png, 12.png, 16.png, 18.png.</span>
+                      <span class="hint-text">Expected assets: logo.png, K.png, 8.png, 12.png, 16.png, 18.png, tp.png.</span>
                   </div>
               </section>
 
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">Ingestor API</h3>
-                  <div class="form-group">
-                      <label>API Base URL</label>
-                      <input type="text" class="glass-input" v-model="localState.ingestorApiBaseUrl" placeholder="http://127.0.0.1:4353">
-                      <span class="hint-text">Base URL of the external PlayoutTranscode Ingestor REST API. Asset resolution, trim, rating, and virtual folders are served from here.</span>
-                  </div>
-              </section>
-
+              <!-- Debug & Diagnostics -->
               <section class="settings-section">
                   <h3 class="text-secondary section-title">Debug & Diagnostics</h3>
                   <div class="form-grid">
                       <div class="form-group">
                           <label style="display:flex; align-items:center; gap:8px;">
                               <input type="checkbox" v-model="localState.debugMode">
-                              <span>Enable debug tools</span>
+                              <span>Enable debug tools & diagnostics</span>
                           </label>
-                          <span class="hint-text">Shows the Library debug submenu and captures backend diagnostic logs only when enabled.</span>
-                      </div>
-                      <div class="form-group">
-                          <label>Debug behavior</label>
-                          <div class="hint-card">Debug logging stays off in normal runtime. When enabled, you can manually start a background duration probe, inspect ffprobe resolution, and export logs to a .txt file.</div>
+                          <span class="hint-text">Shows advanced probe inspectors and enables exportable diagnostic logs.</span>
                       </div>
                   </div>
               </section>
@@ -361,51 +433,75 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 
           <!-- Playout & Hardware Tab -->
           <div v-if="activeTab === 'playout'">
+
+              <!-- Live Ingest & DeckLink Rebroadcast Section -->
               <section class="settings-section">
-                  <h3 class="text-secondary section-title">CasparCG Live Route</h3>
-                  <div class="form-group">
-                      <label>CasparCG source / route</label>
+                  <h3 class="text-secondary section-title">Live Ingest & DeckLink Rebroadcast</h3>
+                  <div class="form-grid">
+                      <div class="form-group">
+                          <label>DeckLink Live Input Device</label>
+                          <select class="glass-input" v-model.number="localState.decklinkInputDevice">
+                              <option :value="0">None / Use Custom AMCP Route</option>
+                              <option :value="1">DeckLink 1 (SDI / HDMI In)</option>
+                              <option :value="2">DeckLink 2 (SDI / HDMI In)</option>
+                              <option :value="3">DeckLink 3 (SDI / HDMI In)</option>
+                              <option :value="4">DeckLink 4 (SDI / HDMI In)</option>
+                          </select>
+                          <span class="hint-text">Select the hardware DeckLink device used for live feed ingest and the top-bar CUT TO LIVE button.</span>
+                      </div>
+
+                      <div class="form-group">
+                          <label>Live Input Video Standard</label>
+                          <select class="glass-input" v-model="localState.decklinkInputFormat">
+                              <option value="1080i5000">1080i50 (PAL Broadcast)</option>
+                              <option value="1080p2500">1080p25 (PAL Progressive)</option>
+                              <option value="1080i5994">1080i59.94 (NTSC Broadcast)</option>
+                              <option value="1080p2997">1080p29.97 (NTSC Progressive)</option>
+                              <option value="720p5000">720p50</option>
+                              <option value="auto">Auto / Server Default</option>
+                          </select>
+                          <span class="hint-text">Video format passed to CasparCG when initializing DeckLink live feed.</span>
+                      </div>
+                  </div>
+
+                  <div class="form-group" style="margin-top:0.75rem;">
+                      <label>Custom AMCP Live Route (Fallback / NDI / Stream)</label>
                       <input type="text" class="glass-input" v-model="localState.liveInputSourceName" placeholder="decklink://device/1 or ROUTE 2-10">
-                      <span class="hint-text">Used by the CasparCG engine for LIVE NOW and live rundown items. Enter the route or source token that your channel expects.</span>
+                      <span class="hint-text">Custom route command if not using a numbered DeckLink device.</span>
                   </div>
               </section>
 
+              <!-- CasparCG Server Configuration -->
               <section class="settings-section">
                   <h3 class="text-secondary section-title">CasparCG Server Configuration</h3>
                   <div class="form-grid">
                       <div class="form-group">
                           <label>OSC Feedback Port</label>
                           <input type="number" min="1" max="65535" class="glass-input" v-model.number="localState.casparOscPort" placeholder="6250">
-                          <span class="hint-text">Must match the UDP port in CasparCG &lt;predefined-client&gt; for this workstation, for example 5253.</span>
+                          <span class="hint-text">Must match the UDP port configured in CasparCG &lt;predefined-client&gt; (default: 6250).</span>
                       </div>
                       <div class="form-group">
-                          <label>OSC Wiring</label>
-                          <div class="hint-card">CasparCG sends OSC to the client. The app listens locally on this port, similar to CGTimer, and accepts both classic foreground messages and newer stage/layer timing messages.</div>
+                          <label>casparcg.config Path</label>
+                          <input type="text" class="glass-input" v-model="localState.casparConfigPath" placeholder="C:/CasparCG/casparcg.config">
+                          <span class="hint-text">Direct path to your CasparCG XML config file.</span>
                       </div>
                   </div>
-                  <div class="form-group" style="margin-top: 1rem;">
-                      <label>casparcg.config Path</label>
-                      <input type="text" class="glass-input" v-model="localState.casparConfigPath" placeholder="C:/CasparCG/casparcg.config">
-                      <span class="hint-text">The configurator can load and save your CasparCG XML file directly.</span>
-                  </div>
-                  <div class="form-group">
+
+                  <div style="display:flex;gap:10px;margin-top:12px;">
                       <button class="glass-btn btn-primary" @click="showDecklinkWizard = true">DeckLink Output Wizard</button>
-                      <span class="hint-text">Step-by-step wizard to configure DeckLink output (SDI), live input (SDI), and video standard.</span>
-                  </div>
-                  <div class="form-group">
                       <button class="glass-btn" @click="showCasparConfigurator = true">Advanced Configurator</button>
-                      <span class="hint-text">Full structured editing for channels, consumers, OSC, controllers, and raw XML mode.</span>
                   </div>
               </section>
 
+              <!-- PAL / SOTA Playout Timing -->
               <section class="settings-section">
                   <h3 class="text-secondary section-title">PAL / SOTA Playout Timing</h3>
                   <div class="form-grid">
                       <div class="form-group">
                           <label>Playout Profile</label>
                           <select class="glass-input" v-model="localState.playoutProfile">
-                              <option value="PAL_1080I50">PAL 1080i50</option>
-                              <option value="PAL_1080P25">PAL 1080p25</option>
+                              <option value="PAL_1080I50">PAL 1080i50 (Broadcast Interlaced)</option>
+                              <option value="PAL_1080P25">PAL 1080p25 (Progressive)</option>
                           </select>
                       </div>
                       <div class="form-group">
@@ -417,26 +513,14 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           <input type="range" min="1" max="12" v-model.number="localState.prerollFrames" style="accent-color:var(--accent-blue,#33becc);">
                       </div>
                       <div class="form-group">
-                          <label>Operator Guidance</label>
-                          <div class="hint-card">Use 2-frame transitions and 2–4 frames of preroll for low-latency 1080i/25 playout into DeckLink output.</div>
-                      </div>
-                  </div>
-              </section>
-
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">Crash Recovery</h3>
-                  <div class="form-grid">
-                      <div class="form-group">
                           <label style="display:flex; align-items:center; gap:8px;">
                               <input type="checkbox" v-model="localState.autoResumeAfterRestart">
-                              <span>Auto-resume after CasparCG restart</span>
+                              <span>Auto-resume on CasparCG restart</span>
                           </label>
-                          <span class="hint-text">If CasparCG restarts while a clip is on air, playback automatically continues from the crash-time position. If the clip already finished during the downtime, the next item starts. A brief AMCP drop (network blip) with live OSC feedback is left untouched.</span>
+                          <span class="hint-text">Continues playback from crash-time position if CasparCG server process restarts.</span>
                       </div>
                   </div>
               </section>
-
-
           </div>
 
           <!-- CG & Layouts Tab -->
@@ -445,220 +529,186 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
               <section class="settings-section">
                   <h3 class="text-secondary section-title" style="display:flex; justify-content:space-between; align-items:center;">
                       <span>CG Asset Paths</span>
-                      <button class="glass-btn btn-primary" style="padding: 2px 10px; font-size: 0.76rem;" @click="scanLogosFolder" title="Scan subfolder /logos inside local media path">
-                          ⚡ Scan logos subfolder
+                      <button class="glass-btn btn-primary" style="padding: 4px 12px; font-size: 0.76rem;" @click="scanLogosFolder" title="Scan subfolder /logos inside local media path">
+                          ⚡ Auto-Scan /logos
                       </button>
                   </h3>
                   
                   <div class="form-grid">
                       <div class="form-group">
-                          <label>Station Logo (logo.png)</label>
+                          <label>Station Logo PNG</label>
                           <div class="input-with-button">
                               <input type="text" class="glass-input" v-model="localState.cg.stationIdPath" placeholder="C:/PlayOut/logos/logo.png">
-                              <button class="glass-btn" @click="pickPath('cg-logo')">📁</button>
+                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('cg-logo')">📁</button>
                           </div>
                       </div>
-                      <div class="form-group">
-                          <label>Product Placement Badge (TP.png)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRatingTPPath" placeholder="C:/PlayOut/logos/TP.png">
-                              <button class="glass-btn" @click="pickPath('badge-tp')">📁</button>
-                          </div>
-                      </div>
-                  </div>
 
-                  <div class="form-grid" style="margin-top: 1rem;">
                       <div class="form-group">
-                          <label style="display:flex; gap:8px; align-items:center; cursor:pointer;">
-                              <input type="checkbox" v-model="localState.cg.stationIdEnabled">
-                              <span>Enable Station Logo</span>
-                          </label>
+                          <label>Rating K (Kids)</label>
+                          <div class="input-with-button">
+                              <input type="text" class="glass-input" v-model="localState.cgRatingKPath" placeholder="C:/PlayOut/logos/k.png">
+                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-k')">📁</button>
+                          </div>
                       </div>
-                  </div>
 
-                  <div class="form-grid" style="margin-top: 1rem;">
                       <div class="form-group">
-                          <label>Rating Badge K (K.png)</label>
+                          <label>Rating 8 (Ages 8+)</label>
                           <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRatingKPath" placeholder="K.png path">
-                              <button class="glass-btn" @click="pickPath('badge-k')">📁</button>
+                              <input type="text" class="glass-input" v-model="localState.cgRating8Path" placeholder="C:/PlayOut/logos/8.png">
+                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-8')">📁</button>
                           </div>
                       </div>
-                      <div class="form-group">
-                          <label>Rating Badge 8 (8.png)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRating8Path" placeholder="8.png path">
-                              <button class="glass-btn" @click="pickPath('badge-8')">📁</button>
-                          </div>
-                      </div>
-                  </div>
 
-                  <div class="form-grid" style="margin-top: 1rem;">
                       <div class="form-group">
-                          <label>Rating Badge 12 (12.png)</label>
+                          <label>Rating 12 (Ages 12+)</label>
                           <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRating12Path" placeholder="12.png path">
-                              <button class="glass-btn" @click="pickPath('badge-12')">📁</button>
+                              <input type="text" class="glass-input" v-model="localState.cgRating12Path" placeholder="C:/PlayOut/logos/12.png">
+                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-12')">📁</button>
                           </div>
                       </div>
-                      <div class="form-group">
-                          <label>Rating Badge 16 (16.png)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRating16Path" placeholder="16.png path">
-                              <button class="glass-btn" @click="pickPath('badge-16')">📁</button>
-                          </div>
-                      </div>
-                  </div>
 
-                  <div class="form-grid" style="margin-top: 1rem;">
                       <div class="form-group">
-                          <label>Rating Badge 18 (18.png)</label>
+                          <label>Rating 16 (Ages 16+)</label>
                           <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRating18Path" placeholder="18.png path">
-                              <button class="glass-btn" @click="pickPath('badge-18')">📁</button>
+                              <input type="text" class="glass-input" v-model="localState.cgRating16Path" placeholder="C:/PlayOut/logos/16.png">
+                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-16')">📁</button>
+                          </div>
+                      </div>
+
+                      <div class="form-group">
+                          <label>Rating 18 (Adults)</label>
+                          <div class="input-with-button">
+                              <input type="text" class="glass-input" v-model="localState.cgRating18Path" placeholder="C:/PlayOut/logos/18.png">
+                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-18')">📁</button>
+                          </div>
+                      </div>
+
+                      <div class="form-group">
+                          <label>TP Overlay (Telemarketing)</label>
+                          <div class="input-with-button">
+                              <input type="text" class="glass-input" v-model="localState.cgRatingTPPath" placeholder="C:/PlayOut/logos/tp.png">
+                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-tp')">📁</button>
                           </div>
                       </div>
                   </div>
               </section>
 
-              <!-- Resolution-Agnostic Layout Wizard -->
+              <!-- Interactive Layout Positioning Studio -->
               <section class="settings-section">
-                  <h3 class="text-secondary section-title">Visual Aspect-Ratio Positioning Wizard</h3>
-                  <div class="wizard-container">
-                      <div class="wizard-header" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
-                          <label class="text-secondary text-sm">Select Overlay to Position:</label>
-                          <select v-model="selectedWizardLayer" class="glass-input select-layer" style="width:200px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                      <h3 class="text-secondary section-title" style="margin-bottom:0;">On-Screen Graphic Positioning Studio</h3>
+                      <div style="display:flex; align-items:center; gap:8px;">
+                          <label style="font-size:0.8rem; color:var(--text-secondary);">Selected Layer:</label>
+                          <select v-model="selectedWizardLayer" class="select-layer">
                               <option value="logo">Station Logo</option>
-                              <option value="rating">Age Rating Badge</option>
-                              <option value="tp">Product Placement (TP)</option>
+                              <option value="rating">Rating Badge</option>
+                              <option value="tp">Telemarketing (TP)</option>
                               <option value="explanation">Explanation Banner</option>
-                              <option value="crawl">Crawl Ticker</option>
+                              <option value="crawl">Emergency Crawl</option>
                           </select>
                       </div>
+                  </div>
 
-                      <!-- The 16:9 aspect-ratio screen container -->
-                      <div class="mock-screen">
-                          <div class="safe-area-border"></div>
-                          
-                          <!-- Station Logo -->
-                          <div 
-                              class="layer-box logo-box" 
-                              :class="{ 'is-selected': selectedWizardLayer === 'logo' }"
-                              :style="{
-                                  left: localState.cgStationLogoPos.left + '%',
-                                  top: localState.cgStationLogoPos.top + '%',
-                                  width: localState.cgStationLogoPos.width + '%',
-                                  height: localState.cgStationLogoPos.height + '%'
-                              }"
-                              @mousedown="onDragStart($event, 'logo')"
-                          >
-                              <div class="box-label">Logo</div>
-                          </div>
+                  <div class="mock-screen">
+                      <div class="safe-area-border" title="10% Title Safe Area"></div>
 
-                          <!-- Rating Badge -->
-                          <div 
-                              class="layer-box rating-box" 
-                              :class="{ 'is-selected': selectedWizardLayer === 'rating' }"
-                              :style="{
-                                  left: localState.cgRatingBadgePos.left + '%',
-                                  top: localState.cgRatingBadgePos.top + '%',
-                                  width: localState.cgRatingBadgePos.width + '%',
-                                  height: localState.cgRatingBadgePos.height + '%'
-                              }"
-                              @mousedown="onDragStart($event, 'rating')"
-                          >
-                              <div class="box-label">Rating</div>
-                          </div>
-
-                          <!-- TP Badge -->
-                          <div 
-                              class="layer-box tp-box" 
-                              :class="{ 'is-selected': selectedWizardLayer === 'tp' }"
-                              :style="{
-                                  left: localState.cgTPPos.left + '%',
-                                  top: localState.cgTPPos.top + '%',
-                                  width: localState.cgTPPos.width + '%',
-                                  height: localState.cgTPPos.height + '%'
-                              }"
-                              @mousedown="onDragStart($event, 'tp')"
-                          >
-                              <div class="box-label">TP</div>
-                          </div>
-
-                          <!-- Explanation Banner -->
-                          <div 
-                              class="layer-box explanation-box" 
-                              :class="{ 'is-selected': selectedWizardLayer === 'explanation' }"
-                              :style="{
-                                  left: localState.cgExplanationBannerPos.left + '%',
-                                  top: localState.cgExplanationBannerPos.top + '%',
-                                  width: localState.cgExplanationBannerPos.width + '%',
-                                  height: localState.cgExplanationBannerPos.height + '%'
-                              }"
-                              @mousedown="onDragStart($event, 'explanation')"
-                          >
-                              <div class="box-label">Explanation Banner</div>
-                          </div>
-
-                          <!-- Crawl Ticker -->
-                          <div 
-                              class="layer-box crawl-box" 
-                              :class="{ 'is-selected': selectedWizardLayer === 'crawl' }"
-                              :style="{
-                                  left: localState.cgCrawlPos.left + '%',
-                                  top: localState.cgCrawlPos.top + '%',
-                                  width: localState.cgCrawlPos.width + '%',
-                                  height: localState.cgCrawlPos.height + '%'
-                              }"
-                              @mousedown="onDragStart($event, 'crawl')"
-                          >
-                              <div class="box-label">Crawl Ticker</div>
-                          </div>
+                      <!-- Station Logo Box -->
+                      <div
+                          class="layer-box logo-box"
+                          :class="{ 'is-selected': selectedWizardLayer === 'logo' }"
+                          :style="{
+                              left: `${localState.cgStationLogoPos.left}%`,
+                              top: `${localState.cgStationLogoPos.top}%`,
+                              width: `${localState.cgStationLogoPos.width}%`,
+                              height: `${localState.cgStationLogoPos.height}%`
+                          }"
+                          @mousedown="onDragStart($event, 'logo')"
+                      >
+                          <span class="box-label">Station Logo</span>
                       </div>
 
-                      <!-- Slider controls for selected layer -->
-                      <div class="wizard-sliders" v-if="currentActivePos" style="margin-top:1.5rem; background:rgba(0,0,0,0.2); padding:1rem; border-radius:8px; border:1px solid var(--glass-border);">
-                          <h4 class="text-accent text-sm" style="margin-bottom:0.75rem; text-transform:uppercase;">
-                              Adjusting: {{ selectedWizardLayer }}
-                          </h4>
-                          <div class="slider-row">
-                              <span class="slider-label">Left</span>
-                              <input type="range" min="0" max="100" v-model.number="currentActivePos.left">
-                              <span class="slider-value">{{ currentActivePos.left }}%</span>
-                          </div>
-                          <div class="slider-row">
-                              <span class="slider-label">Top</span>
-                              <input type="range" min="0" max="100" v-model.number="currentActivePos.top">
-                              <span class="slider-value">{{ currentActivePos.top }}%</span>
-                          </div>
-                          <div class="slider-row">
-                              <span class="slider-label">Width</span>
-                              <input type="range" min="1" max="100" v-model.number="currentActivePos.width">
-                              <span class="slider-value">{{ currentActivePos.width }}%</span>
-                          </div>
-                          <div class="slider-row">
-                              <span class="slider-label">Height</span>
-                              <input type="range" min="1" max="100" v-model.number="currentActivePos.height">
-                              <span class="slider-value">{{ currentActivePos.height }}%</span>
-                          </div>
-                          <div class="hint-text" style="margin-top: 0.5rem; text-align: center;">
-                              💡 Drag bounding boxes directly on the screen mockup above or use sliders.
-                          </div>
+                      <!-- Rating Box -->
+                      <div
+                          class="layer-box rating-box"
+                          :class="{ 'is-selected': selectedWizardLayer === 'rating' }"
+                          :style="{
+                              left: `${localState.cgRatingBadgePos.left}%`,
+                              top: `${localState.cgRatingBadgePos.top}%`,
+                              width: `${localState.cgRatingBadgePos.width}%`,
+                              height: `${localState.cgRatingBadgePos.height}%`
+                          }"
+                          @mousedown="onDragStart($event, 'rating')"
+                      >
+                          <span class="box-label">Rating</span>
+                      </div>
+
+                      <!-- TP Box -->
+                      <div
+                          class="layer-box tp-box"
+                          :class="{ 'is-selected': selectedWizardLayer === 'tp' }"
+                          :style="{
+                              left: `${localState.cgTPPos.left}%`,
+                              top: `${localState.cgTPPos.top}%`,
+                              width: `${localState.cgTPPos.width}%`,
+                              height: `${localState.cgTPPos.height}%`
+                          }"
+                          @mousedown="onDragStart($event, 'tp')"
+                      >
+                          <span class="box-label">TP</span>
+                      </div>
+
+                      <!-- Explanation Banner Box -->
+                      <div
+                          class="layer-box explanation-box"
+                          :class="{ 'is-selected': selectedWizardLayer === 'explanation' }"
+                          :style="{
+                              left: `${localState.cgExplanationBannerPos.left}%`,
+                              top: `${localState.cgExplanationBannerPos.top}%`,
+                              width: `${localState.cgExplanationBannerPos.width}%`,
+                              height: `${localState.cgExplanationBannerPos.height}%`
+                          }"
+                          @mousedown="onDragStart($event, 'explanation')"
+                      >
+                          <span class="box-label">Explanation</span>
+                      </div>
+
+                      <!-- Crawl Box -->
+                      <div
+                          class="layer-box crawl-box"
+                          :class="{ 'is-selected': selectedWizardLayer === 'crawl' }"
+                          :style="{
+                              left: `${localState.cgCrawlPos.left}%`,
+                              top: `${localState.cgCrawlPos.top}%`,
+                              width: `${localState.cgCrawlPos.width}%`,
+                              height: `${localState.cgCrawlPos.height}%`
+                          }"
+                          @mousedown="onDragStart($event, 'crawl')"
+                      >
+                          <span class="box-label">Crawl Text</span>
                       </div>
                   </div>
-              </section>
 
-              <!-- CG Templates Configuration -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">CG Templates</h3>
-                  <div class="form-grid">
-                      <div class="form-group">
-                          <label>Crawl Ticker Template</label>
-                          <input type="text" class="glass-input" v-model="localState.cgCrawlTemplate" placeholder="playout/crawl">
+                  <!-- Precision Coordinate Sliders -->
+                  <div class="wizard-sliders" style="margin-top: 1.25rem;">
+                      <div class="slider-row">
+                          <span class="slider-label">Left X (%)</span>
+                          <input type="range" min="0" :max="100 - currentActivePos.width" v-model.number="currentActivePos.left">
+                          <span class="slider-value">{{ currentActivePos.left }}%</span>
                       </div>
-                      <div class="form-group">
-                          <label>Explanation Template</label>
-                          <input type="text" class="glass-input" v-model="localState.cgExplanationTemplate" placeholder="playout/explanation">
+                      <div class="slider-row">
+                          <span class="slider-label">Top Y (%)</span>
+                          <input type="range" min="0" :max="100 - currentActivePos.height" v-model.number="currentActivePos.top">
+                          <span class="slider-value">{{ currentActivePos.top }}%</span>
+                      </div>
+                      <div class="slider-row">
+                          <span class="slider-label">Width (%)</span>
+                          <input type="range" min="2" max="100" v-model.number="currentActivePos.width">
+                          <span class="slider-value">{{ currentActivePos.width }}%</span>
+                      </div>
+                      <div class="slider-row">
+                          <span class="slider-label">Height (%)</span>
+                          <input type="range" min="2" max="100" v-model.number="currentActivePos.height">
+                          <span class="slider-value">{{ currentActivePos.height }}%</span>
                       </div>
                   </div>
               </section>
@@ -666,22 +716,25 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
         </div>
 
         <div class="modal-footer">
+          <button class="glass-btn btn-primary" @click="saveSettings">Save Preferences</button>
           <button class="glass-btn" @click="discardAndClose">Cancel</button>
-          <button class="glass-btn btn-primary" @click="saveSettings">Save Configuration</button>
         </div>
       </div>
     </div>
 
+    <!-- Sub-modals -->
     <CasparConfigModal
-        :is-open="showCasparConfigurator"
-        :initial-path="localState.casparConfigPath"
-        @close="showCasparConfigurator = false"
-        @update:path="(value) => { localState.casparConfigPath = value; }"
+      v-if="showCasparConfigurator"
+      :is-open="showCasparConfigurator"
+      :initial-path="localState.casparConfigPath"
+      @close="showCasparConfigurator = false"
     />
 
     <DeckLinkWizard
-        :is-open="showDecklinkWizard"
-        @close="showDecklinkWizard = false"
+      v-if="showDecklinkWizard"
+      :is-open="showDecklinkWizard"
+      :initial-path="localState.casparConfigPath"
+      @close="showDecklinkWizard = false"
     />
   </Teleport>
 </template>
@@ -693,180 +746,280 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(8px);
+    background: rgba(10, 14, 23, 0.85);
+    backdrop-filter: blur(12px);
     display: flex;
-    justify-content: center;
     align-items: center;
-    z-index: 10000;
+    justify-content: center;
+    z-index: 9999;
 }
 
 .modal-content {
-    width: 600px;
-    max-width: 90vw;
+    width: 860px;
+    max-width: 95vw;
+    height: 84vh;
+    max-height: 850px;
     display: flex;
     flex-direction: column;
-    padding: 0; /* Override glass-panel default padding */
-    background: var(--bg-secondary);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.8);
-    border: 1px solid var(--glass-border);
+    padding: 0;
+    background: linear-gradient(180deg, #161b26 0%, #0f131a 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+    overflow: hidden;
 }
 
 .modal-header {
-    padding: 1.5rem;
-    border-bottom: 1px solid var(--glass-border);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.modal-header h2 {
+.modal-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.settings-badge {
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.modal-title {
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #f1f5f9;
 }
 
 .modal-body {
-    padding: 1.5rem;
+    flex: 1;
     overflow-y: auto;
-    max-height: 60vh;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
 }
 
 .settings-section {
-    margin-bottom: 2rem;
-}
-
-.settings-section:last-child {
-    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 1.15rem;
+    margin-bottom: 0.5rem;
 }
 
 .section-title {
-    margin-bottom: 1rem;
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     text-transform: uppercase;
-    letter-spacing: 1px;
-    border-bottom: 1px solid var(--glass-border);
-    padding-bottom: 0.5rem;
-}
-
-.form-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    color: #94a3b8;
+    margin-bottom: 0.25rem;
 }
 
 .form-group {
     display: flex;
     flex-direction: column;
-    margin-bottom: 1rem;
+    gap: 0.35rem;
 }
 
 .form-group label {
+    font-size: 0.78rem;
+    color: #cbd5e1;
+    font-weight: 600;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.glass-input {
+    background: #0b0f17;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #f1f5f9;
     font-size: 0.85rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.4rem;
+    outline: none;
+    transition: all 0.15s;
+}
+
+.glass-input:focus {
+    border-color: #38bdf8;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
 }
 
 .input-with-button {
     display: flex;
-    gap: 0.5rem;
+    gap: 8px;
 }
 
 .input-with-button .glass-input {
-    flex-grow: 1;
+    flex: 1;
 }
 
 .hint-text {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    opacity: 0.6;
-    margin-top: 0.4rem;
+    font-size: 0.7rem;
+    color: #64748b;
+    line-height: 1.35;
 }
 
-.hint-card {
-    min-height: 42px;
+/* QC Sensitivity Cards */
+.qc-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.qc-radio-card {
+    background: rgba(11, 15, 23, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.04);
-    color: var(--text-secondary);
-    font-size: 0.78rem;
-    padding: 10px 12px;
+    padding: 12px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: all 0.15s;
+    user-select: none;
+}
+
+.qc-radio-card:hover {
+    background: rgba(15, 23, 42, 0.8);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.qc-radio-card.is-selected {
+    border-color: #38bdf8;
+    background: rgba(56, 189, 248, 0.08);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+}
+
+.qc-radio-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.qc-badge {
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.badge-prod { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+.badge-strict { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+.badge-lenient { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+
+.qc-card-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #f1f5f9;
+}
+
+.qc-desc {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    line-height: 1.35;
+    margin: 0;
 }
 
 .modal-footer {
-    padding: 1.25rem 1.5rem;
-    border-top: 1px solid var(--glass-border);
     display: flex;
     justify-content: flex-end;
-    gap: 1rem;
-    background: var(--bg-primary);
-    border-bottom-left-radius: 12px;
-    border-bottom-right-radius: 12px;
-    opacity: 0.95;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 0.75rem;
+    background: rgba(0, 0, 0, 0.4);
 }
 
 .glass-btn {
     padding: 8px 16px;
     border-radius: 6px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--glass-border);
-    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #cbd5e1;
+    font-size: 0.8rem;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
 }
 
 .glass-btn:hover {
-    background: rgba(255,255,255,0.1);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 .btn-primary {
-    background: rgba(51, 190, 204, 0.15);
-    border-color: rgba(51, 190, 204, 0.4);
-    color: var(--accent-blue);
-    font-weight: 500;
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.4);
+    color: #38bdf8;
 }
 
 .btn-primary:hover {
-    background: rgba(51, 190, 204, 0.25);
-    border-color: var(--accent-blue);
+    background: rgba(56, 189, 248, 0.25);
+    border-color: rgba(56, 189, 248, 0.6);
 }
 
 .btn-icon {
     padding: 4px 8px;
-    font-size: 1.2rem;
+    font-size: 1.1rem;
     background: transparent;
     border-color: transparent;
 }
 .btn-icon:hover {
-    background: rgba(255,255,255,0.1);
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
 }
 
 .settings-tabs {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     padding: 0 1.5rem;
-    border-bottom: 1px solid var(--glass-border);
-    background: rgba(0, 0, 0, 0.15);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.25);
 }
 
 .settings-tab-btn {
-    padding: 12px 16px;
+    padding: 10px 16px;
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    font-weight: 500;
+    color: #94a3b8;
+    font-size: 0.82rem;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .settings-tab-btn:hover {
-    color: var(--text-primary);
+    color: #f1f5f9;
 }
 
 .settings-tab-btn.active {
-    color: var(--accent-blue);
-    border-bottom-color: var(--accent-blue);
+    color: #38bdf8;
+    border-bottom-color: #38bdf8;
 }
 
 /* Visual layout wizard styles */
@@ -874,12 +1027,12 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     width: 100%;
     aspect-ratio: 16 / 9;
     background: #000;
-    border: 2px solid rgba(255,255,255,0.15);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 8px;
     position: relative;
     overflow: hidden;
-    margin-top: 1rem;
-    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+    margin-top: 0.75rem;
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
 }
 
 .safe-area-border {
@@ -888,47 +1041,47 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     left: 5%;
     width: 90%;
     height: 90%;
-    border: 1px dashed rgba(255,255,255,0.15);
+    border: 1px dashed rgba(255, 255, 255, 0.15);
     pointer-events: none;
 }
 
 .layer-box {
     position: absolute;
     cursor: move;
-    border: 1px solid rgba(255,255,255,0.4);
+    border: 1px solid rgba(255, 255, 255, 0.4);
     display: flex;
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
-    transition: background 0.2s, border-color 0.2s;
+    transition: background 0.15s, border-color 0.15s;
     user-select: none;
 }
 
 .layer-box:hover {
-    border-color: var(--accent-blue);
+    border-color: #38bdf8;
 }
 
 .layer-box.is-selected {
-    border-color: var(--accent-blue);
+    border-color: #38bdf8;
     border-width: 2px;
-    box-shadow: 0 0 8px rgba(51, 190, 204, 0.5);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
     z-index: 10;
 }
 
 .box-label {
     font-size: 0.65rem;
-    font-weight: 600;
+    font-weight: 700;
     color: #fff;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
     text-transform: uppercase;
     text-align: center;
     padding: 2px;
 }
 
-.logo-box { background: rgba(51, 190, 204, 0.25); }
-.rating-box { background: rgba(248, 180, 0, 0.25); }
-.tp-box { background: rgba(230, 57, 70, 0.25); }
-.explanation-box { background: rgba(147, 51, 234, 0.25); }
+.logo-box { background: rgba(56, 189, 248, 0.25); }
+.rating-box { background: rgba(245, 158, 11, 0.25); }
+.tp-box { background: rgba(244, 63, 94, 0.25); }
+.explanation-box { background: rgba(168, 85, 247, 0.25); }
 .crawl-box { background: rgba(59, 130, 246, 0.25); }
 
 .wizard-sliders {
@@ -939,35 +1092,44 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 
 .slider-row {
     display: grid;
-    grid-template-columns: 80px 1fr 50px;
+    grid-template-columns: 90px 1fr 60px;
     align-items: center;
     gap: 1rem;
 }
 
 .slider-label {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    text-transform: capitalize;
+    font-size: 0.78rem;
+    color: #94a3b8;
+    font-weight: 600;
 }
 
 .slider-value {
     font-size: 0.8rem;
-    color: var(--text-primary);
+    color: #f1f5f9;
     text-align: right;
-    font-variant-numeric: tabular-nums;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-weight: 700;
 }
 
 .wizard-sliders input[type="range"] {
-    accent-color: var(--accent-blue);
+    accent-color: #38bdf8;
     cursor: pointer;
 }
 
 .select-layer {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--glass-border);
-    color: var(--text-primary);
-    border-radius: 4px;
-    padding: 6px 10px;
-    font-size: 0.82rem;
+    background: #0b0f17;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #f1f5f9;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    outline: none;
+}
+
+@media (max-width: 768px) {
+    .qc-card-grid {
+        grid-template-columns: 1fr;
+    }
 }
 </style>
