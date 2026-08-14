@@ -75,7 +75,7 @@ export function classifyActiveScope(): ShortcutScope {
     return 'modal';
   }
 
-  if (active?.closest('[data-command-scope="command-palette"]')) {
+  if (active?.closest('[data-command-scope="command-palette"]') || activeModalName.value === 'command-palette') {
     return 'command-palette';
   }
 

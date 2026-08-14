@@ -93,7 +93,12 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
 
     const wrapper = mount(CommandPaletteModal, {
       props: { isOpen: true },
-      attachTo: document.body
+      attachTo: document.body,
+      global: {
+        stubs: {
+          Teleport: true
+        }
+      }
     });
 
     await nextTick();
@@ -130,7 +135,12 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     openCommandPalette();
     const wrapper = mount(CommandPaletteModal, {
       props: { isOpen: true },
-      attachTo: document.body
+      attachTo: document.body,
+      global: {
+        stubs: {
+          Teleport: true
+        }
+      }
     });
 
     await nextTick();
@@ -172,7 +182,12 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     openCommandPalette();
     const wrapper = mount(CommandPaletteModal, {
       props: { isOpen: true },
-      attachTo: document.body
+      attachTo: document.body,
+      global: {
+        stubs: {
+          Teleport: true
+        }
+      }
     });
 
     await nextTick();
@@ -211,7 +226,12 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     openCommandPalette();
     const wrapper = mount(CommandPaletteModal, {
       props: { isOpen: true },
-      attachTo: document.body
+      attachTo: document.body,
+      global: {
+        stubs: {
+          Teleport: true
+        }
+      }
     });
 
     await nextTick();
@@ -247,7 +267,12 @@ describe('PR 4 Command Palette Modal & Focus Trapping (Remediated)', () => {
     openCommandPalette();
     const wrapper = mount(CommandPaletteModal, {
       props: { isOpen: true },
-      attachTo: document.body
+      attachTo: document.body,
+      global: {
+        stubs: {
+          Teleport: true
+        }
+      }
     });
 
     await nextTick();

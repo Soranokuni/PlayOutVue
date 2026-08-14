@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
@@ -15,6 +15,26 @@ import {
   activeLibraryContext,
   resetShortcutsMountedStateForTesting
 } from '../../composables/useOperatorShortcuts';
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockImplementation((cmd: string) => {
+    if (cmd === 'list_ingestor_assets') {
+      return Promise.resolve([
+        { uuid: 'asset-1', current_path: '/media/1.mp4', display_name: 'Alpha Asset', virtual_folder: '/', duration_ms: 10000, trim_in_ms: 0, trim_out_ms: 10000, rating: 'none', status: 'ready' },
+        { uuid: 'asset-2', current_path: '/media/2.mp4', display_name: 'Beta Asset', virtual_folder: '/', duration_ms: 10000, trim_in_ms: 0, trim_out_ms: 10000, rating: 'none', status: 'ready' },
+        { uuid: 'asset-3', current_path: '/media/3.mp4', display_name: 'Charlie Asset', virtual_folder: '/', duration_ms: 10000, trim_in_ms: 0, trim_out_ms: 10000, rating: 'none', status: 'ready' },
+        { uuid: 'asset-4', current_path: '/media/4.mp4', display_name: 'Delta Asset', virtual_folder: '/', duration_ms: 10000, trim_in_ms: 0, trim_out_ms: 10000, rating: 'none', status: 'ready' }
+      ]);
+    }
+    if (cmd === 'get_folder_colors') {
+      return Promise.resolve({});
+    }
+    if (cmd === 'get_probe_status') {
+      return Promise.resolve({ running: false, totalCandidates: 0, checked: 0, currentPath: null, error: null });
+    }
+    return Promise.resolve(null);
+  })
+}));
 
 describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () => {
   let libraryStore: ReturnType<typeof useMediaLibraryStore>;
@@ -169,6 +189,7 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
 
   it('mounts real MediaLibrary.vue component, exposes activeLibraryContext adapter, and processes window ArrowDown', async () => {
     const wrapper = mount(MediaLibrary, {
+      attachTo: document.body,
       global: {
         stubs: {
           ContextMenu: true
@@ -217,7 +238,7 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
   });
 
   it('does NOT execute Shift+F8 when focus is inside a text input or active dialog', async () => {
-    libraryStore.selectItem('asset-1');
+    libraryStore.selectNode('asset:asset-1');
 
     const input = document.createElement('input');
     document.body.appendChild(input);

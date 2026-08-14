@@ -5,6 +5,28 @@ import { useRundownStore, parseBroadcastRating, serializeBroadcastRating } from 
 import type { ComplianceRating } from './rundown';
 import { invoke } from '@tauri-apps/api/core';
 
+export interface QcFinding {
+    severity: 'info' | 'warning' | 'error' | string;
+    code: string;
+    message: string;
+    measured?: string;
+    expected?: string;
+}
+
+export interface QcReport {
+    passed: boolean;
+    blocking_errors: number;
+    warnings_count: number;
+    findings: QcFinding[];
+}
+
+export interface LoudnessMetadata {
+    integrated_lufs?: number;
+    true_peak_dbtp?: number;
+    lra_lu?: number;
+    mode?: string;
+}
+
 export interface LibraryAsset {
     uuid: string;
     current_path: string;
@@ -30,6 +52,8 @@ export interface LibraryAsset {
     gop_frames?: number;
     keyframe_safe_start_ms?: number;
     warnings?: string[];
+    qc_report?: QcReport;
+    loudness?: LoudnessMetadata;
 }
 
 export interface TreeNode {

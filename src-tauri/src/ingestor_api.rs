@@ -9,6 +9,81 @@ const HEARTBEAT_INTERVAL_SECS: u64 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub struct V2QcFindingDto {
+    pub severity: String,
+    pub code: String,
+    pub message: String,
+    #[serde(default)]
+    pub measured: Option<String>,
+    #[serde(default)]
+    pub expected: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct V2QcReportDto {
+    pub passed: bool,
+    #[serde(default)]
+    pub blocking_errors: usize,
+    #[serde(default)]
+    pub warnings_count: usize,
+    #[serde(default)]
+    pub findings: Vec<V2QcFindingDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct V2LoudnessDto {
+    #[serde(default)]
+    pub integrated_lufs: Option<f64>,
+    #[serde(default)]
+    pub true_peak_dbtp: Option<f64>,
+    #[serde(default)]
+    pub lra_lu: Option<f64>,
+    #[serde(default)]
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct V2AssetDto {
+    pub uuid: String,
+    #[serde(default)]
+    pub playoutvue_id: String,
+    #[serde(default)]
+    pub current_path: String,
+    #[serde(default)]
+    pub duration_ms: i64,
+    #[serde(default)]
+    pub trim_in_ms: i64,
+    #[serde(default)]
+    pub trim_out_ms: i64,
+    #[serde(default)]
+    pub fps_num: i64,
+    #[serde(default)]
+    pub fps_den: i64,
+    #[serde(default)]
+    pub mezzanine_ok: bool,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub virtual_folder: Option<String>,
+    #[serde(default)]
+    pub rating: Option<String>,
+    #[serde(default)]
+    pub tp: Option<String>,
+    #[serde(default)]
+    pub qc_report: Option<V2QcReportDto>,
+    #[serde(default)]
+    pub loudness: Option<V2LoudnessDto>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct AssetResponse {
     pub uuid: String,
     pub current_path: String,
@@ -40,6 +115,111 @@ pub struct AssetResponse {
     pub warnings: Option<Vec<String>>,
     #[serde(default)]
     pub playoutvue_id: Option<String>,
+    #[serde(default)]
+    pub qc_report: Option<V2QcReportDto>,
+    #[serde(default)]
+    pub loudness: Option<V2LoudnessDto>,
+}
+
+/// Centralized Strict Readiness Predicate.
+/// An asset is considered playable only if it satisfies all 8 invariant requirements.
+pub fn evaluate_strict_readiness(
+    status: &str,
+    mezzanine_ok: bool,
+    current_path: &str,
+    duration_ms: i64,
+    trim_in_ms: i64,
+    trim_out_ms: i64,
+    fps_num: i64,
+    fps_den: i64,
+    blocking_errors: usize,
+) -> (bool, Option<String>) {
+    if status != "ready" && status != "completed" {
+        return (false, Some(format!("Status '{}' is not ready", status)));
+    }
+    if !mezzanine_ok {
+        return (false, Some("Mezzanine is not verified safe (mezzanine_ok = false)".into()));
+    }
+    if current_path.trim().is_empty() {
+        return (false, Some("Asset current_path is empty".into()));
+    }
+    if current_path.contains(".tmp_") || current_path.starts_with(".tmp") {
+        return (false, Some("Asset points to a transient/staging path (.tmp_)".into()));
+    }
+    if duration_ms <= 0 {
+        return (false, Some("Duration must be > 0 ms".into()));
+    }
+    if trim_in_ms < 0 || trim_out_ms <= trim_in_ms || trim_out_ms > duration_ms {
+        return (false, Some(format!("Invalid trim bounds: in={}, out={}, duration={}", trim_in_ms, trim_out_ms, duration_ms)));
+    }
+    if fps_num <= 0 || fps_den <= 0 {
+        return (false, Some(format!("Invalid rational FPS: {}/{}", fps_num, fps_den)));
+    }
+    if blocking_errors > 0 {
+        return (false, Some(format!("Asset has {} blocking QC findings", blocking_errors)));
+    }
+    (true, None)
+}
+
+/// Maps a typed V2AssetDto into the standard hydrated AssetResponse
+pub fn map_v2_to_asset_response(v2: V2AssetDto) -> AssetResponse {
+    let blocking = v2.qc_report.as_ref().map(|qc| qc.blocking_errors).unwrap_or(0);
+    let (is_playable, unready_reason) = evaluate_strict_readiness(
+        &v2.status,
+        v2.mezzanine_ok,
+        &v2.current_path,
+        v2.duration_ms,
+        v2.trim_in_ms,
+        v2.trim_out_ms,
+        v2.fps_num,
+        v2.fps_den,
+        blocking,
+    );
+
+    let status = if is_playable {
+        "ready".to_string()
+    } else if v2.status == "error" || v2.status == "failed" || !v2.mezzanine_ok || blocking > 0 {
+        "error".to_string()
+    } else {
+        "processing".to_string()
+    };
+
+    let mut warnings = v2.warnings;
+    if let Some(reason) = unready_reason {
+        if !is_playable && !warnings.contains(&reason) {
+            warnings.push(reason);
+        }
+    }
+
+    let fps = if v2.fps_den > 0 {
+        v2.fps_num as f64 / v2.fps_den as f64
+    } else {
+        25.0
+    };
+
+    AssetResponse {
+        uuid: v2.uuid.clone(),
+        current_path: v2.current_path,
+        duration_ms: v2.duration_ms,
+        trim_in_ms: v2.trim_in_ms,
+        trim_out_ms: v2.trim_out_ms,
+        rating: v2.rating.unwrap_or_else(|| "none".to_string()),
+        tp: v2.tp.unwrap_or_else(|| "false".to_string()),
+        status,
+        display_name: v2.display_name,
+        virtual_folder: v2.virtual_folder,
+        mezzanine_ok: Some(v2.mezzanine_ok),
+        fps: Some(fps),
+        fps_num: Some(v2.fps_num),
+        fps_den: Some(v2.fps_den),
+        total_frames: None,
+        gop_frames: None,
+        keyframe_safe_start_ms: None,
+        warnings: Some(warnings),
+        playoutvue_id: Some(if v2.playoutvue_id.is_empty() { v2.uuid } else { v2.playoutvue_id }),
+        qc_report: v2.qc_report,
+        loudness: v2.loudness,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,13 +271,27 @@ pub async fn check_ingestor_health<R: Runtime>(
         &get_ingestor_api_base_url(&app),
         &api_base_url_override.unwrap_or_default(),
     );
-    let url = format!("{}/api/health", base_url);
-    diagnostics.push("info", "ingestor", format!("Checking Ingestor API health at '{}'", url));
     let client = build_client()?;
 
-    let res = match client.get(&url).send().await {
+    // 1. Try V2 health route first
+    let v2_url = format!("{}/api/v2/health", base_url);
+    diagnostics.push("info", "ingestor", format!("Checking Ingestor API V2 health at '{}'", v2_url));
+    let v2_res = client.get(&v2_url).send().await;
+
+    if let Ok(ref resp) = v2_res {
+        if resp.status().is_success() {
+            let elapsed = start_time.elapsed().as_millis();
+            diagnostics.push("info", "ingestor", format!("Ingestor V2 health check succeeded in {}ms", elapsed));
+            return Ok(true);
+        }
+    }
+
+    // 2. Fallback to V1 health route
+    let v1_url = format!("{}/api/health", base_url);
+    diagnostics.push("info", "ingestor", format!("Falling back to Ingestor API V1 health at '{}'", v1_url));
+    let res = match client.get(&v1_url).send().await {
         Ok(response) => Ok(response.status().is_success()),
-        Err(error) => Err(format!("Ingestor health check failed for '{}': {}", url, error)),
+        Err(error) => Err(format!("Ingestor health check failed for '{}': {}", v1_url, error)),
     };
 
     let elapsed = start_time.elapsed().as_millis();
@@ -119,10 +313,37 @@ pub async fn list_ingestor_assets<R: Runtime>(
         &get_ingestor_api_base_url(&app),
         &api_base_url_override.unwrap_or_default(),
     );
-
-    let url = format!("{}/api/assets", base_url);
-    diagnostics.push("info", "ingestor", format!("Listing Ingestor API assets from '{}'", url));
     let client = build_client()?;
+
+    // 1. Primary: query V2 assets endpoint
+    let v2_url = format!("{}/api/v2/assets", base_url);
+    diagnostics.push("info", "ingestor", format!("Listing Ingestor assets from V2 API at '{}'", v2_url));
+
+    let v2_res = client.get(&v2_url).send().await;
+    if let Ok(response) = v2_res {
+        let status = response.status();
+        if status.is_success() {
+            let body = response.text().await.map_err(|e| {
+                format!("Failed to read Ingestor V2 list response: {}", e)
+            })?;
+            if let Ok(v2_assets) = serde_json::from_str::<Vec<V2AssetDto>>(&body) {
+                let mapped: Vec<AssetResponse> = v2_assets.into_iter().map(map_v2_to_asset_response).collect();
+                let elapsed = start_time.elapsed().as_millis();
+                diagnostics.push("info", "ingestor", format!("Hydrated {} assets via V2 API in {}ms", mapped.len(), elapsed));
+                return Ok(mapped);
+            }
+        } else if status.as_u16() != 404 {
+            // Non-404 V2 error (e.g. 500 server error): report failure without fallback
+            let body = response.text().await.unwrap_or_default();
+            let err = format!("Ingestor V2 API returned HTTP {}: {}", status.as_u16(), body);
+            diagnostics.push("error", "ingestor", err.clone());
+            return Err(err);
+        }
+    }
+
+    // 2. Fallback: query V1 assets endpoint
+    let url = format!("{}/api/assets", base_url);
+    diagnostics.push("info", "ingestor", format!("Falling back to Ingestor V1 API assets at '{}'", url));
 
     let response_res = client.get(&url).send().await;
     let elapsed_req = start_time.elapsed().as_millis();
@@ -165,7 +386,7 @@ pub async fn list_ingestor_assets<R: Runtime>(
         "info",
         "ingestor",
         format!(
-            "Listed {} assets from Ingestor API in {}ms (HTTP request took {}ms)",
+            "Listed {} assets from Ingestor V1 API in {}ms (HTTP request took {}ms)",
             parsed.len(),
             total_elapsed,
             elapsed_req
@@ -186,10 +407,36 @@ pub async fn resolve_ingestor_asset<R: Runtime>(
         &get_ingestor_api_base_url(&app),
         &api_base_url_override.unwrap_or_default(),
     );
-
-    let url = format!("{}/api/assets/{}", base_url, uuid);
-    diagnostics.push("info", "ingestor", format!("Resolving Ingestor asset '{}' from '{}'", uuid, url));
     let client = build_client()?;
+
+    // 1. Primary: query V2 single asset endpoint
+    let v2_url = format!("{}/api/v2/assets/{}", base_url, uuid);
+    diagnostics.push("info", "ingestor", format!("Resolving Ingestor asset '{}' from V2 API at '{}'", uuid, v2_url));
+
+    let v2_res = client.get(&v2_url).send().await;
+    if let Ok(response) = v2_res {
+        let status = response.status();
+        if status.is_success() {
+            let body = response.text().await.map_err(|e| {
+                format!("Failed to read Ingestor V2 asset response: {}", e)
+            })?;
+            if let Ok(v2_asset) = serde_json::from_str::<V2AssetDto>(&body) {
+                let mapped = map_v2_to_asset_response(v2_asset);
+                let elapsed = start_time.elapsed().as_millis();
+                diagnostics.push("info", "ingestor", format!("Resolved asset '{}' via V2 API in {}ms", uuid, elapsed));
+                return Ok(mapped);
+            }
+        } else if status.as_u16() != 404 {
+            let body = response.text().await.unwrap_or_default();
+            let err = format!("Ingestor V2 API returned HTTP {} for asset '{}': {}", status.as_u16(), uuid, body);
+            diagnostics.push("error", "ingestor", err.clone());
+            return Err(err);
+        }
+    }
+
+    // 2. Fallback: query V1 single asset endpoint
+    let url = format!("{}/api/assets/{}", base_url, uuid);
+    diagnostics.push("info", "ingestor", format!("Falling back to Ingestor V1 asset resolution at '{}'", url));
 
     let response_res = client.get(&url).send().await;
     let elapsed_req = start_time.elapsed().as_millis();
@@ -232,7 +479,7 @@ pub async fn resolve_ingestor_asset<R: Runtime>(
         "info",
         "ingestor",
         format!(
-            "Resolved asset '{}' from Ingestor API in {}ms (HTTP request took {}ms)",
+            "Resolved asset '{}' from Ingestor V1 API in {}ms (HTTP request took {}ms)",
             uuid, total_elapsed, elapsed_req
         ),
     );
@@ -911,5 +1158,180 @@ pub async fn set_ingestor_folder_color<R: Runtime>(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strict_readiness_valid_asset_passes() {
+        let (ready, reason) = evaluate_strict_readiness(
+            "ready",
+            true,
+            "D:\\Media\\clip1.mp4",
+            10000,
+            0,
+            10000,
+            25,
+            1,
+            0,
+        );
+        assert!(ready);
+        assert!(reason.is_none());
+    }
+
+    #[test]
+    fn test_strict_readiness_mezzanine_false_fails() {
+        let (ready, reason) = evaluate_strict_readiness(
+            "ready",
+            false,
+            "D:\\Media\\clip1.mp4",
+            10000,
+            0,
+            10000,
+            25,
+            1,
+            0,
+        );
+        assert!(!ready);
+        assert!(reason.unwrap().contains("mezzanine_ok = false"));
+    }
+
+    #[test]
+    fn test_strict_readiness_temp_path_fails() {
+        let (ready, reason) = evaluate_strict_readiness(
+            "ready",
+            true,
+            "D:\\Media\\.tmp_123_clip1.mp4",
+            10000,
+            0,
+            10000,
+            25,
+            1,
+            0,
+        );
+        assert!(!ready);
+        assert!(reason.unwrap().contains("transient/staging path"));
+    }
+
+    #[test]
+    fn test_strict_readiness_empty_path_fails() {
+        let (ready, reason) = evaluate_strict_readiness(
+            "ready",
+            true,
+            "",
+            10000,
+            0,
+            10000,
+            25,
+            1,
+            0,
+        );
+        assert!(!ready);
+        assert!(reason.unwrap().contains("current_path is empty"));
+    }
+
+    #[test]
+    fn test_strict_readiness_invalid_fps_fails() {
+        let (ready, reason) = evaluate_strict_readiness(
+            "ready",
+            true,
+            "D:\\Media\\clip1.mp4",
+            10000,
+            0,
+            10000,
+            0,
+            1,
+            0,
+        );
+        assert!(!ready);
+        assert!(reason.unwrap().contains("Invalid rational FPS"));
+    }
+
+    #[test]
+    fn test_strict_readiness_invalid_trim_bounds_fails() {
+        let (ready, reason) = evaluate_strict_readiness(
+            "ready",
+            true,
+            "D:\\Media\\clip1.mp4",
+            10000,
+            5000,
+            4000, // trim_out < trim_in
+            25,
+            1,
+            0,
+        );
+        assert!(!ready);
+        assert!(reason.unwrap().contains("Invalid trim bounds"));
+    }
+
+    #[test]
+    fn test_strict_readiness_blocking_qc_errors_fails() {
+        let (ready, reason) = evaluate_strict_readiness(
+            "ready",
+            true,
+            "D:\\Media\\clip1.mp4",
+            10000,
+            0,
+            10000,
+            25,
+            1,
+            2, // 2 blocking QC errors
+        );
+        assert!(!ready);
+        assert!(reason.unwrap().contains("2 blocking QC findings"));
+    }
+
+    #[test]
+    fn test_map_v2_to_asset_response_hydrates_metadata_and_qc() {
+        let v2 = V2AssetDto {
+            uuid: "asset-v2-123".into(),
+            playoutvue_id: "asset-v2-123".into(),
+            current_path: "D:\\Mezzanine\\asset1.mp4".into(),
+            duration_ms: 15000,
+            trim_in_ms: 0,
+            trim_out_ms: 15000,
+            fps_num: 50,
+            fps_den: 1,
+            mezzanine_ok: true,
+            status: "ready".into(),
+            display_name: Some("Asset Alpha".into()),
+            virtual_folder: Some("/Promos".into()),
+            rating: Some("12".into()),
+            tp: Some("true".into()),
+            qc_report: Some(V2QcReportDto {
+                passed: true,
+                blocking_errors: 0,
+                warnings_count: 1,
+                findings: vec![V2QcFindingDto {
+                    severity: "warning".into(),
+                    code: "loudness_dynamic_mode".into(),
+                    message: "Short clip dynamically normalized".into(),
+                    measured: Some("-23.1".into()),
+                    expected: Some("-23.0".into()),
+                }],
+            }),
+            loudness: Some(V2LoudnessDto {
+                integrated_lufs: Some(-23.1),
+                true_peak_dbtp: Some(-1.2),
+                lra_lu: Some(5.4),
+                mode: Some("ebu_r128".into()),
+            }),
+            warnings: vec!["Loudness adjusted".into()],
+        };
+
+        let mapped = map_v2_to_asset_response(v2);
+        assert_eq!(mapped.status, "ready");
+        assert_eq!(mapped.uuid, "asset-v2-123");
+        assert_eq!(mapped.playoutvue_id, Some("asset-v2-123".into()));
+        assert_eq!(mapped.fps, Some(50.0));
+        assert_eq!(mapped.fps_num, Some(50));
+        assert_eq!(mapped.fps_den, Some(1));
+        assert!(mapped.qc_report.is_some());
+        assert_eq!(mapped.qc_report.unwrap().findings.len(), 1);
+        assert!(mapped.loudness.is_some());
+        assert_eq!(mapped.loudness.unwrap().integrated_lufs, Some(-23.1));
+    }
 }
 

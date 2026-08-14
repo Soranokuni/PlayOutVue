@@ -1,8 +1,10 @@
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vitest/config'
+import vue from '@vitejs/plugin-vue'
 
-// Vitest shares the Vite `@` alias.
+// Vitest shares the Vite `@` alias and compiles Vue SFCs.
 export default defineConfig({
+  plugins: [vue()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
@@ -13,3 +15,4 @@ export default defineConfig({
     include: ['src/**/__tests__/**/*.test.ts'],
   },
 })
+
