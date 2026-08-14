@@ -740,149 +740,192 @@ const saveAsSubclip = () => {
 
       <!-- Header -->
       <div class="trim-header">
-        <div>
-          <div class="text-accent" style="font-size:0.88rem;font-weight:600;">✂️ {{ item.filename }}</div>
-          <div class="text-secondary" style="font-size:0.68rem;">
-            <span v-if="viewTrimmed" style="color:var(--accent-blue,#33becc)">
+        <div class="header-left">
+          <div class="clip-title-row">
+            <span class="trim-badge">TRIMMER</span>
+            <span class="clip-name">{{ item.filename }}</span>
+          </div>
+          <div class="clip-meta-row">
+            <span v-if="viewTrimmed" class="meta-chip meta-chip-active">
               Content: {{ (displayTotalMs/1000).toFixed(1) }}s
             </span>
-            <span v-else>
-              Total: {{ isProbing ? '⌛' : (displayTotalMs ? (displayTotalMs/1000).toFixed(2)+'s' : 'type timecodes') }}
+            <span v-else class="meta-chip">
+              Duration: {{ isProbing ? '...' : (displayTotalMs ? (displayTotalMs/1000).toFixed(2)+'s' : '--') }}
             </span>
-            <span v-if="viewTrimmed && fullFileDurationMs" style="opacity:0.55">
-              &nbsp;|&nbsp;Full: {{ (fullFileDurationMs/1000).toFixed(1) }}s
+            <span v-if="viewTrimmed && fullFileDurationMs" class="meta-chip meta-chip-muted">
+              Source: {{ (fullFileDurationMs/1000).toFixed(1) }}s
             </span>
-            &nbsp;|&nbsp; Selection: <strong style="color:var(--accent-blue,#33becc)">{{ trimmedDuration }}</strong>
+            <span class="meta-chip meta-chip-duration">
+              Selection: <strong>{{ trimmedDuration }}</strong>
+            </span>
           </div>
         </div>
-        <div class="shortcut-hint">
-          <span>J</span>rewind &nbsp;<span>K</span>pause &nbsp;<span>L</span>fwd &nbsp;
-          <span>I</span>set IN &nbsp;<span>O</span>set OUT &nbsp;<span>← →</span>1fr &nbsp;<span>⇧← →</span>10fr
+
+        <div class="header-right">
+          <div class="shortcut-hint">
+            <span class="key-cap">J</span><span class="key-cap">K</span><span class="key-cap">L</span> shuttle
+            <span class="key-sep">•</span>
+            <span class="key-cap">I</span> In <span class="key-cap">O</span> Out
+            <span class="key-sep">•</span>
+            <span class="key-cap">←</span><span class="key-cap">→</span> 1f
+            <span class="key-sep">•</span>
+            <span class="key-cap">⇧←</span><span class="key-cap">⇧→</span> 10f
+          </div>
+          <button
+            v-if="hasTrimRange"
+            class="view-toggle-btn"
+            :class="{ active: viewTrimmed }"
+            @click="toggleViewTrimmed"
+            :title="viewTrimmed ? 'Show Full File' : 'Show Trimmed Range'"
+          >
+            {{ viewTrimmed ? '🔍 Trimmed' : '📁 Full File' }}
+          </button>
+          <button class="close-btn" @click="$emit('close')" title="Close Trimmer">✕</button>
         </div>
-        <button
-          v-if="hasTrimRange"
-          class="view-toggle-btn"
-          :class="{ active: viewTrimmed }"
-          @click="toggleViewTrimmed"
-          :title="viewTrimmed ? 'Show Full File' : 'Show Trimmed Range'"
-        >
-          {{ viewTrimmed ? '🔍 Trimmed' : '📁 Full File' }}
-        </button>
-        <button class="icon-btn" @click="$emit('close')">✕</button>
       </div>
 
-      <!-- Two-column: Video | Controls -->
+      <!-- Two-column: Video + Player Dock | Controls -->
       <div class="trim-body">
 
-        <!-- Left: Video preview -->
-        <div class="video-col">
-          <video v-if="videoSrc" ref="videoRef" :src="videoSrc" class="trim-video"
-            muted preload="metadata" @loadedmetadata="onVideoLoaded" @error="onVideoError" @timeupdate="onTimeUpdate" @play="syncPlaybackState" @pause="syncPlaybackState"></video>
-          <div v-else-if="item.type === 'live' || item.path?.startsWith('http')" class="video-placeholder">
-            <div style="font-size:2rem;">{{ item.type === 'live' ? '📹' : '🌐' }}</div>
-            <small class="text-secondary">No local preview</small>
+        <!-- Left: Video preview & Transport Dock -->
+        <div class="player-col">
+          <div class="video-container">
+            <video v-if="videoSrc" ref="videoRef" :src="videoSrc" class="trim-video"
+              muted preload="metadata" @loadedmetadata="onVideoLoaded" @error="onVideoError" @timeupdate="onTimeUpdate" @play="syncPlaybackState" @pause="syncPlaybackState"></video>
+            <div v-else-if="item.type === 'live' || item.path?.startsWith('http')" class="video-placeholder">
+              <div class="placeholder-icon">{{ item.type === 'live' ? '📹' : '🌐' }}</div>
+              <small class="text-secondary">No local preview</small>
+            </div>
+            <div v-else-if="isGeneratingProxy" class="video-placeholder">
+              <div class="placeholder-icon">🎞️</div>
+              <small class="text-secondary">Generating proxy preview…</small>
+            </div>
+            <div v-else-if="previewError" class="video-placeholder">
+              <div class="placeholder-icon">⚠</div>
+              <small class="text-secondary">{{ previewError }}</small>
+            </div>
+            <div v-else class="video-placeholder">
+              <div class="placeholder-icon">⌛</div>
+              <small class="text-secondary">Loading preview…</small>
+            </div>
+            <div v-if="speed !== 0" class="speed-badge">{{ speed < 0 ? '◀◀' : '▶▶' }} {{ Math.abs(speed) === 2 ? '×4' : '×1' }}</div>
           </div>
-          <div v-else-if="isGeneratingProxy" class="video-placeholder">
-            <div style="font-size:1.5rem;">🎞️</div>
-            <small class="text-secondary">Generating proxy preview for large or unsupported media…</small>
-          </div>
-          <div v-else-if="previewError" class="video-placeholder">
-            <div style="font-size:1.5rem;">⚠</div>
-            <small class="text-secondary">{{ previewError }}</small>
-          </div>
-          <div v-else class="video-placeholder">
-            <div style="font-size:1.5rem;">⌛</div>
-            <small class="text-secondary">Loading preview…</small>
-          </div>
-          <div v-if="speed !== 0" class="speed-badge">{{ speed < 0 ? '◀◀' : '▶▶' }} {{ Math.abs(speed) === 2 ? '×4' : '×1' }}</div>
 
-          <div class="transport-bar">
-            <button class="transport-btn" @click="jumpToMarker('start')">⏮</button>
-            <button class="transport-btn" @click="nudge(-10)">-10f</button>
-            <button class="transport-btn" @click="nudge(-1)">-1f</button>
-            <button class="transport-btn transport-btn-primary" @click="togglePlayback">{{ isVideoPlaying ? '⏸ Pause' : '▶ Play' }}</button>
-            <button class="transport-btn" @click="nudge(1)">+1f</button>
-            <button class="transport-btn" @click="nudge(10)">+10f</button>
-            <button class="transport-btn" @click="jumpToMarker('end')">⏭</button>
+          <!-- Transport Dock (Cleanly below video, never covering frames) -->
+          <div class="transport-dock">
+            <button class="t-btn t-btn-nav" @click="jumpToMarker('start')" title="Start [Home]">⏮</button>
+            <button class="t-btn t-btn-step" @click="nudge(-10)" title="Back 10 frames [Shift+Left]">-10f</button>
+            <button class="t-btn t-btn-step" @click="nudge(-1)" title="Back 1 frame [Left]">-1f</button>
+            <button class="t-btn t-btn-play" :class="{ 'is-playing': isVideoPlaying }" @click="togglePlayback" title="Play / Pause [Space / K]">
+              <span class="play-icon">{{ isVideoPlaying ? '⏸' : '▶' }}</span>
+              <span class="play-text">{{ isVideoPlaying ? 'PAUSE' : 'PLAY' }}</span>
+            </button>
+            <button class="t-btn t-btn-step" @click="nudge(1)" title="Forward 1 frame [Right]">+1f</button>
+            <button class="t-btn t-btn-step" @click="nudge(10)" title="Forward 10 frames [Shift+Right]">+10f</button>
+            <button class="t-btn t-btn-nav" @click="jumpToMarker('end')" title="End [End]">⏭</button>
           </div>
         </div>
 
-        <!-- Right: Controls -->
+        <!-- Right: Controls, Timeline & Timecodes -->
         <div class="ctrl-col">
 
+          <!-- Hero Metrics Bar -->
           <div class="trim-metrics">
-            <div class="metric-card">
-              <span class="metric-label">Current</span>
-              <strong>{{ currentTimecode }}</strong>
+            <div class="metric-card metric-card-playhead">
+              <div class="metric-header">
+                <span class="metric-dot dot-cyan"></span>
+                <span class="metric-label">PLAYHEAD POSITION</span>
+              </div>
+              <strong class="metric-tc tc-cyan">{{ currentTimecode }}</strong>
             </div>
-            <div class="metric-card">
-              <span class="metric-label">In → Out</span>
-              <strong>{{ trimmedDuration }}</strong>
+            <div class="metric-card metric-card-duration">
+              <div class="metric-header">
+                <span class="metric-dot dot-emerald"></span>
+                <span class="metric-label">SELECTION DURATION</span>
+              </div>
+              <strong class="metric-tc tc-emerald">{{ trimmedDuration }}</strong>
             </div>
           </div>
 
-          <!-- Scrub bar -->
+          <!-- Scrub Bar & Timeline -->
           <div class="scrub-area">
-            <div class="unified-timeline" ref="timelineRef" @mousedown.left="onTimelineMouseDown($event, 'playhead')">
-              <div class="tm-bg"></div>
+            <div class="timeline-container" ref="timelineRef" @mousedown.left="onTimelineMouseDown($event, 'playhead')">
+              <div class="tm-track-bg">
+                <div class="tm-ticks"></div>
+              </div>
               <div class="tm-range" :style="{
                 left:  rangeLeftPct+'%',
                 width: rangeWidthPct+'%'
               }"></div>
               
-              <div class="tm-handle-wrapper" :style="{ left: inHandlePct+'%' }" >
-                 <div class="tm-handle tm-handle-in" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'in')">◂</div>
+              <!-- IN Handle (Emerald) -->
+              <div class="tm-handle-wrapper" :style="{ left: inHandlePct+'%' }">
+                 <div class="tm-handle tm-handle-in" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'in')" title="Drag IN point [I]">
+                   <span class="handle-bracket">[</span>
+                 </div>
               </div>
               
+              <!-- OUT Handle (Rose) -->
               <div class="tm-handle-wrapper" :style="{ left: outHandlePct+'%' }">
-                 <div class="tm-handle tm-handle-out" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'out')">▸</div>
+                 <div class="tm-handle tm-handle-out" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'out')" title="Drag OUT point [O]">
+                   <span class="handle-bracket">]</span>
+                 </div>
               </div>
 
-                <div ref="playheadRef" class="tm-playhead" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'playhead')">
-                 <div class="tm-playhead-line"></div>
+              <!-- Playhead -->
+              <div ref="playheadRef" class="tm-playhead" @mousedown.prevent.stop.left="onTimelineMouseDown($event, 'playhead')">
+                <div class="tm-playhead-cap"></div>
+                <div class="tm-playhead-line"></div>
               </div>
             </div>
             
-            <div style="display:flex;justify-content:space-between;margin-top:8px;">
-              <span class="text-secondary" style="font-size:0.6rem;">{{ scrubLabelStart }}</span>
-              <span class="text-secondary" style="font-size:0.6rem;">{{ scrubLabelEnd }}</span>
+            <div class="timeline-footer">
+              <span class="tc-footer-label">{{ scrubLabelStart }}</span>
+              <span class="tc-footer-label">{{ scrubLabelEnd }}</span>
             </div>
           </div>
 
-          <!-- IN / OUT slots -->
+          <!-- IN / OUT Cards -->
           <div class="tc-grid">
-            <div class="tc-group">
-              <label class="text-secondary" style="font-size:0.68rem;">IN POINT</label>
-              <input class="tc-input" :value="displayInTC" @change="applyInTC" placeholder="00:00:00:00" spellcheck="false">
+            <!-- IN Point Card -->
+            <div class="tc-card tc-card-in">
+              <div class="tc-card-header">
+                <span class="tc-tag tag-in">[ IN POINT</span>
+              </div>
+              <input class="tc-input tc-input-in" :value="displayInTC" @change="applyInTC" placeholder="00:00:00:00" spellcheck="false">
               <div class="tc-actions">
-                <button class="mini-btn" @click="jumpToMarker('in')">Cue</button>
-                <button class="mini-btn" @click="setInPoint()">Set from playhead</button>
+                <button class="mini-btn" @click="jumpToMarker('in')" title="Jump to IN point">Cue</button>
+                <button class="mini-btn mini-btn-set" @click="setInPoint()" title="Set IN from current playhead [I]">Set [I]</button>
               </div>
             </div>
-            <div class="tc-group">
-              <label class="text-secondary" style="font-size:0.68rem;">OUT POINT</label>
-              <input class="tc-input" :value="displayOutTC" @change="applyOutTC" placeholder="00:00:00:00" spellcheck="false">
+
+            <!-- OUT Point Card -->
+            <div class="tc-card tc-card-out">
+              <div class="tc-card-header">
+                <span class="tc-tag tag-out">OUT POINT ]</span>
+              </div>
+              <input class="tc-input tc-input-out" :value="displayOutTC" @change="applyOutTC" placeholder="00:00:00:00" spellcheck="false">
               <div class="tc-actions">
-                <button class="mini-btn" @click="jumpToMarker('out')">Cue</button>
-                <button class="mini-btn" @click="setOutPoint()">Set from playhead</button>
+                <button class="mini-btn" @click="jumpToMarker('out')" title="Jump to OUT point">Cue</button>
+                <button class="mini-btn mini-btn-set" @click="setOutPoint()" title="Set OUT from current playhead [O]">Set [O]</button>
               </div>
             </div>
           </div>
 
-          <!-- Non-destructive save (Only for Rundown Items) -->
+          <!-- Actions Bar -->
           <div class="trim-actions">
-            <button class="trim-btn btn-primary" @click="saveNonDestructive">
-              💾 Save Trim Points
+            <button class="action-btn btn-save" @click="saveNonDestructive">
+              <span class="btn-icon">💾</span> Save Trim Points
             </button>
             <button
-              class="trim-btn btn-accurate"
+              class="action-btn btn-subclip"
               :disabled="subclipCapability.state === 'unavailable'"
               :title="subclipCapability.reason"
               @click="saveAsSubclip"
             >
-              {{ subclipCapability.label }}
+              <span class="btn-icon">✂️</span> {{ subclipCapability.label }}
             </button>
-            <button class="trim-btn" @click="$emit('close')">Cancel</button>
+            <button class="action-btn btn-cancel" @click="$emit('close')">Cancel</button>
           </div>
           <div v-if="trimStatus" class="trim-status">{{ trimStatus }}</div>
         </div>
@@ -892,8 +935,11 @@ const saveAsSubclip = () => {
     <!-- Custom Subclip Name Modal -->
     <div v-if="showSubclipModal" class="subclip-modal-backdrop" @click.self="cancelSubclipDialog">
       <div class="subclip-modal-dialog" role="dialog" aria-modal="true" aria-label="Name Sub-clip">
-        <h4 style="margin:0 0 8px 0;font-size:1rem;color:#f1f5f9;">Create Virtual Sub-clip</h4>
-        <p class="text-secondary" style="font-size:0.8rem;margin:0 0 12px 0;">Enter a display name for the new sub-clip:</p>
+        <div class="modal-header-row">
+          <span class="modal-badge">SUB-CLIP</span>
+          <h4 class="modal-title">Create Virtual Sub-clip</h4>
+        </div>
+        <p class="modal-desc">Enter a display name for the new sub-clip:</p>
         <input
           v-model="subclipNameInput"
           type="text"
@@ -902,9 +948,9 @@ const saveAsSubclip = () => {
           @keydown.enter="confirmSubclipDialog"
           @keydown.esc="cancelSubclipDialog"
         />
-        <div class="subclip-modal-actions" style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
-          <button class="trim-btn btn-primary" @click="confirmSubclipDialog">Create Sub-clip</button>
-          <button class="trim-btn" @click="cancelSubclipDialog">Cancel</button>
+        <div class="subclip-modal-actions">
+          <button class="action-btn btn-save" @click="confirmSubclipDialog">Create Sub-clip</button>
+          <button class="action-btn btn-cancel" @click="cancelSubclipDialog">Cancel</button>
         </div>
       </div>
     </div>
@@ -912,108 +958,745 @@ const saveAsSubclip = () => {
 </template>
 
 <style scoped>
-.modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);display:flex;justify-content:center;align-items:center;z-index:10000; }
-.trim-panel { width:1040px;max-width:96vw;padding:1rem;display:flex;flex-direction:column;gap:0.85rem;background:var(--bg-secondary,#1B1B1B);border:1px solid rgba(255,255,255,0.1);border-radius:12px;box-shadow:0 30px 60px rgba(0,0,0,0.8); }
-.trim-header { display:flex;justify-content:space-between;align-items:flex-start;gap:12px; }
-.icon-btn { background:transparent;border:none;color:var(--text-secondary);cursor:pointer;font-size:1rem;padding:4px;flex-shrink:0; }
-.shortcut-hint { font-size:0.62rem;color:rgba(255,255,255,0.3);display:flex;align-items:center;flex-wrap:wrap;gap:2px;flex:1;justify-content:center; }
-.shortcut-hint span { background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:3px;padding:1px 5px;color:rgba(255,255,255,0.6);font-family:monospace;font-size:0.65rem; }
-.trim-body { display:grid;grid-template-columns:1.15fr 0.95fr;gap:1rem; }
-.video-col { aspect-ratio: 16/9; max-height: 40vh; width: 100%; height: auto; background: #000; position: relative; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-.trim-video { width: 100%; height: 100%; object-fit: contain; display: block; }
-.video-placeholder { text-align:center;padding:2rem;color:rgba(255,255,255,0.25); }
-.speed-badge { position:absolute;bottom:6px;right:8px;background:rgba(0,0,0,0.7);color:#e63946;font-size:0.72rem;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:1px; }
-.transport-bar {
-  position:absolute;
-  left:10px;
-  right:10px;
-  bottom:10px;
-  display:flex;
-  gap:6px;
-  justify-content:center;
-  flex-wrap:wrap;
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 23, 0.88);
+  backdrop-filter: blur(12px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
 }
-.transport-btn {
-  padding:7px 10px;
-  border-radius:8px;
-  border:1px solid rgba(255,255,255,0.15);
-  background:rgba(0,0,0,0.6);
-  color:#fff;
-  cursor:pointer;
-}
-.transport-btn-primary {
-  background:rgba(51,190,204,0.22);
-  border-color:rgba(51,190,204,0.45);
-}
-.ctrl-col { display:flex;flex-direction:column;gap:0.7rem; }
-.trim-metrics { display:grid;grid-template-columns:1fr 1fr;gap:0.7rem; }
-.metric-card {
-  border:1px solid rgba(255,255,255,0.08);
-  background:rgba(255,255,255,0.04);
-  border-radius:8px;
-  padding:10px 12px;
-  display:flex;
-  flex-direction:column;
-  gap:4px;
-}
-.metric-card strong { color:var(--text-primary); font-family:'Courier New',monospace; font-size:0.9rem; }
-.metric-label { font-size:0.7rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.08em; }
-.scrub-area { background:rgba(0,0,0,0.3);border-radius:6px;padding:0.7rem; }
 
-.unified-timeline { position:relative;height:30px;background:rgba(255,255,255,0.03);border-radius:4px;cursor:pointer;margin-top:10px;margin-bottom:5px; }
-.tm-bg { position:absolute;top:50%;transform:translateY(-50%);left:0;right:0;height:10px;background:rgba(0,0,0,0.4);border-radius:4px;pointer-events:none; }
-.tm-range { position:absolute;top:50%;transform:translateY(-50%);height:10px;background:rgba(51,190,204,0.3);border-radius:4px;pointer-events:none; }
-.tm-handle-wrapper { position:absolute;top:0;bottom:0;width:0;z-index:10; }
-.tm-handle { position:absolute;top:-5px;bottom:-5px;width:14px;border-radius:3px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;color:#000;font-size:10px;font-weight:bold;box-shadow:0 0 4px rgba(0,0,0,0.5);transform:translateX(-50%); }
-.tm-handle-in { background:var(--accent-blue,#33becc); }
-.tm-handle-out { background:#e63946; }
-.tm-playhead { position:absolute;top:-8px;bottom:-8px;width:12px;cursor:ew-resize;z-index:20;transform:translateX(-50%);display:flex;justify-content:center; }
-.tm-playhead::before { content:'';position:absolute;top:0;width:8px;height:8px;background:#fff;border-radius:50%;box-shadow:0 0 4px rgba(0,0,0,0.5); }
-.tm-playhead-line { width:2px;height:100%;background:#fff;opacity:0.8;pointer-events:none; }
-
-.tc-grid { display:grid;grid-template-columns:1fr 1fr;gap:0.7rem; }
-.tc-group { display:flex;flex-direction:column;gap:3px; }
-.tc-input { font-family:'Courier New',monospace;font-size:1rem;font-weight:700;letter-spacing:3px;text-align:center;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.12);color:var(--accent-blue,#33becc);padding:7px;border-radius:6px;width:100%;transition:border-color 0.15s; }
-.tc-input:focus { outline:none;border-color:rgba(51,190,204,0.6); }
-.tc-actions { display:flex; gap:6px; }
-.mini-btn {
-  flex:1;
-  padding:6px 8px;
-  border-radius:6px;
-  border:1px solid rgba(255,255,255,0.12);
-  background:rgba(255,255,255,0.04);
-  color:var(--text-primary);
-  cursor:pointer;
-  font-size:0.72rem;
+.trim-panel {
+  width: 1080px;
+  max-width: 96vw;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: linear-gradient(180deg, #161b26 0%, #0f131a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 255, 255, 0.2);
 }
-.trim-actions { display:flex;gap:0.6rem; }
-.trim-btn { padding:7px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.05);color:var(--text-primary);cursor:pointer;transition:0.15s;font-size:0.82rem; }
-.trim-btn:hover { background:rgba(255,255,255,0.1); }
-.trim-btn:disabled { opacity:0.4;cursor:not-allowed; }
-.btn-primary  { background:rgba(51,190,204,0.15);border-color:rgba(51,190,204,0.4);color:var(--accent-blue,#33becc); }
-.btn-danger   { background:rgba(230,57,70,0.12);border-color:rgba(230,57,70,0.4);color:#e63946; }
-.btn-accurate { background:rgba(255,165,0,0.1);border-color:rgba(255,165,0,0.35);color:#ffa500; }
-.section-divider { border-top:1px solid rgba(255,255,255,0.07);text-align:center; }
-.warning-badge { background:rgba(255,165,0,0.07);border:1px solid rgba(255,165,0,0.22);color:#ffa500;border-radius:4px;padding:3px 8px;font-size:0.68rem; }
-.trim-status { font-size:0.78rem;padding:4px 8px;background:rgba(0,0,0,0.3);border-radius:4px; }
+
+/* Header */
+.trim-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding-bottom: 0.85rem;
+}
+
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.clip-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trim-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.clip-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  letter-spacing: -0.01em;
+}
+
+.clip-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meta-chip {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.meta-chip-active {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.25);
+}
+
+.meta-chip-duration strong {
+  color: #10b981;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shortcut-hint {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.key-cap {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: #cbd5e1;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.65rem;
+}
+
+.key-sep {
+  color: rgba(255, 255, 255, 0.2);
+  margin: 0 2px;
+}
 
 .view-toggle-btn {
-  padding:3px 8px;
-  border-radius:5px;
-  border:1px solid rgba(255,255,255,0.14);
-  background:rgba(255,255,255,0.04);
-  color:var(--text-secondary);
-  font-size:0.64rem;
-  font-weight:600;
-  cursor:pointer;
-  transition:0.15s;
-  white-space:nowrap;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
 }
-.view-toggle-btn:hover { background:rgba(255,255,255,0.1); color:var(--text-primary); }
+
+.view-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
 .view-toggle-btn.active {
-  background:rgba(51,190,204,0.14);
-  border-color:rgba(51,190,204,0.4);
-  color:var(--accent-blue,#33becc);
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.close-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* Layout Body */
+.trim-body {
+  display: grid;
+  grid-template-columns: 1.15fr 0.95fr;
+  gap: 1.25rem;
+}
+
+/* Left: Player Dock */
+.player-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-container {
+  aspect-ratio: 16/9;
+  max-height: 40vh;
+  width: 100%;
+  background: #000;
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+}
+
+.trim-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.video-placeholder {
+  text-align: center;
+  padding: 2rem;
+  color: rgba(255, 255, 255, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.placeholder-icon {
+  font-size: 2rem;
+}
+
+.speed-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(4px);
+  color: #f43f5e;
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+/* Transport Bar */
+.transport-dock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.t-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f1f5f9;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.t-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.t-btn-step {
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.72rem;
+  padding: 6px 10px;
+}
+
+.t-btn-play {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+}
+
+.t-btn-play:hover {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: rgba(56, 189, 248, 0.6);
+}
+
+.t-btn-play.is-playing {
+  background: rgba(244, 63, 94, 0.15);
+  border-color: rgba(244, 63, 94, 0.4);
+  color: #f43f5e;
+}
+
+.play-icon {
+  font-size: 0.85rem;
+}
+
+.play-text {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+/* Right Column: Controls */
+.ctrl-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+/* Hero Metrics */
+.trim-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.metric-card {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metric-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.dot-cyan { background: #38bdf8; box-shadow: 0 0 6px rgba(56, 189, 248, 0.6); }
+.dot-emerald { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.6); }
+
+.metric-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+}
+
+.metric-tc {
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.tc-cyan { color: #38bdf8; }
+.tc-emerald { color: #10b981; }
+
+/* Timeline Scrub Area */
+.scrub-area {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.85rem 1rem 0.65rem 1rem;
+}
+
+.timeline-container {
+  position: relative;
+  height: 38px;
+  background: #0b0f17;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  margin: 4px 0 8px 0;
+  user-select: none;
+}
+
+.tm-track-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tm-ticks {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 19px,
+    rgba(255, 255, 255, 0.04) 20px
+  );
+}
+
+.tm-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.25) 0%, rgba(56, 189, 248, 0.25) 50%, rgba(244, 63, 94, 0.25) 100%);
+  border-top: 2px solid rgba(56, 189, 248, 0.6);
+  border-bottom: 2px solid rgba(56, 189, 248, 0.6);
+  pointer-events: none;
+}
+
+.tm-handle-wrapper {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: 10;
+}
+
+.tm-handle {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 18px;
+  border-radius: 4px;
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.6);
+  transform: translateX(-50%);
+  transition: transform 0.1s;
+}
+
+.tm-handle:hover {
+  transform: translateX(-50%) scaleY(1.08);
+}
+
+.tm-handle-in {
+  background: #10b981;
+  color: #064e3b;
+  border: 1px solid #34d399;
+}
+
+.tm-handle-out {
+  background: #f43f5e;
+  color: #881337;
+  border: 1px solid #fb7185;
+}
+
+.handle-bracket {
+  font-family: monospace;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Playhead */
+.tm-playhead {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 14px;
+  cursor: ew-resize;
+  z-index: 20;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.tm-playhead-cap {
+  width: 10px;
+  height: 10px;
+  background: #ffffff;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+  margin-top: 2px;
+}
+
+.tm-playhead-line {
+  width: 2px;
+  flex: 1;
+  background: #ffffff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+}
+
+.timeline-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tc-footer-label {
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* IN / OUT Cards */
+.tc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.tc-card {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tc-card-in {
+  border-left: 3px solid #10b981;
+}
+
+.tc-card-out {
+  border-left: 3px solid #f43f5e;
+}
+
+.tc-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tc-tag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.tag-in { color: #10b981; }
+.tag-out { color: #f43f5e; }
+
+.tc-input {
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 6px;
+  border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  transition: all 0.15s;
+}
+
+.tc-input-in {
+  color: #10b981;
+}
+
+.tc-input-in:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+}
+
+.tc-input-out {
+  color: #f43f5e;
+}
+
+.tc-input-out:focus {
+  outline: none;
+  border-color: #f43f5e;
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.3);
+}
+
+.tc-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.mini-btn {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.mini-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.mini-btn-set {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+}
+
+.mini-btn-set:hover {
+  background: rgba(56, 189, 248, 0.2);
+}
+
+/* Actions Footer */
+.trim-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.action-btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f1f5f9;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn-save {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #10b981;
+  flex: 1.2;
+}
+
+.btn-save:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.6);
+}
+
+.btn-subclip {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  flex: 1.4;
+}
+
+.btn-subclip:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: rgba(56, 189, 248, 0.6);
+}
+
+.btn-cancel {
+  background: rgba(255, 255, 255, 0.05);
+  color: #94a3b8;
+  flex: 0.8;
+}
+
+.trim-status {
+  font-size: 0.75rem;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+}
+
+/* Subclip Dialog */
+.subclip-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.subclip-modal-dialog {
+  width: 440px;
+  max-width: 90vw;
+  background: #151b26;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1rem;
+  color: #f1f5f9;
+  font-weight: 700;
+}
+
+.modal-desc {
+  color: #94a3b8;
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.subclip-name-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: #0b0f17;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #f1f5f9;
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.subclip-name-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+}
+
+.subclip-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 @media (max-width: 900px) {
@@ -1022,41 +1705,5 @@ const saveAsSubclip = () => {
   .tc-grid {
     grid-template-columns: 1fr;
   }
-}
-
-.subclip-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10001;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.subclip-modal-dialog {
-  width: 420px;
-  max-width: 90vw;
-  background: #1e2530;
-  border: 1px solid #344052;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
-}
-
-.subclip-name-input {
-  width: 100%;
-  padding: 8px 12px;
-  background: #11161d;
-  border: 1px solid #344052;
-  border-radius: 4px;
-  color: #f1f5f9;
-  font-size: 0.9rem;
-  outline: none;
-  box-sizing: border-box;
-}
-
-.subclip-name-input:focus {
-  border-color: #38bdf8;
 }
 </style>
