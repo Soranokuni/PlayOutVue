@@ -5,6 +5,8 @@ import type { LibraryIndicator } from '../stores/mediaDefaults';
 import StatusIndicator from './StatusIndicator.vue';
 import { resolveRundownStatusTone } from '../lib/statusResolver';
 
+import { useSettingsStore } from '../stores/settings';
+
 // Extracted from RundownList.vue so each row re-renders only when ITS props
 // change (plan §2.2). All reactive values are passed as props from the parent
 // (which applies v-memo by value); everything here is a pure function of
@@ -151,13 +153,14 @@ const rowStyle = computed(() => {
   }
   return {};
 });
+const settings = useSettingsStore();
 const itemStatusTone = computed(() =>
   resolveRundownStatusTone(props.item, {
     playing: props.playing,
     nextUp: props.nextUp,
     nextUpImminent: props.nextUpImminent,
     atKind: props.atKind
-  })
+  }, settings.qcSensitivity)
 );
 
 const itemTooltip = computed(() => {

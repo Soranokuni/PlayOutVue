@@ -10,7 +10,7 @@ import SettingsModal from './components/SettingsModal.vue';
 import CommandPaletteModal from './components/CommandPaletteModal.vue';
 import PreviewMonitor from './components/PreviewMonitor.vue';
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
-import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying } from './services/playout';
+import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
@@ -275,8 +275,21 @@ const toggleSdi = async () => {
 };
 
 const cutToLive = async () => {
-  await getActivePlayoutService().cutToLive?.();
-  manualTakeFailure.value = null;
+  try {
+    await getActivePlayoutService().cutToLive?.();
+    manualTakeFailure.value = null;
+  } catch (err: any) {
+    console.error('[Live] Cut to live failed:', err);
+    alert(err?.message || String(err));
+  }
+};
+
+const returnFromLive = async () => {
+  try {
+    await getActivePlayoutService().returnFromLive?.();
+  } catch (err: any) {
+    console.error('[Live] Return from live failed:', err);
+  }
 };
 
 const retryFailedTake = async () => {
@@ -406,8 +419,22 @@ onUnmounted(() => {
           ■ STOP
         </button>
         
-        <button v-if="isPlayoutConnected" class="ctrl-btn btn-live-now" @click="cutToLive" title="Cut to Live Source">
-          🔴 LIVE NOW
+        <button
+          v-if="!isPlayoutLive"
+          class="ctrl-btn btn-live-now"
+          :disabled="!isPlayoutConnected"
+          @click="cutToLive"
+          title="Cut to Live DeckLink/AMCP Source"
+        >
+          🔴 CUT TO LIVE
+        </button>
+        <button
+          v-else
+          class="ctrl-btn btn-live-active"
+          @click="returnFromLive"
+          title="Live Broadcast Active — Click to Return to Rundown Playlist"
+        >
+          🔴 LIVE ON AIR (RETURN TO RUNDOWN)
         </button>
       </div>
 
@@ -449,7 +476,18 @@ onUnmounted(() => {
 
       <div class="ctrl-divider"></div>
 
-      <button class="ctrl-btn" style="font-size:0.75rem; margin-left:auto; width:40px;" @click="isLightMode = !isLightMode" :title="isLightMode ? 'Switch to Dark Mode' : 'Switch to Light Mode'">
+      <!-- Rundown Safety Lock Button -->
+      <button
+        class="ctrl-btn lock-toggle-btn"
+        :class="{ 'is-locked': rundown.isRundownLocked }"
+        @click="rundown.toggleRundownLock()"
+        :title="rundown.isRundownLocked ? 'Rundown Locked: Accidental edits are protected. Click to Unlock.' : 'Rundown Unlocked: Free to edit, reorder, and delete items. Click to Lock.'"
+      >
+        <span class="lock-icon">{{ rundown.isRundownLocked ? '🔒' : '🔓' }}</span>
+        <span class="lock-text">{{ rundown.isRundownLocked ? 'LOCKED' : 'UNLOCKED' }}</span>
+      </button>
+
+      <button class="ctrl-btn" style="font-size:0.75rem; width:40px;" @click="isLightMode = !isLightMode" :title="isLightMode ? 'Switch to Dark Mode' : 'Switch to Light Mode'">
         {{ isLightMode ? '🌙' : '☀️' }}
       </button>
 
@@ -630,6 +668,47 @@ onUnmounted(() => {
   animation:pulse-live 2s infinite;
 }
 .btn-live-now:hover { background:rgba(230,57,70,0.3); border-color:#fca5a5; box-shadow:0 0 16px rgba(230,57,70,0.4); }
+
+.btn-live-active {
+  background:#ef4444; border-color:#f87171;
+  color:#fff; font-size:0.85rem; font-weight:800;
+  padding:8px 16px; letter-spacing:1px; margin-left:8px;
+  box-shadow:0 0 20px rgba(239,68,68,0.7);
+  animation:pulse-live 1s infinite;
+}
+.btn-live-active:hover {
+  background:#dc2626; border-color:#fca5a5;
+  box-shadow:0 0 28px rgba(239,68,68,0.9);
+}
+
+.lock-toggle-btn {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-weight:700;
+  font-size:0.75rem;
+  padding:5px 12px;
+  border-radius:6px;
+  transition:all 0.15s;
+  user-select:none;
+  background:rgba(16,185,129,0.12);
+  border:1px solid rgba(16,185,129,0.4);
+  color:#10b981;
+}
+.lock-toggle-btn:hover {
+  background:rgba(16,185,129,0.22);
+  border-color:rgba(16,185,129,0.6);
+}
+.lock-toggle-btn.is-locked {
+  background:rgba(239,68,68,0.15);
+  border-color:rgba(239,68,68,0.5);
+  color:#ef4444;
+  box-shadow:0 0 10px rgba(239,68,68,0.25);
+}
+.lock-toggle-btn.is-locked:hover {
+  background:rgba(239,68,68,0.25);
+  border-color:rgba(239,68,68,0.7);
+}
 
 @keyframes pulse-live {
   0%,100% { box-shadow:0 0 8px rgba(230,57,70,0.2); }

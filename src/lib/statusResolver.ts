@@ -9,6 +9,49 @@ export interface RundownRowContext {
   atKind?: '' | 'done' | 'now' | 'gap' | 'time';
 }
 
+export type QcSensitivity = 'strict' | 'production' | 'lenient';
+
+/**
+ * Checks whether a warning message warrants an orange Warning status indicator
+ * under the active QC sensitivity profile.
+ *
+ * - Strict ("Engineering / Nerd Mode"): Every warning triggers orange, including
+ *   harmless advisories like non-keyframe alignment.
+ * - Production (Default): Informational advisories like `trim_in_not_keyframe_aligned`
+ *   on virtual subclips are treated as info-only (kept in tooltip, but asset stays green/ready).
+ *   Real media warnings trigger orange.
+ * - Lenient ("Safe Playback"): Only severe warnings that pose a genuine risk to
+ *   on-air playback trigger orange.
+ */
+export function hasActiveWarnings(
+  warnings: string[] | undefined | null,
+  sensitivity: QcSensitivity = 'production'
+): boolean {
+  if (!warnings || warnings.length === 0) return false;
+
+  if (sensitivity === 'strict') {
+    return warnings.length > 0;
+  }
+
+  // Filter out benign advisories
+  const activeWarnings = warnings.filter((w) => {
+    const lower = w.toLowerCase();
+    // 'trim_in_not_keyframe_aligned' is an advisory for subclips, safe on modern engines
+    if (lower.includes('trim_in_not_keyframe_aligned') || lower.includes('keyframe_aligned')) {
+      return false;
+    }
+    if (sensitivity === 'lenient') {
+      // In lenient mode, ignore minor loudness/GOP variances, only flag critical/fatal warnings
+      if (lower.includes('loudness') || lower.includes('gop') || lower.includes('advisory')) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  return activeWarnings.length > 0;
+}
+
 /**
  * Pure status tone resolver for Rundown items with strict priority hierarchy:
  * 1. on-air
@@ -16,14 +59,15 @@ export interface RundownRowContext {
  * 3. error
  * 4. offline
  * 5. processing
- * 6. warning
+ * 6. warning (evaluated against qcSensitivity)
  * 7. unsaved-trim
  * 8. ready
  * 9. idle
  */
 export function resolveRundownStatusTone(
   item: Partial<RundownItem> | null | undefined,
-  ctx?: RundownRowContext
+  ctx?: RundownRowContext,
+  sensitivity: QcSensitivity = 'production'
 ): StatusTone {
   if (!item) return 'idle';
 
@@ -53,7 +97,7 @@ export function resolveRundownStatusTone(
   }
 
   // 6. Warning
-  if (item.warnings && item.warnings.length > 0) {
+  if (hasActiveWarnings(item.warnings, sensitivity)) {
     return 'warning';
   }
 
@@ -75,12 +119,13 @@ export function resolveRundownStatusTone(
  * 1. error
  * 2. offline
  * 3. processing
- * 4. warning
+ * 4. warning (evaluated against qcSensitivity)
  * 5. ready
  * 6. idle
  */
 export function resolveLibraryStatusTone(
-  asset: Partial<LibraryAsset> | null | undefined
+  asset: Partial<LibraryAsset> | null | undefined,
+  sensitivity: QcSensitivity = 'production'
 ): StatusTone {
   if (!asset) return 'idle';
 
@@ -96,7 +141,7 @@ export function resolveLibraryStatusTone(
     return 'processing';
   }
 
-  if (asset.warnings && asset.warnings.length > 0) {
+  if (hasActiveWarnings(asset.warnings, sensitivity)) {
     return 'warning';
   }
 

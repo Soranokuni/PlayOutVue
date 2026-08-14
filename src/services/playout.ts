@@ -1,6 +1,6 @@
 import { computed } from 'vue';
 import type { RundownItem } from '../stores/rundown';
-import { casparPlayoutService, currentCasparDurationMs, currentCasparMs, currentCasparTime, isCasparConnected, isCasparPlaying } from './caspar';
+import { casparPlayoutService, currentCasparDurationMs, currentCasparMs, currentCasparTime, isCasparConnected, isCasparPlaying, isLiveActive } from './caspar';
 
 export type PlayoutEngine = 'casparcg';
 export type PlayoutItem = RundownItem;
@@ -30,6 +30,7 @@ export interface PlayoutService {
     take?(): Promise<void>;
     clear(): Promise<void>;
     cutToLive?(): Promise<void>;
+    returnFromLive?(): Promise<void>;
     refreshQueue?(items: PlayoutItem[]): Promise<void>;
     onAdvance?(callback: PlayoutAdvanceCallback): void;
     getOutputs?(): Promise<any[]>;
@@ -60,6 +61,7 @@ export const activePlayoutCapabilities = computed(() => getActivePlayoutService(
 
 export const isPlayoutConnected = computed(() => isCasparConnected.value);
 export const isPlayoutPlaying = computed(() => isCasparPlaying.value);
+export const isPlayoutLive = computed(() => isLiveActive.value);
 export const currentPlayoutTime = computed(() => currentCasparTime.value);
 export const currentPlayoutMs = computed(() => currentCasparMs.value);
 export const currentTotalPlayoutMs = computed(() => currentCasparDurationMs.value);

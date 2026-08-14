@@ -382,6 +382,11 @@ export const useRundownStore = defineStore('rundown', () => {
     const clipboardItems = ref<RundownItem[]>([]);
     const undoStack = ref<RundownItem[][]>([]);
     const redoStack = ref<RundownItem[][]>([]);
+    const isRundownLocked = ref(false);
+
+    const toggleRundownLock = () => {
+        isRundownLocked.value = !isRundownLocked.value;
+    };
 
 
     const updatePlaylistState = (playlistId: string, updates: Partial<RundownPlaylist>) => {
@@ -2209,7 +2214,9 @@ contentType: content,
         undo,
         redo,
         canUndo,
-        canRedo
+        canRedo,
+        isRundownLocked,
+        toggleRundownLock
     };
 }, {
     persist: true
