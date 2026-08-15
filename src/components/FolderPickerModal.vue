@@ -118,6 +118,46 @@ const confirmMove = () => {
   emit('select', selectedFolder.value);
 };
 
+// Arbitrary N-level recursive tree flattener
+export interface VisiblePickerFolder {
+  path: string;
+  name: string;
+  depth: number;
+  color?: string;
+  allAssetCount: number;
+  hasChildren: boolean;
+  isExpanded: boolean;
+  isForbidden: boolean;
+}
+
+const visiblePickerRows = computed<VisiblePickerFolder[]>(() => {
+  const rows: VisiblePickerFolder[] = [];
+  const walk = (node: VirtualFolderNode) => {
+    const isExpanded = expandedFolders.value[node.path] !== false;
+    const forbidden = isForbidden(node.path);
+
+    rows.push({
+      path: node.path,
+      name: node.path === '/' ? 'All Media (Root /)' : node.name,
+      depth: node.depth,
+      color: node.color,
+      allAssetCount: node.allAssetCount,
+      hasChildren: node.children.length > 0,
+      isExpanded,
+      isForbidden: forbidden,
+    });
+
+    if (isExpanded) {
+      for (const child of node.children) {
+        walk(child);
+      }
+    }
+  };
+
+  walk(folderTree.value);
+  return rows;
+});
+
 // Flatten tree for search filtering if user typed a search query
 interface FlatFolderItem {
   path: string;
@@ -125,27 +165,25 @@ interface FlatFolderItem {
   depth: number;
   color?: string;
   allAssetCount: number;
-  directCount: number;
   node: VirtualFolderNode;
 }
 
-const flattenTree = (node: VirtualFolderNode, list: FlatFolderItem[] = []): FlatFolderItem[] => {
+const flattenAllTree = (node: VirtualFolderNode, list: FlatFolderItem[] = []): FlatFolderItem[] => {
   list.push({
     path: node.path,
     name: node.name,
     depth: node.depth,
     color: node.color,
     allAssetCount: node.allAssetCount,
-    directCount: node.directAssets.length,
     node,
   });
   for (const child of node.children) {
-    flattenTree(child, list);
+    flattenAllTree(child, list);
   }
   return list;
 };
 
-const flatFolders = computed(() => flattenTree(folderTree.value));
+const flatFolders = computed(() => flattenAllTree(folderTree.value));
 
 const filteredFlatFolders = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
@@ -264,117 +302,56 @@ watch(
             </div>
           </div>
 
-          <!-- Recursive Tree (Normal Navigation) -->
+          <!-- Arbitrary N-Level Recursive Tree View -->
           <div v-else class="tree-container">
-            <!-- Root Folder Item -->
             <div
+              v-for="folder in visiblePickerRows"
+              :key="folder.path"
               class="folder-row"
               :class="{
-                'is-selected': selectedFolder === '/',
-                'is-disabled': isForbidden('/'),
+                'is-selected': selectedFolder === folder.path,
+                'is-disabled': folder.isForbidden,
+                'is-root': folder.depth === 0,
               }"
-              @click="selectFolder('/')"
-              @dblclick="selectFolder('/'); confirmMove();"
+              :style="{ paddingLeft: `${folder.depth * 20 + 8}px` }"
+              @click="selectFolder(folder.path)"
+              @dblclick="selectFolder(folder.path); confirmMove();"
             >
+              <!-- Tree Indentation Guide Lines -->
               <span
+                v-for="d in folder.depth"
+                :key="d"
+                class="tree-guide-indent"
+                :style="{ left: `${(d - 1) * 20 + 16}px` }"
+              ></span>
+
+              <!-- Chevron -->
+              <span
+                v-if="folder.hasChildren"
                 class="chevron"
-                :class="{ 'is-expanded': expandedFolders['/'] }"
-                @click.stop="toggleExpand('/')"
+                :class="{ 'is-expanded': folder.isExpanded }"
+                @click.stop="toggleExpand(folder.path)"
               >
                 ▶
               </span>
-              <span class="folder-icon">📂</span>
-              <span class="folder-title">All Media (Root /)</span>
-              <span class="asset-count-pill">{{ folderTree.allAssetCount }} items</span>
-              <span v-if="isForbidden('/')" class="forbidden-pill">Source / Forbidden</span>
-            </div>
+              <span v-else class="chevron-spacer"></span>
 
-            <!-- Recursive Subfolders Container -->
-            <div v-show="expandedFolders['/']" class="subfolders-wrapper">
-              <template v-for="child in folderTree.children" :key="child.path">
-                <!-- Recursive Tree Node Component (Nested View) -->
-                <div class="folder-tree-branch">
-                  <div
-                    class="folder-row"
-                    :class="{
-                      'is-selected': selectedFolder === child.path,
-                      'is-disabled': isForbidden(child.path),
-                    }"
-                    :style="{ paddingLeft: `${child.depth * 18}px` }"
-                    @click="selectFolder(child.path)"
-                    @dblclick="selectFolder(child.path); confirmMove();"
-                  >
-                    <span
-                      v-if="child.children.length > 0"
-                      class="chevron"
-                      :class="{ 'is-expanded': expandedFolders[child.path] }"
-                      @click.stop="toggleExpand(child.path)"
-                    >
-                      ▶
-                    </span>
-                    <span v-else class="chevron-spacer"></span>
+              <!-- Folder Icon / Color Dot -->
+              <span v-if="folder.depth === 0" class="folder-icon">📂</span>
+              <span
+                v-else
+                class="folder-color-dot"
+                :style="{ background: folder.color || '#38bdf8' }"
+              ></span>
 
-                    <span class="folder-color-dot" :style="{ background: child.color || '#38bdf8' }"></span>
-                    <span class="folder-title">{{ child.name }}</span>
-                    <span class="asset-count-pill">{{ child.allAssetCount }}</span>
-                    <span v-if="isForbidden(child.path)" class="forbidden-pill">Source / Forbidden</span>
-                  </div>
+              <!-- Folder Title -->
+              <span class="folder-title">{{ folder.name }}</span>
 
-                  <!-- Render Level 2+ Subfolders Recursively -->
-                  <div v-show="expandedFolders[child.path] && child.children.length > 0" class="nested-children">
-                    <template v-for="sub in child.children" :key="sub.path">
-                      <div class="folder-tree-branch">
-                        <div
-                          class="folder-row"
-                          :class="{
-                            'is-selected': selectedFolder === sub.path,
-                            'is-disabled': isForbidden(sub.path),
-                          }"
-                          :style="{ paddingLeft: `${sub.depth * 18}px` }"
-                          @click="selectFolder(sub.path)"
-                          @dblclick="selectFolder(sub.path); confirmMove();"
-                        >
-                          <span
-                            v-if="sub.children.length > 0"
-                            class="chevron"
-                            :class="{ 'is-expanded': expandedFolders[sub.path] }"
-                            @click.stop="toggleExpand(sub.path)"
-                          >
-                            ▶
-                          </span>
-                          <span v-else class="chevron-spacer"></span>
+              <!-- Asset Count Badge -->
+              <span class="asset-count-pill">{{ folder.allAssetCount }}</span>
 
-                          <span class="folder-color-dot" :style="{ background: sub.color || '#38bdf8' }"></span>
-                          <span class="folder-title">{{ sub.name }}</span>
-                          <span class="asset-count-pill">{{ sub.allAssetCount }}</span>
-                          <span v-if="isForbidden(sub.path)" class="forbidden-pill">Forbidden</span>
-                        </div>
-
-                        <!-- Level 3 Children -->
-                        <div v-show="expandedFolders[sub.path] && sub.children.length > 0">
-                          <div
-                            v-for="sub3 in sub.children"
-                            :key="sub3.path"
-                            class="folder-row"
-                            :class="{
-                              'is-selected': selectedFolder === sub3.path,
-                              'is-disabled': isForbidden(sub3.path),
-                            }"
-                            :style="{ paddingLeft: `${sub3.depth * 18}px` }"
-                            @click="selectFolder(sub3.path)"
-                            @dblclick="selectFolder(sub3.path); confirmMove();"
-                          >
-                            <span class="chevron-spacer"></span>
-                            <span class="folder-color-dot" :style="{ background: sub3.color || '#38bdf8' }"></span>
-                            <span class="folder-title">{{ sub3.name }}</span>
-                            <span class="asset-count-pill">{{ sub3.allAssetCount }}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </div>
-              </template>
+              <!-- Forbidden Pill -->
+              <span v-if="folder.isForbidden" class="forbidden-pill">Source / Forbidden</span>
             </div>
           </div>
         </div>
@@ -382,7 +359,7 @@ watch(
         <!-- Selected Breadcrumb Trail & Target Bar -->
         <div class="selected-target-bar">
           <span class="target-label">DESTINATION:</span>
-          <div class="breadcrumb-trail">
+          <div class="breadcrumb-trail custom-scroll">
             <span
               v-for="(crumb, idx) in breadcrumbs"
               :key="crumb.path"
@@ -416,7 +393,7 @@ watch(
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(8, 12, 20, 0.88);
+  background: rgba(6, 10, 18, 0.88);
   backdrop-filter: blur(12px);
   display: flex;
   justify-content: center;
@@ -425,12 +402,12 @@ watch(
 }
 
 .folder-picker-modal {
-  width: 640px;
+  width: 660px;
   max-width: 94vw;
   max-height: 88vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #141a26 0%, #0d121c 100%);
+  background: linear-gradient(180deg, #131926 0%, #0c101a 100%);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
   box-shadow: 0 32px 80px rgba(0, 0, 0, 0.85);
@@ -554,28 +531,37 @@ watch(
 .modal-body {
   padding: 8px 12px;
   overflow-y: auto;
-  min-height: 240px;
-  max-height: 380px;
+  min-height: 260px;
+  max-height: 400px;
+}
+
+.tree-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .folder-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  min-height: 32px;
+  height: 32px;
+  padding: 4px 10px;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all 0.12s ease;
   user-select: none;
 }
 
 .folder-row:hover:not(.is-disabled) {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .folder-row.is-selected {
-  background: rgba(56, 189, 248, 0.18);
-  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.35);
 }
 
 .folder-row.is-disabled {
@@ -583,25 +569,46 @@ watch(
   cursor: not-allowed;
 }
 
+/* Tree Guide Lines */
+.tree-guide-indent {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.07);
+  pointer-events: none;
+}
+
+.folder-row:hover .tree-guide-indent {
+  background: rgba(56, 189, 248, 0.18);
+}
+
 .chevron {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   color: #94a3b8;
-  width: 14px;
-  text-align: center;
-  transition: transform 0.15s;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, color 0.15s ease;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .chevron.is-expanded {
   transform: rotate(90deg);
+  color: #38bdf8;
 }
 
 .chevron-spacer {
-  width: 14px;
+  width: 16px;
+  flex-shrink: 0;
 }
 
 .folder-icon {
   font-size: 0.95rem;
+  flex-shrink: 0;
 }
 
 .folder-color-dot {
@@ -609,11 +616,12 @@ watch(
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.3);
 }
 
 .folder-title,
 .folder-path-display {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: #f1f5f9;
   flex: 1;
@@ -622,13 +630,19 @@ watch(
   white-space: nowrap;
 }
 
+.folder-row.is-root .folder-title {
+  font-weight: 700;
+  color: #38bdf8;
+}
+
 .asset-count-pill {
   font-size: 0.65rem;
   font-weight: 700;
   color: #94a3b8;
-  background: rgba(0, 0, 0, 0.35);
-  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 7px;
   border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .forbidden-pill {
@@ -642,7 +656,7 @@ watch(
 
 .empty-results {
   text-align: center;
-  padding: 2rem;
+  padding: 2.5rem;
   font-size: 0.82rem;
   color: #64748b;
 }
@@ -651,8 +665,8 @@ watch(
 .selected-target-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 1.4rem;
+  gap: 10px;
+  padding: 9px 1.4rem;
   background: rgba(0, 0, 0, 0.35);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -661,7 +675,8 @@ watch(
   font-size: 0.68rem;
   font-weight: 800;
   color: #94a3b8;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
 }
 
 .breadcrumb-trail {
@@ -677,15 +692,17 @@ watch(
 .crumb-item {
   cursor: pointer;
   white-space: nowrap;
+  transition: color 0.12s ease;
 }
 
 .crumb-item:hover {
+  color: #7dd3fc;
   text-decoration: underline;
 }
 
 .crumb-separator {
   color: #64748b;
-  margin: 0 2px;
+  margin: 0 3px;
 }
 
 /* Footer */
@@ -702,7 +719,7 @@ watch(
 }
 
 .glass-input {
-  background: #0b0f17;
+  background: #090d14;
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: #f1f5f9;
   border-radius: 6px;
@@ -713,6 +730,7 @@ watch(
 
 .glass-input:focus {
   border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
 }
 
 .glass-btn {
@@ -724,7 +742,7 @@ watch(
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.15s ease;
 }
 
 .glass-btn:hover:not(:disabled) {
@@ -738,15 +756,15 @@ watch(
 }
 
 .btn-primary {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.45);
   color: #38bdf8;
   font-weight: 700;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: rgba(56, 189, 248, 0.25);
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+  background: rgba(56, 189, 248, 0.28);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
 }
 
 .btn-icon {

@@ -118,54 +118,99 @@ function getFolderName(path: string): string {
     return parts[parts.length - 1] || 'Unknown';
 }
 
-export interface FolderGroupView {
-    folderName: string;
-    displayName: string;
+export interface VisibleTreeRow {
+    key: string;
+    id: string;
+    type: 'folder' | 'asset';
     depth: number;
+    path: string;
+    displayName: string;
+    hasChildren?: boolean;
+    isExpanded?: boolean;
+    allAssetCount?: number;
     color?: string;
-    hasSubfolders: boolean;
-    allAssetCount: number;
-    assets: LibraryAsset[];
+    isTransient?: boolean;
+    asset?: LibraryAsset;
 }
 
-const folderGroups = computed<FolderGroupView[]>(() => {
+const visibleTreeRows = computed<VisibleTreeRow[]>(() => {
+    const query = mediaLibrary.searchQuery.trim().toLowerCase();
     const tree = buildVirtualFolderTree(
         mediaLibrary.assets,
         mediaLibrary.transientFolders,
         mediaLibrary.folderColors,
         mediaLibrary.deletedUuids,
-        mediaLibrary.searchQuery
+        query
     );
 
-    const result: FolderGroupView[] = [];
+    const rows: VisibleTreeRow[] = [];
 
     const traverse = (node: VirtualFolderNode) => {
-        if (mediaLibrary.searchQuery && node.allAssetCount === 0 && !node.name.toLowerCase().includes(mediaLibrary.searchQuery.toLowerCase())) {
+        if (query && node.allAssetCount === 0 && !node.name.toLowerCase().includes(query)) {
             return;
         }
 
-        result.push({
-            folderName: node.path,
-            displayName: node.path === '/' ? 'All Media' : node.name,
+        const isExpanded = query ? true : (expandedFolders.value[node.path] !== false);
+
+        // 1. Folder row
+        rows.push({
+            key: `folder:${node.path}`,
+            id: `folder:${node.path}`,
+            type: 'folder',
             depth: node.depth,
-            color: node.color,
-            hasSubfolders: node.children.length > 0,
+            path: node.path,
+            displayName: node.path === '/' ? 'All Media (Root)' : node.name,
+            hasChildren: node.children.length > 0,
+            isExpanded,
             allAssetCount: node.allAssetCount,
-            assets: node.directAssets
+            color: node.color,
+            isTransient: node.isTransient,
         });
 
-        const isExpanded = mediaLibrary.searchQuery ? true : (expandedFolders.value[node.path] !== false);
+        // 2. If folder is expanded:
         if (isExpanded) {
+            // A. Subfolders on TOP
             for (const child of node.children) {
                 traverse(child);
+            }
+            // B. Direct assets BELOW subfolders
+            for (const asset of node.directAssets) {
+                rows.push({
+                    key: `asset:${asset.uuid}`,
+                    id: `asset:${asset.uuid}`,
+                    type: 'asset',
+                    depth: node.depth + 1,
+                    path: node.path,
+                    displayName: asset.display_name,
+                    asset,
+                });
             }
         }
     };
 
     traverse(tree);
-    return result;
+    return rows;
 });
 
+// Breadcrumbs for active folder context
+const currentBreadcrumbs = computed(() => {
+    const path = mediaLibrary.currentFolderPath || '/';
+    if (path === '/') return [{ name: 'All Media', path: '/' }];
+    const parts = path.split('/').filter(Boolean);
+    const crumbs = [{ name: 'All Media', path: '/' }];
+    let accum = '';
+    for (const p of parts) {
+        accum += `/${p}`;
+        crumbs.push({ name: p, path: accum });
+    }
+    return crumbs;
+});
+
+function navigateBreadcrumb(path: string) {
+    mediaLibrary.currentFolderPath = path;
+    mediaLibrary.selectedNodeId = `folder:${path}`;
+    expandedFolders.value[path] = true;
+}
 
 watch(debouncedLibraryQuery, (query) => {
     mediaLibrary.searchQuery = query.trim().toLowerCase();
@@ -1470,6 +1515,23 @@ const menuItems = computed<MenuItem[]>(() => {
       </div>
     </div>
 
+    <!-- Active Path Breadcrumb Bar -->
+    <div class="lib-breadcrumb-bar">
+      <span class="breadcrumb-icon">📁</span>
+      <div class="breadcrumb-trail custom-scroll">
+        <span
+          v-for="(crumb, idx) in currentBreadcrumbs"
+          :key="crumb.path"
+          class="breadcrumb-crumb"
+          :class="{ 'is-active': crumb.path === mediaLibrary.currentFolderPath }"
+          @click="navigateBreadcrumb(crumb.path)"
+        >
+          {{ crumb.name }}
+          <span v-if="idx < currentBreadcrumbs.length - 1" class="breadcrumb-sep">/</span>
+        </span>
+      </div>
+    </div>
+
     <!-- Tree List -->
     <div
       ref="libTreeRef"
@@ -1483,98 +1545,121 @@ const menuItems = computed<MenuItem[]>(() => {
       @contextmenu.prevent
       style="overflow-y: auto;"
     >
-      <div v-if="isScanning && !folderGroups.length" class="lib-empty">⌛ Loading…</div>
-      <div v-else-if="folderGroups.length === 0" class="lib-empty">
+      <div v-if="isScanning && !visibleTreeRows.length" class="lib-empty">⌛ Loading…</div>
+      <div v-else-if="visibleTreeRows.length === 0" class="lib-empty">
         {{ libraryQuery ? 'No matching assets found.' : '📂 No media found.\nSet the Ingestor API or media folder in ⚙️ Settings.' }}
       </div>
       <div v-else class="lib-tree-content">
-        <div v-for="group in folderGroups" :key="group.folderName" class="folder-group">
+        <template v-for="row in visibleTreeRows" :key="row.key">
+          <!-- 1. Folder Row -->
           <div
+            v-if="row.type === 'folder'"
             class="lib-row is-folder"
             :class="{
-              'is-selected': mediaLibrary.selectedNodeId === `folder:${group.folderName}`,
-              'is-folder-drop-target': folderDropTargetId === `folder:${group.folderName}`
+              'is-selected': mediaLibrary.selectedNodeId === row.id,
+              'is-folder-drop-target': folderDropTargetId === row.id,
+              'is-root-folder': row.depth === 0,
             }"
-            :style="{ paddingLeft: group.depth > 0 ? (group.depth * 16 + 6) + 'px' : '8px' }"
-            :data-library-folder-path="group.folderName"
-            :draggable="true"
-            @click="onFolderClick(group.folderName)"
-            @dblclick="onFolderDoubleClick(group.folderName)"
-            @contextmenu.prevent="onFolderContextMenu($event, group.folderName)"
-            @dragstart="onFolderDragStart($event, group.folderName)"
+            :style="{ paddingLeft: `${row.depth * 18 + 8}px` }"
+            :data-library-folder-path="row.path"
+            :draggable="row.depth > 0"
+            @click="onFolderClick(row.path)"
+            @dblclick="onFolderDoubleClick(row.path)"
+            @contextmenu.prevent="onFolderContextMenu($event, row.path)"
+            @dragstart="onFolderDragStart($event, row.path)"
             @dragend="folderDropTargetId = null"
-            @dragover="onFolderDragOverPath($event, group.folderName)"
-            @drop="onFolderDropPath($event, group.folderName)"
+            @dragover="onFolderDragOverPath($event, row.path)"
+            @drop="onFolderDropPath($event, row.path)"
           >
-            <!-- Chevron for folders -->
+            <!-- Vertical Indentation Tree Guides -->
+            <span
+              v-for="d in row.depth"
+              :key="d"
+              class="tree-guide-line"
+              :style="{ left: `${(d - 1) * 18 + 14}px` }"
+            ></span>
+
+            <!-- Chevron for collapsible folder -->
             <span
               class="chevron-icon"
-              :class="{ 'is-expanded': expandedFolders[group.folderName] !== false }"
-              @click.stop="expandedFolders[group.folderName] = expandedFolders[group.folderName] === false"
+              :class="{ 'is-expanded': row.isExpanded }"
+              @click.stop="expandedFolders[row.path] = !row.isExpanded"
             >
               ▶
             </span>
-            
-            <span class="lib-icon" @click.stop="onFolderClick(group.folderName)">
+
+            <span class="lib-icon" @click.stop="onFolderClick(row.path)">
               <svg
                 class="folder-svg"
                 viewBox="0 0 24 24"
-                :style="{ fill: mediaLibrary.folderColors[group.folderName] || 'var(--accent-blue)' }"
+                :style="{ fill: row.color || (row.depth === 0 ? '#38bdf8' : 'var(--accent-blue)') }"
               >
-                <path v-if="expandedFolders[group.folderName] !== false" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
+                <path v-if="row.isExpanded" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
                 <path v-else d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
               </svg>
             </span>
+
             <span class="lib-text">
-              <span class="lib-name">{{ group.displayName }}</span>
+              <span class="lib-name folder-title-text">{{ row.displayName }}</span>
+            </span>
+
+            <span v-if="row.allAssetCount !== undefined" class="folder-count-badge">
+              {{ row.allAssetCount }}
             </span>
           </div>
 
-          <!-- Wrap folder's assets list in v-show -->
-          <div v-show="expandedFolders[group.folderName] !== false" class="folder-children" style="display: flex; flex-direction: column;">
-            <div
-              v-for="asset in group.assets"
-              :key="asset.uuid"
-              class="lib-row is-asset"
-              :class="{
-                'is-selected': isAssetSelected(asset.uuid)
-              }"
-              role="option"
-              :data-asset-id="asset.uuid"
-              :aria-selected="isAssetSelected(asset.uuid)"
-              :tabindex="isAssetPrimarySelected(asset.uuid) ? 0 : -1"
-              :style="{ paddingLeft: `${(group.depth + 1) * 16 + 10}px` }"
-              @click="onAssetClick(asset, $event)"
-              @dblclick="onAssetDoubleClick(asset)"
-              @contextmenu.prevent="onAssetContextMenu($event, asset)"
-              @pointerdown="onAssetPointerDown($event, asset)"
-            >
-              <span class="chevron-spacer"></span>
-              
-              <span class="lib-icon" @click.stop="onAssetClick(asset)">
-                <StatusIndicator :tone="resolveLibraryStatusTone(asset, settings.qcSensitivity)" variant="dot" :tooltip="getAssetTooltip(asset)" />
-                <span>🎬</span>
-              </span>
-              <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">
-                <span class="lib-name-wrap">
-                  <span class="lib-name">{{ asset.display_name }}</span>
-                  <span class="mcr-badges">
-                    <span v-if="cachedRatingMeta(asset).ageRating !== 'none'" data-testid="age-rating-badge" class="mcr-badge badge-age" :class="`age-${cachedRatingMeta(asset).ageRating}`">
-                      {{ cachedRatingMeta(asset).ageRating.toUpperCase() }}
-                    </span>
-                    <span v-if="cachedRatingMeta(asset).tpFlag" class="mcr-badge badge-tp">TP</span>
-                    <span v-if="cachedRatingMeta(asset).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${cachedRatingMeta(asset).contentType}`">
-                      {{ cachedRatingMeta(asset).contentType.toUpperCase() }}
-                    </span>
+          <!-- 2. Asset Row -->
+          <div
+            v-else-if="row.type === 'asset' && row.asset"
+            class="lib-row is-asset"
+            :class="{
+              'is-selected': isAssetSelected(row.asset.uuid)
+            }"
+            role="option"
+            :data-asset-id="row.asset.uuid"
+            :aria-selected="isAssetSelected(row.asset.uuid)"
+            :tabindex="isAssetPrimarySelected(row.asset.uuid) ? 0 : -1"
+            :style="{ paddingLeft: `${row.depth * 18 + 8}px` }"
+            @click="onAssetClick(row.asset, $event)"
+            @dblclick="onAssetDoubleClick(row.asset)"
+            @contextmenu.prevent="onAssetContextMenu($event, row.asset)"
+            @pointerdown="onAssetPointerDown($event, row.asset)"
+          >
+            <!-- Vertical Indentation Tree Guides -->
+            <span
+              v-for="d in row.depth"
+              :key="d"
+              class="tree-guide-line"
+              :style="{ left: `${(d - 1) * 18 + 14}px` }"
+            ></span>
+
+            <span class="chevron-spacer"></span>
+
+            <span class="lib-icon" @click.stop="onAssetClick(row.asset)">
+              <StatusIndicator :tone="resolveLibraryStatusTone(row.asset, settings.qcSensitivity)" variant="dot" :tooltip="getAssetTooltip(row.asset)" />
+              <span>🎬</span>
+            </span>
+
+            <span class="lib-text" :class="{ 'is-managed': !row.asset.uuid.startsWith('local:') }">
+              <span class="lib-name-wrap">
+                <span class="lib-name">{{ row.asset.display_name }}</span>
+                <span class="mcr-badges">
+                  <span v-if="cachedRatingMeta(row.asset).ageRating !== 'none'" data-testid="age-rating-badge" class="mcr-badge badge-age" :class="`age-${cachedRatingMeta(row.asset).ageRating}`">
+                    {{ cachedRatingMeta(row.asset).ageRating.toUpperCase() }}
+                  </span>
+                  <span v-if="cachedRatingMeta(row.asset).tpFlag" class="mcr-badge badge-tp">TP</span>
+                  <span v-if="cachedRatingMeta(row.asset).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${cachedRatingMeta(row.asset).contentType}`">
+                    {{ cachedRatingMeta(row.asset).contentType.toUpperCase() }}
                   </span>
                 </span>
               </span>
-              <span v-if="effectiveDurationSeconds(asset) > 0" class="lib-time-pill">
-                {{ formatDuration(effectiveDurationSeconds(asset)) }}
-              </span>
-            </div>
+            </span>
+
+            <span v-if="effectiveDurationSeconds(row.asset) > 0" class="lib-time-pill">
+              {{ formatDuration(effectiveDurationSeconds(row.asset)) }}
+            </span>
           </div>
-        </div>
+        </template>
       </div>
     </div>
 
@@ -1757,100 +1842,205 @@ const menuItems = computed<MenuItem[]>(() => {
 .icon-action:hover:not(:disabled) { background:color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary)); }
 .icon-action:disabled { opacity:0.4; cursor:not-allowed; }
 
-.lib-row {
-  display:flex;
-  align-items:center;
-  gap:8px;
-  min-height:34px;
-  height:34px;
-  padding:5px 8px;
-  padding-left:8px;
-  border-radius:8px;
-  user-select:none;
-  border:1px solid transparent;
-  transition:background 0.12s, border-color 0.12s;
-  cursor:pointer;
+/* Breadcrumbs bar */
+.lib-breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.72rem;
+  flex-shrink: 0;
 }
-.lib-row:hover {
-  background:color-mix(in srgb, var(--accent-blue) 10%, transparent);
-  border-color:color-mix(in srgb, var(--accent-blue) 18%, transparent);
+.breadcrumb-icon {
+  font-size: 0.8rem;
+  color: var(--accent-blue);
+  flex-shrink: 0;
+}
+.breadcrumb-trail {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.breadcrumb-crumb {
+  cursor: pointer;
+  font-weight: 600;
+  transition: color 0.12s ease;
+}
+.breadcrumb-crumb:hover {
+  color: var(--accent-blue);
+  text-decoration: underline;
+}
+.breadcrumb-crumb.is-active {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.breadcrumb-sep {
+  margin: 0 2px;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.lib-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  height: 32px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  user-select: none;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  cursor: pointer;
+}
+.lib-row.is-folder {
+  background: rgba(255, 255, 255, 0.015);
+  margin-bottom: 1px;
+}
+.lib-row.is-folder:hover {
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.2);
+}
+.lib-row.is-folder.is-root-folder {
+  font-weight: 700;
+}
+.lib-row.is-asset:hover {
+  background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent-blue) 18%, transparent);
 }
 .lib-row.is-selected {
-  background:color-mix(in srgb, var(--accent-blue) 14%, transparent);
-  border-color:color-mix(in srgb, var(--accent-blue) 34%, transparent);
+  background: color-mix(in srgb, var(--accent-blue) 16%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent) !important;
 }
+
+/* Tree Indentation Guides */
+.tree-guide-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}
+.lib-row:hover .tree-guide-line {
+  background: rgba(56, 189, 248, 0.18);
+}
+
 .lib-row.is-transient .lib-name {
-  font-style:italic;
-  opacity:0.7;
+  font-style: italic;
+  opacity: 0.75;
 }
 .lib-row.is-folder-drop-target {
   outline: 2px dashed color-mix(in srgb, var(--accent-blue) 60%, transparent);
   outline-offset: -2px;
   background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
 }
-.lib-row[draggable="true"] { cursor:grab; }
-.lib-row[draggable="true"]:active { cursor:grabbing; }
-.lib-icon { font-size:0.85rem; flex-shrink:0; display:flex; align-items:center; gap:4px; cursor:pointer; }
-.lib-text { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; }
-.lib-name { font-size:0.76rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; font-weight:600; }
-.is-managed .lib-name { color:var(--accent-blue); }
+.lib-row[draggable="true"] { cursor: grab; }
+.lib-row[draggable="true"]:active { cursor: grabbing; }
+
+.lib-icon {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.lib-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.lib-name {
+  font-size: 0.77rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-weight: 500;
+  color: #f1f5f9;
+}
+.folder-title-text {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.is-managed .lib-name {
+  color: var(--text-primary);
+}
+
+.folder-count-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #94a3b8;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
 .lib-time-pill {
-  font-size:0.72rem;
-  line-height:1;
-  padding:5px 8px;
-  border-radius:999px;
-  background:color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary));
-  border:1px solid color-mix(in srgb, var(--accent-red) 26%, transparent);
-  color:var(--text-primary);
-  font-variant-numeric:tabular-nums;
-  font-family:'Courier New', monospace;
-  font-weight:700;
-  letter-spacing:0.04em;
-  flex-shrink:0;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
 }
 
 /* Debug menu */
-.debug-menu-wrap { position:relative; }
+.debug-menu-wrap { position: relative; }
 .debug-menu {
-  position:absolute;
-  right:0;
-  top:calc(100% + 6px);
-  min-width:190px;
-  display:flex;
-  flex-direction:column;
-  padding:6px;
-  gap:4px;
-  background:color-mix(in srgb, var(--bg-secondary) 96%, transparent);
-  border:1px solid var(--glass-border);
-  border-radius:8px;
-  box-shadow:0 8px 24px rgba(0,0,0,0.35);
-  z-index:20;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  z-index: 20;
 }
 .debug-menu-item {
-  background:transparent;
-  border:none;
-  color:var(--text-primary);
-  text-align:left;
-  padding:8px 10px;
-  border-radius:6px;
-  cursor:pointer;
-  font-size:0.78rem;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.78rem;
 }
 .debug-menu-item:hover:not(:disabled) {
-  background:color-mix(in srgb, var(--accent-blue) 10%, transparent);
+  background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
 }
 .debug-menu-item:disabled {
-  opacity:0.45;
-  cursor:not-allowed;
+  opacity: 0.45;
+  cursor: not-allowed;
 }
-
-
 
 @media (max-width: 1280px) {
   .lib-toolbar {
     flex-wrap: wrap;
   }
-  .toolbar-spacer { display:none; }
+  .toolbar-spacer { display: none; }
 }
 
 .lib-name-wrap {
@@ -1865,6 +2055,7 @@ const menuItems = computed<MenuItem[]>(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .mcr-badge {
@@ -1873,52 +2064,78 @@ const menuItems = computed<MenuItem[]>(() => {
   justify-content: center;
   font-size: 0.62rem;
   font-weight: 800;
-  padding: 1px 4px;
+  padding: 2px 5px;
   border-radius: 3px;
   line-height: 1;
   text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
-.badge-age.age-k { background: #2ecc71; color: #fff; }
-.badge-age.age-8 { background: #f1c40f; color: #000; }
-.badge-age.age-12 { background: #e67e22; color: #fff; }
-.badge-age.age-16 { background: #d35400; color: #fff; }
-.badge-age.age-18 { background: #c0392b; color: #fff; }
+/* Greek NCRTV Regulatory Color Codes */
+.badge-age.age-k {
+  background: #10b981;
+  color: #fff;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.25);
+}
+.badge-age.age-8 {
+  background: #06b6d4;
+  color: #000;
+  font-weight: 900;
+  box-shadow: 0 0 6px rgba(6, 182, 212, 0.25);
+}
+.badge-age.age-12 {
+  background: #eab308;
+  color: #000;
+  font-weight: 900;
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.25);
+}
+.badge-age.age-16 {
+  background: #f97316;
+  color: #fff;
+  box-shadow: 0 0 6px rgba(249, 115, 22, 0.25);
+}
+.badge-age.age-18 {
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
 
 .badge-tp {
-  background: #e74c3c;
+  background: #ec4899;
   color: #fff;
-  border: 1px solid #c0392b;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 6px rgba(236, 72, 153, 0.25);
 }
 
-.badge-content.content-movie { background: #3498db; color: #fff; }
-.badge-content.content-show { background: #9b59b6; color: #fff; }
-.badge-content.content-documentary { background: #f39c12; color: #000; }
-.badge-content.content-news { background: #1abc9c; color: #fff; }
+.badge-content.content-movie { background: #3b82f6; color: #fff; }
+.badge-content.content-show { background: #8b5cf6; color: #fff; }
+.badge-content.content-documentary { background: #f59e0b; color: #000; font-weight: 800; }
+.badge-content.content-news { background: #14b8a6; color: #fff; }
 
 .chevron-icon {
   font-size: 0.55rem;
   color: var(--text-secondary);
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   user-select: none;
   transition: transform 0.15s ease, color 0.15s ease;
-  margin-right: 4px;
+  margin-right: 2px;
+  flex-shrink: 0;
 }
 .chevron-icon.is-expanded {
   transform: rotate(90deg);
-  color: var(--text-primary);
+  color: #38bdf8;
 }
 .chevron-icon:hover {
-  color: var(--text-primary);
+  color: #fff;
 }
 .chevron-spacer {
-  width: 16px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
 }
 .folder-svg {
@@ -1926,6 +2143,7 @@ const menuItems = computed<MenuItem[]>(() => {
   height: 14px;
   display: block;
   transition: fill 0.15s ease;
+  flex-shrink: 0;
 }
 
 .folder-colors-grid {
