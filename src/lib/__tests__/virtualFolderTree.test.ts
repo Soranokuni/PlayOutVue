@@ -124,6 +124,48 @@ describe('Virtual Folder Tree Engine', () => {
     expect(daily.directAssets).toHaveLength(1);
     expect(daily.directAssets[0]!.display_name).toBe('Breaking News Alpha');
   });
+
+  it('supports arbitrary depth nesting (5+ levels deep)', () => {
+    const assets: LibraryAsset[] = [
+      createMockAsset('1', 'Deep Episode', '/Shows/Drama/2026/Season 1/Episodes'),
+    ];
+
+    const tree = buildVirtualFolderTree(assets);
+
+    expect(tree.depth).toBe(0);
+    const shows = tree.children.find((c) => c.name === 'Shows')!;
+    expect(shows.depth).toBe(1);
+    const drama = shows.children.find((c) => c.name === 'Drama')!;
+    expect(drama.depth).toBe(2);
+    const y2026 = drama.children.find((c) => c.name === '2026')!;
+    expect(y2026.depth).toBe(3);
+    const season1 = y2026.children.find((c) => c.name === 'Season 1')!;
+    expect(season1.depth).toBe(4);
+    const episodes = season1.children.find((c) => c.name === 'Episodes')!;
+    expect(episodes.depth).toBe(5);
+    expect(episodes.directAssets).toHaveLength(1);
+    expect(episodes.directAssets[0]!.display_name).toBe('Deep Episode');
+  });
+
+  it('keeps subfolders on top of direct assets in parent folders', () => {
+    const assets: LibraryAsset[] = [
+      createMockAsset('1', 'Direct Clip In Parent', '/Shows'),
+      createMockAsset('2', 'Subfolder Clip', '/Shows/Drama'),
+      createMockAsset('3', 'Another Subfolder Clip', '/Shows/Comedy'),
+    ];
+
+    const tree = buildVirtualFolderTree(assets);
+    const shows = tree.children.find((c) => c.name === 'Shows')!;
+
+    // shows has 2 subfolders: Comedy, Drama
+    expect(shows.children).toHaveLength(2);
+    expect(shows.children[0]!.name).toBe('Comedy');
+    expect(shows.children[1]!.name).toBe('Drama');
+
+    // shows has 1 direct asset
+    expect(shows.directAssets).toHaveLength(1);
+    expect(shows.directAssets[0]!.display_name).toBe('Direct Clip In Parent');
+  });
 });
 
 describe('Greek Compliance Helpers & Presets', () => {
