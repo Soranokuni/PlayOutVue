@@ -37,6 +37,7 @@ const localState = ref({
     prerollFrames: 2,
     autoResumeAfterRestart: true,
     ingestorApiBaseUrl: '',
+    recycleBinAutoPurge: 'disabled' as 'disabled' | '1week' | '2weeks' | '3weeks' | '1month',
     
     // CG settings
     cg: {
@@ -197,6 +198,7 @@ const mapLocalState = () => {
         prerollFrames: settings.prerollFrames,
         autoResumeAfterRestart: settings.autoResumeAfterRestart !== false,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
+        recycleBinAutoPurge: settings.recycleBinAutoPurge || 'disabled',
         
         // CG settings
         cg: {
@@ -253,6 +255,17 @@ const saveSettings = async () => {
 const discardAndClose = () => {
     mapLocalState();
     emit('close');
+};
+
+const emptyBinFromSettings = async () => {
+    const confirmed = confirm("Are you sure you want to permanently purge all items from the Recycle Bin? This will delete all physical mezzanine files on disk and all database records for soft-deleted assets.");
+    if (!confirmed) return;
+    try {
+        await invoke('purge_ingestor_recycle_bin', { apiBaseUrlOverride: null });
+        alert("Recycle Bin successfully emptied.");
+    } catch (e) {
+        alert(`Failed to empty Recycle Bin: ${e}`);
+    }
 };
 
 const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | 'badge-k' | 'badge-8' | 'badge-12' | 'badge-16' | 'badge-18' | 'badge-tp') => {
@@ -469,6 +482,39 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           <button class="glass-btn" style="flex-shrink: 0;" title="Browse logos folder" @click="pickPath('logos')">📁</button>
                       </div>
                       <span class="hint-text">Expected assets: logo.png, K.png, 8.png, 12.png, 16.png, 18.png, tp.png.</span>
+                  </div>
+              </section>
+
+              <!-- Recycle Bin & Storage Auto-Purge -->
+              <section class="settings-section">
+                  <h3 class="text-secondary section-title">Recycle Bin & Storage Auto-Purge</h3>
+                  <div class="form-group">
+                      <label>Automatic Purge Schedule</label>
+                      <select class="glass-select" v-model="localState.recycleBinAutoPurge">
+                          <option value="disabled">Disabled (Keep deleted items indefinitely)</option>
+                          <option value="1week">After 1 Week (7 Days)</option>
+                          <option value="2weeks">After 2 Weeks (14 Days)</option>
+                          <option value="3weeks">After 3 Weeks (21 Days)</option>
+                          <option value="1month">After 1 Month (30 Days)</option>
+                      </select>
+                      <span class="hint-text">Items older than the selected retention window will be permanently removed from disk and database during background maintenance.</span>
+                  </div>
+
+                  <div class="form-group" style="margin-top: 12px;">
+                      <label>Manual Storage Cleanup</label>
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); padding: 10px 14px; border-radius: 8px;">
+                          <div>
+                              <div style="font-weight: 600; font-size: 0.85rem; color: #fca5a5;">Empty Recycle Bin</div>
+                              <div style="font-size: 0.75rem; color: #94a3b8;">Permanently delete all soft-deleted items from physical storage now.</div>
+                          </div>
+                          <button
+                              class="glass-btn"
+                              style="background: #dc2626; color: #fff; border-color: #b91c1c; font-weight: 600; padding: 6px 14px; flex-shrink: 0;"
+                              @click="emptyBinFromSettings"
+                          >
+                              Empty Now
+                          </button>
+                      </div>
                   </div>
               </section>
 

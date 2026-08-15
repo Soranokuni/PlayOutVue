@@ -28,7 +28,15 @@ use stream::extract_web_stream;
 use trimmer::{get_media_preview_info, get_media_preview_url, compute_frame_trim, parse_timecode};
 use playlist::{save_playlist, load_playlist};
 use filesystem::{browse_filesystem, find_default_logos_dir, get_image_dimensions, list_filesystem_roots};
-use ingestor_api::{resolve_ingestor_asset, resolve_ingestor_assets_batch, move_ingestor_asset, rename_ingestor_asset, update_ingestor_rating, update_ingestor_trim, list_ingestor_assets, check_ingestor_health, spawn_ingestor_heartbeat, create_ingestor_subclip, update_ingestor_tp, purge_ingestor_asset, list_ingestor_folder_colors, set_ingestor_folder_color};
+use ingestor_api::{
+    auto_purge_ingestor_recycle_bin, check_ingestor_health, create_ingestor_subclip,
+    list_ingestor_assets, list_ingestor_folder_colors, list_ingestor_recycle_bin,
+    move_ingestor_asset, purge_ingestor_asset, purge_ingestor_folder, purge_ingestor_recycle_bin,
+    rename_ingestor_asset, resolve_ingestor_asset, resolve_ingestor_assets_batch,
+    restore_ingestor_asset, restore_ingestor_folder, set_ingestor_folder_color,
+    spawn_ingestor_heartbeat, trash_ingestor_asset, trash_ingestor_folder, update_ingestor_rating,
+    update_ingestor_tp, update_ingestor_trim,
+};
 use transcoder_sidecar::verify_playback_ready;
 use db::{MediaDb, default_db_path};
 
@@ -146,6 +154,14 @@ pub fn run() {
             check_ingestor_health,
             list_ingestor_folder_colors,
             set_ingestor_folder_color,
+            trash_ingestor_asset,
+            trash_ingestor_folder,
+            restore_ingestor_asset,
+            restore_ingestor_folder,
+            list_ingestor_recycle_bin,
+            purge_ingestor_recycle_bin,
+            purge_ingestor_folder,
+            auto_purge_ingestor_recycle_bin,
             verify_playback_ready
         ])
         .setup(|app| {

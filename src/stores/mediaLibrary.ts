@@ -54,6 +54,8 @@ export interface LibraryAsset {
     warnings?: string[];
     qc_report?: QcReport;
     loudness?: LoudnessMetadata;
+    deleted_at?: string;
+    original_virtual_folder?: string;
 }
 
 export interface TreeNode {
@@ -191,6 +193,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
     () => {
         const mediaDefaults = useMediaDefaultsStore();
         const assets = ref<LibraryAsset[]>([]);
+        const recycleBinAssets = ref<LibraryAsset[]>([]);
+        const isRecycleBinLoading = ref(false);
         const currentFolderPath = ref('/');
         const searchQuery = ref('');
         const selectedNodeId = ref<string | null>(null);
@@ -406,7 +410,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         );
 
         function setAssets(next: LibraryAsset[]) {
-            const processed = next.map((asset) => {
+            const activeOnly = next.filter((a) => !a.deleted_at);
+            const processed = activeOnly.map((asset) => {
                 // current_path-keyed override (local fallback assets).
                 const pathOverride = localVirtualFolders.value[asset.current_path];
                 // uuid-keyed override (Ingestor assets moved client-side; survives
@@ -821,8 +826,176 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             }
         }
 
+        async function fetchRecycleBin() {
+            isRecycleBinLoading.value = true;
+            try {
+                const res = await invoke<any[]>('list_ingestor_recycle_bin', {
+                    apiBaseUrlOverride: null
+                });
+                if (res) {
+                    recycleBinAssets.value = res.map((a) => ({
+                        uuid: a.uuid,
+                        current_path: a.current_path,
+                        display_name: a.display_name || a.current_path?.split(/[/\\]/).pop() || 'Untitled',
+                        virtual_folder: normalizeVirtualFolder(a.virtual_folder),
+                        duration_ms: a.duration_ms || 0,
+                        trim_in_ms: a.trim_in_ms || 0,
+                        trim_out_ms: a.trim_out_ms || a.duration_ms || 0,
+                        rating: a.rating || 'K',
+                        tp: a.tp || 'None',
+                        status: a.status || 'ready',
+                        mezzanine_ok: a.mezzanine_ok,
+                        fps: a.fps,
+                        fpsNum: a.fps_num,
+                        fpsDen: a.fps_den,
+                        warnings: a.warnings,
+                        qc_report: a.qc_report,
+                        loudness: a.loudness,
+                        deleted_at: a.deleted_at,
+                        original_virtual_folder: a.original_virtual_folder
+                    }));
+                }
+            } catch (error) {
+                console.warn('[LibraryStore] Failed to fetch recycle bin:', error);
+            } finally {
+                isRecycleBinLoading.value = false;
+            }
+        }
+
+        async function trashAsset(uuid: string) {
+            try {
+                if (!uuid.startsWith('local:')) {
+                    await invoke('trash_ingestor_asset', { uuid, apiBaseUrlOverride: null });
+                }
+            } catch (error) {
+                console.error('[LibraryStore] Failed to trash asset on backend:', error);
+                throw error;
+            }
+
+            const idx = assets.value.findIndex(a => a.uuid === uuid);
+            if (idx >= 0) {
+                assets.value.splice(idx, 1);
+            }
+            if (selectedNodeId.value === `asset:${uuid}`) {
+                selectedNodeId.value = null;
+            }
+            fetchRecycleBin();
+        }
+
+        async function trashFolder(folderPath: string) {
+            const norm = normalizeVirtualFolder(folderPath);
+            try {
+                await invoke('trash_ingestor_folder', { folderPath: norm, apiBaseUrlOverride: null });
+            } catch (error) {
+                console.error('[LibraryStore] Failed to trash folder on backend:', error);
+                throw error;
+            }
+
+            // Remove all matching assets from local state
+            assets.value = assets.value.filter(a => {
+                const vf = normalizeVirtualFolder(a.virtual_folder);
+                if (norm === '/') return false;
+                return vf !== norm && !vf.startsWith(norm + '/');
+            });
+
+            // Clean up transient folder entries
+            delete transientFolders.value[norm];
+            for (const key of Object.keys(transientFolders.value)) {
+                if (key.startsWith(norm + '/')) {
+                    delete transientFolders.value[key];
+                }
+            }
+
+            if (currentFolderPath.value === norm || currentFolderPath.value.startsWith(norm + '/')) {
+                currentFolderPath.value = '/';
+            }
+            if (selectedNodeId.value === `folder:${norm}` || selectedNodeId.value?.startsWith(`folder:${norm}/`)) {
+                selectedNodeId.value = null;
+            }
+
+            fetchRecycleBin();
+        }
+
+        async function restoreAsset(uuid: string, targetFolder?: string) {
+            try {
+                await invoke('restore_ingestor_asset', {
+                    uuid,
+                    targetFolder: targetFolder ? normalizeVirtualFolder(targetFolder) : null,
+                    apiBaseUrlOverride: null
+                });
+            } catch (error) {
+                console.error('[LibraryStore] Failed to restore asset:', error);
+                throw error;
+            }
+
+            // Remove from recycle bin list locally
+            recycleBinAssets.value = recycleBinAssets.value.filter(a => a.uuid !== uuid);
+        }
+
+        async function restoreFolder(folderPath: string, fallbackToRoot = false) {
+            const norm = normalizeVirtualFolder(folderPath);
+            try {
+                await invoke('restore_ingestor_folder', {
+                    folderPath: norm,
+                    fallbackToRoot,
+                    apiBaseUrlOverride: null
+                });
+            } catch (error) {
+                console.error('[LibraryStore] Failed to restore folder:', error);
+                throw error;
+            }
+
+            await fetchRecycleBin();
+        }
+
+        async function purgeAsset(uuid: string) {
+            try {
+                await invoke('purge_ingestor_asset', { uuid, apiBaseUrlOverride: null });
+            } catch (error) {
+                console.error('[LibraryStore] Failed to purge asset:', error);
+                throw error;
+            }
+
+            assets.value = assets.value.filter(a => a.uuid !== uuid);
+            recycleBinAssets.value = recycleBinAssets.value.filter(a => a.uuid !== uuid);
+        }
+
+        async function purgeFolder(folderPath: string) {
+            const norm = normalizeVirtualFolder(folderPath);
+            try {
+                await invoke('purge_ingestor_folder', { folderPath: norm, apiBaseUrlOverride: null });
+            } catch (error) {
+                console.error('[LibraryStore] Failed to purge folder:', error);
+                throw error;
+            }
+
+            await fetchRecycleBin();
+        }
+
+        async function emptyRecycleBin() {
+            try {
+                await invoke('purge_ingestor_recycle_bin', { apiBaseUrlOverride: null });
+            } catch (error) {
+                console.error('[LibraryStore] Failed to empty recycle bin:', error);
+                throw error;
+            }
+
+            recycleBinAssets.value = [];
+        }
+
+        async function checkAndTriggerAutoPurge(policy: string) {
+            if (!policy || policy === 'disabled') return;
+            try {
+                await invoke('auto_purge_ingestor_recycle_bin', { policy, apiBaseUrlOverride: null });
+            } catch (error) {
+                console.warn('[LibraryStore] Auto-purge execution note:', error);
+            }
+        }
+
         return {
             assets,
+            recycleBinAssets,
+            isRecycleBinLoading,
             currentFolderPath,
             searchQuery,
             selectedNodeId,
@@ -864,6 +1037,15 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             updateAssetMetadata,
             fetchFolderColors,
             setFolderColor,
+            fetchRecycleBin,
+            trashAsset,
+            trashFolder,
+            restoreAsset,
+            restoreFolder,
+            purgeAsset,
+            purgeFolder,
+            emptyRecycleBin,
+            checkAndTriggerAutoPurge,
         };
     },
     {
