@@ -16,6 +16,7 @@ import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
 import { activeScope } from '../composables/useOperatorShortcuts';
 import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget, type GeometrySnapshot } from '../lib/reorderHelper';
+import { GREEK_COMPLIANCE_PRESETS, type GreekCompliancePreset } from '../lib/greekCompliance';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -349,7 +350,17 @@ const ctxDelete = async () => {
   closeContextMenu();
 };
 
-const saveMetadata = async (playoutvueId: string | undefined, updates: { complianceRating?: ComplianceRating; tp_flag?: boolean; content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none' }, localItemId?: string) => {
+const saveMetadata = async (
+  playoutvueId: string | undefined,
+  updates: {
+    complianceRating?: ComplianceRating;
+    complianceText?: string;
+    timeline?: Array<{ start: number; end: number; text: string }>;
+    tp_flag?: boolean;
+    content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+  },
+  localItemId?: string
+) => {
   if (store.isRundownLocked) return;
   if (localItemId) {
     await store.updateItemMetadata(localItemId, playoutvueId, updates);
@@ -364,10 +375,18 @@ const contentTypeOptions = [
   { id: 'news', label: 'News' }
 ] as const;
 
-const ctxSetAgeRating = async (rating: ComplianceRating) => {
+const ctxApplyCompliancePreset = async (preset: GreekCompliancePreset) => {
   const item = contextMenu.value.item;
   if (item && item.type !== 'gap') {
-    await saveMetadata(item.playoutvueId, { complianceRating: rating }, item.id);
+    await saveMetadata(
+      item.playoutvueId,
+      {
+        complianceRating: preset.ageRating,
+        complianceText: preset.advisoryText,
+        timeline: preset.advisoryText ? [{ start: 0, end: (preset.displayDurationSec || 30) * 1000, text: preset.advisoryText }] : []
+      },
+      item.id
+    );
   }
   closeContextMenu();
 };
@@ -458,12 +477,12 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'submenu',
-        label: 'Age Ratings (Σήματα Καταλληλότητας)',
-        children: ratingOptions.map(r => ({
+        label: '🇬🇷 Greek Warning Presets (ΕΣΡ)',
+        children: GREEK_COMPLIANCE_PRESETS.map(p => ({
           type: 'action',
-          label: r.label,
-          checked: item.complianceRating === r.id,
-          action: () => ctxSetAgeRating(r.id)
+          label: p.name,
+          checked: item.complianceRating === p.ageRating && item.complianceText === p.advisoryText,
+          action: () => ctxApplyCompliancePreset(p)
         }))
       },
       { type: 'divider' },
