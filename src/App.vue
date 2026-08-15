@@ -13,6 +13,7 @@ import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getA
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
+import { useMediaLibraryStore } from './stores/mediaLibrary';
 import { useOperatorShortcuts, activeModalName, closeCommandPalette, activeInspectorItem, openInspectorModal, closeInspectorModal } from './composables/useOperatorShortcuts';
 import { advanceNext, manualTakeFailure } from './services/caspar';
 
@@ -341,6 +342,11 @@ onMounted(async () => {
     });
   }
   rundown.restorePlaybackState();
+
+  if (settings.recycleBinAutoPurge && settings.recycleBinAutoPurge !== 'disabled') {
+    const mediaLib = useMediaLibraryStore();
+    mediaLib.checkAndTriggerAutoPurge(settings.recycleBinAutoPurge);
+  }
 });
 
 onUnmounted(() => {

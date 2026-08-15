@@ -19,6 +19,10 @@ export const useSettingsStore = defineStore('settings', {
         // Visual Theme ('dark' | 'monokai' | 'light')
         theme: 'dark' as 'dark' | 'monokai' | 'light',
 
+        // Recycle Bin & Auto-Purge Policy ('disabled' | '1week' | '2weeks' | '3weeks' | '1month')
+        recycleBinAutoPurge: 'disabled' as 'disabled' | '1week' | '2weeks' | '3weeks' | '1month',
+        lastAutoPurgeCheck: 0 as number,
+
         // Compliance & QC Sensitivity ('strict' = everything flagged, 'production' = subclip alignment ok, 'lenient' = only severe errors)
         qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
 

@@ -14,6 +14,7 @@ import { activeScope, activeLibraryContext } from '../composables/useOperatorSho
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
 import FolderPickerModal from './FolderPickerModal.vue';
+import RecycleBinModal from './RecycleBinModal.vue';
 import StatusIndicator from './StatusIndicator.vue';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
@@ -29,12 +30,29 @@ const ingestorStatus = useIngestorStatusStore();
 
 const showTrimPanel = ref(false);
 const trimAsset = ref<LibraryAsset | null>(null);
+const showRecycleBin = ref(false);
 const isScanning = ref(false);
 const isWarmingCatalog = ref(false);
 const libraryQuery = ref('');
 const showDebugMenu = ref(false);
 const showDebugPanel = ref(false);
 const diagnosticEntries = ref<DiagnosticEntry[]>([]);
+
+const purgeAlertModal = ref<{
+    show: boolean;
+    title: string;
+    message: string;
+    isFolder: boolean;
+    targetPathOrUuid: string;
+    displayName: string;
+}>({
+    show: false,
+    title: '',
+    message: '',
+    isFolder: false,
+    targetPathOrUuid: '',
+    displayName: ''
+});
 
 interface DiagnosticEntry {
     timestampMs: number;
@@ -751,7 +769,7 @@ function ctxRename() {
 function ctxDelete() {
     const node = contextMenu.value.node;
     if (node?.type === 'asset' && node.asset) {
-        doDeleteAsset(node.asset.uuid);
+        doTrashAsset(node.asset.uuid);
     }
     closeContextMenu();
 }
@@ -759,7 +777,7 @@ function ctxDelete() {
 function ctxPurge() {
     const node = contextMenu.value.node;
     if (node?.type === 'asset' && node.asset) {
-        doPurgeAsset(node.asset);
+        promptPurgeAsset(node.asset);
     }
     closeContextMenu();
 }
@@ -869,42 +887,63 @@ function doMoveSelected() {
 function doDeleteSelected() {
     const asset = mediaLibrary.selectedAsset;
     if (!asset) return;
-    doDeleteAsset(asset.uuid);
+    doTrashAsset(asset.uuid);
 }
 
-async function doDeleteAsset(uuid: string) {
-    if (uuid.startsWith('local:')) {
-        mediaLibrary.deleteAsset(uuid);
-        return;
+async function doTrashAsset(uuid: string) {
+    try {
+        await mediaLibrary.trashAsset(uuid);
+    } catch (e) {
+        window.alert(`Failed to move asset to Recycle Bin: ${e}`);
     }
-    const confirmed = await ask(
-        'Hide this asset from the library?\n(The Ingestor API does not yet support deletion.)',
-        { title: 'Hide Asset', kind: 'warning' }
-    );
-    if (!confirmed) return;
-    mediaLibrary.deleteAsset(uuid);
 }
 
-async function doPurgeAsset(asset: LibraryAsset) {
+async function doTrashFolder(folderPath: string) {
+    try {
+        await mediaLibrary.trashFolder(folderPath);
+    } catch (e) {
+        window.alert(`Failed to move folder to Recycle Bin: ${e}`);
+    }
+}
+
+function promptPurgeAsset(asset: LibraryAsset) {
     if (asset.uuid.startsWith('local:')) {
         window.alert("Cannot purge local fallback assets.");
         return;
     }
-    const confirmed = await ask(
-        `WARNING: Are you absolutely sure you want to permanently delete and purge "${asset.display_name}"?\n\nThis will:\n1. Permanently DELETE the physical file on disk.\n2. Delete all database records and virtual sub-clips matching this asset's file path or fingerprint.\n\nTHIS ACTION CANNOT BE UNDONE!`,
-        { title: 'Purge Asset', kind: 'warning' }
-    );
-    if (!confirmed) return;
+    purgeAlertModal.value = {
+        show: true,
+        title: 'Delete & Purge Asset',
+        message: `Are you sure you want to permanently delete and purge "${asset.display_name}"? This will permanently delete the physical mezzanine file on disk, sidecar file, and all database records matching this asset.`,
+        isFolder: false,
+        targetPathOrUuid: asset.uuid,
+        displayName: asset.display_name
+    };
+}
 
+function promptPurgeFolder(folderPath: string) {
+    purgeAlertModal.value = {
+        show: true,
+        title: 'Delete & Purge Folder',
+        message: `Are you sure you want to permanently delete and purge folder "${folderPath}" and all contained assets? This will permanently delete all physical mezzanine files on disk, sidecar files, and database records for this folder.`,
+        isFolder: true,
+        targetPathOrUuid: folderPath,
+        displayName: folderPath
+    };
+}
+
+async function executePurgeAlert() {
+    const { isFolder, targetPathOrUuid } = purgeAlertModal.value;
+    purgeAlertModal.value.show = false;
     try {
-        await invoke('purge_ingestor_asset', {
-            uuid: asset.uuid,
-            apiBaseUrlOverride: null
-        });
-        mediaLibrary.deleteAsset(asset.uuid);
+        if (isFolder) {
+            await mediaLibrary.purgeFolder(targetPathOrUuid);
+        } else {
+            await mediaLibrary.purgeAsset(targetPathOrUuid);
+        }
         await fetchAssets({ force: true });
-    } catch (error) {
-        window.alert(`Failed to purge asset: ${error}`);
+    } catch (e) {
+        window.alert(`Failed to purge: ${e}`);
     }
 }
 
@@ -1011,7 +1050,7 @@ const exportDiagnostics = async () => {
 };
 
 const probeProgressLabel = computed(() => {
-    if (!probeStatus.value.running) return '';
+    if (!probeStatus.value?.running) return '';
     if (probeStatus.value.totalCandidates > 0) {
         return `probing ${probeStatus.value.checked}/${probeStatus.value.totalCandidates}`;
     }
@@ -1324,6 +1363,17 @@ const menuItems = computed<MenuItem[]>(() => {
         type: 'action',
         label: '➡️ Move to…',
         action: () => openMoveAssetModal(asset)
+      },
+      { type: 'divider' },
+      {
+        type: 'action',
+        label: '🗑 Move to Recycle Bin',
+        action: () => doTrashAsset(asset.uuid)
+      },
+      {
+        type: 'action',
+        label: '💥 Delete & Purge…',
+        action: () => promptPurgeAsset(asset)
       }
     ];
   } else if (node.type === 'folder') {
@@ -1346,6 +1396,17 @@ const menuItems = computed<MenuItem[]>(() => {
         type: 'action',
         label: '✏️ Rename folder',
         action: doRenameFolder
+      });
+      folderItems.push({ type: 'divider' });
+      folderItems.push({
+        type: 'action',
+        label: '🗑 Move Folder to Recycle Bin',
+        action: () => doTrashFolder(node.virtualFolder)
+      });
+      folderItems.push({
+        type: 'action',
+        label: '💥 Delete & Purge Folder…',
+        action: () => promptPurgeFolder(node.virtualFolder)
       });
     }
 
@@ -1466,11 +1527,21 @@ const menuItems = computed<MenuItem[]>(() => {
       </button>
       <button
         class="icon-action"
-        title="Hide selected asset"
+        title="Move selected asset to Recycle Bin"
         :disabled="!mediaLibrary.selectedAsset"
         @click="doDeleteSelected"
       >
         🗑 Delete
+      </button>
+      <button
+        class="icon-action recycle-bin-toggle-btn"
+        title="Open Recycle Bin"
+        @click="showRecycleBin = true"
+      >
+        🗑 Recycle Bin
+        <span v-if="mediaLibrary.recycleBinAssets.length > 0" class="recycle-bin-count-badge">
+          {{ mediaLibrary.recycleBinAssets.length }}
+        </span>
       </button>
     </div>
 
@@ -1706,6 +1777,46 @@ const menuItems = computed<MenuItem[]>(() => {
         @saved="handleTrimSaved"
         @close="showTrimPanel = false; trimAsset = null"
       />
+
+      <!-- Recycle Bin Modal -->
+      <RecycleBinModal
+        v-if="showRecycleBin"
+        @close="showRecycleBin = false"
+      />
+
+      <!-- Pulsing Alert Purge Confirmation Dialog -->
+      <div v-if="purgeAlertModal.show" class="purge-dialog-backdrop" @click.self="purgeAlertModal.show = false">
+        <div class="purge-dialog-box danger-pulse-box">
+          <div class="purge-icon-circle">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </div>
+
+          <h3 class="purge-dialog-title">{{ purgeAlertModal.title }}</h3>
+          <p class="purge-dialog-text">{{ purgeAlertModal.message }}</p>
+
+          <div class="purge-warning-callout">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span>This action is destructive and irreversible. Physical media, sidecars, and database entries will be permanently deleted.</span>
+          </div>
+
+          <div class="purge-dialog-actions">
+            <button class="dialog-cancel-btn" @click="purgeAlertModal.show = false">
+              Cancel
+            </button>
+            <button class="dialog-danger-btn" @click="executePurgeAlert">
+              Permanently Purge
+            </button>
+          </div>
+        </div>
+      </div>
     </Teleport>
   </div>
 </template>
@@ -2180,5 +2291,162 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 .color-check {
   text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+/* Recycle Bin Toggle & Badges */
+.recycle-bin-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.1) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #fca5a5 !important;
+}
+
+.recycle-bin-toggle-btn:hover {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: #ef4444 !important;
+  color: #fff !important;
+}
+
+.recycle-bin-count-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Pulsing Danger Purge Dialog */
+.purge-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.danger-pulse-box {
+  background: #1c1315;
+  border: 2px solid #ef4444;
+  border-radius: 12px;
+  width: 480px;
+  max-width: 90vw;
+  padding: 24px;
+  box-shadow: 0 0 35px rgba(239, 68, 68, 0.35);
+  animation: danger-pulse 2s infinite ease-in-out;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+@keyframes danger-pulse {
+  0% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+    border-color: #ef4444;
+  }
+  50% {
+    box-shadow: 0 0 45px rgba(239, 68, 68, 0.7), 0 0 10px rgba(239, 68, 68, 0.5);
+    border-color: #f87171;
+  }
+  100% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+    border-color: #ef4444;
+  }
+}
+
+.purge-icon-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.purge-dialog-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fee2e2;
+}
+
+.purge-dialog-text {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+.purge-warning-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 11px;
+  color: #fca5a5;
+  text-align: left;
+  margin-bottom: 20px;
+}
+
+.purge-warning-callout svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.purge-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  width: 100%;
+}
+
+.dialog-cancel-btn {
+  flex: 1;
+  padding: 9px 16px;
+  background: #23272e;
+  border: 1px solid #333842;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dialog-cancel-btn:hover:not(:disabled) {
+  background: #2d3139;
+  color: #fff;
+}
+
+.dialog-danger-btn {
+  flex: 1;
+  padding: 9px 16px;
+  background: #dc2626;
+  border: 1px solid #b91c1c;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dialog-danger-btn:hover:not(:disabled) {
+  background: #ef4444;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
 }
 </style>

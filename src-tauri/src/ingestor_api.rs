@@ -80,6 +80,10 @@ pub struct V2AssetDto {
     pub loudness: Option<V2LoudnessDto>,
     #[serde(default)]
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub deleted_at: Option<String>,
+    #[serde(default)]
+    pub original_virtual_folder: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +101,10 @@ pub struct AssetResponse {
     pub display_name: Option<String>,
     #[serde(default)]
     pub virtual_folder: Option<String>,
+    #[serde(default)]
+    pub deleted_at: Option<String>,
+    #[serde(default)]
+    pub original_virtual_folder: Option<String>,
     #[serde(default)]
     pub mezzanine_ok: Option<bool>,
     #[serde(default)]
@@ -208,6 +216,8 @@ pub fn map_v2_to_asset_response(v2: V2AssetDto) -> AssetResponse {
         status,
         display_name: v2.display_name,
         virtual_folder: v2.virtual_folder,
+        deleted_at: v2.deleted_at,
+        original_virtual_folder: v2.original_virtual_folder,
         mezzanine_ok: Some(v2.mezzanine_ok),
         fps: Some(fps),
         fps_num: Some(v2.fps_num),
@@ -1056,6 +1066,294 @@ pub async fn purge_ingestor_asset<R: Runtime>(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn trash_ingestor_asset<R: Runtime>(
+    uuid: String,
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<(), String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/assets/{}/trash", base_url, uuid);
+    diagnostics.push("info", "ingestor", format!("Moving Ingestor asset '{}' to Recycle Bin at '{}'", uuid, url));
+    let client = build_client()?;
+    let response_res = client.post(&url).send().await;
+    let elapsed = start_time.elapsed().as_millis();
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to trash asset via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_else(|_| String::new());
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+    diagnostics.push("info", "ingestor", format!("Successfully moved asset '{}' to Recycle Bin in {}ms", uuid, elapsed));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn trash_ingestor_folder<R: Runtime>(
+    folder_path: String,
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<(), String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/folders/trash", base_url);
+    diagnostics.push("info", "ingestor", format!("Moving Ingestor folder '{}' to Recycle Bin at '{}'", folder_path, url));
+    let client = build_client()?;
+    #[derive(Serialize)]
+    struct TrashFolderPayload {
+        folder_path: String,
+    }
+    let response_res = client.post(&url).json(&TrashFolderPayload { folder_path: folder_path.clone() }).send().await;
+    let elapsed = start_time.elapsed().as_millis();
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to trash folder via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_else(|_| String::new());
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+    diagnostics.push("info", "ingestor", format!("Successfully moved folder '{}' to Recycle Bin in {}ms", folder_path, elapsed));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn restore_ingestor_asset<R: Runtime>(
+    uuid: String,
+    target_folder: Option<String>,
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<(), String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/assets/{}/restore", base_url, uuid);
+    diagnostics.push("info", "ingestor", format!("Restoring Ingestor asset '{}' from Recycle Bin at '{}'", uuid, url));
+    let client = build_client()?;
+    #[derive(Serialize)]
+    struct RestoreAssetPayload {
+        target_folder: Option<String>,
+    }
+    let response_res = client.post(&url).json(&RestoreAssetPayload { target_folder }).send().await;
+    let elapsed = start_time.elapsed().as_millis();
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to restore asset via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_else(|_| String::new());
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+    diagnostics.push("info", "ingestor", format!("Successfully restored asset '{}' in {}ms", uuid, elapsed));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn restore_ingestor_folder<R: Runtime>(
+    folder_path: String,
+    fallback_to_root: Option<bool>,
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<(), String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/folders/restore", base_url);
+    diagnostics.push("info", "ingestor", format!("Restoring Ingestor folder '{}' from Recycle Bin at '{}'", folder_path, url));
+    let client = build_client()?;
+    #[derive(Serialize)]
+    struct RestoreFolderPayload {
+        folder_path: String,
+        fallback_to_root: Option<bool>,
+    }
+    let response_res = client.post(&url).json(&RestoreFolderPayload { folder_path: folder_path.clone(), fallback_to_root }).send().await;
+    let elapsed = start_time.elapsed().as_millis();
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to restore folder via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_else(|_| String::new());
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+    diagnostics.push("info", "ingestor", format!("Successfully restored folder '{}' in {}ms", folder_path, elapsed));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_ingestor_recycle_bin<R: Runtime>(
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<Vec<AssetResponse>, String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/recycle-bin", base_url);
+    let client = build_client()?;
+    let response_res = client.get(&url).send().await;
+    let elapsed = start_time.elapsed().as_millis();
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to fetch recycle bin via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_else(|_| String::new());
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+    let parsed: Vec<AssetResponse> = serde_json::from_str(&body).map_err(|e| {
+        let err = format!("Failed to parse recycle bin response from '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+    Ok(parsed)
+}
+
+#[tauri::command]
+pub async fn purge_ingestor_recycle_bin<R: Runtime>(
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<(), String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/recycle-bin/purge", base_url);
+    diagnostics.push("info", "ingestor", format!("Emptying Ingestor Recycle Bin at '{}'", url));
+    let client = build_client()?;
+    let response_res = client.delete(&url).send().await;
+    let elapsed = start_time.elapsed().as_millis();
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to empty recycle bin via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_else(|_| String::new());
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+    diagnostics.push("info", "ingestor", format!("Successfully emptied Recycle Bin in {}ms", elapsed));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn purge_ingestor_folder<R: Runtime>(
+    folder_path: String,
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<(), String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/folders/purge", base_url);
+    diagnostics.push("info", "ingestor", format!("Purging Ingestor folder '{}' at '{}'", folder_path, url));
+    let client = build_client()?;
+    #[derive(Serialize)]
+    struct PurgeFolderPayload {
+        folder_path: String,
+    }
+    let response_res = client.request(reqwest::Method::DELETE, &url).json(&PurgeFolderPayload { folder_path: folder_path.clone() }).send().await;
+    let elapsed = start_time.elapsed().as_millis();
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to purge folder via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_else(|_| String::new());
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+    diagnostics.push("info", "ingestor", format!("Successfully purged folder '{}' in {}ms", folder_path, elapsed));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn auto_purge_ingestor_recycle_bin<R: Runtime>(
+    policy: String,
+    app: AppHandle<R>,
+    api_base_url_override: Option<String>,
+    diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
+) -> Result<(), String> {
+    let start_time = std::time::Instant::now();
+    let base_url = resolve_base_url(
+        &get_ingestor_api_base_url(&app),
+        &api_base_url_override.unwrap_or_default(),
+    );
+    let url = format!("{}/api/recycle-bin/auto-purge", base_url);
+    diagnostics.push("info", "ingestor", format!("Triggering auto-purge (policy: {}) at '{}'", policy, url));
+    let client = build_client()?;
+    #[derive(Serialize)]
+    struct AutoPurgePayload {
+        policy: String,
+    }
+    let response_res = client.post(&url).json(&AutoPurgePayload { policy: policy.clone() }).send().await;
+    let elapsed = start_time.elapsed().as_millis();
+    let response = response_res.map_err(|e| {
+        let err = format!("Failed to trigger auto-purge via Ingestor API '{}': {}", url, e);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        err
+    })?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_else(|_| String::new());
+    if !status.is_success() {
+        let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
+        diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
+        return Err(err);
+    }
+    diagnostics.push("info", "ingestor", format!("Successfully triggered auto-purge (policy: {}) in {}ms", policy, elapsed));
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FolderColorResponse {
     pub virtual_folder: String,
@@ -1319,6 +1617,8 @@ mod tests {
                 mode: Some("ebu_r128".into()),
             }),
             warnings: vec!["Loudness adjusted".into()],
+            deleted_at: None,
+            original_virtual_folder: None,
         };
 
         let mapped = map_v2_to_asset_response(v2);
