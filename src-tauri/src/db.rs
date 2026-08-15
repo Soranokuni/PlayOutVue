@@ -274,7 +274,9 @@ fn initialize_media_cache_schema(conn: &Connection) -> Result<(), String> {
              timecode_start  TEXT    DEFAULT '00:00:00:00',
              playoutvue_id   TEXT    DEFAULT '',
              scanned_at      INTEGER NOT NULL
-         );",
+         );
+         CREATE INDEX IF NOT EXISTS idx_media_cache_playoutvue_id ON media_cache(playoutvue_id);
+         CREATE INDEX IF NOT EXISTS idx_media_cache_scanned_at ON media_cache(scanned_at);",
     )
     .map_err(|e| format!("Failed to create media_cache schema: {}", e))?;
 

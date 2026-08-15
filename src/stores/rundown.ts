@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { v4 as uuidv4 } from 'uuid';
 import { invoke } from '@tauri-apps/api/core';
-import { computed, shallowRef, triggerRef, ref, watch } from 'vue';
+import { computed, shallowRef, triggerRef, ref, watch, toRaw } from 'vue';
 import type { LibraryIndicator } from './mediaDefaults';
 import { useIngestorStatusStore } from './ingestorStatus';
 import { playStartTime, casparPlayoutService } from '../services/caspar';

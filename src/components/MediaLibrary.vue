@@ -1101,19 +1101,81 @@ onMounted(() => {
         selectLast: () => mediaLibrary.selectLast(visibleAssetNodes.value),
         extendSelection: (delta: -1 | 1) => mediaLibrary.extendSelection(delta, visibleAssetNodes.value),
         appendSelectedToPlaylist: async (): Promise<LibraryInsertResult> => {
-            const asset = mediaLibrary.selectedAsset;
-            if (!asset) {
+            const selectedUuids = mediaLibrary.selectedAssetIds;
+            const selectedAssets = selectedUuids
+                .map(uuid => mediaLibrary.assets.find(a => a.uuid === uuid))
+                .filter((a): a is LibraryAsset => !!a);
+            const assetsToInsert = selectedAssets.length > 0
+                ? selectedAssets
+                : (mediaLibrary.selectedAsset ? [mediaLibrary.selectedAsset] : []);
+
+            if (assetsToInsert.length === 0) {
                 return { insertedIds: [], skippedIds: [], errors: ['No library asset selected'] };
             }
-            return appendLibraryAssetToRundown(asset, { kind: 'append' });
+
+            const insertedIds: string[] = [];
+            const skippedIds: string[] = [];
+            const errors: string[] = [];
+
+            const validDrafts = [];
+            for (const a of assetsToInsert) {
+                const durationMs = a.duration_ms || (a.fps && a.total_frames ? (a.total_frames / a.fps) * 1000 : 0);
+                if (!durationMs || durationMs <= 0) {
+                    skippedIds.push(a.uuid);
+                    errors.push(`Asset "${a.display_name || a.uuid}" duration is unavailable`);
+                } else {
+                    validDrafts.push(makeRundownDraftFromAsset(a));
+                }
+            }
+
+            if (validDrafts.length > 0) {
+                const created = store.insertLibraryItems({
+                    items: validDrafts,
+                    target: { kind: 'append' }
+                });
+                insertedIds.push(...created);
+            }
+
+            return { insertedIds, skippedIds, errors };
         },
         insertSelectedAfter: async (targetId: string | null): Promise<LibraryInsertResult> => {
-            const asset = mediaLibrary.selectedAsset;
-            if (!asset) {
+            const selectedUuids = mediaLibrary.selectedAssetIds;
+            const selectedAssets = selectedUuids
+                .map(uuid => mediaLibrary.assets.find(a => a.uuid === uuid))
+                .filter((a): a is LibraryAsset => !!a);
+            const assetsToInsert = selectedAssets.length > 0
+                ? selectedAssets
+                : (mediaLibrary.selectedAsset ? [mediaLibrary.selectedAsset] : []);
+
+            if (assetsToInsert.length === 0) {
                 return { insertedIds: [], skippedIds: [], errors: ['No library asset selected'] };
             }
-            const target = targetId ? { kind: 'after' as const, targetItemId: targetId } : { kind: 'append' as const };
-            return appendLibraryAssetToRundown(asset, target);
+
+            const insertedIds: string[] = [];
+            const skippedIds: string[] = [];
+            const errors: string[] = [];
+
+            const validDrafts = [];
+            for (const a of assetsToInsert) {
+                const durationMs = a.duration_ms || (a.fps && a.total_frames ? (a.total_frames / a.fps) * 1000 : 0);
+                if (!durationMs || durationMs <= 0) {
+                    skippedIds.push(a.uuid);
+                    errors.push(`Asset "${a.display_name || a.uuid}" duration is unavailable`);
+                } else {
+                    validDrafts.push(makeRundownDraftFromAsset(a));
+                }
+            }
+
+            if (validDrafts.length > 0) {
+                const target = targetId ? { kind: 'after' as const, targetItemId: targetId } : { kind: 'append' as const };
+                const created = store.insertLibraryItems({
+                    items: validDrafts,
+                    target
+                });
+                insertedIds.push(...created);
+            }
+
+            return { insertedIds, skippedIds, errors };
         }
     };
 

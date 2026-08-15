@@ -81,9 +81,33 @@ async fn handle(mut stream: tokio::net::TcpStream) {
     // Normalise separators
     let file_path = std::path::PathBuf::from(file_path.replace('/', std::path::MAIN_SEPARATOR_STR));
 
+    // Security: Reject path traversal components (e.g. '..')
+    if file_path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\n\r\n").await;
+        return;
+    }
+
+    // Security: Whitelist allowed media extensions only
+    const ALLOWED_EXTENSIONS: &[&str] = &[
+        "mp4", "mov", "mkv", "avi", "mxf", "ts", "mpg", "mpeg", "webm", "flv", "m4v",
+        "wav", "mp3", "aac", "flac", "ogg", "m4a", "aiff",
+        "png", "jpg", "jpeg", "webp", "gif", "bmp", "svg",
+    ];
+
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if !ALLOWED_EXTENSIONS.contains(&ext.as_str()) {
+        let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\n\r\n").await;
+        return;
+    }
+
     let meta = match std::fs::metadata(&file_path) {
-        Ok(m) => m,
-        Err(_) => {
+        Ok(m) if m.is_file() => m,
+        _ => {
             let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").await;
             return;
         }
