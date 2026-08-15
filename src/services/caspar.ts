@@ -2135,37 +2135,28 @@ export const casparPlayoutService: PlayoutService = {
             await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: tpLayer }).catch(() => {});
         }
 
-        // Dynamic explanation banners (CG template, layer 32). No MIXER on template
-        // layers — templates self-position (plan §1.1 rule).
-        const timeline = item.timeline || [];
-        timeline.forEach((field: any) => {
-            if (!field.text) return;
-            const startMs = parseTimeToMs(field.start);
-            const endMs = parseTimeToMs(field.end);
-
-            const startTimer = setTimeout(async () => {
-                const template = settings.cgExplanationTemplate || 'playout/explanation';
-                await invoke('caspar_cg_add', {
-                    channel: PROGRAM_CHANNEL,
-                    layer: CASPAR_LAYERS.explanation,
-                    template,
-                    play: true,
-                    data: { text: field.text }
-                }).catch((e: any) => {
-                    console.warn('[CasparCG] Failed to add explanation CG', e);
-                });
-            }, startMs);
-            timelineTimers.push(startTimer);
-
-            const endTimer = setTimeout(async () => {
-                await invoke('caspar_cg_stop', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
-                const cleanupTimer = setTimeout(async () => {
-                    await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
-                }, 1000);
-                timelineTimers.push(cleanupTimer);
-            }, endMs);
-            timelineTimers.push(endTimer);
-        });
+        // Unified Greek NCRTV Rating Badge & 30s Advisory Banner (HTML5 CG Template, layer 32).
+        if (rating !== 'none') {
+            const template = settings.cgExplanationTemplate || 'playout/advisory';
+            const advisoryText = item.complianceText || '';
+            await invoke('caspar_cg_add', {
+                channel: PROGRAM_CHANNEL,
+                layer: CASPAR_LAYERS.explanation,
+                template,
+                play: true,
+                data: {
+                    rating,
+                    text: advisoryText,
+                    durationSec: 30,
+                    repeatIntervalSec: 600,
+                    tp: tpFlag
+                }
+            }).catch((e: any) => {
+                console.warn('[CasparCG] Failed to add unified advisory CG', e);
+            });
+        } else {
+            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
+        }
     },
 
     /// Clears per-item compliance layers: 31 (rating), 32 (explanation), 34 (TP).

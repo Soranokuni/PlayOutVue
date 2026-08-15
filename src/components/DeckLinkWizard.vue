@@ -6,6 +6,7 @@ import { useSettingsStore } from '../stores/settings';
 
 const props = defineProps<{
   isOpen: boolean;
+  initialPath?: string;
 }>();
 
 const emit = defineEmits<{
@@ -21,43 +22,53 @@ interface ConfigSummary {
   channelCount: number;
 }
 
+interface TemplateDeployResult {
+  template_dir: string;
+  deployed: string[];
+  skipped: string[];
+}
+
 const configPath = ref('');
 const configLoaded = ref(false);
 const configSummary = ref<ConfigSummary | null>(null);
 const loading = ref(false);
 const applying = ref(false);
 const testing = ref(false);
+const deploying = ref(false);
 const errorMessage = ref('');
 const statusMessage = ref('');
+const templateDeployResult = ref<TemplateDeployResult | null>(null);
 
 const activeStep = ref(1);
 const totalSteps = 5;
 
+// Output configuration
 const outputDevice = ref(1);
 const outputKeyDevice = ref(0);
-const outputEmbeddedAudio = ref(false);
+const outputEmbeddedAudio = ref(true);
 const outputBufferDepth = ref(3);
 const outputLatency = ref<'normal' | 'low' | 'default'>('normal');
 const outputKeyer = ref<'external' | 'external_separate_device' | 'internal' | 'default'>('external');
+const enableScreenConsumer = ref(true);
 
+// Live Input configuration
 const hasLiveInput = ref(false);
-const inputDevice = ref(1);
+const inputDevice = ref(2);
+const inputFormat = ref('1080i5000');
+const customLiveRoute = ref('');
 
+// Video standard
 const videoMode = ref('1080i5000');
 const testResult = ref('');
 
 const videoModeOptions = [
-  { value: '1080i5000', label: '1080i50 (PAL)' },
-  { value: '1080p2500', label: '1080p25' },
-  { value: '1080p3000', label: '1080p30' },
-  { value: '1080p5000', label: '1080p50' },
-  { value: '1080p5994', label: '1080p59.94' },
-  { value: '1080p6000', label: '1080p60' },
-  { value: '720p5000', label: '720p50' },
-  { value: '720p5994', label: '720p59.94' },
-  { value: '720p6000', label: '720p60' },
-  { value: '2160p2500', label: '2160p25' },
-  { value: '2160p5000', label: '2160p50' },
+  { value: '1080i5000', label: '1080i50 — PAL Broadcast (Standard in Greece & Europe)', badge: 'PAL 50Hz' },
+  { value: '1080p2500', label: '1080p25 — PAL Progressive Full HD', badge: 'PAL 25Hz' },
+  { value: '1080p5000', label: '1080p50 — High Frame Rate Progressive', badge: 'PAL 50p' },
+  { value: '720p5000', label: '720p50 — HD Progressive', badge: '720p' },
+  { value: '1080i5994', label: '1080i59.94 — NTSC Broadcast Standard', badge: 'NTSC' },
+  { value: '1080p2997', label: '1080p29.97 — NTSC Progressive', badge: 'NTSC' },
+  { value: '2160p5000', label: '2160p50 — 4K Ultra HD (PAL)', badge: '4K UHD' },
 ];
 
 const deviceOptions = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -65,44 +76,42 @@ const bufferOptions = [1, 2, 3, 4, 5, 6, 7];
 
 const canGoNext = computed(() => {
   if (activeStep.value === 1) return configLoaded.value && !!configPath.value.trim() && !errorMessage.value;
-  if (activeStep.value === 2) return outputDevice.value >= 1 && outputDevice.value <= 8;
-  if (activeStep.value === 3) return !hasLiveInput.value || (inputDevice.value >= 1 && inputDevice.value <= 8 && inputDevice.value !== outputDevice.value);
-  if (activeStep.value === 4) return !!videoMode.value.trim();
+  if (activeStep.value === 2) return !!videoMode.value.trim();
+  if (activeStep.value === 3) return outputDevice.value >= 1 && outputDevice.value <= 8;
+  if (activeStep.value === 4) return !hasLiveInput.value || (inputDevice.value >= 1 && inputDevice.value <= 8 && inputDevice.value !== outputDevice.value);
   return true;
 });
 
 const stepTitle = computed(() => {
   const titles: Record<number, string> = {
-    1: 'Load Configuration',
-    2: 'Program Output (SDI)',
-    3: 'Live Input (SDI)',
-    4: 'Video Standard',
-    5: 'Review & Apply',
+    1: 'CasparCG Configuration & Connection',
+    2: 'Broadcast Video Standard',
+    3: 'Program Output (SDI / HDMI)',
+    4: 'Live Input & Rebroadcast',
+    5: 'CG Templates, Review & Apply',
   };
   return titles[activeStep.value] || '';
 });
 
-const outputDeviceLabel = computed(() => `DeckLink ${outputDevice.value}`);
-const inputDeviceLabel = computed(() => `DeckLink ${inputDevice.value}`);
-
 const routingSummary = computed(() => {
   if (!hasLiveInput.value) return null;
-  return `Input DeckLink ${inputDevice.value} → Channel 1 → Output DeckLink ${outputDevice.value}`;
+  return `SDI In DeckLink ${inputDevice.value} → CasparCG Channel 1 (Live Layer 20) → Program Out DeckLink ${outputDevice.value}`;
 });
 
 const changesList = computed(() => {
   const changes: string[] = [];
-  changes.push(`Config file: ${configPath.value}`);
-  changes.push(`Channel 1 video mode: ${videoMode.value}`);
-  changes.push(`Output: DeckLink ${outputDevice.value} (audio: ${outputEmbeddedAudio.value ? 'embedded' : 'system'}, buffer: ${outputBufferDepth.value}, latency: ${outputLatency.value}, keyer: ${outputKeyer.value})`);
-  if (outputKeyDevice.value > 0) {
-    changes.push(`Key output: DeckLink ${outputKeyDevice.value}`);
+  changes.push(`CasparCG XML: ${configPath.value}`);
+  changes.push(`Video Standard: ${videoMode.value} (${videoMode.value.startsWith('1080i') ? '1080i50 Interlaced' : 'Progressive'})`);
+  changes.push(`Program Out: DeckLink ${outputDevice.value} (Buffer: ${outputBufferDepth.value}, Audio: ${outputEmbeddedAudio.value ? 'SDI Embedded' : 'System'}, Latency: ${outputLatency.value})`);
+  if (enableScreenConsumer.value) {
+    changes.push(`Local Preview: Screen Consumer active (windowed preview for operator)`);
   }
   if (hasLiveInput.value) {
-    changes.push(`Live input: DeckLink ${inputDevice.value} (rebroadcast to DeckLink ${outputDevice.value})`);
+    changes.push(`Live Ingest: DeckLink ${inputDevice.value} (${inputFormat.value}) → Cut To Live active`);
   } else {
-    changes.push('Live input: disabled');
+    changes.push('Live Ingest: Disabled');
   }
+  changes.push('OSC Feedback: Port 6250 configured for real-time playout sync');
   return changes;
 });
 
@@ -144,8 +153,12 @@ const loadConfig = async (path?: string) => {
       outputDevice.value = decklinkDevices[0]!;
     }
     videoMode.value = vidMode;
-    inputDevice.value = settings.decklinkInputDevice || 1;
+    inputDevice.value = settings.decklinkInputDevice > 0 && settings.decklinkInputDevice !== outputDevice.value
+      ? settings.decklinkInputDevice
+      : (outputDevice.value === 1 ? 2 : 1);
     hasLiveInput.value = settings.decklinkInputDevice > 0;
+    inputFormat.value = settings.decklinkInputFormat || '1080i5000';
+    customLiveRoute.value = settings.liveInputSourceName || '';
 
     configSummary.value = {
       path: result.path,
@@ -154,7 +167,7 @@ const loadConfig = async (path?: string) => {
       channelCount,
     };
 
-    statusMessage.value = 'Configuration loaded successfully.';
+    statusMessage.value = 'Configuration file loaded successfully.';
   } catch (error) {
     errorMessage.value = String(error || 'Failed to load configuration');
   } finally {
@@ -164,7 +177,7 @@ const loadConfig = async (path?: string) => {
 
 const pickConfigPath = async () => {
   const selection = await open({
-    title: 'Choose casparcg.config',
+    title: 'Select casparcg.config',
     multiple: false,
     directory: false,
     defaultPath: configPath.value || undefined,
@@ -185,12 +198,32 @@ const testConnection = async () => {
   testResult.value = '';
   try {
     const result = await invoke<string>('caspar_test_connection');
-    testResult.value = `Connected: ${result.split('\n')[0] || 'OK'}`;
+    testResult.value = `Online: ${result.split('\n')[0] || '200 OK'}`;
   } catch (error) {
     testResult.value = '';
-    errorMessage.value = `Connection test failed: ${String(error)}`;
+    errorMessage.value = `CasparCG Connection Test failed: ${String(error)}`;
   } finally {
     testing.value = false;
+  }
+};
+
+const deployTemplates = async (overwrite: boolean = false) => {
+  deploying.value = true;
+  errorMessage.value = '';
+  try {
+    const parentDir = configPath.value ? configPath.value.replace(/\\/g, '/').replace(/\/[^/]+$/, '') : 'C:/CasparCG';
+    const templateBase = `${parentDir}/template`;
+
+    const res = await invoke<TemplateDeployResult>('deploy_caspar_templates', {
+      templatePath: templateBase,
+      overwrite,
+    });
+    templateDeployResult.value = res;
+    statusMessage.value = `CG Templates deployed to ${res.template_dir}: ${res.deployed.length} installed, ${res.skipped.length} existing.`;
+  } catch (error) {
+    errorMessage.value = `Failed to deploy templates: ${String(error)}`;
+  } finally {
+    deploying.value = false;
   }
 };
 
@@ -199,7 +232,10 @@ const applyConfig = async () => {
   errorMessage.value = '';
   statusMessage.value = '';
   try {
-    const result = await invoke<{ backup_path: string; raw_xml: string; channel_index: number; output_device: number }>(
+    const parentDir = configPath.value ? configPath.value.replace(/\\/g, '/').replace(/\/[^/]+$/, '') : 'C:/CasparCG';
+    const templateBase = `${parentDir}/template`;
+
+    const result = await invoke<{ backup_path: string; raw_xml: string; channel_index: number; output_device: number; templates_deployed?: TemplateDeployResult }>(
       'apply_caspar_decklink_config',
       {
         payload: {
@@ -212,25 +248,34 @@ const applyConfig = async () => {
           latency: outputLatency.value,
           keyer: outputKeyer.value,
           videoMode: videoMode.value,
+          enableScreenConsumer: enableScreenConsumer.value,
+          deployTemplates: true,
+          templatePath: templateBase,
         },
       }
     );
+
+    const liveSourceName = hasLiveInput.value
+      ? (customLiveRoute.value.trim() || `PLAY 1-20 DECKLINK ${inputDevice.value} FORMAT ${inputFormat.value}`)
+      : '';
 
     settings.updateSettings({
       casparConfigPath: configPath.value,
       decklinkOutputName: `DeckLink ${outputDevice.value}`,
       decklinkOutputDevice: outputDevice.value,
       decklinkInputDevice: hasLiveInput.value ? inputDevice.value : 0,
-      liveInputSourceName: hasLiveInput.value ? `decklink://device/${inputDevice.value}` : '',
+      decklinkInputFormat: inputFormat.value,
+      liveInputSourceName: liveSourceName,
       decklinkEmbeddedAudio: outputEmbeddedAudio.value,
       decklinkBufferDepth: outputBufferDepth.value,
       decklinkLatency: outputLatency.value,
       decklinkKeyer: outputKeyer.value,
       decklinkKeyDevice: outputKeyDevice.value,
+      playoutProfile: videoMode.value.startsWith('1080i') ? 'PAL_1080I50' : 'PAL_1080P25',
     });
 
-    statusMessage.value = `Configuration applied. Backup saved to ${result.backup_path}.`;
-    setTimeout(() => emit('close'), 1500);
+    statusMessage.value = `Configuration applied successfully! Backup saved to ${result.backup_path}.`;
+    setTimeout(() => emit('close'), 1800);
   } catch (error) {
     errorMessage.value = String(error || 'Failed to apply configuration');
   } finally {
@@ -263,29 +308,33 @@ watch(
       const storedOutput = settings.decklinkOutputDevice;
       if (storedOutput > 0) outputDevice.value = storedOutput;
       const storedInput = settings.decklinkInputDevice;
-      inputDevice.value = storedInput > 0 ? storedInput : 1;
+      inputDevice.value = storedInput > 0 ? storedInput : (storedOutput === 1 ? 2 : 1);
       hasLiveInput.value = storedInput > 0;
-      outputEmbeddedAudio.value = settings.decklinkEmbeddedAudio;
+      inputFormat.value = settings.decklinkInputFormat || '1080i5000';
+      customLiveRoute.value = settings.liveInputSourceName || '';
+      outputEmbeddedAudio.value = settings.decklinkEmbeddedAudio !== false;
       outputBufferDepth.value = settings.decklinkBufferDepth || 3;
       outputLatency.value = settings.decklinkLatency || 'normal';
       outputKeyer.value = settings.decklinkKeyer || 'external';
       outputKeyDevice.value = settings.decklinkKeyDevice || 0;
 
-      if (settings.casparConfigPath) {
-        configPath.value = settings.casparConfigPath;
-        loadConfig();
+      const initial = props.initialPath || settings.casparConfigPath;
+      if (initial) {
+        configPath.value = initial;
+        loadConfig(initial);
       } else {
         invoke<string | null>('find_default_caspar_config')
           .then((path) => {
             if (path) {
               configPath.value = path;
-              loadConfig();
+              loadConfig(path);
             }
           })
           .catch(() => {});
       }
     }
-  }
+  },
+  { immediate: true }
 );
 </script>
 
@@ -293,194 +342,256 @@ watch(
   <Teleport to="body">
     <div v-if="isOpen" class="modal-backdrop" data-command-scope="modal" @click.self="$emit('close')">
       <div class="glass-panel modal-content">
+        <!-- Header -->
         <div class="modal-header">
-          <div>
-            <h2 class="text-accent">DeckLink Output Wizard</h2>
-            <p class="subtitle">Step-by-step CasparCG DeckLink configuration for broadcast output.</p>
+          <div class="header-left">
+            <span class="step-badge">STEP {{ activeStep }} OF {{ totalSteps }}</span>
+            <h2 class="text-accent">{{ stepTitle }}</h2>
           </div>
           <button class="glass-btn btn-icon" @click="$emit('close')" :disabled="applying">✕</button>
         </div>
 
+        <!-- Step Indicator Bar -->
         <div class="step-indicator">
-          <button
+          <div
             v-for="step in totalSteps"
             :key="step"
-            class="step-dot"
-            :class="{
-              active: step === activeStep,
-              completed: step < activeStep,
-            }"
+            class="step-item"
+            :class="{ active: step === activeStep, completed: step < activeStep }"
             @click="goToStep(step)"
-            :disabled="step > activeStep && !canGoNext"
           >
-            {{ step }}
-          </button>
+            <div class="step-circle">{{ step }}</div>
+            <span class="step-name">
+              {{ step === 1 ? 'Server' : step === 2 ? 'Standard' : step === 3 ? 'Output' : step === 4 ? 'Live In' : 'Apply' }}
+            </span>
+          </div>
         </div>
 
+        <!-- Body -->
         <div class="modal-body custom-scroll">
           <div v-if="errorMessage" class="status error">{{ errorMessage }}</div>
           <div v-else-if="statusMessage" class="status ok">{{ statusMessage }}</div>
 
+          <!-- STEP 1: CasparCG Config & Connection -->
           <section v-if="activeStep === 1" class="wizard-section">
-            <h3 class="section-title">Step 1: Load CasparCG Configuration</h3>
+            <p class="section-desc">
+              Locate your <code>casparcg.config</code> file. PlayOutVue will read and update the channel, DeckLink consumer, and OSC feedback settings automatically.
+            </p>
+
             <div class="form-group">
-              <label>Configuration File Path</label>
+              <label>CasparCG Configuration File</label>
               <div class="input-with-button">
                 <input v-model="configPath" type="text" class="glass-input" placeholder="C:/CasparCG/casparcg.config" />
-                <button class="glass-btn" @click="pickConfigPath">Browse</button>
-                <button class="glass-btn" @click="loadConfig()" :disabled="loading || !configPath.trim()">{{ loading ? 'Loading…' : 'Load' }}</button>
+                <button class="glass-btn" @click="pickConfigPath">Browse…</button>
+                <button class="glass-btn btn-primary" @click="loadConfig()" :disabled="loading || !configPath.trim()">
+                  {{ loading ? 'Loading…' : 'Load Config' }}
+                </button>
               </div>
             </div>
 
             <div v-if="configSummary" class="summary-card">
-              <div class="summary-row"><strong>File:</strong> {{ configSummary.path }}</div>
-              <div class="summary-row"><strong>Channels:</strong> {{ configSummary.channelCount }}</div>
-              <div class="summary-row"><strong>Channel 1 Video Mode:</strong> {{ configSummary.videoMode }}</div>
-              <div class="summary-row">
-                <strong>Channel 1 DeckLink Consumers:</strong>
-                <span v-if="configSummary.decklinkDevices.length">{{ configSummary.decklinkDevices.map(d => `Device ${d}`).join(', ') }}</span>
-                <span v-else class="text-muted">None configured</span>
+              <div class="summary-title">Configuration Summary</div>
+              <div class="summary-grid">
+                <div class="summary-item"><strong>Path:</strong> <code>{{ configSummary.path }}</code></div>
+                <div class="summary-item"><strong>Channels:</strong> {{ configSummary.channelCount }}</div>
+                <div class="summary-item"><strong>Channel 1 Video Standard:</strong> <span class="text-accent">{{ configSummary.videoMode }}</span></div>
+                <div class="summary-item">
+                  <strong>DeckLink Consumers:</strong>
+                  <span v-if="configSummary.decklinkDevices.length">{{ configSummary.decklinkDevices.map(d => `Card ${d}`).join(', ') }}</span>
+                  <span v-else class="text-muted">None (Will be configured)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Connection Test -->
+            <div class="connection-test-card">
+              <div class="connection-info">
+                <strong>CasparCG Server AMCP (Port 5250)</strong>
+                <span>Verify that CasparCG Server is currently running.</span>
+              </div>
+              <button class="glass-btn btn-test" @click="testConnection" :disabled="testing">
+                {{ testing ? 'Testing…' : 'Test Connection' }}
+              </button>
+            </div>
+            <div v-if="testResult" class="status ok inline" style="margin-top:8px;">{{ testResult }}</div>
+          </section>
+
+          <!-- STEP 2: Video Standard -->
+          <section v-if="activeStep === 2" class="wizard-section">
+            <p class="section-desc">
+              Select the master broadcast video standard for CasparCG Channel 1. For Greek and European television (ERT, ANT1, MEGA, etc.), <strong>1080i50</strong> is the broadcast standard.
+            </p>
+
+            <div class="video-mode-grid">
+              <div
+                v-for="opt in videoModeOptions"
+                :key="opt.value"
+                class="mode-card"
+                :class="{ selected: videoMode === opt.value }"
+                @click="videoMode = opt.value"
+              >
+                <div class="mode-header">
+                  <span class="mode-badge">{{ opt.badge }}</span>
+                  <input type="radio" :value="opt.value" v-model="videoMode" />
+                </div>
+                <div class="mode-name">{{ opt.value }}</div>
+                <div class="mode-desc">{{ opt.label }}</div>
               </div>
             </div>
           </section>
 
-          <section v-if="activeStep === 2" class="wizard-section">
-            <h3 class="section-title">Step 2: Program Output Device</h3>
-            <p class="hint">Select the Blackmagic DeckLink device that will output your program feed.</p>
+          <!-- STEP 3: Program Output (DeckLink SDI) -->
+          <section v-if="activeStep === 3" class="wizard-section">
+            <p class="section-desc">
+              Configure the primary Blackmagic DeckLink SDI card that outputs your on-air Program feed to the transmitter / master control switcher.
+            </p>
 
             <div class="form-grid two-col">
               <div class="form-group">
-                <label>Output Device # (DeckLink)</label>
+                <label>Program Output Card # (DeckLink)</label>
                 <select v-model.number="outputDevice" class="glass-input">
                   <option v-for="d in deviceOptions" :key="d" :value="d">DeckLink {{ d }}</option>
                 </select>
-                <span class="hint-text">Physical DeckLink card device number (1–8)</span>
+                <span class="hint-text">Physical Blackmagic card device index (1–8)</span>
               </div>
+
               <div class="form-group">
-                <label>Key Output Device #</label>
-                <select v-model.number="outputKeyDevice" class="glass-input">
-                  <option :value="0">None / Disabled</option>
-                  <option v-for="d in deviceOptions" :key="'k' + d" :value="d">DeckLink {{ d }}</option>
-                </select>
-                <span class="hint-text">Separate device for fill+key output (0 = same device)</span>
-              </div>
-              <div class="form-group">
-                <label>Buffer Depth</label>
+                <label>Buffer Depth (Frames)</label>
                 <select v-model.number="outputBufferDepth" class="glass-input">
-                  <option v-for="b in bufferOptions" :key="b" :value="b">{{ b }}</option>
+                  <option v-for="b in bufferOptions" :key="b" :value="b">{{ b }} frames {{ b === 3 ? '(Recommended)' : '' }}</option>
                 </select>
-                <span class="hint-text">Higher values = more stable, more latency</span>
+                <span class="hint-text">Default: 3 frames for zero dropouts</span>
               </div>
+
               <div class="form-group">
-                <label>Latency</label>
+                <label>Latency Mode</label>
                 <select v-model="outputLatency" class="glass-input">
-                  <option value="normal">Normal</option>
-                  <option value="low">Low</option>
+                  <option value="normal">Normal (Standard broadcast buffer)</option>
+                  <option value="low">Low Latency</option>
                   <option value="default">Default</option>
                 </select>
               </div>
+
               <div class="form-group">
                 <label>Keyer Mode</label>
                 <select v-model="outputKeyer" class="glass-input">
-                  <option value="external">External</option>
-                  <option value="external_separate_device">External Separate Device</option>
-                  <option value="internal">Internal</option>
+                  <option value="external">External (Standard SDI Fill + Key)</option>
+                  <option value="internal">Internal Keyer</option>
                   <option value="default">Default</option>
                 </select>
               </div>
-              <div class="form-group" style="justify-content:center; padding-top:1rem;">
-                <label style="display:flex; gap:8px; align-items:center;">
+
+              <div class="form-group">
+                <label>Separate Key Device (Optional)</label>
+                <select v-model.number="outputKeyDevice" class="glass-input">
+                  <option :value="0">None / Same Card</option>
+                  <option v-for="d in deviceOptions" :key="'k' + d" :value="d">DeckLink {{ d }}</option>
+                </select>
+                <span class="hint-text">Use when Fill and Key are on separate physical BNC ports</span>
+              </div>
+
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label">
                   <input v-model="outputEmbeddedAudio" type="checkbox" />
-                  <span>Embed Audio in SDI</span>
+                  <span>Embed Audio in SDI Stream</span>
                 </label>
-                <span class="hint-text">When on, audio is embedded in the SDI stream</span>
+                <label class="checkbox-label" style="margin-top:6px;">
+                  <input v-model="enableScreenConsumer" type="checkbox" />
+                  <span>Enable Local Operator Screen Preview</span>
+                </label>
               </div>
             </div>
           </section>
 
-          <section v-if="activeStep === 3" class="wizard-section">
-            <h3 class="section-title">Step 3: Live Input / Rebroadcast Source</h3>
-            <p class="hint">Configure an SDI input for live rebroadcast. When a live rundown item plays, this input will be routed to the program output.</p>
+          <!-- STEP 4: Live Input & Rebroadcast -->
+          <section v-if="activeStep === 4" class="wizard-section">
+            <p class="section-desc">
+              Configure an SDI DeckLink input for live studio cameras, incoming feeds, or outside broadcasts. When you click <strong>LIVE</strong> or play a live rundown item, this feed routes directly to Program Out.
+            </p>
 
             <div class="form-group">
-              <label style="display:flex; gap:8px; align-items:center;">
+              <label class="checkbox-label highlight">
                 <input v-model="hasLiveInput" type="checkbox" />
-                <span>Enable Live Rebroadcast Input</span>
+                <span>Enable Live Rebroadcast Ingest (DeckLink Input)</span>
               </label>
             </div>
 
             <template v-if="hasLiveInput">
-              <div class="form-group">
-                <label>Live Input Device # (DeckLink)</label>
-                <select v-model.number="inputDevice" class="glass-input">
-                  <option v-for="d in deviceOptions" :key="d" :value="d">DeckLink {{ d }}</option>
-                </select>
-                <span class="hint-text">The physical DeckLink input feeding your live signal</span>
+              <div class="form-grid two-col" style="margin-top:1rem;">
+                <div class="form-group">
+                  <label>Live Input Device # (DeckLink)</label>
+                  <select v-model.number="inputDevice" class="glass-input">
+                    <option v-for="d in deviceOptions" :key="d" :value="d">DeckLink {{ d }}</option>
+                  </select>
+                  <span class="hint-text">The card capturing your live SDI signal</span>
+                </div>
+
+                <div class="form-group">
+                  <label>Live Input Video Standard</label>
+                  <select v-model="inputFormat" class="glass-input">
+                    <option value="1080i5000">1080i50 (PAL Broadcast Standard)</option>
+                    <option value="1080p2500">1080p25</option>
+                    <option value="1080p5000">1080p50</option>
+                    <option value="auto">Auto / Detect</option>
+                  </select>
+                </div>
               </div>
 
               <div v-if="inputDevice === outputDevice" class="status error">
-                Input device must differ from output device ({{ outputDevice }}). Please choose a different device number.
+                ⚠️ Input device cannot be the same as Program Output device (DeckLink {{ outputDevice }}). Please select a different device number.
               </div>
 
               <div v-else-if="routingSummary" class="routing-card">
                 <div class="routing-row">
-                  <span class="routing-label">Routing</span>
-                  <span class="routing-path">{{ routingSummary }}</span>
+                  <span class="routing-badge">SIGNAL ROUTING</span>
+                  <span class="routing-text">{{ routingSummary }}</span>
                 </div>
                 <div class="routing-row">
-                  <span class="routing-label">AMCP Command</span>
-                  <code class="routing-cmd">PLAY 1-20 decklink://device/{{ inputDevice }}</code>
+                  <span class="routing-cmd-label">AMCP LIVE COMMAND:</span>
+                  <code class="routing-cmd">PLAY 1-20 DECKLINK {{ inputDevice }} FORMAT {{ inputFormat }}</code>
                 </div>
               </div>
             </template>
           </section>
 
-          <section v-if="activeStep === 4" class="wizard-section">
-            <h3 class="section-title">Step 4: Video Standard</h3>
-            <p class="hint">Set the video mode for Channel 1. Must match your broadcast infrastructure.</p>
-
-            <div class="form-group">
-              <label>Channel 1 Video Mode</label>
-              <select v-model="videoMode" class="glass-input">
-                <option v-for="opt in videoModeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-              <span class="hint-text">Matches the {{ videoMode.startsWith('1080i') ? 'interlaced PAL' : videoMode.startsWith('2160') ? '4K' : 'progressive scan' }} broadcast standard</span>
-            </div>
-
-            <div v-if="videoMode !== '1080i5000' && settings.playoutProfile !== 'PAL_1080I50'" class="status warn">
-              The selected video mode ({{ videoMode }}) differs from your playout profile ({{ settings.playoutProfile }}). For PAL broadcast, 1080i5000 is recommended.
-            </div>
-          </section>
-
+          <!-- STEP 5: Review & Apply -->
           <section v-if="activeStep === 5" class="wizard-section">
-            <h3 class="section-title">Step 5: Review & Apply</h3>
+            <p class="section-desc">
+              Review your broadcast configuration before applying. A timestamped backup of your original <code>casparcg.config</code> will be created automatically.
+            </p>
 
             <div class="review-card">
-              <div class="review-header">Configuration Summary</div>
+              <div class="review-title">Proposed Broadcast Profile</div>
               <ul class="review-list">
                 <li v-for="(change, i) in changesList" :key="i">{{ change }}</li>
               </ul>
             </div>
 
-            <div class="form-group" style="margin-top: 1rem;">
-              <button class="glass-btn btn-test" @click="testConnection" :disabled="testing">
-                {{ testing ? 'Testing…' : 'Test CasparCG Connection' }}
+            <!-- HTML5 CG Templates Deploy Card -->
+            <div class="template-deploy-card">
+              <div class="template-info">
+                <strong>Broadcast HTML5 CG Templates (Greek NCRTV Advisory & Crawl)</strong>
+                <span>Installs <code>playout/advisory.html</code> and <code>playout/crawl.html</code> into CasparCG template folder.</span>
+              </div>
+              <button class="glass-btn btn-deploy" @click="deployTemplates(false)" :disabled="deploying">
+                {{ deploying ? 'Installing…' : 'Install Templates Now' }}
               </button>
-              <span v-if="testResult" class="status ok inline">{{ testResult }}</span>
             </div>
-
-            <div class="warn-card">
-              This will rewrite your CasparCG configuration file. A timestamped backup will be created automatically.
+            <div v-if="templateDeployResult" class="status ok inline" style="margin-top:8px;">
+              Deployed {{ templateDeployResult.deployed.length }} files to {{ templateDeployResult.template_dir }}
             </div>
           </section>
         </div>
 
+        <!-- Footer -->
         <div class="modal-footer">
-          <button v-if="activeStep > 1" class="glass-btn" @click="goPrev" :disabled="applying">Back</button>
+          <button v-if="activeStep > 1" class="glass-btn" @click="goPrev" :disabled="applying">← Back</button>
           <div class="footer-spacer"></div>
-          <button v-if="activeStep < totalSteps" class="glass-btn btn-primary" @click="goNext" :disabled="!canGoNext">Next</button>
+          <button v-if="activeStep < totalSteps" class="glass-btn btn-primary" @click="goNext" :disabled="!canGoNext">
+            Next →
+          </button>
           <button v-if="activeStep === totalSteps" class="glass-btn btn-apply" @click="applyConfig" :disabled="applying || !!errorMessage">
-            {{ applying ? 'Applying…' : 'Apply & Save' }}
+            {{ applying ? 'Applying & Saving…' : '✔ Apply & Save Configuration' }}
           </button>
         </div>
       </div>
@@ -491,12 +602,9 @@ watch(
 <style scoped>
 .modal-backdrop {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(8px);
+  inset: 0;
+  background: rgba(8, 12, 20, 0.88);
+  backdrop-filter: blur(12px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -504,110 +612,141 @@ watch(
 }
 
 .modal-content {
-  width: 620px;
-  max-width: 92vw;
-  max-height: 92vh;
+  width: 740px;
+  max-width: 94vw;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
-  padding: 0;
-  background: var(--bg-secondary);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8);
-  border: 1px solid var(--glass-border);
+  background: linear-gradient(180deg, #141a26 0%, #0d121c 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
 }
 
 .modal-header {
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.step-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: 0.08em;
+}
+
 .modal-header h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.15rem;
+  color: #f1f5f9;
 }
 
-.subtitle {
-  margin: 4px 0 0;
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-}
-
+/* Step Indicator Bar */
 .step-indicator {
   display: flex;
-  justify-content: center;
-  gap: 12px;
-  padding: 14px;
-  border-bottom: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.02);
+  justify-content: space-between;
+  padding: 12px 1.5rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.step-dot {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 2px solid var(--glass-border);
-  background: transparent;
-  color: var(--text-secondary);
-  font-weight: 700;
-  font-size: 0.82rem;
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  opacity: 0.5;
+  transition: all 0.15s;
 }
 
-.step-dot.active {
-  border-color: var(--accent-blue);
-  background: rgba(51, 190, 204, 0.15);
-  color: var(--accent-blue);
-  box-shadow: 0 0 12px rgba(51, 190, 204, 0.2);
+.step-item.active {
+  opacity: 1;
 }
 
-.step-dot.completed {
-  border-color: #4caf50;
-  background: rgba(76, 175, 80, 0.12);
-  color: #4caf50;
+.step-item.completed {
+  opacity: 0.85;
 }
 
-.step-dot:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+.step-circle {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #fff;
 }
 
+.step-item.active .step-circle {
+  background: #38bdf8;
+  border-color: #38bdf8;
+  color: #000;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+}
+
+.step-item.completed .step-circle {
+  background: #10b981;
+  border-color: #10b981;
+}
+
+.step-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+
+/* Body */
 .modal-body {
-  padding: 1.25rem 1.5rem;
+  padding: 1.5rem;
   overflow-y: auto;
-  min-height: 200px;
+  min-height: 260px;
 }
 
 .wizard-section {
-  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
-.section-title {
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-secondary);
+.section-desc {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  line-height: 1.45;
+  margin: 0;
 }
 
-.hint {
+.section-desc code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #38bdf8;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
   font-size: 0.78rem;
-  color: var(--text-secondary);
-  margin-bottom: 1rem;
-}
-
-.hint-text {
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  opacity: 0.65;
-  margin-top: 4px;
-}
-
-.text-muted {
-  color: var(--text-secondary);
-  opacity: 0.5;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #cbd5e1;
 }
 
 .form-grid {
@@ -619,25 +758,18 @@ watch(
   grid-template-columns: 1fr 1fr;
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.form-group label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
 .glass-input {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--glass-border);
-  color: var(--text-primary);
+  background: #0b0f17;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f1f5f9;
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: 8px 12px;
   font-size: 0.82rem;
+  outline: none;
+}
+
+.glass-input:focus {
+  border-color: #38bdf8;
 }
 
 .input-with-button {
@@ -649,61 +781,219 @@ watch(
   flex: 1;
 }
 
-.glass-btn {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: var(--text-primary);
-  border-radius: 6px;
-  padding: 8px 14px;
-  cursor: pointer;
+.hint-text {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+/* Checkbox */
+.checkbox-group {
+  justify-content: center;
+  padding-top: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 0.8rem;
-  white-space: nowrap;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.checkbox-label.highlight {
+  background: rgba(56, 189, 248, 0.08);
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  font-weight: 600;
+  color: #38bdf8;
+}
+
+/* Video Mode Cards */
+.video-mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mode-card {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   transition: all 0.15s;
 }
 
-.glass-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
+.mode-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
-.glass-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.mode-card.selected {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
 }
 
-.btn-primary {
-  background: rgba(51, 190, 204, 0.15);
-  border-color: rgba(51, 190, 204, 0.4);
-  color: var(--accent-blue);
-  font-weight: 600;
+.mode-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.btn-primary:hover:not(:disabled) {
-  background: rgba(51, 190, 204, 0.25);
+.mode-badge {
+  font-size: 0.62rem;
+  font-weight: 800;
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
-.btn-apply {
-  background: rgba(76, 175, 80, 0.15);
-  border-color: rgba(76, 175, 80, 0.4);
-  color: #66bb6a;
+.mode-name {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #f1f5f9;
+}
+
+.mode-desc {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  line-height: 1.3;
+}
+
+/* Cards */
+.summary-card,
+.review-card,
+.connection-test-card,
+.template-deploy-card {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.connection-test-card,
+.template-deploy-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.connection-info,
+.template-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.connection-info strong,
+.template-info strong {
+  font-size: 0.82rem;
+  color: #f1f5f9;
+}
+
+.connection-info span,
+.template-info span {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.summary-title,
+.review-title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+
+.review-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-list li {
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  position: relative;
+  padding-left: 16px;
+}
+
+.review-list li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  color: #38bdf8;
+}
+
+/* Routing Card */
+.routing-card {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.routing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.routing-badge {
+  font-size: 0.62rem;
+  font-weight: 800;
+  background: #38bdf8;
+  color: #000;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.routing-text {
+  font-size: 0.8rem;
   font-weight: 700;
+  color: #f1f5f9;
 }
 
-.btn-apply:hover:not(:disabled) {
-  background: rgba(76, 175, 80, 0.25);
-  box-shadow: 0 0 16px rgba(76, 175, 80, 0.2);
+.routing-cmd-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #94a3b8;
 }
 
-.btn-test {
-  background: rgba(248, 180, 0, 0.12);
-  border-color: rgba(248, 180, 0, 0.35);
-  color: var(--accent-yellow);
+.routing-cmd {
+  font-family: Consolas, monospace;
+  font-size: 0.76rem;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #38bdf8;
 }
 
-.btn-icon {
-  padding: 4px 8px;
-  font-size: 1.2rem;
-}
-
+/* Status Messages */
 .status {
   padding: 10px 12px;
   border-radius: 6px;
@@ -712,137 +1002,93 @@ watch(
 }
 
 .status.ok {
-  background: rgba(29, 185, 84, 0.12);
-  border: 1px solid rgba(29, 185, 84, 0.26);
-  color: #66bb6a;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
 }
 
 .status.ok.inline {
   display: inline-block;
-  margin: 0 0 0 10px;
-  padding: 4px 10px;
+  margin: 0;
 }
 
 .status.error {
-  background: rgba(230, 57, 70, 0.14);
-  border: 1px solid rgba(230, 57, 70, 0.26);
-  color: #f4a261;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
 }
 
-.status.warn {
-  background: rgba(248, 180, 0, 0.12);
-  border: 1px solid rgba(248, 180, 0, 0.26);
-  color: var(--accent-yellow);
-  margin-top: 12px;
-}
-
-.summary-card {
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.summary-row {
-  padding: 4px 0;
-  font-size: 0.78rem;
-  color: var(--text-primary);
-}
-
-.summary-row strong {
-  color: var(--text-secondary);
-  margin-right: 6px;
-}
-
-.routing-card {
-  border: 1px solid rgba(51, 190, 204, 0.25);
-  border-radius: 8px;
-  padding: 12px;
-  background: rgba(51, 190, 204, 0.06);
-  margin-top: 8px;
-}
-
-.routing-row {
-  display: flex;
-  gap: 10px;
-  padding: 4px 0;
-  align-items: center;
-}
-
-.routing-label {
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-  min-width: 110px;
-}
-
-.routing-path {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--accent-blue);
-}
-
-.routing-cmd {
-  font-family: 'Courier New', monospace;
-  font-size: 0.78rem;
-  background: rgba(0, 0, 0, 0.3);
-  padding: 4px 8px;
-  border-radius: 4px;
-  color: #e0e0e0;
-}
-
-.review-card {
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
-  padding: 14px;
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.review-header {
-  font-weight: 700;
-  font-size: 0.85rem;
-  margin-bottom: 10px;
-  color: var(--text-primary);
-}
-
-.review-list {
-  padding-left: 18px;
-  display: grid;
-  gap: 6px;
-}
-
-.review-list li {
-  font-size: 0.78rem;
-  color: var(--text-primary);
-  line-height: 1.4;
-}
-
-.warn-card {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: rgba(248, 180, 0, 0.08);
-  border: 1px solid rgba(248, 180, 0, 0.2);
-  font-size: 0.76rem;
-  color: var(--accent-yellow);
-}
-
+/* Buttons */
 .modal-footer {
   padding: 1rem 1.5rem;
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: var(--bg-primary);
-  opacity: 0.96;
+  background: rgba(0, 0, 0, 0.3);
 }
 
 .footer-spacer {
   flex: 1;
 }
 
-@media (max-width: 640px) {
-  .form-grid.two-col {
-    grid-template-columns: 1fr;
-  }
+.glass-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.glass-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.glass-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.25);
+}
+
+.btn-apply {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
+  font-weight: 700;
+}
+
+.btn-apply:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.25);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.2);
+}
+
+.btn-test {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+}
+
+.btn-deploy {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: rgba(168, 85, 247, 0.35);
+  color: #c084fc;
+}
+
+.btn-icon {
+  padding: 4px 8px;
+  font-size: 1.1rem;
 }
 </style>

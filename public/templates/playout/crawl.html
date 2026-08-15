@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Broadcast Crawl Ticker CG Template</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      user-select: none;
+    }
+
+    #crawl-wrapper {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 1920px;
+      height: 64px;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(9, 13, 24, 0.98) 100%);
+      border-top: 3px solid #38bdf8;
+      display: flex;
+      align-items: center;
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.7);
+      opacity: 0;
+      transform: translateY(100%);
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: hidden;
+    }
+
+    #crawl-wrapper.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    #crawl-wrapper.emergency {
+      background: linear-gradient(180deg, rgba(185, 28, 28, 0.95) 0%, rgba(127, 29, 29, 0.98) 100%);
+      border-top-color: #ef4444;
+    }
+
+    /* Category / Header Badge */
+    .crawl-badge {
+      height: 100%;
+      padding: 0 24px;
+      background: #0284c7;
+      color: #ffffff;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 4px 0 12px rgba(0, 0, 0, 0.4);
+      z-index: 10;
+    }
+
+    .emergency .crawl-badge {
+      background: #991b1b;
+      animation: pulseAlert 1.5s infinite alternate;
+    }
+
+    @keyframes pulseAlert {
+      from { background-color: #991b1b; }
+      to { background-color: #dc2626; }
+    }
+
+    /* Track / Marquee */
+    .crawl-track-container {
+      flex: 1;
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .crawl-track {
+      position: absolute;
+      white-space: nowrap;
+      display: inline-block;
+      font-size: 22px;
+      font-weight: 700;
+      color: #f8fafc;
+      letter-spacing: 0.02em;
+      will-change: transform;
+    }
+
+    .crawl-separator {
+      color: #38bdf8;
+      margin: 0 28px;
+      font-size: 20px;
+    }
+
+    .emergency .crawl-separator {
+      color: #fef08a;
+    }
+
+    /* Clock */
+    .crawl-clock {
+      height: 100%;
+      padding: 0 24px;
+      background: rgba(0, 0, 0, 0.4);
+      color: #94a3b8;
+      font-family: Consolas, monospace;
+      font-size: 18px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      border-left: 1px solid rgba(255, 255, 255, 0.1);
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="crawl-wrapper">
+    <div id="crawl-badge" class="crawl-badge">LIVE</div>
+    <div class="crawl-track-container">
+      <div id="crawl-track" class="crawl-track"></div>
+    </div>
+    <div id="crawl-clock" class="crawl-clock">00:00</div>
+  </div>
+
+  <script>
+    let textContent = '';
+    let isEmergency = false;
+    let badgeText = 'LIVE';
+    let speedPixelsPerSec = 120; // 120 px/s smooth broadcast scroll
+    let animFrame = null;
+    let currentX = 1920;
+    let trackWidth = 0;
+    let lastTime = 0;
+
+    function applyConfig(data) {
+      if (!data) return;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch(e) { data = { text: data }; }
+      }
+
+      if (data.text !== undefined) textContent = String(data.text);
+      if (data.badge !== undefined) badgeText = String(data.badge);
+      if (data.emergency !== undefined) isEmergency = Boolean(data.emergency);
+      if (data.speed !== undefined) speedPixelsPerSec = Number(data.speed) || 120;
+
+      render();
+    }
+
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      document.getElementById('crawl-clock').textContent = h + ':' + m;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    function render() {
+      const wrapper = document.getElementById('crawl-wrapper');
+      const badge = document.getElementById('crawl-badge');
+      const track = document.getElementById('crawl-track');
+
+      badge.textContent = badgeText;
+      if (isEmergency) {
+        wrapper.classList.add('emergency');
+      } else {
+        wrapper.classList.remove('emergency');
+      }
+
+      if (!textContent || !textContent.trim()) {
+        wrapper.classList.remove('visible');
+        return;
+      }
+
+      // Format text with repeating bullet separator
+      const sep = ' <span class="crawl-separator">◆</span> ';
+      const repeated = textContent + sep + textContent + sep + textContent;
+      track.innerHTML = repeated;
+
+      wrapper.classList.add('visible');
+
+      // Reset animation
+      trackWidth = track.scrollWidth / 3;
+      if (currentX > 1920) currentX = 1920;
+      lastTime = performance.now();
+      if (!animFrame) {
+        animFrame = requestAnimationFrame(animate);
+      }
+    }
+
+    function animate(time) {
+      if (!lastTime) lastTime = time;
+      const delta = (time - lastTime) / 1000;
+      lastTime = time;
+
+      currentX -= speedPixelsPerSec * delta;
+      if (trackWidth > 0 && currentX < -trackWidth) {
+        currentX += trackWidth;
+      }
+
+      const track = document.getElementById('crawl-track');
+      if (track) {
+        track.style.transform = `translateX(${currentX}px)`;
+      }
+
+      animFrame = requestAnimationFrame(animate);
+    }
+
+    // CasparCG AMCP CG Interface
+    window.play = function() {
+      render();
+    };
+
+    window.stop = function() {
+      const wrapper = document.getElementById('crawl-wrapper');
+      wrapper.classList.remove('visible');
+      if (animFrame) {
+        cancelAnimationFrame(animFrame);
+        animFrame = null;
+      }
+    };
+
+    window.update = function(data) {
+      applyConfig(data);
+    };
+
+    // Auto-init with URL search params
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('text')) textContent = params.get('text');
+      if (params.has('badge')) badgeText = params.get('badge');
+      if (params.has('emergency')) isEmergency = params.get('emergency') === '1';
+    } catch(e) {}
+
+    window.play();
+  </script>
+</body>
+</html>

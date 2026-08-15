@@ -703,6 +703,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             uuid: string,
             updates: {
                 complianceRating?: ComplianceRating;
+                complianceText?: string;
                 tp_flag?: boolean;
                 content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
                 timeline?: Array<{ start: number; end: number; text: string }>;
@@ -715,7 +716,12 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             const age = updates.complianceRating !== undefined ? updates.complianceRating : currentMeta.ageRating;
             const tp = updates.tp_flag !== undefined ? updates.tp_flag : currentMeta.tpFlag;
             const content = updates.content_type !== undefined ? updates.content_type : currentMeta.contentType;
-            const timeline = updates.timeline !== undefined ? updates.timeline : currentMeta.timeline;
+            const timeline = updates.timeline !== undefined
+                ? updates.timeline
+                : (updates.complianceText ? [{ start: 0, end: 30000, text: updates.complianceText }] : currentMeta.timeline);
+            const advisoryText = updates.complianceText !== undefined
+                ? updates.complianceText
+                : (timeline[0]?.text || currentMeta.advisoryText || '');
 
             const serialized = serializeBroadcastRating({
                 ageRating: age,
@@ -727,7 +733,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             // 1. Update backend database first
             if (!uuid.startsWith('local:')) {
                 try {
-                    if (updates.complianceRating !== undefined) {
+                    if (updates.complianceRating !== undefined || updates.complianceText !== undefined) {
                         await invoke('update_ingestor_rating', {
                             uuid,
                             rating: age,
@@ -759,6 +765,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                         playlist.items[idx] = {
                             ...item,
                             complianceRating: age,
+                            complianceText: advisoryText,
                             tp_flag: tp,
                             content_type: content,
                             timeline: timeline

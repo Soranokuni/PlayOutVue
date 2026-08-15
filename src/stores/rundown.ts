@@ -266,17 +266,18 @@ export interface BroadcastMetadata {
     tpFlag: boolean;
     contentType: 'movie' | 'show' | 'documentary' | 'news' | 'none';
     timeline: Array<{ start: number; end: number; text: string }>;
+    advisoryText?: string;
 }
 
 export const parseBroadcastRating = (ratingStr: string | null | undefined): BroadcastMetadata => {
     const raw = (ratingStr || '').trim();
     if (!raw) {
-        return { ageRating: 'none', tpFlag: false, contentType: 'none', timeline: [] };
+        return { ageRating: 'none', tpFlag: false, contentType: 'none', timeline: [], advisoryText: '' };
     }
     const parts = raw.split('|');
     const age = mapApiRatingToCompliance(parts[0]);
     if (parts.length === 1) {
-        return { ageRating: age, tpFlag: false, contentType: 'none', timeline: [] };
+        return { ageRating: age, tpFlag: false, contentType: 'none', timeline: [], advisoryText: '' };
     }
     const tpFlag = (parts[1] || '').toUpperCase() === 'TP';
     const rawContent = (parts[2] || '').toLowerCase();
@@ -295,7 +296,8 @@ export const parseBroadcastRating = (ratingStr: string | null | undefined): Broa
             console.warn('Failed to parse timeline JSON from rating:', parts[3], e);
         }
     }
-    return { ageRating: age, tpFlag, contentType, timeline };
+    const advisoryText = timeline[0]?.text || '';
+    return { ageRating: age, tpFlag, contentType, timeline, advisoryText };
 };
 
 export const getMetadataFromAssetResponse = (asset: { rating?: string | null, tp?: string | null }): BroadcastMetadata => {
@@ -308,7 +310,8 @@ export const getMetadataFromAssetResponse = (asset: { rating?: string | null, tp
             ageRating: age,
             tpFlag: tpFlag,
             contentType: 'none',
-            timeline: []
+            timeline: [],
+            advisoryText: ''
         };
     }
     return parseBroadcastRating(rating);
