@@ -17,6 +17,7 @@ import StatusIndicator from './StatusIndicator.vue';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
+import { GREEK_COMPLIANCE_PRESETS, type GreekCompliancePreset } from '../lib/greekCompliance';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -436,6 +437,9 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
         seek: 0,
         length: 0,
         complianceRating: compliance,
+        complianceDescriptors: [],
+        complianceText: meta.advisoryText || meta.timeline[0]?.text || '',
+        timeline: meta.timeline || [],
         tp_flag: meta.tpFlag,
         content_type: meta.contentType,
         display_name: asset.display_name,
@@ -1111,6 +1115,18 @@ async function ctxSetAgeRating(rating: ComplianceRating) {
   closeContextMenu();
 }
 
+async function ctxApplyCompliancePreset(preset: GreekCompliancePreset) {
+  const asset = contextMenu.value.node?.asset;
+  if (asset) {
+    await mediaLibrary.updateAssetMetadata(asset.uuid, {
+      complianceRating: preset.ageRating,
+      complianceText: preset.advisoryText,
+      timeline: preset.advisoryText ? [{ start: 0, end: (preset.displayDurationSec || 30) * 1000, text: preset.advisoryText }] : []
+    });
+  }
+  closeContextMenu();
+}
+
 async function ctxToggleTP() {
   const asset = contextMenu.value.node?.asset;
   if (asset) {
@@ -1208,6 +1224,16 @@ const menuItems = computed<MenuItem[]>(() => {
         action: ctxInsertAfter
       },
       { type: 'divider' },
+      {
+        type: 'submenu',
+        label: '🇬🇷 Greek Warning Presets (ΕΣΡ)',
+        children: GREEK_COMPLIANCE_PRESETS.map(p => ({
+          type: 'action',
+          label: p.name,
+          checked: ratingMeta.ageRating === p.ageRating && ratingMeta.advisoryText === p.advisoryText,
+          action: () => ctxApplyCompliancePreset(p)
+        }))
+      },
       {
         type: 'submenu',
         label: 'Age Ratings (Σήματα Καταλληλότητας)',

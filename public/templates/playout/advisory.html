@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <title>Greek NCRTV Rating Advisory CG Template</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Arial", "Noto Sans", sans-serif;
+      user-select: none;
+    }
+
+    #advisory-container {
+      position: absolute;
+      top: 48px;
+      right: 64px;
+      display: flex;
+      flex-direction: row-reverse;
+      align-items: center;
+      gap: 12px;
+      opacity: 0;
+      transform: translateY(-8px);
+      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    #advisory-container.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Rating Badge Box */
+    .rating-badge {
+      width: 62px;
+      height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      font-weight: 900;
+      color: #ffffff;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      transition: all 0.3s ease;
+      flex-shrink: 0;
+    }
+
+    .rating-badge.rating-k {
+      background: linear-gradient(135deg, #1b8a36 0%, #106324 100%);
+      border-radius: 12px;
+      transform: rotate(45deg);
+      width: 52px;
+      height: 52px;
+      margin: 5px;
+    }
+    .rating-badge.rating-k span {
+      transform: rotate(-45deg);
+      font-size: 28px;
+    }
+
+    .rating-badge.rating-8 {
+      background: linear-gradient(135deg, #1572e8 0%, #0d4fa6 100%);
+      border-radius: 50%;
+    }
+
+    .rating-badge.rating-12 {
+      background: linear-gradient(135deg, #e67e22 0%, #ba5806 100%);
+      border-radius: 12px;
+      clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+      height: 60px;
+      width: 68px;
+      padding-top: 14px;
+    }
+
+    .rating-badge.rating-16 {
+      background: linear-gradient(135deg, #8e44ad 0%, #632380 100%);
+      border-radius: 10px;
+    }
+
+    .rating-badge.rating-18 {
+      background: linear-gradient(135deg, #d32f2f 0%, #991414 100%);
+      border-radius: 50%;
+      border-color: #ffffff;
+    }
+
+    /* TP (Telemarketing / Product Placement) Badge */
+    .tp-badge {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: #000000;
+      font-weight: 900;
+      font-size: 16px;
+      letter-spacing: 0.05em;
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1.5px solid #ffffff;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .tp-badge.active {
+      display: flex;
+    }
+
+    /* Advisory Text Banner (Pill) */
+    .advisory-pill {
+      display: flex;
+      align-items: center;
+      background: rgba(10, 15, 26, 0.88);
+      backdrop-filter: blur(10px);
+      border: 1.5px solid rgba(255, 255, 255, 0.35);
+      border-radius: 30px;
+      padding: 0;
+      height: 52px;
+      max-width: 0;
+      opacity: 0;
+      overflow: hidden;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+      transition: max-width 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+                  opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                  padding 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+      white-space: nowrap;
+    }
+
+    .advisory-pill.expanded {
+      max-width: 900px;
+      opacity: 1;
+      padding: 0 24px;
+    }
+
+    .advisory-pill-icon {
+      font-size: 20px;
+      margin-right: 12px;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    .advisory-pill-text {
+      color: #ffffff;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    }
+  </style>
+</head>
+<body>
+  <div id="advisory-container">
+    <div id="rating-badge" class="rating-badge rating-18">
+      <span id="rating-number">18</span>
+    </div>
+    <div id="tp-badge" class="tp-badge">TP</div>
+    <div id="advisory-pill" class="advisory-pill">
+      <span id="advisory-icon" class="advisory-pill-icon">⚠️</span>
+      <span id="advisory-text" class="advisory-pill-text">ΑΥΤΗ Η ΤΑΙΝΙΑ ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ</span>
+    </div>
+  </div>
+
+  <script>
+    let hideTimer = null;
+    let repeatTimer = null;
+    let config = {
+      rating: '18',
+      text: 'ΑΥΤΗ Η ΤΑΙΝΙΑ ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ',
+      durationSec: 30,
+      repeatIntervalSec: 600, // 10 minutes
+      tp: false
+    };
+
+    function applyConfig(data) {
+      if (!data) return;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch (e) {}
+      }
+
+      if (data.rating !== undefined) config.rating = String(data.rating).toLowerCase();
+      if (data.text !== undefined) config.text = String(data.text);
+      if (data.durationSec !== undefined) config.durationSec = Number(data.durationSec) || 30;
+      if (data.repeatIntervalSec !== undefined) config.repeatIntervalSec = Number(data.repeatIntervalSec) || 600;
+      if (data.tp !== undefined) config.tp = Boolean(data.tp);
+
+      render();
+    }
+
+    function render() {
+      const container = document.getElementById('advisory-container');
+      const badge = document.getElementById('rating-badge');
+      const ratingNumber = document.getElementById('rating-number');
+      const tpEl = document.getElementById('tp-badge');
+      const textEl = document.getElementById('advisory-text');
+      const iconEl = document.getElementById('advisory-icon');
+
+      if (config.rating === 'none' || !config.rating) {
+        container.classList.remove('visible');
+        return;
+      }
+
+      // Set rating classes
+      badge.className = 'rating-badge rating-' + config.rating;
+      ratingNumber.textContent = config.rating === 'k' ? 'K' : config.rating;
+
+      // Set TP
+      if (config.tp) {
+        tpEl.classList.add('active');
+      } else {
+        tpEl.classList.remove('active');
+      }
+
+      // Set Advisory Text & Icon
+      const text = config.text.trim();
+      textEl.textContent = text;
+
+      if (text.includes('ΒΙΑΣ') || text.includes('ΒΙΑ')) {
+        iconEl.textContent = '⚔️';
+      } else if (text.includes('ΣΕΞ')) {
+        iconEl.textContent = '🔞';
+      } else if (text.includes('ΟΥΣΙΩΝ')) {
+        iconEl.textContent = '💊';
+      } else if (text.includes('ΦΡΑΣΕΟΛΟΓΙΑ') || text.includes('ΥΒΡΕΙΣ')) {
+        iconEl.textContent = '💬';
+      } else {
+        iconEl.textContent = '⚠️';
+      }
+
+      container.classList.add('visible');
+      triggerBannerAnimation();
+    }
+
+    function triggerBannerAnimation() {
+      const pill = document.getElementById('advisory-pill');
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+
+      if (config.text && config.text.trim().length > 0 && config.rating !== 'k' && config.rating !== '8') {
+        pill.classList.add('expanded');
+
+        if (config.durationSec > 0) {
+          hideTimer = setTimeout(() => {
+            pill.classList.remove('expanded');
+          }, config.durationSec * 1000);
+        }
+      } else {
+        pill.classList.remove('expanded');
+      }
+
+      // Repeat animation every repeatIntervalSec (e.g. 10 minutes)
+      if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
+      if (config.repeatIntervalSec > 0 && config.text && config.text.trim().length > 0) {
+        repeatTimer = setInterval(() => {
+          triggerBannerAnimation();
+        }, config.repeatIntervalSec * 1000);
+      }
+    }
+
+    // CasparCG AMCP CG Interface
+    window.play = function() {
+      render();
+    };
+
+    window.stop = function() {
+      if (hideTimer) clearTimeout(hideTimer);
+      if (repeatTimer) clearInterval(repeatTimer);
+      const pill = document.getElementById('advisory-pill');
+      const container = document.getElementById('advisory-container');
+      pill.classList.remove('expanded');
+      container.classList.remove('visible');
+    };
+
+    window.update = function(data) {
+      applyConfig(data);
+    };
+
+    // Auto-init with URL search params or defaults
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('rating')) config.rating = params.get('rating');
+      if (params.has('text')) config.text = params.get('text');
+      if (params.has('tp')) config.tp = params.get('tp') === '1' || params.get('tp') === 'true';
+    } catch(e) {}
+
+    window.play();
+  </script>
+</body>
+</html>

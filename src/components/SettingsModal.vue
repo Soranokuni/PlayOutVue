@@ -490,40 +490,54 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
           <!-- Playout & Hardware Tab -->
           <div v-if="activeTab === 'playout'">
 
-              <!-- Live Ingest & DeckLink Rebroadcast Section -->
+              <!-- Unified Hardware & DeckLink Setup Card -->
               <section class="settings-section">
-                  <h3 class="text-secondary section-title">Live Ingest & DeckLink Rebroadcast</h3>
-                  <div class="form-grid">
-                      <div class="form-group">
-                          <label>DeckLink Live Input Device</label>
-                          <select class="glass-input" v-model.number="localState.decklinkInputDevice">
-                              <option :value="0">None / Use Custom AMCP Route</option>
-                              <option :value="1">DeckLink 1 (SDI / HDMI In)</option>
-                              <option :value="2">DeckLink 2 (SDI / HDMI In)</option>
-                              <option :value="3">DeckLink 3 (SDI / HDMI In)</option>
-                              <option :value="4">DeckLink 4 (SDI / HDMI In)</option>
-                          </select>
-                          <span class="hint-text">Select the hardware DeckLink device used for live feed ingest and the top-bar CUT TO LIVE button.</span>
+                  <h3 class="text-secondary section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                      <span>Playout Hardware & DeckLink I/O</span>
+                      <button class="glass-btn btn-primary" style="padding: 5px 14px; font-size: 0.78rem;" @click="showDecklinkWizard = true">
+                          ⚡ Launch Hardware Setup Wizard
+                      </button>
+                  </h3>
+                  <p class="hint-text" style="margin: 0 0 10px 0;">
+                      Use the Setup Wizard to configure Blackmagic DeckLink SDI Program Output, Live Camera/Ingest feed, Video Standards, and auto-deploy broadcast HTML5 CG templates in one coherent flow.
+                  </p>
+
+                  <div class="qc-card-grid" style="grid-template-columns: repeat(3, 1fr);">
+                      <div class="qc-radio-card" style="cursor:default;">
+                          <div class="qc-radio-header">
+                              <span class="qc-badge badge-prod">PROGRAM OUT</span>
+                          </div>
+                          <div class="qc-card-title">
+                              {{ localState.decklinkOutputDevice > 0 ? `DeckLink ${localState.decklinkOutputDevice}` : 'Not Configured' }}
+                          </div>
+                          <p class="qc-desc">
+                              Master SDI Out • {{ localState.playoutProfile || '1080i50' }}
+                          </p>
                       </div>
 
-                      <div class="form-group">
-                          <label>Live Input Video Standard</label>
-                          <select class="glass-input" v-model="localState.decklinkInputFormat">
-                              <option value="1080i5000">1080i50 (PAL Broadcast)</option>
-                              <option value="1080p2500">1080p25 (PAL Progressive)</option>
-                              <option value="1080i5994">1080i59.94 (NTSC Broadcast)</option>
-                              <option value="1080p2997">1080p29.97 (NTSC Progressive)</option>
-                              <option value="720p5000">720p50</option>
-                              <option value="auto">Auto / Server Default</option>
-                          </select>
-                          <span class="hint-text">Video format passed to CasparCG when initializing DeckLink live feed.</span>
+                      <div class="qc-radio-card" style="cursor:default;">
+                          <div class="qc-radio-header">
+                              <span class="qc-badge" :class="localState.decklinkInputDevice > 0 ? 'badge-lenient' : 'badge-strict'">
+                                  {{ localState.decklinkInputDevice > 0 ? 'LIVE INGEST ACTIVE' : 'NO LIVE IN' }}
+                              </span>
+                          </div>
+                          <div class="qc-card-title">
+                              {{ localState.decklinkInputDevice > 0 ? `DeckLink ${localState.decklinkInputDevice}` : 'Disabled / Custom' }}
+                          </div>
+                          <p class="qc-desc">
+                              {{ localState.decklinkInputDevice > 0 ? `${localState.decklinkInputFormat} (Rebroadcast)` : 'Manual or Stream route' }}
+                          </p>
                       </div>
-                  </div>
 
-                  <div class="form-group" style="margin-top:0.75rem;">
-                      <label>Custom AMCP Live Route (Fallback / NDI / Stream)</label>
-                      <input type="text" class="glass-input" v-model="localState.liveInputSourceName" placeholder="decklink://device/1 or ROUTE 2-10">
-                      <span class="hint-text">Custom route command if not using a numbered DeckLink device.</span>
+                      <div class="qc-radio-card" style="cursor:default;">
+                          <div class="qc-radio-header">
+                              <span class="qc-badge badge-prod">CG TEMPLATES</span>
+                          </div>
+                          <div class="qc-card-title">HTML5 / CEF</div>
+                          <p class="qc-desc">
+                              Greek NCRTV Advisory + 50fps Crawl
+                          </p>
+                      </div>
                   </div>
               </section>
 
@@ -544,8 +558,8 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                   </div>
 
                   <div style="display:flex;gap:10px;margin-top:12px;">
-                      <button class="glass-btn btn-primary" @click="showDecklinkWizard = true">DeckLink Output Wizard</button>
-                      <button class="glass-btn" @click="showCasparConfigurator = true">Advanced Configurator</button>
+                      <button class="glass-btn btn-primary" @click="showDecklinkWizard = true">Open Setup Wizard</button>
+                      <button class="glass-btn" @click="showCasparConfigurator = true">Advanced XML Configurator</button>
                   </div>
               </section>
 

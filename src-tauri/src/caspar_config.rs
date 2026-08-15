@@ -300,6 +300,9 @@ pub struct DeckLinkApplyPayload {
     pub latency: Option<String>,
     pub keyer: Option<String>,
     pub video_mode: Option<String>,
+    pub enable_screen_consumer: Option<bool>,
+    pub deploy_templates: Option<bool>,
+    pub template_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -308,6 +311,64 @@ pub struct DeckLinkApplyResult {
     pub raw_xml: String,
     pub channel_index: usize,
     pub output_device: i32,
+    pub templates_deployed: Option<TemplateDeployResult>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TemplateDeployResult {
+    pub template_dir: String,
+    pub deployed: Vec<String>,
+    pub skipped: Vec<String>,
+}
+
+const TEMPLATE_ADVISORY: &str = include_str!("../../public/templates/playout/advisory.html");
+const TEMPLATE_CRAWL: &str = include_str!("../../public/templates/playout/crawl.html");
+
+#[tauri::command]
+pub async fn deploy_caspar_templates(
+    template_path: Option<String>,
+    overwrite: Option<bool>,
+) -> Result<TemplateDeployResult, String> {
+    let base_dir = if let Some(ref p) = template_path {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            PathBuf::from(trimmed)
+        } else {
+            PathBuf::from("C:/CasparCG/template")
+        }
+    } else {
+        PathBuf::from("C:/CasparCG/template")
+    };
+
+    let target_dir = base_dir.join("playout");
+    std::fs::create_dir_all(&target_dir)
+        .map_err(|e| format!("Failed to create template directory '{}': {}", target_dir.display(), e))?;
+
+    let overwrite_files = overwrite.unwrap_or(false);
+    let mut deployed = Vec::new();
+    let mut skipped = Vec::new();
+
+    let files = [
+        ("advisory.html", TEMPLATE_ADVISORY),
+        ("crawl.html", TEMPLATE_CRAWL),
+    ];
+
+    for (name, content) in files {
+        let file_path = target_dir.join(name);
+        if file_path.exists() && !overwrite_files {
+            skipped.push(format!("playout/{}", name));
+        } else {
+            std::fs::write(&file_path, content)
+                .map_err(|e| format!("Failed to write template '{}': {}", file_path.display(), e))?;
+            deployed.push(format!("playout/{}", name));
+        }
+    }
+
+    Ok(TemplateDeployResult {
+        template_dir: target_dir.to_string_lossy().into_owned(),
+        deployed,
+        skipped,
+    })
 }
 
 #[tauri::command]
@@ -396,6 +457,36 @@ pub async fn apply_caspar_decklink_config(payload: DeckLinkApplyPayload) -> Resu
 
     channel.consumers.decklinks = vec![decklink];
 
+    // Ensure screen consumer is present if requested
+    if payload.enable_screen_consumer.unwrap_or(true) {
+        if channel.consumers.screens.is_empty() {
+            channel.consumers.screens = vec![CasparScreenConsumer::default()];
+        }
+    }
+
+    // Ensure system audio consumer is present
+    if channel.consumers.system_audio.is_empty() {
+        channel.consumers.system_audio = vec![CasparSystemAudioConsumer::default()];
+    }
+
+    // Ensure OSC default port 6250 is configured
+    if config.osc.is_none() {
+        config.osc = Some(CasparOsc::default());
+    }
+
+    // Optional template deployment
+    let mut templates_deployed = None;
+    if payload.deploy_templates.unwrap_or(true) {
+        let template_base = payload.template_path
+            .clone()
+            .or_else(|| config.paths.template_path.clone())
+            .unwrap_or_else(|| "C:/CasparCG/template/".to_string());
+
+        if let Ok(res) = deploy_caspar_templates(Some(template_base), Some(false)).await {
+            templates_deployed = Some(res);
+        }
+    }
+
     let backup_path = backup_config(&target_path)?;
     let xml = serialize_config(&config)?;
     write_config_file_atomic(&target_path, xml.clone())?;
@@ -405,6 +496,7 @@ pub async fn apply_caspar_decklink_config(payload: DeckLinkApplyPayload) -> Resu
         raw_xml: xml,
         channel_index: payload.channel_index,
         output_device: payload.output_device,
+        templates_deployed,
     })
 }
 
