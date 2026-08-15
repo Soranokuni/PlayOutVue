@@ -158,8 +158,9 @@ export function buildVirtualFolderTree(
 
     // Populate assets
     const lowerQuery = query.trim().toLowerCase();
+    const deletedSet = new Set(deletedUuids);
     for (const asset of assets) {
-        if (deletedUuids.includes(asset.uuid)) continue;
+        if (deletedSet.has(asset.uuid)) continue;
         if (lowerQuery) {
             const displayName = asset.display_name || asset.current_path?.split(/[/\\]/).pop() || 'Untitled';
             if (!displayName.toLowerCase().includes(lowerQuery)) {
@@ -917,19 +918,77 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         }
 
         async function restoreAsset(uuid: string, targetFolder?: string) {
+            const trashed = recycleBinAssets.value.find((a) => a.uuid === uuid);
+            let restoredApiAsset: any = null;
             try {
-                await invoke('restore_ingestor_asset', {
+                const res = await invoke<any>('restore_ingestor_asset', {
                     uuid,
                     targetFolder: targetFolder ? normalizeVirtualFolder(targetFolder) : null,
                     apiBaseUrlOverride: null
                 });
+                if (res && res.asset) {
+                    restoredApiAsset = res.asset;
+                } else if (res && res.uuid) {
+                    restoredApiAsset = res;
+                }
             } catch (error) {
                 console.error('[LibraryStore] Failed to restore asset:', error);
                 throw error;
             }
 
-            // Remove from recycle bin list locally
-            recycleBinAssets.value = recycleBinAssets.value.filter(a => a.uuid !== uuid);
+            // 1. Remove from recycle bin list locally
+            recycleBinAssets.value = recycleBinAssets.value.filter((a) => a.uuid !== uuid);
+
+            // 2. Remove from deletedUuids so it's not hidden from active tree
+            deletedUuids.value = deletedUuids.value.filter((id) => id !== uuid);
+
+            // 3. Immediately upsert into assets.value so it appears instantly in the library
+            if (trashed || restoredApiAsset) {
+                const effectiveTarget = targetFolder
+                    ? normalizeVirtualFolder(targetFolder)
+                    : normalizeVirtualFolder(restoredApiAsset?.virtual_folder || trashed?.original_virtual_folder || trashed?.virtual_folder || '/');
+
+                const restoredItem: LibraryAsset = {
+                    ...(trashed || {}),
+                    ...(restoredApiAsset ? {
+                        uuid: restoredApiAsset.uuid,
+                        current_path: restoredApiAsset.current_path || trashed?.current_path || '',
+                        display_name: restoredApiAsset.display_name || trashed?.display_name || 'Untitled',
+                        virtual_folder: effectiveTarget,
+                        duration_ms: restoredApiAsset.duration_ms ?? trashed?.duration_ms ?? 0,
+                        trim_in_ms: restoredApiAsset.trim_in_ms ?? trashed?.trim_in_ms ?? 0,
+                        trim_out_ms: restoredApiAsset.trim_out_ms ?? trashed?.trim_out_ms ?? 0,
+                        rating: restoredApiAsset.rating || trashed?.rating || 'K',
+                        tp: restoredApiAsset.tp || trashed?.tp || 'None',
+                        status: restoredApiAsset.status || trashed?.status || 'ready',
+                        mezzanine_ok: restoredApiAsset.mezzanine_ok ?? trashed?.mezzanine_ok,
+                        fps: restoredApiAsset.fps ?? trashed?.fps,
+                        fpsNum: restoredApiAsset.fps_num ?? trashed?.fpsNum,
+                        fpsDen: restoredApiAsset.fps_den ?? trashed?.fpsDen,
+                        warnings: restoredApiAsset.warnings ?? trashed?.warnings,
+                    } : {
+                        uuid,
+                        current_path: trashed!.current_path,
+                        display_name: trashed!.display_name,
+                        virtual_folder: effectiveTarget,
+                        duration_ms: trashed!.duration_ms,
+                        trim_in_ms: trashed!.trim_in_ms,
+                        trim_out_ms: trashed!.trim_out_ms,
+                        rating: trashed!.rating,
+                        tp: trashed!.tp,
+                        status: trashed!.status,
+                    }),
+                    virtual_folder: effectiveTarget,
+                    deleted_at: undefined
+                };
+
+                const existingIdx = assets.value.findIndex((a) => a.uuid === uuid);
+                if (existingIdx >= 0) {
+                    assets.value.splice(existingIdx, 1, restoredItem);
+                } else {
+                    assets.value.push(restoredItem);
+                }
+            }
         }
 
         async function restoreFolder(folderPath: string, fallbackToRoot = false) {
@@ -943,6 +1002,42 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             } catch (error) {
                 console.error('[LibraryStore] Failed to restore folder:', error);
                 throw error;
+            }
+
+            // Find all trashed assets in this folder subtree
+            const restoredItems = recycleBinAssets.value.filter((a) => {
+                const vf = a.virtual_folder || '/';
+                return vf === norm || vf.startsWith(norm + '/');
+            });
+
+            // Remove from recycle bin list locally
+            recycleBinAssets.value = recycleBinAssets.value.filter((a) => {
+                const vf = a.virtual_folder || '/';
+                return vf !== norm && !vf.startsWith(norm + '/');
+            });
+
+            // Clean restored UUIDs from deletedUuids
+            const restoredUuids = new Set(restoredItems.map((a) => a.uuid));
+            deletedUuids.value = deletedUuids.value.filter((id) => !restoredUuids.has(id));
+
+            // Immediately upsert into assets.value so they appear instantly in library
+            for (const item of restoredItems) {
+                const targetFolder = fallbackToRoot
+                    ? '/'
+                    : normalizeVirtualFolder(item.original_virtual_folder || item.virtual_folder || '/');
+
+                const restored: LibraryAsset = {
+                    ...item,
+                    virtual_folder: targetFolder,
+                    deleted_at: undefined
+                };
+
+                const idx = assets.value.findIndex((a) => a.uuid === item.uuid);
+                if (idx >= 0) {
+                    assets.value.splice(idx, 1, restored);
+                } else {
+                    assets.value.push(restored);
+                }
             }
 
             await fetchRecycleBin();

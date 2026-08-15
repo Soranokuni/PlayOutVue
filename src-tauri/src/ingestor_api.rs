@@ -1143,7 +1143,7 @@ pub async fn restore_ingestor_asset<R: Runtime>(
     app: AppHandle<R>,
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
-) -> Result<(), String> {
+) -> Result<Option<AssetResponse>, String> {
     let start_time = std::time::Instant::now();
     let base_url = resolve_base_url(
         &get_ingestor_api_base_url(&app),
@@ -1171,7 +1171,20 @@ pub async fn restore_ingestor_asset<R: Runtime>(
         return Err(err);
     }
     diagnostics.push("info", "ingestor", format!("Successfully restored asset '{}' in {}ms", uuid, elapsed));
-    Ok(())
+
+    #[derive(Deserialize)]
+    struct RestoreAssetResponseWrapper {
+        #[serde(default)]
+        asset: Option<AssetResponse>,
+    }
+
+    let parsed_asset = if let Ok(wrapper) = serde_json::from_str::<RestoreAssetResponseWrapper>(&body) {
+        wrapper.asset
+    } else {
+        serde_json::from_str::<AssetResponse>(&body).ok()
+    };
+
+    Ok(parsed_asset)
 }
 
 #[tauri::command]

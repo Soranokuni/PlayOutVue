@@ -123,6 +123,11 @@ describe('RecycleBinModal Component & Store Actions', () => {
       targetFolder: '/Commercials',
       apiBaseUrlOverride: null
     });
+
+    // Check that asset immediately appeared in active library assets
+    expect(libraryStore.assets.some((a) => a.uuid === 'trash-1')).toBe(true);
+    expect(libraryStore.recycleBinAssets.some((a) => a.uuid === 'trash-1')).toBe(false);
+    expect(libraryStore.deletedUuids.includes('trash-1')).toBe(false);
   });
 
   it('prompts pulsing danger alert dialog before executing purge', async () => {
@@ -153,3 +158,4 @@ describe('RecycleBinModal Component & Store Actions', () => {
     });
   });
 });
+

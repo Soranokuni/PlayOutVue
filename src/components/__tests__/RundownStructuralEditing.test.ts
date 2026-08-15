@@ -180,4 +180,34 @@ describe('PR 3 Safe Command Registry & Structural Editing Commands', () => {
     expect(store.activeItems.length).toBe(3);
     expect(store.activeItems[1].filename).toBe('Clip 1 (Copy)');
   });
+
+  it('safely performs undo and redo after inserting library items without crashing', () => {
+    expect(store.activeItems.length).toBe(0);
+    const createdIds = store.insertLibraryItems({
+      items: [{
+        filename: 'Library Drop Item',
+        type: 'video',
+        path: '/lib.mp4',
+        duration: 20,
+        duration_ms: 20000,
+        seek: 0,
+        length: 20,
+        libraryIndicator: 'none'
+      }],
+      target: { kind: 'append' }
+    });
+
+    expect(createdIds.length).toBe(1);
+    expect(store.activeItems.length).toBe(1);
+    expect(store.activeItems[0].filename).toBe('Library Drop Item');
+    expect(store.canUndo).toBe(true);
+
+    store.undo();
+    expect(store.activeItems.length).toBe(0);
+    expect(store.canRedo).toBe(true);
+
+    store.redo();
+    expect(store.activeItems.length).toBe(1);
+    expect(store.activeItems[0].filename).toBe('Library Drop Item');
+  });
 });
