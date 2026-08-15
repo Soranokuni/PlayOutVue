@@ -13,11 +13,13 @@ import { beginLibraryDrag, didCompletePointerDrag } from '../composables/useDrag
 import { activeScope, activeLibraryContext } from '../composables/useOperatorShortcuts';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
+import FolderPickerModal from './FolderPickerModal.vue';
 import StatusIndicator from './StatusIndicator.vue';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 import { GREEK_COMPLIANCE_PRESETS, type GreekCompliancePreset } from '../lib/greekCompliance';
+import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaLibrary';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -108,7 +110,7 @@ const createDefaultProbeStatus = (): MediaProbeStatus => ({
 });
 const probeStatus = ref<MediaProbeStatus>(createDefaultProbeStatus());
 
-const expandedFolders = ref<Record<string, boolean>>({});
+const expandedFolders = ref<Record<string, boolean>>({ '/': true });
 
 function getFolderName(path: string): string {
     if (path === '/') return 'All Media';
@@ -116,55 +118,52 @@ function getFolderName(path: string): string {
     return parts[parts.length - 1] || 'Unknown';
 }
 
-const folderGroups = computed(() => {
-    const query = mediaLibrary.searchQuery.trim().toLowerCase();
-    const groups: Record<string, LibraryAsset[]> = {};
+export interface FolderGroupView {
+    folderName: string;
+    displayName: string;
+    depth: number;
+    color?: string;
+    hasSubfolders: boolean;
+    allAssetCount: number;
+    assets: LibraryAsset[];
+}
 
-    groups['/'] = [];
+const folderGroups = computed<FolderGroupView[]>(() => {
+    const tree = buildVirtualFolderTree(
+        mediaLibrary.assets,
+        mediaLibrary.transientFolders,
+        mediaLibrary.folderColors,
+        mediaLibrary.deletedUuids,
+        mediaLibrary.searchQuery
+    );
 
-    for (const asset of mediaLibrary.assets) {
-        if (mediaLibrary.deletedUuids.includes(asset.uuid)) continue;
+    const result: FolderGroupView[] = [];
 
-        if (query) {
-            const displayName = asset.display_name || asset.current_path?.split(/[/\\]/).pop() || 'Untitled';
-            if (!displayName.toLowerCase().includes(query)) {
-                continue;
+    const traverse = (node: VirtualFolderNode) => {
+        if (mediaLibrary.searchQuery && node.allAssetCount === 0 && !node.name.toLowerCase().includes(mediaLibrary.searchQuery.toLowerCase())) {
+            return;
+        }
+
+        result.push({
+            folderName: node.path,
+            displayName: node.path === '/' ? 'All Media' : node.name,
+            depth: node.depth,
+            color: node.color,
+            hasSubfolders: node.children.length > 0,
+            allAssetCount: node.allAssetCount,
+            assets: node.directAssets
+        });
+
+        const isExpanded = mediaLibrary.searchQuery ? true : (expandedFolders.value[node.path] !== false);
+        if (isExpanded) {
+            for (const child of node.children) {
+                traverse(child);
             }
         }
+    };
 
-        const folder = normalizeVirtualFolder(asset.virtual_folder);
-        if (!groups[folder]) {
-            groups[folder] = [];
-        }
-        groups[folder].push(asset);
-    }
-
-    if (!query) {
-        for (const folder of Object.keys(mediaLibrary.transientFolders)) {
-            const normalized = normalizeVirtualFolder(folder);
-            if (!groups[normalized]) {
-                groups[normalized] = [];
-            }
-        }
-    }
-
-    const sortedFolderNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-
-    return sortedFolderNames.map(folderPath => {
-        const sortedAssets = [...(groups[folderPath] || [])].sort((a, b) =>
-            (a.display_name || '').localeCompare(b.display_name || '')
-        );
-        return {
-            folderName: folderPath,
-            assets: sortedAssets
-        };
-    }).filter(group => {
-        if (query) {
-            const nameMatch = getFolderName(group.folderName).toLowerCase().includes(query);
-            return group.assets.length > 0 || nameMatch;
-        }
-        return true;
-    });
+    traverse(tree);
+    return result;
 });
 
 
@@ -722,7 +721,7 @@ function ctxPurge() {
 
 function ctxMove() {
     closeContextMenu();
-    doMoveSelected();
+    openMoveAssetModal();
 }
 
 function ctxTrim() {
@@ -734,10 +733,54 @@ function ctxTrim() {
     closeContextMenu();
 }
 
-function doNewVirtualFolder() {
-    const name = window.prompt('New virtual folder name');
+const showFolderPicker = ref(false);
+const folderPickerTitle = ref('Move to Virtual Folder');
+const folderPickerCurrentPath = ref('/');
+const folderPickerForbiddenPaths = ref<string[]>([]);
+const folderPickerMode = ref<'asset' | 'folder'>('asset');
+const folderPickerTargetAsset = ref<LibraryAsset | null>(null);
+const folderPickerTargetFolder = ref<string | null>(null);
+
+function openMoveAssetModal(asset?: LibraryAsset) {
+    const target = asset || (contextMenu.value.node?.type === 'asset' ? contextMenu.value.node.asset : mediaLibrary.selectedAsset);
+    if (!target) return;
+    folderPickerTargetAsset.value = target;
+    folderPickerTargetFolder.value = null;
+    folderPickerMode.value = 'asset';
+    folderPickerTitle.value = `Move "${target.display_name}" to Virtual Folder`;
+    folderPickerCurrentPath.value = target.virtual_folder || '/';
+    folderPickerForbiddenPaths.value = [];
+    showFolderPicker.value = true;
+    closeContextMenu();
+}
+
+function openMoveFolderModal(folderPath?: string) {
+    const target = folderPath || (contextMenu.value.node?.type === 'folder' ? contextMenu.value.node.virtualFolder : mediaLibrary.currentFolderPath);
+    if (!target || target === '/') return;
+    folderPickerTargetAsset.value = null;
+    folderPickerTargetFolder.value = target;
+    folderPickerMode.value = 'folder';
+    folderPickerTitle.value = `Move Folder "${getFolderName(target)}"`;
+    folderPickerCurrentPath.value = target;
+    folderPickerForbiddenPaths.value = [target];
+    showFolderPicker.value = true;
+    closeContextMenu();
+}
+
+async function handleFolderPickerSelect(targetFolderPath: string) {
+    showFolderPicker.value = false;
+    if (folderPickerMode.value === 'asset' && folderPickerTargetAsset.value) {
+        await mediaLibrary.moveAssetToFolder(folderPickerTargetAsset.value.uuid, targetFolderPath);
+    } else if (folderPickerMode.value === 'folder' && folderPickerTargetFolder.value) {
+        await mediaLibrary.moveFolderTo(folderPickerTargetFolder.value, targetFolderPath);
+    }
+}
+
+function doNewVirtualFolder(parentPath?: string) {
+    const base = parentPath || (contextMenu.value.node?.type === 'folder' ? contextMenu.value.node.virtualFolder : mediaLibrary.currentFolderPath) || '/';
+    const name = window.prompt(`New virtual subfolder name inside "${getFolderName(base)}":`);
     if (!name) return;
-    mediaLibrary.createVirtualFolder(name);
+    mediaLibrary.createVirtualFolder(base, name);
     closeContextMenu();
 }
 
@@ -774,29 +817,8 @@ async function doRenameSelected() {
     mediaLibrary.renameAsset(asset.uuid, newName);
 }
 
-async function doMoveSelected() {
-    const asset = mediaLibrary.selectedAsset;
-    if (!asset) return;
-    const current = mediaLibrary.currentFolderPath || '/';
-    const target = window.prompt('Move to virtual folder', current);
-    if (target === null) return;
-
-    const normalized = normalizeVirtualFolder(target);
-    if (asset.uuid.startsWith('local:')) {
-        mediaLibrary.moveAssetToFolder(asset.uuid, normalized);
-    } else {
-        const result = await ingestorInvoke<void>(
-            'move_ingestor_asset',
-            { uuid: asset.uuid, virtual_folder: normalized, api_base_url_override: null },
-            'ingestor-move'
-        );
-        if (result === null) return;
-        // Keep the local virtual_folder as source of truth; do NOT force-refresh
-        // from the API here, which previously discarded in-flight local overrides
-        // and made the asset "jump back" (plan §3.2 desync fix). The local
-        // override is re-applied on every setAssets() via localVirtualFolders.
-        mediaLibrary.moveAssetToFolder(asset.uuid, normalized);
-    }
+function doMoveSelected() {
+    openMoveAssetModal();
 }
 
 function doDeleteSelected() {
@@ -1234,16 +1256,6 @@ const menuItems = computed<MenuItem[]>(() => {
           action: () => ctxApplyCompliancePreset(p)
         }))
       },
-      {
-        type: 'submenu',
-        label: 'Age Ratings (Σήματα Καταλληλότητας)',
-        children: ratingOptions.map(r => ({
-          type: 'action',
-          label: r.label,
-          checked: ratingMeta.ageRating === r.id,
-          action: () => ctxSetAgeRating(r.id)
-        }))
-      },
       { type: 'divider' },
       {
         type: 'toggle',
@@ -1266,23 +1278,32 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'action',
         label: '➡️ Move to…',
-        action: ctxMove
+        action: () => openMoveAssetModal(asset)
       }
     ];
   } else if (node.type === 'folder') {
+    const isRoot = node.virtualFolder === '/';
     const folderItems: MenuItem[] = [
       {
         type: 'action',
-        label: '📁 New Virtual Folder here',
-        action: doNewVirtualFolder
-      },
-      {
+        label: '📁+ New Subfolder here',
+        action: () => doNewVirtualFolder(node.virtualFolder)
+      }
+    ];
+
+    if (!isRoot) {
+      folderItems.push({
+        type: 'action',
+        label: '➡️ Move Folder to…',
+        action: () => openMoveFolderModal(node.virtualFolder)
+      });
+      folderItems.push({
         type: 'action',
         label: '✏️ Rename folder',
         action: doRenameFolder
-      }
-    ];
-    
+      });
+    }
+
     if (node.isTransient) {
       folderItems.push({
         type: 'action',
@@ -1290,7 +1311,7 @@ const menuItems = computed<MenuItem[]>(() => {
         action: doRemoveFolder
       });
     }
-    
+
     folderItems.push({ type: 'divider' });
     folderItems.push({
       type: 'submenu',
@@ -1311,7 +1332,7 @@ const menuItems = computed<MenuItem[]>(() => {
         }
       ] as MenuItem[]
     });
-    
+
     return folderItems;
   }
   
@@ -1378,7 +1399,7 @@ const menuItems = computed<MenuItem[]>(() => {
         class="icon-action"
         title="New virtual folder in current folder"
         :disabled="!mediaLibrary.currentFolderPath"
-        @click="doNewVirtualFolder"
+        @click="() => doNewVirtualFolder()"
       >
         📁 New
       </button>
@@ -1474,6 +1495,7 @@ const menuItems = computed<MenuItem[]>(() => {
               'is-selected': mediaLibrary.selectedNodeId === `folder:${group.folderName}`,
               'is-folder-drop-target': folderDropTargetId === `folder:${group.folderName}`
             }"
+            :style="{ paddingLeft: group.depth > 0 ? (group.depth * 16 + 6) + 'px' : '8px' }"
             :data-library-folder-path="group.folderName"
             :draggable="true"
             @click="onFolderClick(group.folderName)"
@@ -1487,8 +1509,8 @@ const menuItems = computed<MenuItem[]>(() => {
             <!-- Chevron for folders -->
             <span
               class="chevron-icon"
-              :class="{ 'is-expanded': expandedFolders[group.folderName] }"
-              @click.stop="expandedFolders[group.folderName] = !expandedFolders[group.folderName]"
+              :class="{ 'is-expanded': expandedFolders[group.folderName] !== false }"
+              @click.stop="expandedFolders[group.folderName] = expandedFolders[group.folderName] === false"
             >
               ▶
             </span>
@@ -1499,17 +1521,17 @@ const menuItems = computed<MenuItem[]>(() => {
                 viewBox="0 0 24 24"
                 :style="{ fill: mediaLibrary.folderColors[group.folderName] || 'var(--accent-blue)' }"
               >
-                <path v-if="expandedFolders[group.folderName]" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
+                <path v-if="expandedFolders[group.folderName] !== false" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
                 <path v-else d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
               </svg>
             </span>
             <span class="lib-text">
-              <span class="lib-name">{{ getFolderName(group.folderName) }}</span>
+              <span class="lib-name">{{ group.displayName }}</span>
             </span>
           </div>
 
           <!-- Wrap folder's assets list in v-show -->
-          <div v-show="expandedFolders[group.folderName]" class="folder-children" style="display: flex; flex-direction: column;">
+          <div v-show="expandedFolders[group.folderName] !== false" class="folder-children" style="display: flex; flex-direction: column;">
             <div
               v-for="asset in group.assets"
               :key="asset.uuid"
@@ -1521,7 +1543,7 @@ const menuItems = computed<MenuItem[]>(() => {
               :data-asset-id="asset.uuid"
               :aria-selected="isAssetSelected(asset.uuid)"
               :tabindex="isAssetPrimarySelected(asset.uuid) ? 0 : -1"
-              :style="{ paddingLeft: '26px' }"
+              :style="{ paddingLeft: `${(group.depth + 1) * 16 + 10}px` }"
               @click="onAssetClick(asset, $event)"
               @dblclick="onAssetDoubleClick(asset)"
               @contextmenu.prevent="onAssetContextMenu($event, asset)"
@@ -1567,6 +1589,17 @@ const menuItems = computed<MenuItem[]>(() => {
         @close="closeContextMenu"
       />
     </Teleport>
+
+    <!-- Folder Picker Modal -->
+    <FolderPickerModal
+      :is-open="showFolderPicker"
+      :title="folderPickerTitle"
+      :current-path="folderPickerCurrentPath"
+      :forbidden-paths="folderPickerForbiddenPaths"
+      :mode="folderPickerMode"
+      @select="handleFolderPickerSelect"
+      @close="showFolderPicker = false"
+    />
 
     <!-- Trim Panel -->
     <Teleport to="body">
