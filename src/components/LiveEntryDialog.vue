@@ -60,29 +60,52 @@ const confirm = () => {
 
 <style scoped>
 .modal-backdrop {
-    position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(6px);
-    display:flex; justify-content:center; align-items:center; z-index:9999;
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(6px);
+  display: flex; justify-content: center; align-items: center; z-index: 9999;
 }
 .live-dialog {
-    width:400px; padding:1.5rem; display:flex; flex-direction:column; gap:1.25rem;
-    border:1px solid rgba(255,255,255,0.1); box-shadow:0 24px 48px rgba(0,0,0,0.5);
+  width: 420px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: 12px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
 }
-.dialog-header { display:flex; justify-content:space-between; align-items:center; }
-.icon-btn { background:transparent; border:none; color:var(--text-secondary); cursor:pointer; font-size:1rem; }
-.form-group { display:flex; flex-direction:column; gap:6px; }
-.form-group label { font-size:0.8rem; }
+.dialog-header { display: flex; justify-content: space-between; align-items: center; }
+.icon-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem; }
+.icon-btn:hover { color: var(--text-primary); }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group label { font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); }
 .glass-input {
-    background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.1);
-    color:var(--text-primary); padding:8px 10px; border-radius:6px; width:100%;
+  background: var(--bg-input); border: 1px solid var(--border-medium);
+  color: var(--text-primary); padding: 8px 12px; border-radius: 6px; width: 100%;
+  font-size: 0.88rem;
+  outline: none;
 }
-.duration-row { display:flex; gap:8px; }
-.dur-field { display:flex; align-items:center; gap:4px; }
-.dur-field .glass-input { width:60px; text-align:center; }
-.dialog-footer { display:flex; justify-content:flex-end; gap:8px; }
+.glass-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
+}
+.duration-row { display: flex; gap: 8px; }
+.dur-field { display: flex; align-items: center; gap: 4px; }
+.dur-field .glass-input { width: 64px; text-align: center; font-family: var(--font-mono); font-weight: 700; }
+.dialog-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .trim-btn {
-    padding:8px 14px; border-radius:6px; border:1px solid rgba(255,255,255,0.12);
-    background:rgba(255,255,255,0.05); color:var(--text-primary); cursor:pointer; transition:0.2s; font-size:0.85rem;
+  padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border-medium);
+  background: var(--bg-hover); color: var(--text-primary); cursor: pointer; transition: 0.15s; font-size: 0.86rem; font-weight: 600;
 }
-.trim-btn:disabled { opacity:0.4; cursor:not-allowed; }
-.btn-primary { background:rgba(51,190,204,0.15); border-color:rgba(51,190,204,0.4); color:var(--accent-blue,#33becc); }
+.trim-btn:hover:not(:disabled) {
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
+}
+.trim-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary {
+  background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  font-weight: 700;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-blue);
+  color: #fff;
+}
 </style>

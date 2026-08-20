@@ -221,29 +221,29 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
 <template>
   <div class="playlist-bar">
     <div class="pl-info">
-      <span class="text-secondary" style="font-size:0.72rem;">{{ store.currentPlaylistName }}</span>
-      <span class="text-secondary" style="font-size:0.72rem;">{{ playlistStateLabel }}</span>
-      <span class="text-secondary" style="font-size:0.72rem;">{{ store.activeItems.length }} items</span>
-      <span class="text-secondary" style="font-size:0.72rem;">{{ totalStr }}</span>
+      <span class="pl-name">{{ store.currentPlaylistName }}</span>
+      <span class="pl-state-pill" :class="{ 'is-onair': store.isCurrentPlaylistOnAir }">{{ playlistStateLabel }}</span>
+      <span class="pl-meta-text">{{ store.activeItems.length }} items</span>
+      <span class="pl-meta-text tabular-nums">{{ totalStr }}</span>
       <span class="pl-status" :class="{ 'is-error': statusTone === 'error' }">{{ statusMessage }}</span>
     </div>
 
     <div class="pl-planning" :class="{ 'is-disabled': !store.canScheduleCurrentPlaylist }">
-            <select v-model="weekdayProxy" class="pl-day-select" :disabled="!store.canScheduleCurrentPlaylist" title="Offline start day">
-                <option v-for="option in weekdayOptions" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
-            </select>
-      <label class="pl-label">Start From</label>
-            <input
-                v-model="startFromDraft"
-                class="pl-time-input"
-                type="text"
-                inputmode="numeric"
-                placeholder="HH:MM[:SS]"
-                maxlength="8"
-                :disabled="!store.canScheduleCurrentPlaylist"
-                @blur="commitStartFrom"
-                @keydown.enter.prevent="commitStartFrom"
-            >
+      <select v-model="weekdayProxy" class="pl-day-select" :disabled="!store.canScheduleCurrentPlaylist" title="Offline start day">
+        <option v-for="option in weekdayOptions" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
+      </select>
+      <label class="pl-label">Start</label>
+      <input
+        v-model="startFromDraft"
+        class="pl-time-input"
+        type="text"
+        inputmode="numeric"
+        placeholder="HH:MM[:SS]"
+        maxlength="8"
+        :disabled="!store.canScheduleCurrentPlaylist"
+        @blur="commitStartFrom"
+        @keydown.enter.prevent="commitStartFrom"
+      >
       <button class="pl-btn" @click="addGapLine" :disabled="!store.canScheduleCurrentPlaylist" title="Insert offline gap line">⏱</button>
     </div>
 
@@ -258,107 +258,147 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
 
 <style scoped>
 .playlist-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-    padding: 4px 8px;
-    background: rgba(0, 0, 0, 0.2);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    pointer-events: auto;
-    position: relative;
-    z-index: 10;
-    flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+  pointer-events: auto;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
 }
 
 .pl-info {
-    display: flex;
-    gap: 12px;
-    min-width: 0;
-    flex-wrap: wrap;
-    align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.pl-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.pl-state-pill {
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+}
+
+.pl-state-pill.is-onair {
+  background: color-mix(in srgb, var(--accent-red) 18%, transparent);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+.pl-meta-text {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }
 
 .pl-status {
-    color: var(--text-secondary);
-    font-size: 0.72rem;
-    max-width: 220px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pl-status.is-error {
-    color: #fca5a5;
+  color: var(--accent-red);
+  font-weight: 700;
 }
 
 .pl-planning {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .pl-planning.is-disabled {
-    opacity: 0.55;
+  opacity: 0.55;
 }
 
 .pl-label {
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .pl-day-select,
 .pl-time-input {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--glass-border);
-    color: var(--text-primary);
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-size: 0.76rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+}
+
+.pl-day-select:focus,
+.pl-time-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
 }
 
 .pl-buttons {
-    display: flex;
-    gap: 4px;
+  display: flex;
+  gap: 4px;
 }
 
 .pl-btn {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: var(--text-primary);
-    border-radius: 4px;
-    cursor: pointer;
-    padding: 4px 8px;
-    font-size: 0.9rem;
-    transition: 0.15s;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 0.92rem;
+  transition: 0.15s;
 }
 
 .pl-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
 }
 
 .pl-day-select {
-    min-width: 64px;
+  min-width: 68px;
 }
 
 .pl-time-input {
-    width: 92px;
-    font-variant-numeric: tabular-nums;
+  width: 96px;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
 }
 
 .pl-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .btn-danger {
-    border-color: rgba(230, 57, 70, 0.3);
+  border-color: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  color: var(--accent-red);
 }
 
 .btn-danger:hover {
-    background: rgba(230, 57, 70, 0.15);
+  background: color-mix(in srgb, var(--accent-red) 16%, transparent);
+  border-color: var(--accent-red);
 }
 </style>

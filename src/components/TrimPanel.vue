@@ -961,8 +961,8 @@ const saveAsSubclip = () => {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(10, 14, 23, 0.88);
-  backdrop-filter: blur(12px);
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -976,10 +976,10 @@ const saveAsSubclip = () => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  background: linear-gradient(180deg, #161b26 0%, #0f131a 100%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
   border-radius: 14px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 255, 255, 0.2);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
 }
 
 /* Header */
@@ -988,7 +988,7 @@ const saveAsSubclip = () => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 0.85rem;
 }
 
@@ -1005,20 +1005,20 @@ const saveAsSubclip = () => {
 }
 
 .trim-badge {
-  font-size: 0.65rem;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.08em;
-  padding: 2px 6px;
+  padding: 2px 7px;
   border-radius: 4px;
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
+  color: var(--accent-blue);
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 35%, transparent);
 }
 
 .clip-name {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #f1f5f9;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
   letter-spacing: -0.01em;
 }
 
@@ -1030,23 +1030,23 @@ const saveAsSubclip = () => {
 }
 
 .meta-chip {
-  font-size: 0.72rem;
-  color: #94a3b8;
-  background: rgba(255, 255, 255, 0.04);
-  padding: 2px 8px;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 3px 8px;
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
 }
 
 .meta-chip-active {
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.1);
-  border-color: rgba(56, 189, 248, 0.25);
+  color: var(--accent-blue);
+  background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-blue) 30%, transparent);
 }
 
 .meta-chip-duration strong {
-  color: #10b981;
-  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  color: var(--accent-green);
+  font-family: var(--font-mono);
 }
 
 .header-right {
@@ -1056,65 +1056,66 @@ const saveAsSubclip = () => {
 }
 
 .shortcut-hint {
-  font-size: 0.68rem;
-  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.72rem;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
 .key-cap {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-medium);
   border-radius: 3px;
   padding: 1px 5px;
-  color: #cbd5e1;
-  font-family: 'JetBrains Mono', 'Consolas', monospace;
-  font-size: 0.65rem;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
 }
 
 .key-sep {
-  color: rgba(255, 255, 255, 0.2);
+  color: var(--text-muted);
   margin: 0 2px;
 }
 
 .view-toggle-btn {
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  color: #cbd5e1;
-  font-size: 0.7rem;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 0.76rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .view-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.25);
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .view-toggle-btn.active {
-  background: rgba(56, 189, 248, 0.16);
-  border-color: rgba(56, 189, 248, 0.4);
-  color: #38bdf8;
+  background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
 }
 
 .close-btn {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--text-muted);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 1.1rem;
   padding: 4px 8px;
   border-radius: 6px;
   transition: all 0.15s;
 }
 
 .close-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
+  color: var(--accent-red);
 }
 
 /* Layout Body */
@@ -1142,7 +1143,7 @@ const saveAsSubclip = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-medium);
   box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
 }
 
@@ -1156,7 +1157,7 @@ const saveAsSubclip = () => {
 .video-placeholder {
   text-align: center;
   padding: 2rem;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-muted);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1173,13 +1174,13 @@ const saveAsSubclip = () => {
   right: 12px;
   background: rgba(15, 23, 42, 0.85);
   backdrop-filter: blur(4px);
-  color: #f43f5e;
-  font-size: 0.75rem;
+  color: var(--accent-red);
+  font-size: 0.78rem;
   font-weight: 800;
   padding: 3px 8px;
   border-radius: 4px;
   letter-spacing: 0.05em;
-  border: 1px solid rgba(244, 63, 94, 0.3);
+  border: 1px solid color-mix(in srgb, var(--accent-red) 40%, transparent);
 }
 
 /* Transport Bar */
@@ -1188,19 +1189,19 @@ const saveAsSubclip = () => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: rgba(0, 0, 0, 0.35);
-  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
 }
 
 .t-btn {
   padding: 6px 12px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: #f1f5f9;
-  font-size: 0.78rem;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
@@ -1208,20 +1209,20 @@ const saveAsSubclip = () => {
 }
 
 .t-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
 }
 
 .t-btn-step {
-  font-family: 'JetBrains Mono', 'Consolas', monospace;
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
   padding: 6px 10px;
 }
 
 .t-btn-play {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: rgba(56, 189, 248, 0.4);
-  color: #38bdf8;
+  background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1229,22 +1230,21 @@ const saveAsSubclip = () => {
 }
 
 .t-btn-play:hover {
-  background: rgba(56, 189, 248, 0.25);
-  border-color: rgba(56, 189, 248, 0.6);
+  background: color-mix(in srgb, var(--accent-blue) 25%, transparent);
 }
 
 .t-btn-play.is-playing {
-  background: rgba(244, 63, 94, 0.15);
-  border-color: rgba(244, 63, 94, 0.4);
-  color: #f43f5e;
+  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
 }
 
 .play-icon {
-  font-size: 0.85rem;
+  font-size: 0.88rem;
 }
 
 .play-text {
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   letter-spacing: 0.05em;
 }
 
@@ -1263,8 +1263,8 @@ const saveAsSubclip = () => {
 }
 
 .metric-card {
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 8px 12px;
   display: flex;
@@ -1284,40 +1284,41 @@ const saveAsSubclip = () => {
   border-radius: 50%;
 }
 
-.dot-cyan { background: #38bdf8; box-shadow: 0 0 6px rgba(56, 189, 248, 0.6); }
-.dot-emerald { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.6); }
+.dot-cyan { background: var(--accent-blue); box-shadow: 0 0 6px var(--accent-blue); }
+.dot-emerald { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
 
 .metric-label {
-  font-size: 0.65rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--text-muted);
   letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .metric-tc {
-  font-family: 'JetBrains Mono', 'Consolas', monospace;
-  font-size: 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
   font-weight: 800;
   letter-spacing: 1px;
 }
 
-.tc-cyan { color: #38bdf8; }
-.tc-emerald { color: #10b981; }
+.tc-cyan { color: var(--accent-blue); }
+.tc-emerald { color: var(--accent-green); }
 
 /* Timeline Scrub Area */
 .scrub-area {
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 0.85rem 1rem 0.65rem 1rem;
 }
 
 .timeline-container {
   position: relative;
-  height: 38px;
-  background: #0b0f17;
+  height: 40px;
+  background: var(--bg-primary);
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border-medium);
   cursor: pointer;
   margin: 4px 0 8px 0;
   user-select: none;
@@ -1337,7 +1338,7 @@ const saveAsSubclip = () => {
     90deg,
     transparent,
     transparent 19px,
-    rgba(255, 255, 255, 0.04) 20px
+    var(--border-subtle) 20px
   );
 }
 
@@ -1345,9 +1346,9 @@ const saveAsSubclip = () => {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: linear-gradient(90deg, rgba(16, 185, 129, 0.25) 0%, rgba(56, 189, 248, 0.25) 50%, rgba(244, 63, 94, 0.25) 100%);
-  border-top: 2px solid rgba(56, 189, 248, 0.6);
-  border-bottom: 2px solid rgba(56, 189, 248, 0.6);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent-green) 25%, transparent) 0%, color-mix(in srgb, var(--accent-blue) 25%, transparent) 50%, color-mix(in srgb, var(--accent-red) 25%, transparent) 100%);
+  border-top: 2px solid var(--accent-blue);
+  border-bottom: 2px solid var(--accent-blue);
   pointer-events: none;
 }
 
@@ -1370,7 +1371,7 @@ const saveAsSubclip = () => {
   align-items: center;
   justify-content: center;
   font-weight: 900;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
   transform: translateX(-50%);
   transition: transform 0.1s;
 }
@@ -1380,19 +1381,19 @@ const saveAsSubclip = () => {
 }
 
 .tm-handle-in {
-  background: #10b981;
-  color: #064e3b;
-  border: 1px solid #34d399;
+  background: var(--accent-green);
+  color: #fff;
+  border: 1px solid var(--accent-green);
 }
 
 .tm-handle-out {
-  background: #f43f5e;
-  color: #881337;
-  border: 1px solid #fb7185;
+  background: var(--accent-red);
+  color: #fff;
+  border: 1px solid var(--accent-red);
 }
 
 .handle-bracket {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1;
 }
@@ -1414,18 +1415,18 @@ const saveAsSubclip = () => {
 .tm-playhead-cap {
   width: 10px;
   height: 10px;
-  background: #ffffff;
+  background: var(--text-primary);
   transform: rotate(45deg);
   border-radius: 2px;
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 6px var(--text-primary);
   margin-top: 2px;
 }
 
 .tm-playhead-line {
   width: 2px;
   flex: 1;
-  background: #ffffff;
-  box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+  background: var(--text-primary);
+  box-shadow: 0 0 4px var(--text-primary);
   pointer-events: none;
 }
 
@@ -1436,9 +1437,9 @@ const saveAsSubclip = () => {
 }
 
 .tc-footer-label {
-  font-family: 'JetBrains Mono', 'Consolas', monospace;
-  font-size: 0.65rem;
-  color: rgba(255, 255, 255, 0.4);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 
 /* IN / OUT Cards */
@@ -1449,21 +1450,21 @@ const saveAsSubclip = () => {
 }
 
 .tc-card {
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--bg-tertiary);
   border-radius: 8px;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-subtle);
 }
 
 .tc-card-in {
-  border-left: 3px solid #10b981;
+  border-left: 3px solid var(--accent-green);
 }
 
 .tc-card-out {
-  border-left: 3px solid #f43f5e;
+  border-left: 3px solid var(--accent-red);
 }
 
 .tc-card-header {
@@ -1473,22 +1474,22 @@ const saveAsSubclip = () => {
 }
 
 .tc-tag {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.05em;
 }
 
-.tag-in { color: #10b981; }
-.tag-out { color: #f43f5e; }
+.tag-in { color: var(--accent-green); }
+.tag-out { color: var(--accent-red); }
 
 .tc-input {
-  font-family: 'JetBrains Mono', 'Consolas', monospace;
-  font-size: 0.95rem;
+  font-family: var(--font-mono);
+  font-size: 1rem;
   font-weight: 700;
   letter-spacing: 2px;
   text-align: center;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
   padding: 6px;
   border-radius: 6px;
   width: 100%;
@@ -1497,23 +1498,23 @@ const saveAsSubclip = () => {
 }
 
 .tc-input-in {
-  color: #10b981;
+  color: var(--accent-green);
 }
 
 .tc-input-in:focus {
   outline: none;
-  border-color: #10b981;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+  border-color: var(--accent-green);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-green) 30%, transparent);
 }
 
 .tc-input-out {
-  color: #f43f5e;
+  color: var(--accent-red);
 }
 
 .tc-input-out:focus {
   outline: none;
-  border-color: #f43f5e;
-  box-shadow: 0 0 8px rgba(244, 63, 94, 0.3);
+  border-color: var(--accent-red);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-red) 30%, transparent);
 }
 
 .tc-actions {
@@ -1525,28 +1526,28 @@ const saveAsSubclip = () => {
   flex: 1;
   padding: 5px 8px;
   border-radius: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: #cbd5e1;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-hover);
+  color: var(--text-primary);
   cursor: pointer;
-  font-size: 0.7rem;
+  font-size: 0.74rem;
   font-weight: 600;
   transition: all 0.15s;
 }
 
 .mini-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
 }
 
 .mini-btn-set {
-  background: rgba(56, 189, 248, 0.1);
-  border-color: rgba(56, 189, 248, 0.3);
-  color: #38bdf8;
+  background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-blue) 35%, transparent);
+  color: var(--accent-blue);
 }
 
 .mini-btn-set:hover {
-  background: rgba(56, 189, 248, 0.2);
+  background: color-mix(in srgb, var(--accent-blue) 22%, transparent);
 }
 
 /* Actions Footer */
@@ -1559,10 +1560,10 @@ const saveAsSubclip = () => {
 .action-btn {
   padding: 8px 14px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  color: #f1f5f9;
-  font-size: 0.8rem;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
@@ -1573,7 +1574,8 @@ const saveAsSubclip = () => {
 }
 
 .action-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
 }
 
 .action-btn:disabled {
@@ -1582,42 +1584,40 @@ const saveAsSubclip = () => {
 }
 
 .btn-save {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.4);
-  color: #10b981;
+  background: color-mix(in srgb, var(--accent-green) 15%, transparent);
+  border-color: var(--accent-green);
+  color: var(--accent-green);
   flex: 1.2;
 }
 
 .btn-save:hover:not(:disabled) {
-  background: rgba(16, 185, 129, 0.25);
-  border-color: rgba(16, 185, 129, 0.6);
+  background: color-mix(in srgb, var(--accent-green) 25%, transparent);
 }
 
 .btn-subclip {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: rgba(56, 189, 248, 0.4);
-  color: #38bdf8;
+  background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
   flex: 1.4;
 }
 
 .btn-subclip:hover:not(:disabled) {
-  background: rgba(56, 189, 248, 0.25);
-  border-color: rgba(56, 189, 248, 0.6);
+  background: color-mix(in srgb, var(--accent-blue) 25%, transparent);
 }
 
 .btn-cancel {
-  background: rgba(255, 255, 255, 0.05);
-  color: #94a3b8;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
   flex: 0.8;
 }
 
 .trim-status {
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   padding: 6px 10px;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--bg-tertiary);
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
 }
 
 /* Subclip Dialog */
@@ -1635,11 +1635,11 @@ const saveAsSubclip = () => {
 .subclip-modal-dialog {
   width: 440px;
   max-width: 90vw;
-  background: #151b26;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
   border-radius: 10px;
   padding: 20px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.85);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1652,44 +1652,44 @@ const saveAsSubclip = () => {
 }
 
 .modal-badge {
-  font-size: 0.65rem;
+  font-size: 0.68rem;
   font-weight: 800;
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
+  color: var(--accent-blue);
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 35%, transparent);
 }
 
 .modal-title {
   margin: 0;
-  font-size: 1rem;
-  color: #f1f5f9;
+  font-size: 1.05rem;
+  color: var(--text-primary);
   font-weight: 700;
 }
 
 .modal-desc {
-  color: #94a3b8;
-  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
   margin: 0;
 }
 
 .subclip-name-input {
   width: 100%;
   padding: 8px 12px;
-  background: #0b0f17;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
   border-radius: 6px;
-  color: #f1f5f9;
-  font-size: 0.9rem;
+  color: var(--text-primary);
+  font-size: 0.92rem;
   outline: none;
   box-sizing: border-box;
   transition: border-color 0.15s;
 }
 
 .subclip-name-input:focus {
-  border-color: #38bdf8;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 30%, transparent);
 }
 
 .subclip-modal-actions {

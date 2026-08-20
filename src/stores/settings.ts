@@ -19,6 +19,9 @@ export const useSettingsStore = defineStore('settings', {
         // Visual Theme ('dark' | 'monokai' | 'light')
         theme: 'dark' as 'dark' | 'monokai' | 'light',
 
+        // UI Scale ('standard' | 'comfortable' | 'large')
+        uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',
+
         // Recycle Bin & Auto-Purge Policy ('disabled' | '1week' | '2weeks' | '3weeks' | '1month')
         recycleBinAutoPurge: 'disabled' as 'disabled' | '1week' | '2weeks' | '3weeks' | '1month',
         lastAutoPurgeCheck: 0 as number,
