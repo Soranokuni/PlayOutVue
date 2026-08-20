@@ -301,20 +301,20 @@ const onMouseLeaveSubmenu = () => {
 </template>
 
 <style scoped>
-/* Main Context Menu Styling (Glassmorphism & Windows 11 Acrylic) */
+/* Main Context Menu Styling */
 .win11-context-menu {
   position: fixed;
   z-index: 10000;
   min-width: 220px;
-  background: #151a22;
-  border: 1px solid #344052;
-  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: 0.6rem;
   box-shadow: 
-    0 10px 30px rgba(0, 0, 0, 0.6), 
-    inset 0 1px 1px rgba(255, 255, 255, 0.05);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: #e3e3e3;
-  padding: 4px 0;
+    0 12px 32px rgba(0, 0, 0, 0.45), 
+    0 2px 6px rgba(0, 0, 0, 0.2);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  padding: 5px 0;
   transition: opacity 0.15s ease-out;
   user-select: none;
   box-sizing: border-box;
@@ -336,11 +336,11 @@ const onMouseLeaveSubmenu = () => {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--border-medium);
   border-radius: 99px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--border-strong);
 }
 
 /* Windows 11 Top Action Bar */
@@ -349,7 +349,7 @@ const onMouseLeaveSubmenu = () => {
   align-items: center;
   justify-content: space-around;
   padding: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 4px;
 }
 
@@ -360,7 +360,7 @@ const onMouseLeaveSubmenu = () => {
   max-width: 48px;
   border: none;
   background: transparent;
-  color: #d1d1d1;
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 4px;
   display: flex;
@@ -370,12 +370,12 @@ const onMouseLeaveSubmenu = () => {
 }
 
 .action-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .action-btn:active:not(:disabled) {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--border-medium);
 }
 
 .action-btn:disabled {
@@ -397,7 +397,7 @@ const onMouseLeaveSubmenu = () => {
 }
 
 .action-icon svg.icon-danger {
-  color: #ff4d4d;
+  color: var(--accent-red);
 }
 
 /* Action button tooltips */
@@ -407,12 +407,13 @@ const onMouseLeaveSubmenu = () => {
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%) translateY(-6px);
-  background: #1f1f1f;
-  color: #e3e3e3;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
   padding: 4px 8px;
   border-radius: 4px;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
+  font-weight: 600;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
@@ -429,19 +430,20 @@ const onMouseLeaveSubmenu = () => {
 /* Vertical Menu Items list */
 .menu-label {
   padding: 6px 12px 3px;
-  font-size: 0.65rem;
-  font-weight: 700;
+  font-size: 0.68rem;
+  font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--text-muted);
 }
 
 .menu-item {
   display: flex;
   align-items: center;
   padding: 6px 12px;
-  font-size: 0.8rem;
-  color: #e2e2e2;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--text-primary);
   cursor: pointer;
   margin: 1px 4px;
   border-radius: 4px;
@@ -451,13 +453,13 @@ const onMouseLeaveSubmenu = () => {
 }
 
 .menu-item:hover:not(.disabled) {
-  background: rgba(255, 255, 255, 0.07);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  color: var(--text-primary);
 }
 
 .menu-item.danger:hover:not(.disabled) {
-  background: rgba(230, 57, 70, 0.16);
-  color: #ff5252;
+  background: color-mix(in srgb, var(--accent-red) 16%, transparent);
+  color: var(--accent-red);
 }
 
 .menu-item.disabled {
@@ -471,11 +473,11 @@ const onMouseLeaveSubmenu = () => {
   justify-content: center;
   width: 16px;
   margin-right: 8px;
-  font-size: 0.8rem;
+  font-size: 0.84rem;
 }
 
 .check-mark {
-  color: #33becc;
+  color: var(--accent-blue);
   font-weight: bold;
 }
 
@@ -492,14 +494,14 @@ const onMouseLeaveSubmenu = () => {
   justify-content: center;
   width: 12px;
   height: 12px;
-  opacity: 0.6;
+  opacity: 0.7;
   margin-left: 8px;
-  color: #a0a0a0;
+  color: var(--text-secondary);
 }
 
 .menu-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--border-subtle);
   margin: 4px 0;
 }
 
@@ -509,14 +511,14 @@ const onMouseLeaveSubmenu = () => {
   max-height: 50vh;
   overflow-y: auto;
   z-index: 10005;
-  background: #151a22;
-  border: 1px solid #344052;
-  border-radius: 0.5rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: 0.6rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 .submenu-active {
-  background: rgba(255, 255, 255, 0.07);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  color: var(--text-primary);
 }
 </style>

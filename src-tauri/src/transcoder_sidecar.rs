@@ -93,14 +93,43 @@ impl Default for QcVerdict {
 
 /// Compute the sidecar JSON path for a given media file path.
 ///
-/// The transcoder writes `<stem>.<uuid>.uuid.json` next to the `.mp4`.
-/// We derive the sidecar path by replacing the media file's extension
-/// with `.uuid.json`.  This matches every observed sidecar naming pattern
-/// because the uuid is already embedded in the stem.
+/// Looks in the following locations in order:
+/// 1. Sibling `sidecars/` folder: if media is in `.../videos/`, checks `.../sidecars/<stem>.uuid.json`
+/// 2. Subfolder `sidecars/`: `<parent>/sidecars/<stem>.uuid.json`
+/// 3. Adjacent legacy location: `<parent>/<stem>.uuid.json`
 pub fn sidecar_path_for(media_path: &Path) -> PathBuf {
-    let mut result = media_path.to_path_buf();
-    result.set_extension("uuid.json");
-    result
+    let sidecar_filename = match media_path.file_stem() {
+        Some(stem) => format!("{}.uuid.json", stem.to_string_lossy()),
+        None => "metadata.uuid.json".to_string(),
+    };
+
+    if let Some(parent) = media_path.parent() {
+        // 1. If media_path is in a "videos" directory: check sibling sidecars/ folder
+        if parent.file_name().map(|n| n == "videos").unwrap_or(false) {
+            if let Some(grandparent) = parent.parent() {
+                let sidecars_sibling = grandparent.join("sidecars").join(&sidecar_filename);
+                if sidecars_sibling.exists() {
+                    return sidecars_sibling;
+                }
+                let legacy_adjacent = media_path.with_extension("uuid.json");
+                if legacy_adjacent.exists() {
+                    return legacy_adjacent;
+                }
+                return sidecars_sibling;
+            }
+        }
+
+        // 2. Check if subfolder <parent>/sidecars/<sidecar_filename> exists:
+        let sidecars_subfolder = parent.join("sidecars").join(&sidecar_filename);
+        if sidecars_subfolder.exists() {
+            return sidecars_subfolder;
+        }
+
+        let legacy_adjacent = media_path.with_extension("uuid.json");
+        return legacy_adjacent;
+    }
+
+    media_path.with_extension("uuid.json")
 }
 
 /// Read and parse the transcoder sidecar JSON for a given media file.
@@ -344,12 +373,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sidecar_path_replaces_extension() {
+    fn sidecar_path_resolves_to_sidecars_directory() {
         let media = Path::new("C:/media/videos/clip_abc-123.mp4");
         let sidecar = sidecar_path_for(media);
+        let normalized = sidecar.to_string_lossy().replace('\\', "/");
         assert_eq!(
-            sidecar.to_string_lossy(),
-            "C:/media/videos/clip_abc-123.uuid.json"
+            normalized,
+            "C:/media/sidecars/clip_abc-123.uuid.json"
+        );
+    }
+
+    #[test]
+    fn sidecar_path_generic_folder_defaults_to_adjacent() {
+        let media = Path::new("C:/media/custom_folder/clip_abc-123.mp4");
+        let sidecar = sidecar_path_for(media);
+        let normalized = sidecar.to_string_lossy().replace('\\', "/");
+        assert_eq!(
+            normalized,
+            "C:/media/custom_folder/clip_abc-123.uuid.json"
         );
     }
 

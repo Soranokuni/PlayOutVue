@@ -1,48 +1,78 @@
 /* CasparCG SOTA Client Global Styles */
 
+/* ==========================================================================
+   THEME DESIGN TOKENS
+   ========================================================================== */
+
 :root,
 .dark-theme {
   /* Core Colors - Broadcast Midnight */
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --bg-surface: rgba(30, 41, 59, 0.7);
+  --bg-primary: #090d16;
+  --bg-secondary: #0f172a;
+  --bg-tertiary: #1e293b;
+  --bg-surface: rgba(30, 41, 59, 0.85);
+  --bg-surface-elevated: #334155;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(56, 189, 248, 0.16);
+  --bg-input: rgba(15, 23, 42, 0.85);
 
   /* Accents */
   --accent-blue: #38bdf8;
+  --accent-cyan: #00e5ff;
   --accent-red: #f43f5e;
+  --accent-green: #2ecc71;
   --accent-yellow: #fbbf24;
+  --accent-orange: #f97316;
+  --accent-purple: #a855f7;
+  --onair-glow: rgba(244, 63, 94, 0.4);
 
   /* Text */
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-inverse: #0f172a;
 
-  /* Layout */
+  /* Borders & Glass */
   --border-radius-base: 10px;
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-bg: rgba(15, 23, 42, 0.85);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-medium: rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.28);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-bg: rgba(15, 23, 42, 0.88);
   color-scheme: dark;
 }
 
-/* Monokai Pro ("Engineering Dark / Nerd Mode") */
+/* Monokai Pro ("Engineering Dark / Nerd Mode") - High Contrast Polish */
 .monokai-theme {
-  --bg-primary: #272822;
-  --bg-secondary: #1e1f1c;
-  --bg-tertiary: #383830;
-  --bg-surface: rgba(40, 41, 35, 0.85);
+  --bg-primary: #181915;
+  --bg-secondary: #22231e;
+  --bg-tertiary: #2d2f28;
+  --bg-surface: rgba(38, 40, 34, 0.92);
+  --bg-surface-elevated: #3e4036;
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --bg-active: rgba(102, 217, 239, 0.18);
+  --bg-input: rgba(24, 25, 21, 0.92);
 
   --accent-blue: #66d9ef;
+  --accent-cyan: #66d9ef;
   --accent-red: #f92672;
-  --accent-yellow: #e6db74;
   --accent-green: #a6e22e;
+  --accent-yellow: #e6db74;
   --accent-orange: #fd971f;
+  --accent-purple: #ae81ff;
+  --onair-glow: rgba(249, 38, 114, 0.45);
 
-  --text-primary: #f8f8f2;
-  --text-secondary: #a6a69c;
+  --text-primary: #fcfcfa;
+  --text-secondary: #c2c2b6;
+  --text-muted: #8b8c80;
+  --text-inverse: #181915;
 
   --border-radius-base: 8px;
-  --glass-border: rgba(255, 255, 255, 0.12);
-  --glass-bg: rgba(30, 31, 28, 0.9);
+  --border-subtle: rgba(255, 255, 255, 0.12);
+  --border-medium: rgba(255, 255, 255, 0.22);
+  --border-strong: rgba(255, 255, 255, 0.38);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-bg: rgba(30, 31, 26, 0.92);
   color-scheme: dark;
 }
 
@@ -52,19 +82,88 @@
   --bg-secondary: #ffffff;
   --bg-tertiary: #e2e8f0;
   --bg-surface: #ffffff;
+  --bg-surface-elevated: #f8fafc;
+  --bg-hover: rgba(15, 23, 42, 0.05);
+  --bg-active: rgba(2, 132, 199, 0.14);
+  --bg-input: #ffffff;
 
   --accent-blue: #0284c7;
-  --accent-red: #e11d48;
+  --accent-cyan: #0891b2;
+  --accent-red: #dc2626;
+  --accent-green: #16a34a;
   --accent-yellow: #d97706;
+  --accent-orange: #ea580c;
+  --accent-purple: #9333ea;
+  --onair-glow: rgba(220, 38, 38, 0.25);
 
   --text-primary: #0f172a;
-  --text-secondary: #475569;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-inverse: #ffffff;
 
   --border-radius-base: 10px;
-  --glass-border: rgba(15, 23, 42, 0.12);
+  --border-subtle: rgba(15, 23, 42, 0.12);
+  --border-medium: rgba(15, 23, 42, 0.22);
+  --border-strong: rgba(15, 23, 42, 0.38);
+  --glass-border: rgba(15, 23, 42, 0.14);
   --glass-bg: #ffffff;
   color-scheme: light;
 }
+
+/* ==========================================================================
+   DYNAMIC UI SCALE SYSTEM
+   ========================================================================== */
+
+:root {
+  /* Default: Comfortable (115%) - Recommended for Broadcast & Visibility */
+  --ui-scale: 1.15;
+  --font-size-base: 15.5px;
+  --row-h-rundown: 48px;
+  --row-h-library: 38px;
+  --btn-h-compact: 30px;
+  --btn-h-standard: 36px;
+  --timecode-font-size: 1.35rem;
+
+  --font-ui: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace;
+}
+
+[data-ui-scale="standard"],
+.scale-standard {
+  --ui-scale: 1.0;
+  --font-size-base: 14px;
+  --row-h-rundown: 42px;
+  --row-h-library: 34px;
+  --btn-h-compact: 26px;
+  --btn-h-standard: 32px;
+  --timecode-font-size: 1.2rem;
+}
+
+[data-ui-scale="comfortable"],
+.scale-comfortable {
+  --ui-scale: 1.15;
+  --font-size-base: 15.5px;
+  --row-h-rundown: 48px;
+  --row-h-library: 38px;
+  --btn-h-compact: 30px;
+  --btn-h-standard: 36px;
+  --timecode-font-size: 1.35rem;
+}
+
+[data-ui-scale="large"],
+.scale-large {
+  --ui-scale: 1.3;
+  --font-size-base: 17px;
+  --row-h-rundown: 54px;
+  --row-h-library: 44px;
+  --btn-h-compact: 34px;
+  --btn-h-standard: 42px;
+  --timecode-font-size: 1.55rem;
+}
+
+/* ==========================================================================
+   RESET & CORE ELEMENT STYLING
+   ========================================================================== */
 
 *,
 *::before,
@@ -75,7 +174,8 @@
 }
 
 body {
-  font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-base);
   background:
     radial-gradient(circle at top left, color-mix(in srgb, var(--accent-blue) 10%, transparent), transparent 34%),
     radial-gradient(circle at top right, color-mix(in srgb, var(--accent-yellow) 10%, transparent), transparent 28%),
@@ -84,10 +184,12 @@ body {
   color: var(--text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
   /* Prevent text selection and context menus in the Tauri desktop app */
   user-select: none;
   -webkit-user-select: none;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 html,
@@ -101,11 +203,20 @@ input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
 }
 
 :focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent-blue) 78%, white 22%);
+  outline: 2px solid color-mix(in srgb, var(--accent-blue) 80%, white 20%);
   outline-offset: 2px;
+}
+
+/* Tabular Numerals Utility */
+.tabular-nums,
+.font-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
 }
 
 /* Glassmorphism Utilities */
@@ -116,16 +227,6 @@ textarea {
   border: 1px solid var(--glass-border);
   border-radius: var(--border-radius-base);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
-}
-
-/* Bento Grid System */
-.bento-container {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  grid-template-rows: repeat(8, 1fr);
-  gap: 16px;
-  height: 100vh;
-  padding: 16px;
 }
 
 /* Base utility classes */
@@ -147,7 +248,19 @@ textarea {
   color: var(--accent-yellow);
 }
 
-/* Custom Scrollbar for dark theme */
+.text-success {
+  color: var(--accent-green);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

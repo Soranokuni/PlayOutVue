@@ -24,6 +24,7 @@ const localState = ref({
     debugMode: false,
     logosPath: '',
     theme: 'dark' as 'dark' | 'monokai' | 'light',
+    uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',
     qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
     decklinkOutputName: '',
     decklinkOutputDevice: 0,
@@ -185,6 +186,7 @@ const mapLocalState = () => {
         debugMode: settings.debugMode,
         logosPath: settings.logosPath,
         theme: settings.theme || 'dark',
+        uiScale: settings.uiScale || 'comfortable',
         qcSensitivity: settings.qcSensitivity || 'production',
         decklinkOutputName: settings.decklinkOutputName || '',
         decklinkOutputDevice: settings.decklinkOutputDevice || 0,
@@ -335,6 +337,60 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
         <div class="modal-body custom-scroll">
           <!-- General & QC Tab -->
           <div v-if="activeTab === 'general'">
+
+              <!-- UI Scaling & Display Density -->
+              <section class="settings-section">
+                  <h3 class="text-secondary section-title">UI Scale & Layout Density</h3>
+                  <div class="qc-card-grid">
+                      <!-- Standard Scale (100%) -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.uiScale === 'standard' }"
+                        @click="localState.uiScale = 'standard'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge badge-lenient">100% SCALE</span>
+                          <input type="radio" value="standard" v-model="localState.uiScale">
+                        </div>
+                        <div class="qc-card-title">Standard (Compact)</div>
+                        <p class="qc-desc">
+                          Compact density with 42px rundown rows. Ideal for laptops or multi-window desktop workspaces.
+                        </p>
+                      </div>
+
+                      <!-- Comfortable Scale (115%) -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.uiScale === 'comfortable' }"
+                        @click="localState.uiScale = 'comfortable'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge badge-prod">115% (RECOMMENDED)</span>
+                          <input type="radio" value="comfortable" v-model="localState.uiScale">
+                        </div>
+                        <div class="qc-card-title">Comfortable / Broadcast</div>
+                        <p class="qc-desc">
+                          Balanced 48px rundown rows with enlarged titles and tabular timing. SOTA default for 1080p/1440p master control.
+                        </p>
+                      </div>
+
+                      <!-- Large Scale (130%) -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.uiScale === 'large' }"
+                        @click="localState.uiScale = 'large'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge badge-strict">130% SCALE</span>
+                          <input type="radio" value="large" v-model="localState.uiScale">
+                        </div>
+                        <div class="qc-card-title">High Visibility / Large</div>
+                        <p class="qc-desc">
+                          High visibility 54px rows, maximum text contrast, and enlarged click targets for operators needing larger text or wall monitors.
+                        </p>
+                      </div>
+                  </div>
+              </section>
 
               <!-- Visual Theme & Workplace Atmosphere -->
               <section class="settings-section">
@@ -862,7 +918,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(10, 14, 23, 0.85);
+    background: rgba(0, 0, 0, 0.75);
     backdrop-filter: blur(12px);
     display: flex;
     align-items: center;
@@ -871,17 +927,17 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 }
 
 .modal-content {
-    width: 860px;
+    width: 890px;
     max-width: 95vw;
-    height: 84vh;
-    max-height: 850px;
+    height: 86vh;
+    max-height: 860px;
     display: flex;
     flex-direction: column;
     padding: 0;
-    background: linear-gradient(180deg, #161b26 0%, #0f131a 100%);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-medium);
     border-radius: 14px;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
     overflow: hidden;
 }
 
@@ -890,7 +946,8 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     justify-content: space-between;
     align-items: center;
     padding: 1.25rem 1.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-secondary);
 }
 
 .modal-title-row {
@@ -900,21 +957,21 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 }
 
 .settings-badge {
-    font-size: 0.65rem;
+    font-size: 0.68rem;
     font-weight: 800;
     letter-spacing: 0.08em;
     padding: 2px 7px;
     border-radius: 4px;
-    background: rgba(56, 189, 248, 0.15);
-    color: #38bdf8;
-    border: 1px solid rgba(56, 189, 248, 0.3);
+    background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
+    color: var(--accent-blue);
+    border: 1px solid color-mix(in srgb, var(--accent-blue) 35%, transparent);
 }
 
 .modal-title {
     margin: 0;
-    font-size: 1.15rem;
+    font-size: 1.2rem;
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text-primary);
 }
 
 .modal-body {
@@ -930,8 +987,8 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
     border-radius: 10px;
     padding: 1.15rem;
     margin-bottom: 0.5rem;
@@ -942,7 +999,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-weight: 700;
-    color: #94a3b8;
+    color: var(--text-secondary);
     margin-bottom: 0.25rem;
 }
 
@@ -953,8 +1010,8 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 }
 
 .form-group label {
-    font-size: 0.78rem;
-    color: #cbd5e1;
+    font-size: 0.82rem;
+    color: var(--text-primary);
     font-weight: 600;
 }
 
@@ -965,19 +1022,19 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 }
 
 .glass-input {
-    background: #0b0f17;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--bg-input);
+    border: 1px solid var(--border-medium);
     border-radius: 6px;
     padding: 8px 12px;
-    color: #f1f5f9;
-    font-size: 0.85rem;
+    color: var(--text-primary);
+    font-size: 0.88rem;
     outline: none;
     transition: all 0.15s;
 }
 
 .glass-input:focus {
-    border-color: #38bdf8;
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
 }
 
 .input-with-button {
@@ -990,12 +1047,12 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 }
 
 .hint-text {
-    font-size: 0.7rem;
-    color: #64748b;
+    font-size: 0.74rem;
+    color: var(--text-muted);
     line-height: 1.35;
 }
 
-/* QC Sensitivity Cards */
+/* QC & Scale Cards */
 .qc-card-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1003,8 +1060,8 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 }
 
 .qc-radio-card {
-    background: rgba(11, 15, 23, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
     border-radius: 8px;
     padding: 12px;
     cursor: pointer;
@@ -1016,14 +1073,14 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 }
 
 .qc-radio-card:hover {
-    background: rgba(15, 23, 42, 0.8);
-    border-color: rgba(255, 255, 255, 0.18);
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
 }
 
 .qc-radio-card.is-selected {
-    border-color: #38bdf8;
-    background: rgba(56, 189, 248, 0.08);
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+    border-color: var(--accent-blue);
+    background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-secondary));
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent-blue) 20%, transparent);
 }
 
 .qc-radio-header {
@@ -1033,26 +1090,26 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 }
 
 .qc-badge {
-    font-size: 0.62rem;
+    font-size: 0.64rem;
     font-weight: 800;
     letter-spacing: 0.05em;
     padding: 2px 6px;
     border-radius: 3px;
 }
 
-.badge-prod { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
-.badge-strict { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
-.badge-lenient { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+.badge-prod { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); }
+.badge-strict { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.35); }
+.badge-lenient { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); }
 
 .qc-card-title {
-    font-size: 0.85rem;
+    font-size: 0.88rem;
     font-weight: 700;
-    color: #f1f5f9;
+    color: var(--text-primary);
 }
 
 .qc-desc {
-    font-size: 0.72rem;
-    color: #94a3b8;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
     line-height: 1.35;
     margin: 0;
 }
@@ -1062,37 +1119,38 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     justify-content: flex-end;
     align-items: center;
     padding: 1rem 1.5rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border-subtle);
     gap: 0.75rem;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--bg-tertiary);
 }
 
 .glass-btn {
     padding: 8px 16px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #cbd5e1;
-    font-size: 0.8rem;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-medium);
+    color: var(--text-primary);
+    font-size: 0.84rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.15s;
 }
 
 .glass-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-hover));
+    border-color: var(--border-strong);
 }
 
 .btn-primary {
-    background: rgba(56, 189, 248, 0.15);
-    border-color: rgba(56, 189, 248, 0.4);
-    color: #38bdf8;
+    background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+    font-weight: 700;
 }
 
 .btn-primary:hover {
-    background: rgba(56, 189, 248, 0.25);
-    border-color: rgba(56, 189, 248, 0.6);
+    background: color-mix(in srgb, var(--accent-blue) 28%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent-blue) 35%, transparent);
 }
 
 .btn-icon {
@@ -1100,18 +1158,19 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     font-size: 1.1rem;
     background: transparent;
     border-color: transparent;
+    color: var(--text-secondary);
 }
 .btn-icon:hover {
     background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
+    color: var(--accent-red);
 }
 
 .settings-tabs {
     display: flex;
     gap: 6px;
     padding: 0 1.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(0, 0, 0, 0.25);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-tertiary);
 }
 
 .settings-tab-btn {
@@ -1119,8 +1178,8 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
-    color: #94a3b8;
-    font-size: 0.82rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.15s;
@@ -1130,12 +1189,13 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 }
 
 .settings-tab-btn:hover {
-    color: #f1f5f9;
+    color: var(--text-primary);
 }
 
 .settings-tab-btn.active {
-    color: #38bdf8;
-    border-bottom-color: #38bdf8;
+    color: var(--accent-blue);
+    border-bottom-color: var(--accent-blue);
+    font-weight: 700;
 }
 
 /* Visual layout wizard styles */

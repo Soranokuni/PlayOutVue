@@ -332,7 +332,7 @@ async function executePurgeConfirmed() {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -340,8 +340,8 @@ async function executePurgeConfirmed() {
 }
 
 .recycle-bin-modal {
-  background: #18191c;
-  border: 1px solid #2d3139;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
   border-radius: 12px;
   width: 900px;
   max-width: 95vw;
@@ -349,15 +349,15 @@ async function executePurgeConfirmed() {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
   overflow: hidden;
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .modal-header {
   padding: 16px 20px;
-  background: #141518;
-  border-bottom: 1px solid #23272e;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -373,31 +373,32 @@ async function executePurgeConfirmed() {
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
+  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
+  color: var(--accent-red);
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  border: 1px solid color-mix(in srgb, var(--accent-red) 30%, transparent);
 }
 
 .modal-title {
   margin: 0;
-  font-size: 16px;
+  font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.3px;
+  color: var(--text-primary);
 }
 
 .modal-subtitle {
   margin: 2px 0 0;
-  font-size: 12px;
-  color: #94a3b8;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
 }
 
 .close-btn {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 6px;
   border-radius: 6px;
@@ -405,14 +406,14 @@ async function executePurgeConfirmed() {
 }
 
 .close-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .toolbar {
   padding: 12px 20px;
-  background: #18191c;
-  border-bottom: 1px solid #23272e;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -430,23 +431,23 @@ async function executePurgeConfirmed() {
 .search-box svg {
   position: absolute;
   left: 10px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .search-input {
   width: 100%;
-  padding: 7px 28px 7px 32px;
-  background: #111214;
-  border: 1px solid #2d3139;
+  padding: 8px 28px 8px 32px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
   border-radius: 6px;
-  color: #e2e8f0;
-  font-size: 12px;
+  color: var(--text-primary);
+  font-size: 0.84rem;
   outline: none;
 }
 
 .search-input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-blue) 25%, transparent);
 }
 
 .clear-search-btn {
@@ -454,7 +455,7 @@ async function executePurgeConfirmed() {
   right: 8px;
   background: none;
   border: none;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 16px;
   cursor: pointer;
 }
@@ -471,33 +472,32 @@ async function executePurgeConfirmed() {
   gap: 6px;
   padding: 7px 12px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .refresh-btn {
-  background: #23272e;
-  border: 1px solid #333842;
-  color: #cbd5e1;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: #2d3139;
-  color: #fff;
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
 }
 
 .empty-bin-btn {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #f87171;
+  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-red) 35%, transparent);
+  color: var(--accent-red);
 }
 
 .empty-bin-btn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.25);
-  border-color: #ef4444;
-  color: #fecaca;
+  background: color-mix(in srgb, var(--accent-red) 25%, transparent);
+  border-color: var(--accent-red);
 }
 
 .empty-bin-btn:disabled, .refresh-btn:disabled {
@@ -509,7 +509,7 @@ async function executePurgeConfirmed() {
   flex: 1;
   overflow: hidden;
   position: relative;
-  background: #111214;
+  background: var(--bg-primary);
 }
 
 .empty-state {
@@ -518,25 +518,25 @@ async function executePurgeConfirmed() {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .empty-icon {
   margin-bottom: 12px;
-  opacity: 0.4;
+  opacity: 0.5;
 }
 
 .empty-title {
   margin: 0 0 4px;
-  font-size: 15px;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .empty-subtitle {
   margin: 0;
-  font-size: 12px;
-  color: #64748b;
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 
 .table-container {
@@ -547,31 +547,31 @@ async function executePurgeConfirmed() {
 .bin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 0.82rem;
   text-align: left;
 }
 
 .bin-table th {
   position: sticky;
   top: 0;
-  background: #18191c;
+  background: var(--bg-tertiary);
   padding: 10px 14px;
-  font-size: 11px;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #94a3b8;
-  border-bottom: 1px solid #23272e;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
   z-index: 2;
 }
 
 .bin-row {
-  border-bottom: 1px solid #1a1c20;
+  border-bottom: 1px solid var(--border-subtle);
   transition: background 0.12s ease;
 }
 
 .bin-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-hover);
 }
 
 .bin-table td {
@@ -587,7 +587,7 @@ async function executePurgeConfirmed() {
 
 .asset-name {
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -595,23 +595,24 @@ async function executePurgeConfirmed() {
 }
 
 .asset-filename {
-  font-size: 11px;
-  color: #64748b;
+  font-size: 0.72rem;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 250px;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .folder-badge {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #1e2229;
-  border: 1px solid #2d3139;
-  font-size: 11px;
-  color: #94a3b8;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-medium);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
   max-width: 180px;
   white-space: nowrap;
   overflow: hidden;
@@ -619,8 +620,9 @@ async function executePurgeConfirmed() {
 }
 
 .cell-duration, .cell-date {
-  color: #94a3b8;
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
 }
 
 .actions-group {
@@ -636,64 +638,64 @@ async function executePurgeConfirmed() {
   gap: 4px;
   padding: 5px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 0.74rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.12s ease;
 }
 
 .restore-btn {
-  background: #1e293b;
-  border: 1px solid #334155;
-  color: #38bdf8;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  color: var(--accent-blue);
 }
 
 .restore-btn:hover:not(:disabled) {
-  background: #0284c7;
-  border-color: #0284c7;
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
   color: #fff;
 }
 
 .purge-btn {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #f87171;
+  background: color-mix(in srgb, var(--accent-red) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-red) 30%, transparent);
+  color: var(--accent-red);
 }
 
 .purge-btn:hover:not(:disabled) {
-  background: #ef4444;
-  border-color: #ef4444;
+  background: var(--accent-red);
+  border-color: var(--accent-red);
   color: #fff;
 }
 
 .modal-footer {
   padding: 12px 20px;
-  background: #141518;
-  border-top: 1px solid #23272e;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .footer-stats {
-  font-size: 12px;
-  color: #64748b;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }
 
 .footer-close-btn {
   padding: 6px 16px;
-  background: #23272e;
-  border: 1px solid #333842;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
   border-radius: 6px;
-  color: #e2e8f0;
-  font-size: 12px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .footer-close-btn:hover {
-  background: #2d3139;
-  color: #fff;
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
 }
 
 /* Pulsing Danger Confirmation Modal */
@@ -709,13 +711,13 @@ async function executePurgeConfirmed() {
 }
 
 .danger-pulse-box {
-  background: #1c1315;
-  border: 2px solid #ef4444;
+  background: var(--bg-secondary);
+  border: 2px solid var(--accent-red);
   border-radius: 12px;
   width: 480px;
   max-width: 90vw;
   padding: 24px;
-  box-shadow: 0 0 35px rgba(239, 68, 68, 0.35);
+  box-shadow: 0 0 35px color-mix(in srgb, var(--accent-red) 35%, transparent);
   animation: danger-pulse 2s infinite ease-in-out;
   text-align: center;
   display: flex;
@@ -725,16 +727,16 @@ async function executePurgeConfirmed() {
 
 @keyframes danger-pulse {
   0% {
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
-    border-color: #ef4444;
+    box-shadow: 0 0 20px color-mix(in srgb, var(--accent-red) 30%, transparent);
+    border-color: var(--accent-red);
   }
   50% {
-    box-shadow: 0 0 45px rgba(239, 68, 68, 0.7), 0 0 10px rgba(239, 68, 68, 0.5);
-    border-color: #f87171;
+    box-shadow: 0 0 45px color-mix(in srgb, var(--accent-red) 70%, transparent), 0 0 10px color-mix(in srgb, var(--accent-red) 50%, transparent);
+    border-color: var(--accent-red);
   }
   100% {
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
-    border-color: #ef4444;
+    box-shadow: 0 0 20px color-mix(in srgb, var(--accent-red) 30%, transparent);
+    border-color: var(--accent-red);
   }
 }
 
@@ -742,8 +744,8 @@ async function executePurgeConfirmed() {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: color-mix(in srgb, var(--accent-red) 20%, transparent);
+  color: var(--accent-red);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -752,28 +754,28 @@ async function executePurgeConfirmed() {
 
 .purge-dialog-title {
   margin: 0 0 8px;
-  font-size: 18px;
+  font-size: 1.15rem;
   font-weight: 700;
-  color: #fee2e2;
+  color: var(--text-primary);
 }
 
 .purge-dialog-text {
   margin: 0 0 16px;
-  font-size: 13px;
+  font-size: 0.85rem;
   line-height: 1.5;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .purge-warning-callout {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: color-mix(in srgb, var(--accent-red) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-red) 25%, transparent);
   border-radius: 8px;
   padding: 10px 14px;
-  font-size: 11px;
-  color: #fca5a5;
+  font-size: 0.74rem;
+  color: var(--accent-red);
   text-align: left;
   margin-bottom: 20px;
 }
@@ -794,36 +796,36 @@ async function executePurgeConfirmed() {
 .dialog-cancel-btn {
   flex: 1;
   padding: 9px 16px;
-  background: #23272e;
-  border: 1px solid #333842;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
   border-radius: 6px;
-  color: #cbd5e1;
-  font-size: 13px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .dialog-cancel-btn:hover:not(:disabled) {
-  background: #2d3139;
-  color: #fff;
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
 }
 
 .dialog-danger-btn {
   flex: 1;
   padding: 9px 16px;
-  background: #dc2626;
-  border: 1px solid #b91c1c;
+  background: var(--accent-red);
+  border: 1px solid var(--accent-red);
   border-radius: 6px;
   color: #fff;
-  font-size: 13px;
+  font-size: 0.85rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .dialog-danger-btn:hover:not(:disabled) {
-  background: #ef4444;
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+  background: color-mix(in srgb, var(--accent-red) 85%, white);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-red) 50%, transparent);
 }
 
 .spin {
@@ -838,8 +840,8 @@ async function executePurgeConfirmed() {
 .spinner {
   width: 28px;
   height: 28px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  border-top-color: #3b82f6;
+  border: 3px solid var(--border-subtle);
+  border-top-color: var(--accent-blue);
   border-radius: 50%;
   animation: rotate-spin 0.8s linear infinite;
   margin-bottom: 12px;
