@@ -158,7 +158,77 @@ PlayoutTranscode implements three standard broadcast profiles:
 - **Video Filter**: `-vf "scale=1440:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black"`
 - **GOP & Audio**: Standardized 2.0s closed GOP, 48 kHz stereo.
 
-### 3.4 Process Priority & Concurrency Throttling (`service_handle.rs`)
+### 3.4 Audio Loudness Normalization Engine (EBU R128 & ATSC A/85)
+
+PlayoutTranscode incorporates an automated, two-pass broadcast loudness normalization engine (`probe.rs` and `profiles.rs`) adhering to **ITU-R BS.1770-4**, **EBU R128**, and **ATSC A/85 (CALM Act)** regulations.
+
+```
++---------------------------------------------------------------------------------------------------+
+| TWO-PASS LOUDNESS NORMALIZATION PIPELINE                                                          |
++---------------------------------------------------------------------------------------------------+
+|                                                                                                   |
+|   [Probed Audio Stream]                                                                           |
+|          |                                                                                        |
+|          v                                                                                        |
+|   [Pass 1: Loudness Analysis (RealLoudnessMeasurer in probe.rs)]                                  |
+|          |                                                                                        |
+|          +---> Downmix filter applied (Mono / 5.1 -> Stereo ITU-R BS.775)                         |
+|          +---> Executes FFmpeg with: `loudnorm=I={target_i}:TP={target_tp}:print_format=json`     |
+|          +---> Parses JSON Output: input_i, input_tp, input_lra, input_thresh, offset             |
+|          |                                                                                        |
+|          v                                                                                        |
+|   [Pass 2: Linear Transcoding & Dynamic Correction (profiles.rs)]                                 |
+|          |                                                                                        |
+|          +---> Injects measured parameters into transcode filterchain:                            |
+|          |     `loudnorm=I=..:TP=..:LRA=..:measured_I=..:measured_TP=..:linear=true`             |
+|          +---> Resamples to 48,000 Hz broadcast standard stereo                                   |
+|          |                                                                                        |
+|          v                                                                                        |
+|   [Publication & Metadata Sidecar]                                                                |
+|          +---> Writes LoudnessInfo into .uuid.json sidecar:                                       |
+|                integrated_lufs, true_peak_dbtp, lra, threshold, normalization_mode                |
++---------------------------------------------------------------------------------------------------+
+```
+
+#### 1. Mathematical Standards & Broadcast Target Profiles
+Integrated loudness is calculated according to the K-weighted energy model defined in ITU-R BS.1770:
+
+$$L_K = -0.691 + 10 \log_{10} \left( \sum_{i} w_i \frac{1}{T} \int_0^T z_i^2(t) \, dt \right)$$
+
+Where $z_i(t)$ represents the K-filtered audio signal across channel $i$, and $w_i$ represents the channel weighting coefficient ($w_L = w_R = w_C = 1.0$, $w_{Ls} = w_{Rs} = 1.41$, $w_{LFE} = 0$).
+
+PlayoutTranscode supports the following pre-configured and custom profiles (`config.rs`):
+
+| Audio Mode | Target Integrated Loudness ($I$) | Maximum True Peak ($TP$) | Loudness Range Target ($LRA$) | Primary Regulatory Domain |
+|---|---|---|---|---|
+| **`ebu_r128`** | **`-23.0 LUFS`** | **`-1.0 dBTP`** | **`7.0 LU`** | Europe, EBU Members, Greek NCRTV |
+| **`atsc_a85`** | **`-24.0 LUFS`** | **`-2.0 dBTP`** | **`11.0 LU`** | North America, FCC CALM Act |
+| **`legacy_v1_encode`** | Source Gain / Pass | Unchecked | Unchecked | Legacy 48 kHz stereo resampling |
+| **`passthrough_validate`** | Validated Only | Validated Only | Validated Only | Multi-channel broadcast passthrough |
+
+#### 2. Channel Downmixing & Upmixing (ITU-R BS.775)
+Incoming audio streams with disparate channel counts are automatically adapted before normalization via `build_downmix_filter()`:
+- **Mono (1.0) $\rightarrow$ Stereo**: Centered dual-mono mapping:
+  $$\text{pan}=\text{stereo} \mid c0=c0 \mid c1=c0$$
+- **5.1 Surround (6.0) $\rightarrow$ Stereo**: ITU-R BS.775 standard coefficients (Center and Surrounds attenuated by $-3\text{ dB}$, LFE dropped):
+  $$\text{pan}=\text{stereo} \mid FL=0.4142 \cdot c0 + 0.2929 \cdot c2 + 0.2929 \cdot c4 \mid FR=0.4142 \cdot c1 + 0.2929 \cdot c2 + 0.2929 \cdot c5$$
+
+#### 3. Sidecar Loudness Schema
+Upon successful validation, PlayoutTranscode publishes the full loudness telemetry into the `.uuid.json` sidecar:
+```json
+"loudness": {
+  "integrated_lufs": -23.12,
+  "true_peak_dbtp": -1.04,
+  "lra": 6.80,
+  "threshold": -33.40,
+  "target_lufs": -23.00,
+  "target_true_peak_dbtp": -1.00,
+  "normalization_mode": "ebu_r128",
+  "linear_applied": true
+}
+```
+
+### 3.5 Process Priority & Concurrency Throttling (`service_handle.rs`)
 To prevent FFmpeg encoding spikes from saturating the CPU and starving the real-time CasparCG playout pipeline on shared hardware:
 - Worker concurrency is strictly bounded by `max_concurrency` (default: 2 simultaneous transcode tasks).
 - Spawned FFmpeg child processes on Windows are explicitly set to `BELOW_NORMAL_PRIORITY_CLASS` via Windows Win32 API (`SetPriorityClass`).
