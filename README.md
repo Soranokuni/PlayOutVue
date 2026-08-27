@@ -19,77 +19,54 @@ PlayOut operates in synergy with **[PlayoutTranscode](https://github.com/Soranok
 The architecture decouples UI rendering from playout execution. Playout commands execute over AMCP to CasparCG, while real-time frame progress is tracked via an asynchronous UDP OSC feedback listener.
 
 ```mermaid
-flowchart TB
-    classDef ui fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
-    classDef store fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#f8fafc;
-    classDef tauri fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#f8fafc;
-    classDef caspar fill:#311042,stroke:#a855f7,stroke-width:2px,color:#f8fafc;
-    classDef transcode fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#f8fafc;
-
-    subgraph INGEST_ENGINE ["Upstream Ingestion Layer"]
-        PT["PlayoutTranscode Service<br/>Port: 4353"]:::transcode
+graph TD
+    subgraph Ingest [Upstream Ingestion Layer]
+        PT[PlayoutTranscode Service - Port 4353]
     end
 
-    subgraph DESKTOP_UI ["PlayOutVue — Desktop Master Control (Vue 3 / TypeScript)"]
-        direction TB
-        AppView["MCR Workspace<br/>App.vue"]:::ui
-        
-        subgraph PANELS ["UI Panels & Views"]
-            RL["RundownList.vue<br/>Playlist & Live Grid"]:::ui
-            ML["MediaLibrary.vue<br/>Nested Virtual Folders"]:::ui
-            MI["MediaInspector.vue<br/>Trim & Compliance Modal"]:::ui
-            RB["RecycleBinModal.vue<br/>Soft-Delete & Safe Purge"]:::ui
-            DW["DeckLinkWizard.vue<br/>SDI/HDMI Live Rebroadcast"]:::ui
-        end
-
-        subgraph STATE_LAYER ["Pinia State Management"]
-            RundownStore[("Rundown Store<br/>Undo/Redo & Active Row")]:::store
-            LibraryStore[("Media Library Store<br/>Tree Hierarchy & Filter")]:::store
-            SettingsStore[("Settings Store<br/>Theme, QC & DSK Config")]:::store
-            IngestStore[("Ingestor Status Store<br/>SSE Live Queue")]:::store
-        end
-
-        subgraph DISPATCH_ENGINE ["Playout Execution Core"]
-            Coordinator["playbackCoordinator.ts<br/>Stale-Token Guard"]:::ui
-            DispatchService["caspar.ts & playoutDispatch.ts<br/>Frame Trim Arithmetic"]:::ui
-            EndGuard["endGuard.ts<br/>Gap Auto-Detector"]:::ui
-        end
+    subgraph UI [PlayOutVue UI Panels]
+        App[App.vue - Main Workspace]
+        RL[RundownList - Playlist Grid]
+        ML[MediaLibrary - Virtual Folders]
+        MI[MediaInspector - Trim & Compliance]
+        RB[RecycleBin - Safe Purge]
+        DW[DeckLinkWizard - Live Input]
     end
 
-    subgraph TAURI_BACKEND ["Tauri v2 Rust Core (src-tauri)"]
-        direction TB
-        IPC["Tauri IPC Router (lib.rs)"]:::tauri
-        AMCPBridge["amcp.rs<br/>TCP 5250 Socket Pool"]:::tauri
-        OSCListener["caspar.rs<br/>UDP 6250 OSC Tracker"]:::tauri
-        MediaServer["media_server.rs<br/>Local HTTP Preview Server"]:::tauri
-        LocalDB[("media_assets.db<br/>SQLite Local Cache")]:::tauri
-        LocalScanner["scanner.rs & trimmer.rs<br/>Fallback Probe & FFmpeg Cut"]:::tauri
+    subgraph State [Pinia State Management]
+        RundownStore[(Rundown Store)]
+        LibraryStore[(Media Library Store)]
+        SettingsStore[(Settings Store)]
+        IngestStore[(Ingestor Status Store)]
     end
 
-    subgraph PLAYOUT_BACKEND ["CasparCG Broadcast Server"]
-        CasparServer["CasparCG Server 2.3+<br/>AMCP Port: 5250 | OSC: 6250"]:::caspar
-        DeckLinkOut["Blackmagic DeckLink<br/>SDI / HDMI Video Out"]:::caspar
+    subgraph Execution [Playout Dispatch Core]
+        Coord[playbackCoordinator.ts - Stale Token Guard]
+        Dispatch[caspar.ts - Playout Dispatch]
+        Guard[endGuard.ts - Gap Auto-Detector]
     end
 
-    %% Wiring
-    PT -- "REST /api/assets & SSE /api/events" --> IngestStore
-    PT -- "JSON Metadata Sidecar" --> LibraryStore
+    subgraph Backend [Tauri Rust Backend]
+        IPC[Tauri IPC Bridge]
+        AMCP[amcp.rs - TCP 5250 AMCP Bridge]
+        OSC[caspar.rs - UDP 6250 OSC Tracker]
+        MediaServer[media_server.rs - Local Video Server]
+        LocalDB[(SQLite Local Cache)]
+    end
 
-    AppView --> PANELS
-    PANELS <--> STATE_LAYER
-    
-    RundownStore --> Coordinator --> DispatchService
-    DispatchService -- "invoke('caspar_play_item')" --> IPC
-    
-    IPC --> AMCPBridge
-    AMCPBridge -- "AMCP: PLAY, LOADBG, MIXER, CG" --> CasparServer
-    CasparServer -- "UDP OSC Packets" --> OSCListener
-    OSCListener -- "Tauri Event: osc-update" --> Coordinator
-    
-    IPC --> MediaServer
-    MediaServer -- "HTTP Stream & Proxies" --> MI
-    
-    CasparServer --> DeckLinkOut
+    subgraph Broadcast [CasparCG Broadcast Playout]
+        Caspar[CasparCG Server 2.3+]
+        DeckLink[Blackmagic DeckLink SDI/HDMI]
+    end
+
+    PT -->|REST & SSE| IngestStore
+    App --> RL & ML & MI & RB & DW
+    RL & ML & MI & RB & DW <--> RundownStore & LibraryStore & SettingsStore & IngestStore
+    RundownStore --> Coord --> Dispatch --> IPC
+    IPC --> AMCP -->|AMCP Commands| Caspar
+    Caspar -->|UDP OSC Packets| OSC -->|OSC Event| Coord
+    IPC --> MediaServer -->|HTTP Video Stream| MI
+    Caspar --> DeckLink
 ```
 
 ---
@@ -99,23 +76,17 @@ flowchart TB
 PlayOut enforces a strict, collision-free **8-layer channel registry** (`caspar_layers.rs` and `CASPAR_LAYERS` in TypeScript). Each producer type has documented lifecycles, mixer permissions, and automatic take/clear rules.
 
 ```mermaid
-graph BT
-    classDef base fill:#1e293b,stroke:#475569,stroke-width:1px,color:#fff;
-    classDef video fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    classDef live fill:#065f46,stroke:#10b981,stroke-width:2px,color:#fff;
-    classDef brand fill:#831843,stroke:#ec4899,stroke-width:2px,color:#fff;
-    classDef cg fill:#701a75,stroke:#d946ef,stroke-width:2px,color:#fff;
+graph TD
+    L35[Layer 35: Station ID Stingers - Reserved]
+    L34[Layer 34: TP Product Placement Badge - Image]
+    L33[Layer 33: On-Demand Live Crawl Ticker - CG Template]
+    L32[Layer 32: Timed Explanation Banner - CG Template]
+    L31[Layer 31: Greek NCRTV Age Rating Badge - Image]
+    L30[Layer 30: Station Logo Watermark - Always-On Image]
+    L20[Layer 20: DeckLink Live Rebroadcast Input - Live Producer]
+    L10[Layer 10: Primary Program Video - FFmpeg Mezzanine]
 
-    L10["Layer 10: Program Video (FFmpeg/Mezzanine Decoder)"]:::video
-    L20["Layer 20: Live Ingest (DeckLink Live Rebroadcast)"]:::live
-    L30["Layer 30: Station Logo (Persistent Brand Watermark)"]:::brand
-    L31["Layer 31: Age Rating Badge (Greek NCRTV: K, 8, 12, 16, 18)"]:::brand
-    L32["Layer 32: Explanation Banner (Timed HTML5/Flash CG Overlay)"]:::cg
-    L33["Layer 33: On-Demand Crawl (Live Breaking News / Ticker)"]:::cg
-    L34["Layer 34: Product Placement Badge (TP Overlay)"]:::brand
-    L35["Layer 35: Station ID (Reserved for Station Stingers)"]:::base
-
-    L10 --> L20 --> L30 --> L31 --> L32 --> L33 --> L34 --> L35
+    L35 --> L34 --> L33 --> L32 --> L31 --> L30 --> L20 --> L10
 ```
 
 ### Layer Specification Table
