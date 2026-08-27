@@ -1,6 +1,13 @@
 {
-  "name": "temp-app",
+  "name": "playout-vue",
   "version": "2.0.1",
+  "description": "Professional Master Control Playout & Automation Client for CasparCG and PlayoutTranscode",
+  "author": "Soranokuni <shadowsora13@hotmail.gr> (https://github.com/Soranokuni)",
+  "homepage": "https://github.com/Soranokuni/PlayOutVue",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Soranokuni/PlayOutVue.git"
+  },
   "private": true,
   "type": "module",
   "scripts": {

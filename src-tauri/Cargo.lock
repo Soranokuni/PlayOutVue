@@ -88,33 +88,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "app"
-version = "2.0.1"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "dirs-next",
- "image",
- "log",
- "parking_lot",
- "quick-xml",
- "r2d2",
- "r2d2_sqlite",
- "regex",
- "reqwest 0.12.28",
- "rosc",
- "rusqlite",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2647,6 +2620,33 @@ name = "pkg-config"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
+
+[[package]]
+name = "playout_app"
+version = "2.0.1"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "dirs-next",
+ "image",
+ "log",
+ "parking_lot",
+ "quick-xml",
+ "r2d2",
+ "r2d2_sqlite",
+ "regex",
+ "reqwest 0.12.28",
+ "rosc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "plist"
