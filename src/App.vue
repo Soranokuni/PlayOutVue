@@ -137,9 +137,11 @@ let resizeFrame = 0;
 
 // Theme and Scale watchers
 watch(() => settings.theme, (theme) => {
-    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme');
+    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme', 'soft-slate-theme', 'periwinkle-theme');
     if (theme === 'light') document.body.classList.add('light-theme');
     else if (theme === 'monokai') document.body.classList.add('monokai-theme');
+    else if (theme === 'soft-slate') document.body.classList.add('soft-slate-theme');
+    else if (theme === 'periwinkle') document.body.classList.add('periwinkle-theme');
     else document.body.classList.add('dark-theme');
 }, { immediate: true });
 

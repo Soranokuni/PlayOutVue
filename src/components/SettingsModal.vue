@@ -2,7 +2,7 @@
 import { computed, ref, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { useSettingsStore } from '../stores/settings';
+import { useSettingsStore, DEFAULT_CG_ADVISORY_CONFIG, type CgAdvisoryTemplateConfig } from '../stores/settings';
 import CasparConfigModal from './CasparConfigModal.vue';
 import DeckLinkWizard from './DeckLinkWizard.vue';
 
@@ -34,7 +34,7 @@ const localState = ref({
     ffmpegBinPath: '',
     debugMode: false,
     logosPath: '',
-    theme: 'dark' as 'dark' | 'monokai' | 'light',
+    theme: 'dark' as 'dark' | 'monokai' | 'light' | 'soft-slate' | 'periwinkle',
     uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',
     qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
     decklinkOutputName: '',
@@ -78,7 +78,8 @@ const localState = ref({
     cgCrawlPosition: 'bottom' as 'top' | 'bottom',
     cgCrawlText: '',
     cgCrawlActive: false,
-    cgExplanationTemplate: 'playout/advisory'
+    cgExplanationTemplate: 'playout/advisory',
+    cgAdvisoryConfig: { ...DEFAULT_CG_ADVISORY_CONFIG } as CgAdvisoryTemplateConfig
 });
 
 const currentActivePos = computed({
@@ -311,7 +312,11 @@ const mapLocalState = () => {
         cgCrawlActive: settings.cgCrawlActive || false,
         cgExplanationTemplate: (settings.cgExplanationTemplate && settings.cgExplanationTemplate !== 'testdada' && settings.cgExplanationTemplate !== 'playout/explanation')
             ? settings.cgExplanationTemplate
-            : 'playout/advisory'
+            : 'playout/advisory',
+        cgAdvisoryConfig: {
+            ...DEFAULT_CG_ADVISORY_CONFIG,
+            ...(settings.cgAdvisoryConfig || {})
+        }
     };
 };
 
@@ -565,6 +570,38 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                         <div class="qc-card-title">Clean Studio Light</div>
                         <p class="qc-desc">
                           High-contrast daylight theme with crisp slate typography and clear borders for well-lit rooms.
+                        </p>
+                      </div>
+
+                      <!-- Soft Slate Neumorphic (Images 1, 3, 5) -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.theme === 'soft-slate' }"
+                        @click="localState.theme = 'soft-slate'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge" style="background: rgba(37, 99, 235, 0.15); color: #2563eb; border-color: rgba(37, 99, 235, 0.3);">🪨 SOFT SLATE NEUMORPHIC</span>
+                          <input type="radio" value="soft-slate" v-model="localState.theme">
+                        </div>
+                        <div class="qc-card-title">Soft Slate Clay</div>
+                        <p class="qc-desc">
+                          Tactile clay neumorphism with soft dual-shadow extrusion, sunken inputs, and steel blue accents.
+                        </p>
+                      </div>
+
+                      <!-- Periwinkle Studio Glow (Images 2, 4) -->
+                      <div
+                        class="qc-radio-card"
+                        :class="{ 'is-selected': localState.theme === 'periwinkle' }"
+                        @click="localState.theme = 'periwinkle'"
+                      >
+                        <div class="qc-radio-header">
+                          <span class="qc-badge" style="background: rgba(124, 105, 239, 0.15); color: #7c69ef; border-color: rgba(124, 105, 239, 0.3);">💜 PERIWINKLE STUDIO</span>
+                          <input type="radio" value="periwinkle" v-model="localState.theme">
+                        </div>
+                        <div class="qc-card-title">Lavender / Periwinkle Glow</div>
+                        <p class="qc-desc">
+                          Music &amp; entertainment neumorphic theme with soft lilac surfaces, pill controls, and periwinkle glow.
                         </p>
                       </div>
                   </div>
@@ -859,6 +896,71 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           <p class="qc-desc">
                               Plays classic static image badges (<code style="font-size:0.75rem;">16.png</code>, <code style="font-size:0.75rem;">K.png</code>) via CasparCG Image Producer.
                           </p>
+                      </div>
+                  </div>
+              </section>
+
+              <!-- HTML5 Advisory & Stencil Theme Architecture -->
+              <section v-if="localState.complianceRenderMode === 'html5'" class="settings-section">
+                  <h3 class="text-secondary section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                      <span>🎨 HTML5 Advisory &amp; Neumorphic Stencil Studio</span>
+                      <button class="glass-btn btn-primary" style="padding: 4px 12px; font-size: 0.76rem;" @click="launchBrowserStudio" title="Launch standalone interactive visual studio in default browser">
+                          ✨ Launch Full Interactive CG Studio
+                      </button>
+                  </h3>
+                  <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+                      <div class="form-group">
+                          <label>Design Language Preset</label>
+                          <select class="glass-input" v-model="localState.cgAdvisoryConfig.themeName">
+                              <option value="frosted">Hybrid Frosted Glass (Default SOTA)</option>
+                              <option value="matte-slate">Option 1: Matte Extruded Slate</option>
+                              <option value="vibrant-accent">Option 2: Vibrant Accent Extrusion</option>
+                              <option value="inset-embossed">Option 3: Inset Embossed Slate</option>
+                              <option value="dark-obsidian">Option 5: Obsidian Dark MCR</option>
+                          </select>
+                      </div>
+
+                      <div class="form-group">
+                          <label>Badge Stencil Cutout Style</label>
+                          <select class="glass-input" v-model="localState.cgAdvisoryConfig.stencilStyle">
+                              <option value="neumorphic">Soft Deboss (Low Contrast Neumorphic)</option>
+                              <option value="frosted">Frosted Glass Specular</option>
+                              <option value="contrast">High Contrast Outline</option>
+                          </select>
+                      </div>
+
+                      <div class="form-group">
+                          <label>Badge Geometric Shape</label>
+                          <select class="glass-input" v-model="localState.cgAdvisoryConfig.badgeShape">
+                              <option value="circle">Circular (Standard NCRTV)</option>
+                              <option value="squircle">Squircle (Modern Soft Neumorphic)</option>
+                              <option value="pill">Pill Tag</option>
+                          </select>
+                      </div>
+
+                      <div class="form-group">
+                          <label>Screen Anchor Position</label>
+                          <select class="glass-input" v-model="localState.cgAdvisoryConfig.anchorPosition">
+                              <option value="top-right">Top-Right (Standard NCRTV)</option>
+                              <option value="top-left">Top-Left</option>
+                              <option value="bottom-right">Bottom-Right</option>
+                              <option value="bottom-left">Bottom-Left</option>
+                          </select>
+                      </div>
+
+                      <div class="form-group">
+                          <label>Text &amp; Bar Vertical Offset (px)</label>
+                          <input type="number" min="-40" max="40" class="glass-input" v-model.number="localState.cgAdvisoryConfig.textOffsetYPx" placeholder="0">
+                      </div>
+
+                      <div class="form-group">
+                          <label>Rating Explanation Hold (Seconds)</label>
+                          <input type="number" min="2" max="120" class="glass-input" v-model.number="localState.cgAdvisoryConfig.ratingHoldSec" placeholder="4">
+                      </div>
+
+                      <div class="form-group">
+                          <label>Warning Descriptors Hold (Seconds)</label>
+                          <input type="number" min="4" max="120" class="glass-input" v-model.number="localState.cgAdvisoryConfig.warningHoldSec" placeholder="30">
                       </div>
                   </div>
               </section>

@@ -16,14 +16,35 @@
       --cg-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       --cg-top: 60px;
       --cg-right: 60px;
-      --cg-badge-size: 52px;
-      --cg-badge-font-size: 26px;
+      --cg-bottom: 60px;
+      --cg-left: 60px;
+      --cg-badge-size: 54px;
+      --cg-badge-font-size: 27px;
       --cg-explanation-font-size: 13px;
       --cg-warning-lead-font-size: 10.5px;
       --cg-warning-body-font-size: 12px;
       --cg-warning-icon-size: 28px;
       --cg-accent-line-height: 2px;
       --cg-line-gap: 8px;
+      --cg-text-offset-y: 0px;
+
+      /* Theme Variables (Default: SOTA Frosted Glass & Neumorphic Hybrid) */
+      --badge-bg: rgba(255, 255, 255, 0.32);
+      --badge-fill: rgba(255, 255, 255, 0.35);
+      --badge-stroke: rgba(255, 255, 255, 0.85);
+      --badge-shadow: 0 4px 18px rgba(0, 0, 0, 0.42), -2px -2px 8px rgba(255, 255, 255, 0.35), inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.85), inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.20);
+      --badge-backdrop: blur(16px) saturate(180%);
+      --stencil-outline-color: rgba(0, 0, 0, 0.35);
+      --stencil-outline-width: 0.9px;
+      --accent-bg: linear-gradient(270deg, rgba(255, 255, 255, 0.95) 0%, rgba(56, 189, 248, 0.85) 50%, rgba(255, 255, 255, 0) 100%);
+      --text-color: #ffffff;
+      --text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85);
+      --text-stroke: 0.35px rgba(0, 0, 0, 0.45);
+      --trough-bg: transparent;
+      --trough-shadow: none;
+      --trough-border: none;
+      --tp-bg: rgba(255, 255, 255, 0.30);
+      --tp-border: 1.5px solid rgba(255, 255, 255, 0.70);
     }
 
     * {
@@ -36,14 +57,21 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
     }
 
     body {
       background: transparent;
       font-family: var(--cg-font-family);
       user-select: none;
-      -webkit-font-smoothing: antialiased;
       transition: background 0.3s ease;
+    }
+
+    svg {
+      shape-rendering: geometricPrecision;
+      text-rendering: geometricPrecision;
     }
 
     /* 1080p Broadcast Stage Canvas */
@@ -82,62 +110,100 @@
       background: transparent !important;
     }
 
-    /* Top-Right Broadcast Safe Area Container */
+    /* Broadcast Stage Container with Single GPU Compositor Layer */
     #advisory-stage {
       position: absolute;
-      top: var(--cg-top, 60px);
-      right: var(--cg-right, 60px);
       display: flex;
-      flex-direction: row-reverse;
       align-items: center;
       gap: 14px;
       z-index: 100;
-      perspective: 1000px;
+      will-change: transform;
+      transform: translate3d(0, 0, 0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      contain: layout style;
     }
 
-    /* Neumorphic Frosted Glass Circular Rating Stencil Badge */
+    #advisory-stage.anchor-top-right {
+      top: var(--cg-top, 60px);
+      right: var(--cg-right, 60px);
+      left: auto;
+      bottom: auto;
+      flex-direction: row-reverse;
+    }
+
+    #advisory-stage.anchor-top-left {
+      top: var(--cg-top, 60px);
+      left: var(--cg-left, 60px);
+      right: auto;
+      bottom: auto;
+      flex-direction: row;
+    }
+
+    #advisory-stage.anchor-bottom-right {
+      bottom: var(--cg-bottom, 60px);
+      right: var(--cg-right, 60px);
+      top: auto;
+      left: auto;
+      flex-direction: row-reverse;
+    }
+
+    #advisory-stage.anchor-bottom-left {
+      bottom: var(--cg-bottom, 60px);
+      left: var(--cg-left, 60px);
+      top: auto;
+      right: auto;
+      flex-direction: row;
+    }
+
+    /* Unified Hardware-Accelerated Rating Badge Container */
     .badge-wrapper {
       position: relative;
-      width: var(--cg-badge-size, 52px);
-      height: var(--cg-badge-size, 52px);
+      width: var(--cg-badge-size, 54px);
+      height: var(--cg-badge-size, 54px);
       flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.32);
-      backdrop-filter: blur(20px) saturate(180%);
-      -webkit-backdrop-filter: blur(20px) saturate(180%);
-      border: 1.5px solid rgba(255, 255, 255, 0.85);
-      box-shadow:
-        0 4px 18px rgba(0, 0, 0, 0.42),
-        -2px -2px 8px rgba(255, 255, 255, 0.35),
-        inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.85),
-        inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.25);
+      background: var(--badge-bg);
+      backdrop-filter: var(--badge-backdrop);
+      -webkit-backdrop-filter: var(--badge-backdrop);
+      box-shadow: var(--badge-shadow);
+      will-change: transform;
+      transform: translate3d(0, 0, 0);
+      transform-origin: center center;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+
+    .badge-wrapper.shape-squircle {
+      border-radius: 16px;
     }
 
     .badge-svg {
       width: 100%;
       height: 100%;
       display: block;
+      overflow: visible;
     }
 
-    /* Telemarketing / Product Placement (TP) Badge */
+    /* Telemarketing / Product Placement (TP / ΤΠ) Badge */
     .tp-badge {
       display: none;
       align-items: center;
       justify-content: center;
       height: 26px;
-      padding: 0 8px;
-      border-radius: 6px;
+      padding: 0 9px;
+      border-radius: 7px;
       font-size: 11.5px;
       font-weight: 900;
       letter-spacing: 0.05em;
-      color: #ffffff;
-      background: rgba(255, 255, 255, 0.30);
+      color: var(--text-color, #ffffff);
+      background: var(--tp-bg);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border: 1.5px solid rgba(255, 255, 255, 0.70);
+      border: var(--tp-border);
       box-shadow:
         0 3px 10px rgba(0, 0, 0, 0.35),
         inset 1px 1px 2px rgba(255, 255, 255, 0.8),
@@ -145,20 +211,31 @@
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
       -webkit-text-stroke: 0.3px rgba(0, 0, 0, 0.45);
       flex-shrink: 0;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
     }
 
     .tp-badge.visible {
       display: flex;
     }
 
-    /* Floating Typography Container */
+    /* Floating Typography Container with Configurable Vertical Offset Margin */
     .text-container {
       position: relative;
       display: inline-flex;
       flex-direction: column;
       align-items: flex-end;
       justify-content: center;
-      padding-bottom: var(--cg-line-gap, 8px); /* Adequate spacing between text and underline */
+      padding-bottom: var(--cg-line-gap, 8px);
+      transform: translate3d(0, var(--cg-text-offset-y, 0px), 0);
+      will-change: transform;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+
+    .anchor-top-left .text-container,
+    .anchor-bottom-left .text-container {
+      align-items: flex-start;
     }
 
     /* Overflow masked text slots for sliding animations */
@@ -170,6 +247,19 @@
       justify-content: flex-end;
       height: 44px;
       min-width: 40px;
+      background: var(--trough-bg);
+      border-radius: 10px;
+      box-shadow: var(--trough-shadow);
+      border: var(--trough-border);
+      will-change: transform, width;
+      transform: translate3d(0, 0, 0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+
+    .anchor-top-left .text-slot-mask,
+    .anchor-bottom-left .text-slot-mask {
+      justify-content: flex-start;
     }
 
     .slot-content {
@@ -183,25 +273,36 @@
       gap: 10px;
       white-space: nowrap;
       padding-left: 14px;
-      padding-right: 4px;
+      padding-right: 6px;
       opacity: 0;
       will-change: transform, opacity;
+      transform: translate3d(0, 0, 0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+
+    .anchor-top-left .slot-content,
+    .anchor-bottom-left .slot-content {
+      right: auto;
+      left: 0;
+      justify-content: flex-start;
+      padding-left: 6px;
+      padding-right: 14px;
     }
 
     /* High contrast broadcast typography */
     .advisory-text {
-      color: #ffffff;
+      color: var(--text-color, #ffffff);
       font-size: var(--cg-explanation-font-size, 13px);
       font-weight: 800;
       letter-spacing: 0.05em;
       text-transform: uppercase;
-      text-shadow:
-        0 1px 2px rgba(0, 0, 0, 0.95),
-        0 2px 8px rgba(0, 0, 0, 0.85);
-      -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.5);
+      text-shadow: var(--text-shadow);
+      -webkit-text-stroke: var(--text-stroke);
       white-space: nowrap;
       line-height: 1.2;
       padding-left: 4px;
+      font-feature-settings: "liga", "kern";
     }
 
     /* Structured Warning Typography */
@@ -223,18 +324,20 @@
       -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
       white-space: nowrap;
       line-height: 1.15;
+      font-feature-settings: "liga", "kern";
     }
 
     .warning-body {
       font-size: var(--cg-warning-body-font-size, 12px);
       font-weight: 900;
       letter-spacing: 0.05em;
-      color: #ffffff;
+      color: var(--text-color, #ffffff);
       text-transform: uppercase;
-      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
-      -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.5);
+      text-shadow: var(--text-shadow);
+      -webkit-text-stroke: var(--text-stroke);
       white-space: nowrap;
       line-height: 1.15;
+      font-feature-settings: "liga", "kern";
     }
 
     /* Combo 2-Line High-Impact Typography */
@@ -248,18 +351,20 @@
       -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
       white-space: nowrap;
       line-height: 1.15;
+      font-feature-settings: "liga", "kern";
     }
 
     .combo-group .combo-line-2 {
       font-size: 11.5px;
       font-weight: 900;
       letter-spacing: 0.05em;
-      color: #ffffff;
+      color: var(--text-color, #ffffff);
       text-transform: uppercase;
-      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
-      -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.5);
+      text-shadow: var(--text-shadow);
+      -webkit-text-stroke: var(--text-stroke);
       white-space: nowrap;
       line-height: 1.15;
+      font-feature-settings: "liga", "kern";
     }
 
     /* Neumorphic Warning Mini Icon Stencil */
@@ -271,14 +376,15 @@
       align-items: center;
       justify-content: center;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.32);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1.5px solid rgba(255, 255, 255, 0.85);
+      background: var(--badge-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       box-shadow:
-        0 3px 10px rgba(0, 0, 0, 0.38),
+        0 3px 10px rgba(0, 0, 0, 0.35),
         inset 1px 1px 2px rgba(255, 255, 255, 0.8),
-        inset -1px -1px 2px rgba(0, 0, 0, 0.25);
+        inset -1px -1px 2px rgba(0, 0, 0, 0.20);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
     }
 
     .warning-icon-svg {
@@ -294,22 +400,31 @@
       right: 0;
       width: 100%;
       height: var(--cg-accent-line-height, 2px);
-      background: linear-gradient(270deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.45) 80%, rgba(255, 255, 255, 0) 100%);
+      background: var(--accent-bg);
       border-radius: 1px;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
       transform-origin: right center;
       transform: scaleX(0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+
+    .anchor-top-left .accent-line,
+    .anchor-bottom-left .accent-line {
+      right: auto;
+      left: 0;
+      transform-origin: left center;
     }
 
     /* -------------------------------------------------------------
-       STANDALONE WEB BROWSER STUDIO CONTROLS
+       STANDALONE WEB BROWSER STUDIO CONTROLS (UNCLUTTERED TABBED UI)
        ------------------------------------------------------------- */
     #studio-toggle-btn {
       position: fixed;
       top: 18px;
       left: 18px;
       z-index: 99999;
-      background: rgba(15, 23, 42, 0.88);
+      background: rgba(15, 23, 42, 0.90);
       border: 1px solid rgba(56, 189, 248, 0.5);
       color: #38bdf8;
       padding: 8px 16px;
@@ -336,11 +451,11 @@
       top: 0;
       left: 0;
       bottom: 0;
-      width: 420px;
+      width: 440px;
       max-width: 90vw;
-      background: rgba(15, 23, 42, 0.94);
+      background: rgba(15, 23, 42, 0.95);
       border-right: 1px solid rgba(255, 255, 255, 0.15);
-      box-shadow: 10px 0 40px rgba(0, 0, 0, 0.8);
+      box-shadow: 10px 0 40px rgba(0, 0, 0, 0.85);
       backdrop-filter: blur(20px);
       z-index: 99998;
       display: flex;
@@ -357,7 +472,7 @@
     }
 
     .studio-header {
-      padding: 18px 20px 14px 20px;
+      padding: 16px 20px 12px 20px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
       display: flex;
       align-items: center;
@@ -365,11 +480,14 @@
     }
 
     .studio-header h2 {
-      font-size: 15px;
+      font-size: 14.5px;
       font-weight: 800;
       color: #38bdf8;
       letter-spacing: 0.05em;
       text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .studio-close-btn {
@@ -385,13 +503,58 @@
       color: #ffffff;
     }
 
+    /* Segmented Navigation Tabs */
+    .studio-nav-tabs {
+      display: flex;
+      padding: 8px 14px;
+      gap: 6px;
+      background: rgba(9, 13, 22, 0.6);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .studio-tab-btn {
+      flex: 1;
+      background: transparent;
+      border: 1px solid transparent;
+      color: #94a3b8;
+      padding: 6px 4px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+
+    .studio-tab-btn:hover {
+      color: #f1f5f9;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .studio-tab-btn.active {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.4);
+      box-shadow: 0 2px 8px rgba(56, 189, 248, 0.15);
+    }
+
+    .studio-tab-pane {
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .studio-tab-pane.active {
+      display: flex;
+    }
+
     .studio-scroll-body {
       flex: 1;
       overflow-y: auto;
       padding: 16px 20px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 14px;
     }
 
     .studio-group {
@@ -405,13 +568,16 @@
     }
 
     .studio-group-title {
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 700;
       color: #94a3b8;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       padding-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
     .studio-btn-row {
@@ -441,6 +607,40 @@
       color: #0f172a;
       border-color: #38bdf8;
       box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+    }
+
+    .studio-theme-card {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .studio-theme-card:hover {
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.08);
+    }
+
+    .studio-theme-card.active {
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.18);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+    }
+
+    .studio-theme-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: #ffffff;
+    }
+
+    .studio-theme-desc {
+      font-size: 9.5px;
+      color: #94a3b8;
     }
 
     .studio-slider-row {
@@ -489,6 +689,7 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+      background: rgba(9, 13, 22, 0.7);
     }
 
     .action-btn-primary {
@@ -497,7 +698,7 @@
       border: 1px solid #38bdf8;
       padding: 9px;
       border-radius: 7px;
-      font-size: 12.5px;
+      font-size: 12px;
       font-weight: 800;
       cursor: pointer;
       box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
@@ -515,7 +716,7 @@
       border: 1px solid rgba(255, 255, 255, 0.15);
       padding: 7px;
       border-radius: 7px;
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 700;
       cursor: pointer;
     }
@@ -538,58 +739,66 @@
 
   <!-- 1080p Broadcast Stage Canvas -->
   <div id="broadcast-canvas">
-    <div id="advisory-stage">
-      <!-- Rating Stencil Badge Container -->
+    <div id="advisory-stage" class="anchor-top-right">
+      <!-- Unified Rating Stencil Badge Container (Single Compositor Layer) -->
       <div id="rating-badge-container" class="badge-wrapper">
-        <svg id="badge-svg" class="badge-svg" viewBox="0 0 52 52">
+        <svg id="badge-svg" class="badge-svg" viewBox="0 0 52 52" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
           <defs>
-            <mask id="badge-stencil-mask">
-              <circle cx="26" cy="26" r="24.5" fill="#ffffff" />
+            <mask id="badge-stencil-mask" maskUnits="userSpaceOnUse">
+              <circle id="badge-mask-shape" cx="26" cy="26" r="24.5" fill="#ffffff" shape-rendering="geometricPrecision" />
               <text
                 id="stencil-text"
                 x="26"
-                y="26.5"
+                y="26"
                 text-anchor="middle"
                 dominant-baseline="central"
+                alignment-baseline="central"
                 font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
                 font-weight="900"
                 font-size="26"
                 fill="#000000"
+                shape-rendering="geometricPrecision"
+                text-rendering="geometricPrecision"
               >16</text>
             </mask>
           </defs>
 
-          <!-- Frosted Glass circular fill with negative cutout -->
+          <!-- Main circular shape with negative stencil cutout -->
           <circle
+            id="badge-main-shape"
             cx="26"
             cy="26"
             r="24.5"
-            fill="rgba(255, 255, 255, 0.38)"
-            stroke="rgba(255, 255, 255, 0.85)"
+            fill="var(--badge-fill)"
+            stroke="var(--badge-stroke)"
             stroke-width="1.5"
             mask="url(#badge-stencil-mask)"
+            shape-rendering="geometricPrecision"
           />
 
-          <!-- Hairline contour for stencil glyph -->
+          <!-- Single Centered Hairline Stencil Contour -->
           <text
             id="stencil-outline-text"
             x="26"
-            y="26.5"
+            y="26"
             text-anchor="middle"
             dominant-baseline="central"
+            alignment-baseline="central"
             font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
             font-weight="900"
             font-size="26"
             fill="none"
-            stroke="rgba(0, 0, 0, 0.65)"
-            stroke-width="1.2"
+            stroke="var(--stencil-outline-color)"
+            stroke-width="var(--stencil-outline-width)"
             stroke-linejoin="round"
+            shape-rendering="geometricPrecision"
+            text-rendering="geometricPrecision"
           >16</text>
         </svg>
       </div>
 
-      <!-- Telemarketing TP Badge -->
-      <div id="tp-badge" class="tp-badge">TP</div>
+      <!-- Telemarketing TP / ΤΠ Badge -->
+      <div id="tp-badge" class="tp-badge">ΤΠ</div>
 
       <!-- Floating Typography Container -->
       <div id="text-container" class="text-container">
@@ -608,163 +817,251 @@
 
   <div id="studio-drawer">
     <div class="studio-header">
-      <h2>Greek Advisory Studio</h2>
+      <h2>🎨 Greek Advisory CG Studio</h2>
       <button class="studio-close-btn" onclick="toggleStudioDrawer()">✕</button>
     </div>
 
+    <!-- Segmented Navigation Tabs -->
+    <div class="studio-nav-tabs">
+      <button class="studio-tab-btn active" data-tab="content" onclick="switchStudioTab('content')">🏷️ Content</button>
+      <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')">🎨 Design &amp; Theme</button>
+      <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')">📐 Geometry</button>
+      <button class="studio-tab-btn" data-tab="timing" onclick="switchStudioTab('timing')">⏱️ Motion</button>
+    </div>
+
     <div class="studio-scroll-body">
-      <!-- Rating & Flags -->
-      <div class="studio-group">
-        <div class="studio-group-title">🏷️ Age Rating & Descriptors</div>
-        <div class="studio-btn-row">
-          <button class="studio-btn" data-rating="K" onclick="setStudioRating('K')">Κ</button>
-          <button class="studio-btn" data-rating="8" onclick="setStudioRating('8')">8</button>
-          <button class="studio-btn" data-rating="12" onclick="setStudioRating('12')">12</button>
-          <button class="studio-btn active" data-rating="16" onclick="setStudioRating('16')">16</button>
-          <button class="studio-btn" data-rating="18" onclick="setStudioRating('18')">18</button>
-          <button class="studio-btn" data-rating="NONE" onclick="setStudioRating('NONE')">Logo Only</button>
+      <!-- TAB 1: Content & Flags -->
+      <div id="tab-pane-content" class="studio-tab-pane active">
+        <!-- Age Rating -->
+        <div class="studio-group">
+          <div class="studio-group-title">🏷️ Age Rating &amp; Descriptors</div>
+          <div class="studio-btn-row">
+            <button class="studio-btn" data-rating="K" onclick="setStudioRating('K')">Κ</button>
+            <button class="studio-btn" data-rating="8" onclick="setStudioRating('8')">8</button>
+            <button class="studio-btn" data-rating="12" onclick="setStudioRating('12')">12</button>
+            <button class="studio-btn active" data-rating="16" onclick="setStudioRating('16')">16</button>
+            <button class="studio-btn" data-rating="18" onclick="setStudioRating('18')">18</button>
+            <button class="studio-btn" data-rating="NONE" onclick="setStudioRating('NONE')">Logo Only</button>
+          </div>
+          <div class="studio-btn-row" style="margin-top: 4px;">
+            <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="chk-violence" checked onchange="updateStudioPreview()"> Violence
+            </label>
+            <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="chk-sex" onchange="updateStudioPreview()"> Sex
+            </label>
+            <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="chk-drugs" checked onchange="updateStudioPreview()"> Drugs/Subst
+            </label>
+            <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="chk-language" onchange="updateStudioPreview()"> Language
+            </label>
+            <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="chk-tp" onchange="updateStudioPreview()"> ΤΠ
+            </label>
+          </div>
         </div>
-        <div class="studio-btn-row" style="margin-top: 4px;">
-          <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="chk-violence" checked onchange="updateStudioPreview()"> Violence
-          </label>
-          <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="chk-sex" onchange="updateStudioPreview()"> Sex
-          </label>
-          <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="chk-drugs" checked onchange="updateStudioPreview()"> Drugs/Subst
-          </label>
-          <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="chk-language" onchange="updateStudioPreview()"> Language
-          </label>
-          <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="chk-tp" onchange="updateStudioPreview()"> TP
-          </label>
+
+        <!-- Canvas Background & Transport -->
+        <div class="studio-group">
+          <div class="studio-group-title">🎬 Stage Canvas &amp; Transport</div>
+          <div class="studio-btn-row">
+            <button class="studio-btn active" onclick="setDevBg('dark')">🌑 Dark</button>
+            <button class="studio-btn" onclick="setDevBg('bright')">☀️ Bright</button>
+            <button class="studio-btn" onclick="setDevBg('checker')">🏁 Grid</button>
+            <button class="studio-btn" onclick="setDevBg('transparent')">🌫️ Transp</button>
+          </div>
+          <div class="studio-btn-row" style="margin-top: 4px;">
+            <button class="studio-btn" style="background: rgba(34,197,94,0.25); color: #4ade80;" onclick="window.play()">▶ Play</button>
+            <button class="studio-btn" style="background: rgba(239,68,68,0.25); color: #f87171;" onclick="window.stop()">⏹ Stop</button>
+            <button class="studio-btn" onclick="replayTimeline()">↺ Replay</button>
+            <button class="studio-btn" style="background: rgba(56,189,248,0.2); color: #38bdf8;" onclick="quickPreviewCycle()">⚡ Quick Test (2s)</button>
+          </div>
         </div>
       </div>
 
-      <!-- Preview Background & Transport -->
-      <div class="studio-group">
-        <div class="studio-group-title">🎬 Stage Canvas & Transport</div>
-        <div class="studio-btn-row">
-          <button class="studio-btn active" onclick="setDevBg('dark')">🌑 Dark</button>
-          <button class="studio-btn" onclick="setDevBg('bright')">☀️ Bright</button>
-          <button class="studio-btn" onclick="setDevBg('checker')">🏁 Grid</button>
-          <button class="studio-btn" onclick="setDevBg('transparent')">🌫️ Transp</button>
+      <!-- TAB 2: Design & Theme (Engineering Blueprints from Paper) -->
+      <div id="tab-pane-theme" class="studio-tab-pane">
+        <!-- Blueprint Presets -->
+        <div class="studio-group">
+          <div class="studio-group-title">🎨 Broadcast Neumorphic Blueprints</div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div class="studio-theme-card active" data-theme="frosted" onclick="applyThemePreset('frosted')">
+              <div class="studio-theme-title">🌟 Hybrid Frosted Glass (Default SOTA)</div>
+              <div class="studio-theme-desc">Translucent frosted glass with micro-rim &amp; soft debossed stencil</div>
+            </div>
+            <div class="studio-theme-card" data-theme="matte-slate" onclick="applyThemePreset('matte-slate')">
+              <div class="studio-theme-title">🪨 Option 1: Matte Extruded Slate</div>
+              <div class="studio-theme-desc">Monochromatic #E2E8F0 base with dual shadows &amp; 1px micro-border</div>
+            </div>
+            <div class="studio-theme-card" data-theme="vibrant-accent" onclick="applyThemePreset('vibrant-accent')">
+              <div class="studio-theme-title">💜 Option 2: Vibrant Accent Extrusion</div>
+              <div class="studio-theme-desc">Soft #E0E7FF lavender-blue base with radiant indigo drop shadow</div>
+            </div>
+            <div class="studio-theme-card" data-theme="inset-embossed" onclick="applyThemePreset('inset-embossed')">
+              <div class="studio-theme-title">🕳️ Option 3: Inset Embossed Slate</div>
+              <div class="studio-theme-desc">Sunken #D1D5DB base with deep internal shadows &amp; recessed trough</div>
+            </div>
+            <div class="studio-theme-card" data-theme="dark-obsidian" onclick="applyThemePreset('dark-obsidian')">
+              <div class="studio-theme-title">🌑 Option 5: Obsidian Dark MCR</div>
+              <div class="studio-theme-desc">Master control dark slate with broadcast cyan accents</div>
+            </div>
+          </div>
         </div>
-        <div class="studio-btn-row" style="margin-top: 4px;">
-          <button class="studio-btn" style="background: rgba(34,197,94,0.25); color: #4ade80;" onclick="window.play()">▶ Play</button>
-          <button class="studio-btn" style="background: rgba(239,68,68,0.25); color: #f87171;" onclick="window.stop()">⏹ Stop</button>
-          <button class="studio-btn" onclick="replayTimeline()">↺ Replay</button>
+
+        <!-- Stencil Style & Badge Shape -->
+        <div class="studio-group">
+          <div class="studio-group-title">🪨 Badge &amp; Stencil Settings</div>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Stencil Contour Style</span>
+            </div>
+            <select id="sel-stencil-style" class="studio-select" onchange="updateStencilStyle()">
+              <option value="soft">Soft Hairline (Recommended, 0.9px)</option>
+              <option value="none">Pure Stencil (No Contour)</option>
+              <option value="contrast">High Contrast (1.3px)</option>
+            </select>
+          </div>
+
+          <div class="studio-slider-row" style="margin-top: 4px;">
+            <div class="studio-slider-header">
+              <span>Badge Shape</span>
+            </div>
+            <select id="sel-badge-shape" class="studio-select" onchange="updateBadgeShape()">
+              <option value="circle">Circular (Standard NCRTV)</option>
+              <option value="squircle">Squircle (Convex Neumorphic)</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      <!-- Typography -->
-      <div class="studio-group">
-        <div class="studio-group-title">🔤 Typography</div>
-        <select id="sel-font-family" class="studio-select" onchange="updateStudioStyles()">
-          <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">Standard Broadcast Sans</option>
-          <option value="'Outfit', system-ui, -apple-system, sans-serif">Outfit (Modern Sans)</option>
-          <option value="'Inter', system-ui, -apple-system, sans-serif">Inter (Clean Sans)</option>
-          <option value="'Roboto', -apple-system, sans-serif">Roboto</option>
-        </select>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Rating Explanation Font</span>
-            <span id="val-explanation-font" class="studio-value-tag">13px</span>
+      <!-- TAB 3: Geometry & Position -->
+      <div id="tab-pane-geometry" class="studio-tab-pane">
+        <div class="studio-group">
+          <div class="studio-group-title">📍 Screen Anchor Corner</div>
+          <div class="studio-btn-row">
+            <button class="studio-btn active" data-anchor="top-right" onclick="setAnchorPosition('top-right')">↗ Top-Right</button>
+            <button class="studio-btn" data-anchor="top-left" onclick="setAnchorPosition('top-left')">↖ Top-Left</button>
+            <button class="studio-btn" data-anchor="bottom-right" onclick="setAnchorPosition('bottom-right')">↘ Bottom-Right</button>
+            <button class="studio-btn" data-anchor="bottom-left" onclick="setAnchorPosition('bottom-left')">↙ Bottom-Left</button>
           </div>
-          <input type="range" id="sld-explanation-font" min="10" max="22" step="0.5" value="13" class="studio-slider" oninput="updateStudioStyles()">
         </div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Warning Body Font</span>
-            <span id="val-warning-body-font" class="studio-value-tag">12px</span>
+
+        <div class="studio-group">
+          <div class="studio-group-title">📐 Geometry &amp; Safe Margins</div>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Top / Bottom Safe Margin</span>
+              <span id="val-top-margin" class="studio-value-tag">60px</span>
+            </div>
+            <input type="range" id="sld-top-margin" min="20" max="160" step="2" value="60" class="studio-slider" oninput="updateStudioStyles()">
           </div>
-          <input type="range" id="sld-warning-body-font" min="9" max="20" step="0.5" value="12" class="studio-slider" oninput="updateStudioStyles()">
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Left / Right Safe Margin</span>
+              <span id="val-right-margin" class="studio-value-tag">60px</span>
+            </div>
+            <input type="range" id="sld-right-margin" min="20" max="180" step="2" value="60" class="studio-slider" oninput="updateStudioStyles()">
+          </div>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>↕️ Text &amp; Bar Vertical Offset (Margin)</span>
+              <span id="val-text-offset-y" class="studio-value-tag">0px</span>
+            </div>
+            <input type="range" id="sld-text-offset-y" min="-30" max="30" step="1" value="0" class="studio-slider" oninput="updateStudioStyles()">
+          </div>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Badge Diameter</span>
+              <span id="val-badge-size" class="studio-value-tag">54px</span>
+            </div>
+            <input type="range" id="sld-badge-size" min="36" max="80" step="1" value="54" class="studio-slider" oninput="updateStudioStyles()">
+          </div>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Badge Number Font</span>
+              <span id="val-badge-font" class="studio-value-tag">27px</span>
+            </div>
+            <input type="range" id="sld-badge-font" min="16" max="42" step="1" value="27" class="studio-slider" oninput="updateStudioStyles()">
+          </div>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Warning SVG Icon Size</span>
+              <span id="val-icon-size" class="studio-value-tag">28px</span>
+            </div>
+            <input type="range" id="sld-icon-size" min="20" max="44" step="1" value="28" class="studio-slider" oninput="updateStudioStyles()">
+          </div>
         </div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Warning Lead Subtitle</span>
-            <span id="val-warning-lead-font" class="studio-value-tag">10.5px</span>
+
+        <div class="studio-group">
+          <div class="studio-group-title">🔤 Typography Sizing</div>
+          <select id="sel-font-family" class="studio-select" onchange="updateStudioStyles()">
+            <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">Standard Broadcast Sans</option>
+            <option value="'Outfit', system-ui, -apple-system, sans-serif">Outfit (Modern Sans)</option>
+            <option value="'Inter', system-ui, -apple-system, sans-serif">Inter (Clean Sans)</option>
+            <option value="'Roboto', -apple-system, sans-serif">Roboto</option>
+          </select>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Rating Explanation Font</span>
+              <span id="val-explanation-font" class="studio-value-tag">13px</span>
+            </div>
+            <input type="range" id="sld-explanation-font" min="10" max="22" step="0.5" value="13" class="studio-slider" oninput="updateStudioStyles()">
           </div>
-          <input type="range" id="sld-warning-lead-font" min="8" max="16" step="0.5" value="10.5" class="studio-slider" oninput="updateStudioStyles()">
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Warning Body Font</span>
+              <span id="val-warning-body-font" class="studio-value-tag">12px</span>
+            </div>
+            <input type="range" id="sld-warning-body-font" min="9" max="20" step="0.5" value="12" class="studio-slider" oninput="updateStudioStyles()">
+          </div>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Warning Lead Subtitle</span>
+              <span id="val-warning-lead-font" class="studio-value-tag">10.5px</span>
+            </div>
+            <input type="range" id="sld-warning-lead-font" min="8" max="16" step="0.5" value="10.5" class="studio-slider" oninput="updateStudioStyles()">
+          </div>
         </div>
       </div>
 
-      <!-- Safe Area & Dimensions -->
-      <div class="studio-group">
-        <div class="studio-group-title">📐 Geometry & Safe Area</div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Top Safe Margin</span>
-            <span id="val-top-margin" class="studio-value-tag">60px</span>
+      <!-- TAB 4: Timing & Motion -->
+      <div id="tab-pane-timing" class="studio-tab-pane">
+        <div class="studio-group">
+          <div class="studio-group-title">⏱️ Hold Timings (On-Air)</div>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Rating Explanation Hold</span>
+              <span id="val-rating-hold" class="studio-value-tag">4s</span>
+            </div>
+            <input type="range" id="sld-rating-hold" min="2" max="30" step="1" value="4" class="studio-slider" oninput="updateStudioTimings()">
           </div>
-          <input type="range" id="sld-top-margin" min="20" max="160" step="2" value="60" class="studio-slider" oninput="updateStudioStyles()">
-        </div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Right Safe Margin</span>
-            <span id="val-right-margin" class="studio-value-tag">60px</span>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Warning Descriptor Hold</span>
+              <span id="val-warning-hold" class="studio-value-tag">26s</span>
+            </div>
+            <input type="range" id="sld-warning-hold" min="4" max="60" step="1" value="26" class="studio-slider" oninput="updateStudioTimings()">
           </div>
-          <input type="range" id="sld-right-margin" min="20" max="180" step="2" value="60" class="studio-slider" oninput="updateStudioStyles()">
         </div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Corner Badge Diameter</span>
-            <span id="val-badge-size" class="studio-value-tag">52px</span>
-          </div>
-          <input type="range" id="sld-badge-size" min="36" max="80" step="1" value="52" class="studio-slider" oninput="updateStudioStyles()">
-        </div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Badge Number Font Size</span>
-            <span id="val-badge-font" class="studio-value-tag">26px</span>
-          </div>
-          <input type="range" id="sld-badge-font" min="16" max="42" step="1" value="26" class="studio-slider" oninput="updateStudioStyles()">
-        </div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Warning SVG Icon Size</span>
-            <span id="val-icon-size" class="studio-value-tag">28px</span>
-          </div>
-          <input type="range" id="sld-icon-size" min="20" max="44" step="1" value="28" class="studio-slider" oninput="updateStudioStyles()">
-        </div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Text to Line Gap</span>
-            <span id="val-line-gap" class="studio-value-tag">8px</span>
-          </div>
-          <input type="range" id="sld-line-gap" min="2" max="24" step="1" value="8" class="studio-slider" oninput="updateStudioStyles()">
-        </div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Accent Line Thickness</span>
-            <span id="val-accent-height" class="studio-value-tag">2px</span>
-          </div>
-          <input type="range" id="sld-accent-height" min="1" max="6" step="0.5" value="2" class="studio-slider" oninput="updateStudioStyles()">
-        </div>
-      </div>
 
-      <!-- Hold Durations -->
-      <div class="studio-group">
-        <div class="studio-group-title">⏱️ Hold Timings</div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Rating Explanation Hold</span>
-            <span id="val-rating-hold" class="studio-value-tag">30s</span>
+        <div class="studio-group">
+          <div class="studio-group-title">✨ Motion Dynamics</div>
+          <div class="studio-slider-row">
+            <div class="studio-slider-header">
+              <span>Animation Transition Style</span>
+            </div>
+            <select id="sel-motion-curve" class="studio-select" onchange="updateStudioStyles()">
+              <option value="elastic">Smooth Spring (GSAP Power3 &amp; Back)</option>
+              <option value="smooth">Clean Broadcast Slide</option>
+              <option value="fade">Subtle Fade</option>
+            </select>
           </div>
-          <input type="range" id="sld-rating-hold" min="4" max="60" step="1" value="30" class="studio-slider" oninput="updateStudioTimings()">
-        </div>
-        <div class="studio-slider-row">
-          <div class="studio-slider-header">
-            <span>Warning Descriptor Hold</span>
-            <span id="val-warning-hold" class="studio-value-tag">30s</span>
-          </div>
-          <input type="range" id="sld-warning-hold" min="4" max="60" step="1" value="30" class="studio-slider" oninput="updateStudioTimings()">
         </div>
       </div>
     </div>
 
+    <!-- Studio Footer -->
     <div class="studio-footer">
       <div id="save-status-msg" class="save-status-msg"></div>
       <button class="action-btn-primary" onclick="saveStationDefaults()">💾 Save Station Defaults</button>
@@ -774,67 +1071,63 @@
 
   <script>
     // -------------------------------------------------------------
-    // HIGH-CONTRAST NEUMORPHIC VECTOR STENCIL GLYPHS (28x28)
+    // HIGH-LEGIBILITY SOFTENED VECTOR STENCIL GLYPHS (28x28)
     // -------------------------------------------------------------
     const WARNING_GLYPHS = {
       violence: `
-        <svg class="warning-icon-svg" viewBox="0 0 28 28">
-          <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-          <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="3" stroke-linecap="round" fill="none">
+        <svg class="warning-icon-svg" viewBox="0 0 28 28" shape-rendering="geometricPrecision">
+          <g stroke="rgba(0, 0, 0, 0.45)" stroke-width="2.6" stroke-linecap="round" fill="none">
             <path d="M7 7 L21 21 M21 7 L7 21" />
             <path d="M5.5 8.5 L8.5 5.5 M19.5 5.5 L22.5 8.5 M5.5 19.5 L8.5 22.5 M19.5 22.5 L22.5 19.5" />
           </g>
           <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" fill="none">
             <path d="M7 7 L21 21 M21 7 L7 21" />
             <path d="M5.5 8.5 L8.5 5.5 M19.5 5.5 L22.5 8.5 M5.5 19.5 L8.5 22.5 M19.5 22.5 L22.5 19.5" />
-            <circle cx="5" cy="5" r="1" fill="#ffffff" stroke="none" />
-            <circle cx="23" cy="5" r="1" fill="#ffffff" stroke="none" />
+            <circle cx="5" cy="5" r="1.2" fill="#ffffff" stroke="none" />
+            <circle cx="23" cy="5" r="1.2" fill="#ffffff" stroke="none" />
           </g>
         </svg>
       `,
       sex: `
-        <svg class="warning-icon-svg" viewBox="0 0 28 28">
-          <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-          <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <svg class="warning-icon-svg" viewBox="0 0 28 28" shape-rendering="geometricPrecision">
+          <g stroke="rgba(0, 0, 0, 0.45)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
             <circle cx="11" cy="15.5" r="4.2" />
             <circle cx="17" cy="12.5" r="4.2" />
             <path d="M19.8 9.8 L23 6.5 M19.5 6.5 L23 6.5 L23 10" />
             <path d="M11 19.7 L11 23 M8.5 21.2 L13.5 21.2" />
           </g>
           <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
-            <circle cx="11" cy="15.5" r="4.2" fill="rgba(255, 255, 255, 0.12)" />
-            <circle cx="17" cy="12.5" r="4.2" fill="rgba(255, 255, 255, 0.12)" />
+            <circle cx="11" cy="15.5" r="4.2" fill="rgba(255, 255, 255, 0.2)" />
+            <circle cx="17" cy="12.5" r="4.2" fill="rgba(255, 255, 255, 0.2)" />
             <path d="M19.8 9.8 L23 6.5 M19.5 6.5 L23 6.5 L23 10" />
             <path d="M11 19.7 L11 23 M8.5 21.2 L13.5 21.2" />
           </g>
         </svg>
       `,
       drugs: `
-        <svg class="warning-icon-svg" viewBox="0 0 28 28">
-          <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-          <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
-            <rect x="10" y="6" width="8" height="16" rx="4" fill="rgba(0, 0, 0, 0.6)" />
+        <svg class="warning-icon-svg" viewBox="0 0 28 28" shape-rendering="geometricPrecision">
+          <g stroke="rgba(0, 0, 0, 0.45)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+            <rect x="10" y="6" width="8" height="16" rx="4" fill="rgba(0, 0, 0, 0.25)" />
             <line x1="10" y1="14" x2="18" y2="14" />
           </g>
           <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
             <rect x="10" y="6" width="8" height="16" rx="4" />
             <path d="M10 14 L18 14" stroke="#ffffff" stroke-width="1.8" />
             <path d="M10 10 C10 7.8 18 7.8 18 10 L18 14 L10 14 Z" fill="#ffffff" stroke="none" />
-            <circle cx="14" cy="18" r="1.1" fill="#ffffff" stroke="none" />
+            <circle cx="14" cy="18" r="1.2" fill="#ffffff" stroke="none" />
           </g>
         </svg>
       `,
       language: `
-        <svg class="warning-icon-svg" viewBox="0 0 28 28">
-          <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-          <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
-            <path d="M6 9.5 C6 7.8 7.5 6.5 9.5 6.5 L18.5 6.5 C20.5 6.5 22 7.8 22 9.5 L22 15.5 C22 17.2 20.5 18.5 18.5 18.5 L16 18.5 L14 21.5 L12 18.5 L9.5 18.5 C7.5 18.5 6 17.2 6 15.5 Z" fill="rgba(0, 0, 0, 0.6)" />
+        <svg class="warning-icon-svg" viewBox="0 0 28 28" shape-rendering="geometricPrecision">
+          <g stroke="rgba(0, 0, 0, 0.45)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none">
+            <path d="M6 9.5 C6 7.8 7.5 6.5 9.5 6.5 L18.5 6.5 C20.5 6.5 22 7.8 22 9.5 L22 15.5 C22 17.2 20.5 18.5 18.5 18.5 L16 18.5 L14 21.5 L12 18.5 L9.5 18.5 C7.5 18.5 6 17.2 6 15.5 Z" fill="rgba(0, 0, 0, 0.25)" />
             <line x1="10.5" y1="11.5" x2="10.5" y2="14.5" />
             <line x1="14" y1="9.8" x2="14" y2="16.2" />
             <line x1="17.5" y1="11.5" x2="17.5" y2="14.5" />
           </g>
           <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
-            <path d="M6 9.5 C6 7.8 7.5 6.5 9.5 6.5 L18.5 6.5 C20.5 6.5 22 7.8 22 9.5 L22 15.5 C22 17.2 20.5 18.5 18.5 18.5 L16 18.5 L14 21.5 L12 18.5 L9.5 18.5 C7.5 18.5 6 17.2 6 15.5 Z" fill="rgba(255, 255, 255, 0.25)" />
+            <path d="M6 9.5 C6 7.8 7.5 6.5 9.5 6.5 L18.5 6.5 C20.5 6.5 22 7.8 22 9.5 L22 15.5 C22 17.2 20.5 18.5 18.5 18.5 L16 18.5 L14 21.5 L12 18.5 L9.5 18.5 C7.5 18.5 6 17.2 6 15.5 Z" fill="rgba(255, 255, 255, 0.15)" />
             <line x1="10.5" y1="11.5" x2="10.5" y2="14.5" stroke="#ffffff" stroke-width="1.8" />
             <line x1="14" y1="9.8" x2="14" y2="16.2" stroke="#ffffff" stroke-width="2" />
             <line x1="17.5" y1="11.5" x2="17.5" y2="14.5" stroke="#ffffff" stroke-width="1.8" />
@@ -842,20 +1135,121 @@
         </svg>
       `,
       combo: `
-        <svg class="warning-icon-svg" viewBox="0 0 28 28">
-          <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-          <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
-            <path d="M14 3.5 L22 7.2 V14 C22 19.5 18.5 23.5 14 25 C9.5 23.5 6 19.5 6 14 V7.2 Z" fill="rgba(0, 0, 0, 0.6)" />
+        <svg class="warning-icon-svg" viewBox="0 0 28 28" shape-rendering="geometricPrecision">
+          <g stroke="rgba(0, 0, 0, 0.45)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none">
+            <path d="M14 3.5 L22 7.2 V14 C22 19.5 18.5 23.5 14 25 C9.5 23.5 6 19.5 6 14 V7.2 Z" fill="rgba(0, 0, 0, 0.25)" />
             <line x1="14" y1="7.5" x2="14" y2="14.5" />
-            <circle cx="14" cy="18" r="0.9" fill="#000000" />
+            <circle cx="14" cy="18" r="1.0" fill="#000000" />
           </g>
           <g stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
-            <path d="M14 3.5 L22 7.2 V14 C22 19.5 18.5 23.5 14 25 C9.5 23.5 6 19.5 6 14 V7.2 Z" fill="rgba(255, 255, 255, 0.85)" />
+            <path d="M14 3.5 L22 7.2 V14 C22 19.5 18.5 23.5 14 25 C9.5 23.5 6 19.5 6 14 V7.2 Z" fill="rgba(255, 255, 255, 0.35)" />
             <line x1="14" y1="7.5" x2="14" y2="14.5" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2" />
-            <circle cx="14" cy="18" r="1.1" fill="rgba(15, 23, 42, 0.95)" stroke="none" />
+            <circle cx="14" cy="18" r="1.2" fill="rgba(15, 23, 42, 0.95)" stroke="none" />
           </g>
         </svg>
       `
+    };
+
+    // -------------------------------------------------------------
+    // BROADCAST NEUMORPHIC BLUEPRINTS & COLOR SCIENCE PRESETS
+    // Adheres strictly to Rec. 709 (16 to 235 Luma envelope)
+    // -------------------------------------------------------------
+    const THEME_PRESETS = {
+      'frosted': {
+        name: 'Hybrid Frosted Glass (Default SOTA)',
+        badgeBg: 'rgba(255, 255, 255, 0.32)',
+        badgeFill: 'rgba(255, 255, 255, 0.35)',
+        badgeStroke: 'rgba(255, 255, 255, 0.85)',
+        badgeShadow: '0 4px 18px rgba(0, 0, 0, 0.42), -2px -2px 8px rgba(255, 255, 255, 0.35), inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.85), inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.20)',
+        badgeBackdrop: 'blur(16px) saturate(180%)',
+        stencilOutlineColor: 'rgba(0, 0, 0, 0.35)',
+        stencilOutlineWidth: '0.9px',
+        accentBg: 'linear-gradient(270deg, rgba(255, 255, 255, 0.95) 0%, rgba(56, 189, 248, 0.85) 50%, rgba(255, 255, 255, 0) 100%)',
+        textColor: '#ffffff',
+        textShadow: '0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85)',
+        textStroke: '0.35px rgba(0, 0, 0, 0.45)',
+        troughBg: 'transparent',
+        troughShadow: 'none',
+        troughBorder: 'none',
+        tpBg: 'rgba(255, 255, 255, 0.30)',
+        tpBorder: '1.5px solid rgba(255, 255, 255, 0.70)'
+      },
+      'matte-slate': {
+        name: 'Option 1: Matte Extruded Slate',
+        badgeBg: '#e2e8f0',
+        badgeFill: 'linear-gradient(135deg, #f0f5fc, #c8ced5)',
+        badgeStroke: 'rgba(255, 255, 255, 0.5)',
+        badgeShadow: '7px 7px 15px #b0b7c0, -7px -7px 15px #ffffff, inset 1px 1px 2px #ffffff',
+        badgeBackdrop: 'none',
+        stencilOutlineColor: 'rgba(30, 41, 59, 0.5)',
+        stencilOutlineWidth: '1.0px',
+        accentBg: 'linear-gradient(270deg, #2563eb 0%, #3b82f6 60%, rgba(37, 99, 235, 0) 100%)',
+        textColor: '#ffffff',
+        textShadow: '0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85)',
+        textStroke: '0.35px rgba(0, 0, 0, 0.5)',
+        troughBg: 'rgba(218, 225, 233, 0.92)',
+        troughShadow: 'inset 3px 3px 6px rgba(163, 177, 198, 0.7), inset -3px -3px 6px rgba(255, 255, 255, 0.8)',
+        troughBorder: '1px solid rgba(255, 255, 255, 0.5)',
+        tpBg: '#e2e8f0',
+        tpBorder: '1px solid rgba(255, 255, 255, 0.5)'
+      },
+      'vibrant-accent': {
+        name: 'Option 2: Vibrant Accent Extrusion',
+        badgeBg: '#e0e7ff',
+        badgeFill: 'linear-gradient(135deg, #eef2ff, #c7d2fe)',
+        badgeStroke: 'rgba(99, 102, 241, 0.4)',
+        badgeShadow: '8px 8px 18px rgba(79, 70, 229, 0.25), -8px -8px 18px #ffffff',
+        badgeBackdrop: 'none',
+        stencilOutlineColor: 'rgba(79, 70, 229, 0.5)',
+        stencilOutlineWidth: '1.0px',
+        accentBg: 'linear-gradient(270deg, #7c69ef 0%, #6366f1 60%, rgba(124, 105, 239, 0) 100%)',
+        textColor: '#ffffff',
+        textShadow: '0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 10px rgba(124, 105, 239, 0.5)',
+        textStroke: '0.35px rgba(0, 0, 0, 0.5)',
+        troughBg: 'rgba(224, 231, 255, 0.92)',
+        troughShadow: 'inset 3px 3px 6px rgba(165, 180, 252, 0.7), inset -3px -3px 6px rgba(255, 255, 255, 0.8)',
+        troughBorder: '1px solid rgba(99, 102, 241, 0.3)',
+        tpBg: '#e0e7ff',
+        tpBorder: '1.5px solid rgba(99, 102, 241, 0.4)'
+      },
+      'inset-embossed': {
+        name: 'Option 3: Inset Embossed Slate',
+        badgeBg: '#d1d5db',
+        badgeFill: 'linear-gradient(135deg, #c8ced5, #e5e7eb)',
+        badgeStroke: 'rgba(0, 0, 0, 0.08)',
+        badgeShadow: 'inset 6px 6px 12px #9ca3af, inset -6px -6px 12px #ffffff',
+        badgeBackdrop: 'none',
+        stencilOutlineColor: 'rgba(0, 0, 0, 0.45)',
+        stencilOutlineWidth: '1.1px',
+        accentBg: 'linear-gradient(270deg, #475569 0%, #64748b 60%, rgba(71, 85, 105, 0) 100%)',
+        textColor: '#ffffff',
+        textShadow: '0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85)',
+        textStroke: '0.35px rgba(0, 0, 0, 0.5)',
+        troughBg: 'rgba(209, 213, 219, 0.92)',
+        troughShadow: 'inset 4px 4px 8px #9ca3af, inset -4px -4px 8px #ffffff',
+        troughBorder: '1px solid rgba(255, 255, 255, 0.6)',
+        tpBg: '#d1d5db',
+        tpBorder: '1px solid rgba(0, 0, 0, 0.1)'
+      },
+      'dark-obsidian': {
+        name: 'Option 5: Obsidian Dark MCR',
+        badgeBg: 'rgba(15, 23, 42, 0.88)',
+        badgeFill: 'linear-gradient(135deg, #1e293b, #0f172a)',
+        badgeStroke: 'rgba(56, 189, 248, 0.45)',
+        badgeShadow: '0 8px 24px rgba(0, 0, 0, 0.85), -2px -2px 8px rgba(255, 255, 255, 0.08), inset 1.5px 1.5px 3px rgba(56, 189, 248, 0.3), inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.6)',
+        badgeBackdrop: 'blur(16px)',
+        stencilOutlineColor: 'rgba(56, 189, 248, 0.65)',
+        stencilOutlineWidth: '1.0px',
+        accentBg: 'linear-gradient(270deg, #00e5ff 0%, #38bdf8 60%, rgba(0, 229, 255, 0) 100%)',
+        textColor: '#ffffff',
+        textShadow: '0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.90)',
+        textStroke: '0.35px rgba(0, 0, 0, 0.5)',
+        troughBg: 'rgba(15, 23, 42, 0.75)',
+        troughShadow: 'inset 2px 2px 6px rgba(0, 0, 0, 0.6), inset -1px -1px 3px rgba(255, 255, 255, 0.08)',
+        troughBorder: '1px solid rgba(56, 189, 248, 0.3)',
+        tpBg: 'rgba(15, 23, 42, 0.88)',
+        tpBorder: '1.5px solid rgba(56, 189, 248, 0.45)'
+      }
     };
 
     const DEFAULT_RATING_TEXTS = {
@@ -904,15 +1298,27 @@
 
     let currentConfig = {
       rating: '16',
-      custom_text: 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16',
+      custom_text: null, // Dynamic default based on rating
       show_explanation: true,
       warnings: ['violence', 'drugs'],
-      hold_time: 30.0,
-      warning_hold_time: 30.0,
-      tp: false
+      hold_time: 4.0, // Default 4s for rating explanation
+      warning_hold_time: 26.0, // Default 26s for warning descriptors (total 30s)
+      tp: false,
+      theme: 'frosted',
+      shape: 'circle',
+      anchor: 'top-right'
     };
 
     let masterTL = null;
+
+    function switchStudioTab(tabId) {
+      document.querySelectorAll('.studio-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
+      });
+      document.querySelectorAll('.studio-tab-pane').forEach(pane => {
+        pane.classList.toggle('active', pane.id === `tab-pane-${tabId}`);
+      });
+    }
 
     function normalizeWarning(w) {
       if (!w) return null;
@@ -924,12 +1330,136 @@
       return null;
     }
 
+    function applyThemePreset(themeKey) {
+      const preset = THEME_PRESETS[themeKey] || THEME_PRESETS['frosted'];
+      const root = document.documentElement;
+      root.style.setProperty('--badge-bg', preset.badgeBg);
+      root.style.setProperty('--badge-fill', preset.badgeFill);
+      root.style.setProperty('--badge-stroke', preset.badgeStroke);
+      root.style.setProperty('--badge-shadow', preset.badgeShadow);
+      root.style.setProperty('--badge-backdrop', preset.badgeBackdrop);
+      root.style.setProperty('--stencil-outline-color', preset.stencilOutlineColor);
+      root.style.setProperty('--stencil-outline-width', preset.stencilOutlineWidth);
+      root.style.setProperty('--accent-bg', preset.accentBg);
+      root.style.setProperty('--text-color', preset.textColor);
+      root.style.setProperty('--text-shadow', preset.textShadow);
+      root.style.setProperty('--text-stroke', preset.textStroke);
+      root.style.setProperty('--trough-bg', preset.troughBg);
+      root.style.setProperty('--trough-shadow', preset.troughShadow);
+      root.style.setProperty('--trough-border', preset.troughBorder);
+      root.style.setProperty('--tp-bg', preset.tpBg);
+      root.style.setProperty('--tp-border', preset.tpBorder);
+
+      currentConfig.theme = themeKey;
+      document.querySelectorAll('.studio-theme-card').forEach(card => {
+        card.classList.toggle('active', card.getAttribute('data-theme') === themeKey);
+      });
+      buildTimeline();
+      replayTimeline();
+    }
+
+    function setAnchorPosition(anchor) {
+      const stage = document.getElementById('advisory-stage');
+      if (!stage) return;
+      stage.className = `anchor-${anchor}`;
+      currentConfig.anchor = anchor;
+
+      document.querySelectorAll('[data-anchor]').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-anchor') === anchor);
+      });
+      buildTimeline();
+      replayTimeline();
+    }
+
+    function updateBadgeShape() {
+      const sel = document.getElementById('sel-badge-shape');
+      const shape = sel ? sel.value : 'circle';
+      currentConfig.shape = shape;
+
+      const badgeWrapper = document.getElementById('rating-badge-container');
+      const maskShape = document.getElementById('badge-stencil-mask');
+      const mainShape = document.getElementById('badge-main-shape');
+      const displayRating = currentConfig.rating === 'K' ? 'Κ' : (currentConfig.rating === 'NONE' ? '' : (currentConfig.rating || '16'));
+
+      if (shape === 'squircle') {
+        if (badgeWrapper) badgeWrapper.classList.add('shape-squircle');
+        if (maskShape) {
+          maskShape.innerHTML = `
+            <rect id="badge-mask-shape" x="1.5" y="1.5" width="49" height="49" rx="14" fill="#ffffff" shape-rendering="geometricPrecision" />
+            <text id="stencil-text" x="26" y="26" text-anchor="middle" dominant-baseline="central" alignment-baseline="central" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="26" fill="#000000" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">${displayRating}</text>
+          `;
+        }
+        if (mainShape) {
+          const parent = mainShape.parentNode;
+          const newRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          newRect.id = 'badge-main-shape';
+          newRect.setAttribute('x', '1.5');
+          newRect.setAttribute('y', '1.5');
+          newRect.setAttribute('width', '49');
+          newRect.setAttribute('height', '49');
+          newRect.setAttribute('rx', '14');
+          newRect.setAttribute('fill', 'var(--badge-fill)');
+          newRect.setAttribute('stroke', 'var(--badge-stroke)');
+          newRect.setAttribute('stroke-width', '1.5');
+          newRect.setAttribute('mask', 'url(#badge-stencil-mask)');
+          newRect.setAttribute('shape-rendering', 'geometricPrecision');
+          parent.replaceChild(newRect, mainShape);
+        }
+      } else {
+        if (badgeWrapper) badgeWrapper.classList.remove('shape-squircle');
+        if (maskShape) {
+          maskShape.innerHTML = `
+            <circle id="badge-mask-shape" cx="26" cy="26" r="24.5" fill="#ffffff" shape-rendering="geometricPrecision" />
+            <text id="stencil-text" x="26" y="26" text-anchor="middle" dominant-baseline="central" alignment-baseline="central" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="26" fill="#000000" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">${displayRating}</text>
+          `;
+        }
+        if (mainShape) {
+          const parent = mainShape.parentNode;
+          const newCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          newCircle.id = 'badge-main-shape';
+          newCircle.setAttribute('cx', '26');
+          newCircle.setAttribute('cy', '26');
+          newCircle.setAttribute('r', '24.5');
+          newCircle.setAttribute('fill', 'var(--badge-fill)');
+          newCircle.setAttribute('stroke', 'var(--badge-stroke)');
+          newCircle.setAttribute('stroke-width', '1.5');
+          newCircle.setAttribute('mask', 'url(#badge-stencil-mask)');
+          newCircle.setAttribute('shape-rendering', 'geometricPrecision');
+          parent.replaceChild(newCircle, mainShape);
+        }
+      }
+      buildTimeline();
+      replayTimeline();
+    }
+
+    function updateStencilStyle() {
+      const sel = document.getElementById('sel-stencil-style');
+      const val = sel ? sel.value : 'soft';
+      const root = document.documentElement;
+      if (val === 'none') {
+        root.style.setProperty('--stencil-outline-width', '0px');
+      } else if (val === 'contrast') {
+        root.style.setProperty('--stencil-outline-width', '1.3px');
+        root.style.setProperty('--stencil-outline-color', 'rgba(0, 0, 0, 0.65)');
+      } else {
+        root.style.setProperty('--stencil-outline-width', '0.9px');
+        root.style.setProperty('--stencil-outline-color', 'rgba(0, 0, 0, 0.35)');
+      }
+      buildTimeline();
+      replayTimeline();
+    }
+
     function applyStylingVariables(style) {
       if (!style) return;
       const root = document.documentElement;
+      if (style.themeName && THEME_PRESETS[style.themeName]) {
+        applyThemePreset(style.themeName);
+      }
       if (style.fontFamily) root.style.setProperty('--cg-font-family', style.fontFamily);
       if (style.topOffsetPx !== undefined) root.style.setProperty('--cg-top', style.topOffsetPx + 'px');
       if (style.rightOffsetPx !== undefined) root.style.setProperty('--cg-right', style.rightOffsetPx + 'px');
+      if (style.textOffsetYPx !== undefined) root.style.setProperty('--cg-text-offset-y', style.textOffsetYPx + 'px');
+      if (style.anchorPosition) setAnchorPosition(style.anchorPosition);
       if (style.badgeSizePx !== undefined) root.style.setProperty('--cg-badge-size', style.badgeSizePx + 'px');
       if (style.badgeFontSizePx !== undefined) {
         root.style.setProperty('--cg-badge-font-size', style.badgeFontSizePx + 'px');
@@ -937,6 +1467,11 @@
         const stOutline = document.getElementById('stencil-outline-text');
         if (stText) stText.setAttribute('font-size', style.badgeFontSizePx);
         if (stOutline) stOutline.setAttribute('font-size', style.badgeFontSizePx);
+      }
+      if (style.badgeShape) {
+        const sel = document.getElementById('sel-badge-shape');
+        if (sel) sel.value = style.badgeShape;
+        updateBadgeShape();
       }
       if (style.explanationFontSizePx !== undefined) root.style.setProperty('--cg-explanation-font-size', style.explanationFontSizePx + 'px');
       if (style.warningLeadFontSizePx !== undefined) root.style.setProperty('--cg-warning-lead-font-size', style.warningLeadFontSizePx + 'px');
@@ -956,7 +1491,7 @@
       const textSlotMask = document.getElementById('text-slot-mask');
       const accentLine = document.getElementById('accent-line');
       const stencilText = document.getElementById('stencil-text');
-      const stencilOutlineText = document.getElementById('stencil-outline-text');
+      const stencilOutline = document.getElementById('stencil-outline-text');
       const tpBadge = document.getElementById('tp-badge');
 
       gsap.killTweensOf(stage);
@@ -965,13 +1500,11 @@
       // Clear dynamic text slots
       textSlotMask.innerHTML = '';
 
-      // Update badge text stencil & hairline contour
+      // Update badge text stencil & hairline contour (strictly dead-centered)
       const ratingStr = String(currentConfig.rating || '16').toUpperCase();
       const displayRating = (ratingStr === 'NONE' || ratingStr === '') ? '' : (ratingStr === 'K' ? 'Κ' : ratingStr);
-      stencilText.textContent = displayRating;
-      if (stencilOutlineText) {
-        stencilOutlineText.textContent = displayRating;
-      }
+      if (stencilText) stencilText.textContent = displayRating;
+      if (stencilOutline) stencilOutline.textContent = displayRating;
 
       // Update TP badge
       if (currentConfig.tp) {
@@ -1070,24 +1603,24 @@
       gsap.set(accentLine, { scaleX: 0 });
 
       if (slotPrimary) {
-        gsap.set(slotPrimary, { yPercent: 120, opacity: 0 });
+        gsap.set(slotPrimary, { yPercent: 120, opacity: 0, display: 'inline-flex' });
       }
 
       warningSlots.forEach(ws => {
         const iconEl = ws.querySelector('.warning-icon-wrapper');
         const textGroupEl = ws.querySelector('.warning-text-group');
-        gsap.set(ws, { opacity: 1, yPercent: 0 });
+        gsap.set(ws, { opacity: 0, yPercent: 0, display: 'none' });
         if (iconEl) gsap.set(iconEl, { yPercent: 120, scale: 0.6, opacity: 0 });
         if (textGroupEl) gsap.set(textGroupEl, { yPercent: 120, opacity: 0 });
       });
 
       masterTL = gsap.timeline({ paused: true });
 
-      // Phase 1: Intro (Badge Pops In smoothly)
+      // Phase 1: Intro (Badge Pops In synchronously on single GPU layer)
       masterTL.to(badgeContainer, {
         scale: 1,
         opacity: 1,
-        duration: 0.65,
+        duration: 0.6,
         ease: 'power3.out'
       });
 
@@ -1098,164 +1631,217 @@
             scaleX: 1,
             duration: 0.45,
             ease: 'power3.out'
-          }, '-=0.35')
+          }, '-=0.25')
           .to(textSlotMask, {
             width: primaryWidth,
-            duration: 0.45,
+            duration: 0.5,
             ease: 'power3.out'
           }, '<')
           .to(slotPrimary, {
             yPercent: 0,
             opacity: 1,
-            duration: 0.6,
-            ease: 'back.out(1.7)'
-          }, '-=0.25');
+            duration: 0.45,
+            ease: 'back.out(1.4)'
+          }, '-=0.35');
 
-        const holdTime = Number(currentConfig.hold_time) || 30.0;
-        masterTL.to({}, { duration: holdTime });
-      }
+        // Hold Rating explanation (Defaults to 4.0s for crisp read)
+        const holdRating = Math.max(1, currentConfig.hold_time || 4.0);
+        masterTL.to({}, { duration: holdRating });
 
-      // Phase 2: Warning Transition (Sequential: Icon SVG first, then Text Group with elastic spring)
-      if (warningSlots.length > 0) {
-        const warningHoldTime = Number(currentConfig.warning_hold_time) || 30.0;
+        if (warningSlots.length > 0) {
+          // Slide Rating text out smoothly upwards
+          masterTL
+            .to(slotPrimary, {
+              yPercent: -120,
+              opacity: 0,
+              duration: 0.35,
+              ease: 'power2.in'
+            })
+            .set(slotPrimary, { display: 'none' });
 
-        warningSlots.forEach((ws, i) => {
-          const prevEl = (i === 0) ? slotPrimary : warningSlots[i - 1];
-          const targetWidth = warningWidths[i];
-          const iconEl = ws.querySelector('.warning-icon-wrapper');
-          const textGroupEl = ws.querySelector('.warning-text-group');
+          // Phase 2: Warning Descriptor Cycle
+          warningSlots.forEach((wSlot, idx) => {
+            const targetW = warningWidths[idx];
+            const iconEl = wSlot.querySelector('.warning-icon-wrapper');
+            const textGroupEl = wSlot.querySelector('.warning-text-group');
 
-          if (prevEl) {
             masterTL
-              .to(prevEl, {
+              .set(wSlot, { display: 'inline-flex', opacity: 1 })
+              .to(textSlotMask, {
+                width: targetW,
+                duration: 0.4,
+                ease: 'power3.out'
+              })
+              .to(iconEl, {
+                yPercent: 0,
+                scale: 1,
+                opacity: 1,
+                duration: 0.4,
+                ease: 'back.out(1.5)'
+              }, '<+=0.05')
+              .to(textGroupEl, {
+                yPercent: 0,
+                opacity: 1,
+                duration: 0.4,
+                ease: 'power2.out'
+              }, '<+=0.08');
+
+            // Hold Warning descriptor (Defaults to 26.0s on air, total 30s)
+            const holdWarning = Math.max(1, currentConfig.warning_hold_time || 26.0);
+            masterTL.to({}, { duration: holdWarning });
+
+            // Slide warning out upwards
+            masterTL
+              .to(wSlot, {
                 yPercent: -120,
                 opacity: 0,
                 duration: 0.35,
                 ease: 'power2.in'
               })
-              .to(textSlotMask, {
-                width: targetWidth,
-                duration: 0.45,
-                ease: 'power3.inOut'
-              }, '<');
-          } else {
-            masterTL
-              .to(accentLine, {
-                scaleX: 1,
-                duration: 0.45,
-                ease: 'power3.out'
-              }, '-=0.35')
-              .to(textSlotMask, {
-                width: targetWidth,
-                duration: 0.45,
-                ease: 'power3.inOut'
-              }, '<');
-          }
+              .set(wSlot, { display: 'none' });
+          });
+        } else {
+          // No warnings: slide out primary
+          masterTL
+            .to(slotPrimary, {
+              yPercent: -120,
+              opacity: 0,
+              duration: 0.35,
+              ease: 'power2.in'
+            })
+            .set(slotPrimary, { display: 'none' });
+        }
 
-          // 1. Spawning Icon SVG from the line with elastic pop
-          if (iconEl) {
-            masterTL.to(iconEl, {
-              yPercent: 0,
-              scale: 1.0,
-              opacity: 1,
-              duration: 0.55,
-              ease: 'back.out(1.8)'
-            }, '-=0.15');
-          }
-
-          // 2. Sequential Delay: Text Group spawns from the line with elastic spring
-          if (textGroupEl) {
-            masterTL.to(textGroupEl, {
-              yPercent: 0,
-              opacity: 1,
-              duration: 0.55,
-              ease: 'back.out(1.6)'
-            }, '-=0.45');
-          }
-
-          masterTL.to({}, { duration: warningHoldTime });
-        });
-      }
-
-      // Phase 3: Outro
-      if (slotPrimary || warningSlots.length > 0) {
-        const lastEl = warningSlots.length > 0 ? warningSlots[warningSlots.length - 1] : slotPrimary;
+        // Outro: Collapse text mask & retract accent underline
         masterTL
-          .to(lastEl, {
-            yPercent: 120,
-            opacity: 0,
+          .to(textSlotMask, {
+            width: 0,
             duration: 0.35,
-            ease: 'power2.in'
+            ease: 'power3.in'
           })
           .to(accentLine, {
             scaleX: 0,
-            duration: 0.4,
-            ease: 'power3.inOut'
-          }, '<')
+            duration: 0.3,
+            ease: 'power3.in'
+          }, '-=0.15');
+      } else if (warningSlots.length > 0) {
+        // Logo only mode but with warnings
+        masterTL
+          .to(accentLine, {
+            scaleX: 1,
+            duration: 0.45,
+            ease: 'power3.out'
+          }, '-=0.25');
+
+        warningSlots.forEach((wSlot, idx) => {
+          const targetW = warningWidths[idx];
+          const iconEl = wSlot.querySelector('.warning-icon-wrapper');
+          const textGroupEl = wSlot.querySelector('.warning-text-group');
+
+          masterTL
+            .set(wSlot, { display: 'inline-flex', opacity: 1 })
+            .to(textSlotMask, {
+              width: targetW,
+              duration: 0.4,
+              ease: 'power3.out'
+            })
+            .to(iconEl, {
+              yPercent: 0,
+              scale: 1,
+              opacity: 1,
+              duration: 0.4,
+              ease: 'back.out(1.5)'
+            }, '<+=0.05')
+            .to(textGroupEl, {
+              yPercent: 0,
+              opacity: 1,
+              duration: 0.4,
+              ease: 'power2.out'
+            }, '<+=0.08');
+
+          const holdWarning = Math.max(1, currentConfig.warning_hold_time || 26.0);
+          masterTL.to({}, { duration: holdWarning });
+
+          masterTL
+            .to(wSlot, {
+              yPercent: -120,
+              opacity: 0,
+              duration: 0.35,
+              ease: 'power2.in'
+            })
+            .set(wSlot, { display: 'none' });
+        });
+
+        masterTL
           .to(textSlotMask, {
             width: 0,
-            duration: 0.4,
-            ease: 'power3.inOut'
-          }, '<');
-      }
-    }
-
-    function applyConfig(data) {
-      if (!data) return;
-      if (typeof data === 'string') {
-        try { data = JSON.parse(data); } catch(e) {}
+            duration: 0.35,
+            ease: 'power3.in'
+          })
+          .to(accentLine, {
+            scaleX: 0,
+            duration: 0.3,
+            ease: 'power3.in'
+          }, '-=0.15');
       }
 
-      if (data.styling) {
-        applyStylingVariables(data.styling);
-      }
-
-      if (data.rating !== undefined) currentConfig.rating = String(data.rating).toUpperCase();
-      if (data.show_explanation !== undefined) currentConfig.show_explanation = Boolean(data.show_explanation);
-      if (data.explanation !== undefined) currentConfig.show_explanation = Boolean(data.explanation);
-      if (data.custom_text !== undefined) currentConfig.custom_text = String(data.custom_text);
-      else if (data.text !== undefined) currentConfig.custom_text = String(data.text);
-      if (data.warnings !== undefined) currentConfig.warnings = data.warnings;
-      if (data.hold_time !== undefined) currentConfig.hold_time = Number(data.hold_time) || 30.0;
-      if (data.warning_hold_time !== undefined) currentConfig.warning_hold_time = Number(data.warning_hold_time) || 30.0;
-      if (data.tp !== undefined) currentConfig.tp = Boolean(data.tp);
-
-      buildTimeline();
+      // Continuous Rating Badge remains pinned in corner until Caspar CLEAR
     }
 
-    function replayTimeline() {
-      if (masterTL) masterTL.restart();
-    }
-
+    // -------------------------------------------------------------
+    // CASPARCG AMCP INTERFACE (LAYER 32 PROTOCOL)
+    // -------------------------------------------------------------
     window.play = function() {
-      if (masterTL) masterTL.play(0);
+      if (masterTL) {
+        masterTL.play(0);
+      }
     };
 
     window.stop = function() {
-      const stage = document.getElementById('advisory-stage');
-      if (stage) {
-        gsap.to(stage, {
-          opacity: 0,
-          scale: 0.9,
-          x: 20,
-          duration: 0.5,
-          ease: 'power2.inOut',
-          onComplete: () => {
-            if (window.caspar && typeof window.caspar.remove === 'function') {
-              window.caspar.remove();
-            }
-          }
-        });
+      if (masterTL) {
+        masterTL.pause();
       }
+      gsap.to('#advisory-stage', {
+        opacity: 0,
+        scale: 0.85,
+        duration: 0.4,
+        ease: 'power2.in',
+        onComplete: () => {
+          if (masterTL) masterTL.kill();
+        }
+      });
     };
 
     window.update = function(data) {
-      applyConfig(data);
-      if (masterTL) masterTL.play(0);
+      let parsed = data;
+      if (typeof data === 'string') {
+        try { parsed = JSON.parse(data); } catch(e) { parsed = {}; }
+      }
+      if (parsed) {
+        if (parsed.rating !== undefined) {
+          currentConfig.rating = parsed.rating;
+          if (!parsed.custom_text && !parsed.warning_text) {
+            currentConfig.custom_text = null;
+          }
+        }
+        if (parsed.custom_text !== undefined) currentConfig.custom_text = parsed.custom_text;
+        if (parsed.warning_text !== undefined && !parsed.custom_text) currentConfig.custom_text = parsed.warning_text;
+        if (parsed.warnings !== undefined) currentConfig.warnings = parsed.warnings;
+        if (parsed.tp !== undefined) currentConfig.tp = !!parsed.tp;
+        if (parsed.hold_time !== undefined) currentConfig.hold_time = parseFloat(parsed.hold_time) || 4.0;
+        if (parsed.warning_hold_time !== undefined) currentConfig.warning_hold_time = parseFloat(parsed.warning_hold_time) || 26.0;
+        if (parsed.show_explanation !== undefined) currentConfig.show_explanation = !!parsed.show_explanation;
+
+        if (parsed.styling) {
+          applyStylingVariables(parsed.styling);
+        }
+      }
+      buildTimeline();
+      window.play();
     };
 
     // -------------------------------------------------------------
-    // STUDIO DRAWER & LIVE BROWSER CONTROLS
+    // STUDIO CONTROL ACTIONS
     // -------------------------------------------------------------
     function toggleStudioDrawer() {
       const drawer = document.getElementById('studio-drawer');
@@ -1263,88 +1849,121 @@
     }
 
     function setDevBg(mode) {
-      document.body.className = `bg-${mode === 'dark' ? 'dark-studio' : (mode === 'bright' ? 'bright-footage' : mode)}`;
+      document.body.className = `bg-${mode}`;
     }
 
     function setStudioRating(r) {
       currentConfig.rating = r;
-      currentConfig.custom_text = DEFAULT_RATING_TEXTS[r] || '';
-      document.querySelectorAll('.studio-btn[data-rating]').forEach(b => {
-        b.classList.toggle('active', b.getAttribute('data-rating') === r);
+      currentConfig.custom_text = null; // Dynamically compute text from rating
+      document.querySelectorAll('[data-rating]').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-rating') === r);
       });
       updateStudioPreview();
     }
 
     function updateStudioPreview() {
+      const v = document.getElementById('chk-violence')?.checked;
+      const s = document.getElementById('chk-sex')?.checked;
+      const d = document.getElementById('chk-drugs')?.checked;
+      const l = document.getElementById('chk-language')?.checked;
+      const tp = document.getElementById('chk-tp')?.checked;
+
       const warnings = [];
-      if (document.getElementById('chk-violence')?.checked) warnings.push('violence');
-      if (document.getElementById('chk-sex')?.checked) warnings.push('sex');
-      if (document.getElementById('chk-drugs')?.checked) warnings.push('drugs');
-      if (document.getElementById('chk-language')?.checked) warnings.push('language');
+      if (v) warnings.push('violence');
+      if (s) warnings.push('sex');
+      if (d) warnings.push('drugs');
+      if (l) warnings.push('language');
+
       currentConfig.warnings = warnings;
-      currentConfig.tp = !!document.getElementById('chk-tp')?.checked;
+      currentConfig.tp = !!tp;
 
       buildTimeline();
       replayTimeline();
     }
 
     function updateStudioStyles() {
-      const style = {
-        fontFamily: document.getElementById('sel-font-family').value,
-        topOffsetPx: Number(document.getElementById('sld-top-margin').value),
-        rightOffsetPx: Number(document.getElementById('sld-right-margin').value),
-        badgeSizePx: Number(document.getElementById('sld-badge-size').value),
-        badgeFontSizePx: Number(document.getElementById('sld-badge-font').value),
-        explanationFontSizePx: Number(document.getElementById('sld-explanation-font').value),
-        warningLeadFontSizePx: Number(document.getElementById('sld-warning-lead-font').value),
-        warningBodyFontSizePx: Number(document.getElementById('sld-warning-body-font').value),
-        warningIconSizePx: Number(document.getElementById('sld-icon-size').value),
-        accentLineHeightPx: Number(document.getElementById('sld-accent-height').value),
-        lineGapPx: Number(document.getElementById('sld-line-gap').value)
-      };
+      const ff = document.getElementById('sel-font-family').value;
+      const top = document.getElementById('sld-top-margin').value;
+      const right = document.getElementById('sld-right-margin').value;
+      const textOffsetY = document.getElementById('sld-text-offset-y').value;
+      const bSize = document.getElementById('sld-badge-size').value;
+      const bFont = document.getElementById('sld-badge-font').value;
+      const expFont = document.getElementById('sld-explanation-font').value;
+      const wLead = document.getElementById('sld-warning-lead-font').value;
+      const wBody = document.getElementById('sld-warning-body-font').value;
+      const iconSize = document.getElementById('sld-icon-size').value;
 
-      document.getElementById('val-top-margin').textContent = style.topOffsetPx + 'px';
-      document.getElementById('val-right-margin').textContent = style.rightOffsetPx + 'px';
-      document.getElementById('val-badge-size').textContent = style.badgeSizePx + 'px';
-      document.getElementById('val-badge-font').textContent = style.badgeFontSizePx + 'px';
-      document.getElementById('val-explanation-font').textContent = style.explanationFontSizePx + 'px';
-      document.getElementById('val-warning-lead-font').textContent = style.warningLeadFontSizePx + 'px';
-      document.getElementById('val-warning-body-font').textContent = style.warningBodyFontSizePx + 'px';
-      document.getElementById('val-icon-size').textContent = style.warningIconSizePx + 'px';
-      document.getElementById('val-accent-height').textContent = style.accentLineHeightPx + 'px';
-      document.getElementById('val-line-gap').textContent = style.lineGapPx + 'px';
+      document.getElementById('val-top-margin').textContent = top + 'px';
+      document.getElementById('val-right-margin').textContent = right + 'px';
+      document.getElementById('val-text-offset-y').textContent = textOffsetY + 'px';
+      document.getElementById('val-badge-size').textContent = bSize + 'px';
+      document.getElementById('val-badge-font').textContent = bFont + 'px';
+      document.getElementById('val-explanation-font').textContent = expFont + 'px';
+      document.getElementById('val-warning-lead-font').textContent = wLead + 'px';
+      document.getElementById('val-warning-body-font').textContent = wBody + 'px';
+      document.getElementById('val-icon-size').textContent = iconSize + 'px';
 
-      applyStylingVariables(style);
+      applyStylingVariables({
+        fontFamily: ff,
+        topOffsetPx: parseFloat(top),
+        rightOffsetPx: parseFloat(right),
+        textOffsetYPx: parseFloat(textOffsetY),
+        badgeSizePx: parseFloat(bSize),
+        badgeFontSizePx: parseFloat(bFont),
+        explanationFontSizePx: parseFloat(expFont),
+        warningLeadFontSizePx: parseFloat(wLead),
+        warningBodyFontSizePx: parseFloat(wBody),
+        warningIconSizePx: parseFloat(iconSize)
+      });
+
       buildTimeline();
       replayTimeline();
     }
 
     function updateStudioTimings() {
-      const rHold = Number(document.getElementById('sld-rating-hold').value);
-      const wHold = Number(document.getElementById('sld-warning-hold').value);
+      const rHold = document.getElementById('sld-rating-hold').value;
+      const wHold = document.getElementById('sld-warning-hold').value;
+
       document.getElementById('val-rating-hold').textContent = rHold + 's';
       document.getElementById('val-warning-hold').textContent = wHold + 's';
-      currentConfig.hold_time = rHold;
-      currentConfig.warning_hold_time = wHold;
+
+      currentConfig.hold_time = parseFloat(rHold);
+      currentConfig.warning_hold_time = parseFloat(wHold);
+
       buildTimeline();
       replayTimeline();
     }
 
+    function quickPreviewCycle() {
+      currentConfig.hold_time = 2.0;
+      currentConfig.warning_hold_time = 3.0;
+      buildTimeline();
+      replayTimeline();
+    }
+
+    function replayTimeline() {
+      if (masterTL) {
+        masterTL.play(0);
+      }
+    }
+
     function saveStationDefaults() {
       const defaults = {
+        themeName: currentConfig.theme || 'frosted',
+        badgeShape: currentConfig.shape || 'circle',
+        anchorPosition: currentConfig.anchor || 'top-right',
         fontFamily: document.getElementById('sel-font-family').value,
-        topOffsetPx: Number(document.getElementById('sld-top-margin').value),
-        rightOffsetPx: Number(document.getElementById('sld-right-margin').value),
-        badgeSizePx: Number(document.getElementById('sld-badge-size').value),
-        badgeFontSizePx: Number(document.getElementById('sld-badge-font').value),
-        explanationFontSizePx: Number(document.getElementById('sld-explanation-font').value),
-        warningLeadFontSizePx: Number(document.getElementById('sld-warning-lead-font').value),
-        warningBodyFontSizePx: Number(document.getElementById('sld-warning-body-font').value),
-        warningIconSizePx: Number(document.getElementById('sld-icon-size').value),
-        accentLineHeightPx: Number(document.getElementById('sld-accent-height').value),
-        lineGapPx: Number(document.getElementById('sld-line-gap').value),
-        ratingHoldSec: Number(document.getElementById('sld-rating-hold').value),
-        warningHoldSec: Number(document.getElementById('sld-warning-hold').value)
+        topOffsetPx: parseFloat(document.getElementById('sld-top-margin').value),
+        rightOffsetPx: parseFloat(document.getElementById('sld-right-margin').value),
+        textOffsetYPx: parseFloat(document.getElementById('sld-text-offset-y').value),
+        badgeSizePx: parseFloat(document.getElementById('sld-badge-size').value),
+        badgeFontSizePx: parseFloat(document.getElementById('sld-badge-font').value),
+        explanationFontSizePx: parseFloat(document.getElementById('sld-explanation-font').value),
+        warningLeadFontSizePx: parseFloat(document.getElementById('sld-warning-lead-font').value),
+        warningBodyFontSizePx: parseFloat(document.getElementById('sld-warning-body-font').value),
+        warningIconSizePx: parseFloat(document.getElementById('sld-icon-size').value),
+        ratingHoldSec: parseFloat(document.getElementById('sld-rating-hold').value),
+        warningHoldSec: parseFloat(document.getElementById('sld-warning-hold').value)
       };
 
       try {
@@ -1360,16 +1979,21 @@
       document.getElementById('sel-font-family').value = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
       document.getElementById('sld-top-margin').value = 60;
       document.getElementById('sld-right-margin').value = 60;
-      document.getElementById('sld-badge-size').value = 52;
-      document.getElementById('sld-badge-font').value = 26;
+      document.getElementById('sld-text-offset-y').value = 0;
+      document.getElementById('sld-badge-size').value = 54;
+      document.getElementById('sld-badge-font').value = 27;
       document.getElementById('sld-explanation-font').value = 13;
       document.getElementById('sld-warning-lead-font').value = 10.5;
       document.getElementById('sld-warning-body-font').value = 12;
       document.getElementById('sld-icon-size').value = 28;
-      document.getElementById('sld-accent-height').value = 2;
-      document.getElementById('sld-line-gap').value = 8;
-      document.getElementById('sld-rating-hold').value = 30;
-      document.getElementById('sld-warning-hold').value = 30;
+      document.getElementById('sld-rating-hold').value = 4;
+      document.getElementById('sld-warning-hold').value = 26;
+
+      applyThemePreset('frosted');
+      setAnchorPosition('top-right');
+      const selShape = document.getElementById('sel-badge-shape');
+      if (selShape) selShape.value = 'circle';
+      updateBadgeShape();
 
       updateStudioStyles();
       updateStudioTimings();
@@ -1386,12 +2010,15 @@
         if (raw) {
           const cfg = JSON.parse(raw);
           applyStylingVariables(cfg);
+          if (cfg.themeName) applyThemePreset(cfg.themeName);
+          if (cfg.badgeShape) {
+            const sel = document.getElementById('sel-badge-shape');
+            if (sel) sel.value = cfg.badgeShape;
+            updateBadgeShape();
+          }
+          if (cfg.anchorPosition) setAnchorPosition(cfg.anchorPosition);
           if (cfg.ratingHoldSec) currentConfig.hold_time = cfg.ratingHoldSec;
           if (cfg.warningHoldSec) currentConfig.warning_hold_time = cfg.warningHoldSec;
-          if (cfg.lineGapPx && document.getElementById('sld-line-gap')) {
-            document.getElementById('sld-line-gap').value = cfg.lineGapPx;
-            document.getElementById('val-line-gap').textContent = cfg.lineGapPx + 'px';
-          }
         }
       } catch(e) {}
     }
