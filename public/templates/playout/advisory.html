@@ -47,7 +47,7 @@
       transition: background 0.3s ease;
     }
 
-    /* 1080p Canvas Frame */
+    /* 1080p Broadcast Stage Canvas */
     #broadcast-canvas {
       position: absolute;
       top: 0;
@@ -59,7 +59,7 @@
       pointer-events: none;
     }
 
-    /* Dev Preview Background Modes */
+    /* Background Modes for Browser Dev Preview */
     body.bg-dark-studio {
       background: radial-gradient(circle at 65% 25%, #1e293b 0%, #0f172a 50%, #020617 100%);
     }
@@ -96,7 +96,7 @@
       perspective: 1000px;
     }
 
-    /* Whiter Neumorphic Frosted Glass Rating Badge */
+    /* Refined Neumorphic Frosted Glass Badge with High-Contrast Stencil */
     .badge-wrapper {
       position: relative;
       width: var(--cg-badge-size, 54px);
@@ -108,19 +108,22 @@
       align-items: center;
       justify-content: center;
       border-radius: var(--cg-badge-radius, 50%);
-      background: rgba(255, 255, 255, 0.32);
-      border: 1.5px solid rgba(255, 255, 255, 0.85);
+      background: rgba(15, 23, 42, 0.38); /* Transparent frosted glass body */
+      border: 2px solid rgba(255, 255, 255, 0.95); /* Bright high-contrast outer rim */
       box-shadow:
-        0 4px 18px rgba(0, 0, 0, 0.45),
-        -2px -2px 8px rgba(255, 255, 255, 0.35),
-        inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.85),
-        inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.25);
+        0 6px 20px rgba(0, 0, 0, 0.65),
+        -2px -2px 10px rgba(255, 255, 255, 0.25),
+        inset 1px 1px 3px rgba(255, 255, 255, 0.85),
+        inset -1px -1px 3px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(8px);
+      transform-origin: center center;
     }
 
     .badge-svg {
       width: 100%;
       height: 100%;
       display: block;
+      filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.9));
     }
 
     /* Telemarketing / Product Placement (TP) Badge */
@@ -147,31 +150,34 @@
       flex-direction: column;
       align-items: flex-end;
       justify-content: center;
+      padding-bottom: 2px; /* Snug distance to line */
     }
 
-    /* Text Slot Mask for Smooth Slide Transitions */
+    /* Text Slot Mask for Smooth Pop-Up from Line Transitions */
     .text-slot-mask {
       position: relative;
       overflow: hidden;
-      height: 48px;
+      height: 38px;
       width: 0px;
       opacity: 0;
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       justify-content: flex-end;
+      margin-bottom: 2px; /* Snug space between text and line */
     }
 
     /* Content Slots inside the Mask */
     .slot-content {
       position: absolute;
       right: 0;
+      bottom: 2px;
       display: flex;
       align-items: center;
       gap: 10px;
       white-space: nowrap;
       padding-right: 2px;
       opacity: 0;
-      transform: translateY(100%);
+      transform: translateY(120%);
     }
 
     .slot-primary {
@@ -180,7 +186,7 @@
       letter-spacing: 0.06em;
       text-transform: uppercase;
       color: #ffffff;
-      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.95), 0 0 4px rgba(0, 0, 0, 0.9);
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.95), 0 0 5px rgba(0, 0, 0, 0.9);
     }
 
     /* Warning Slot Layout */
@@ -198,9 +204,9 @@
       min-height: var(--cg-warning-icon-size, 28px);
       border-radius: 50%;
       background: radial-gradient(circle at 35% 35%, #2a374a 0%, #0d131f 100%);
-      border: 1.5px solid rgba(255, 255, 255, 0.9);
+      border: 1.5px solid rgba(255, 255, 255, 0.95);
       box-shadow:
-        0 4px 14px rgba(0, 0, 0, 0.7),
+        0 4px 14px rgba(0, 0, 0, 0.75),
         0 0 6px rgba(0, 0, 0, 0.5);
       display: flex;
       align-items: center;
@@ -212,6 +218,7 @@
       width: 65%;
       height: 65%;
       display: block;
+      filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
     }
 
     .warning-text-stack {
@@ -226,7 +233,7 @@
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.82);
+      color: rgba(255, 255, 255, 0.85);
       text-shadow: 0 1px 6px rgba(0, 0, 0, 0.95);
     }
 
@@ -236,7 +243,7 @@
       letter-spacing: 0.05em;
       text-transform: uppercase;
       color: #ffffff;
-      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.95), 0 0 4px rgba(0, 0, 0, 0.9);
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.95), 0 0 5px rgba(0, 0, 0, 0.9);
     }
 
     /* High-Contrast Accent Underline */
@@ -695,7 +702,7 @@
 
     const WARNING_SVGS = {
       violence: `<svg viewBox="0 0 24 24" class="warning-icon-svg"><path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm0 3.5c1.93 0 3.5 1.57 3.5 3.5 0 1.25-.66 2.34-1.64 2.96L14 17h-4l.14-5.04C9.16 11.34 8.5 10.25 8.5 9c0-1.93 1.57-3.5 3.5-3.5z" fill="#ffffff"/></svg>`,
-      sex: `<svg viewBox="0 0 24 24" class="warning-icon-svg"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="#ffffff"/></svg>`,
+      sex: `<svg viewBox="0 0 24 24" class="warning-icon-svg"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="#ffffff"/></svg>`,
       drugs: `<svg viewBox="0 0 24 24" class="warning-icon-svg"><path d="M4.5 10.5C3.67 10.5 3 11.17 3 12s.67 1.5 1.5 1.5h15c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5h-15zM6 6h12v2H6V6zm2 10h8v2H8v-2z" fill="#ffffff"/></svg>`,
       language: `<svg viewBox="0 0 24 24" class="warning-icon-svg"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z" fill="#ffffff"/></svg>`,
       combo: `<svg viewBox="0 0 24 24" class="warning-icon-svg"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v2h-2V7zm0 4h2v6h-2v-6z" fill="#ffffff"/></svg>`
@@ -709,7 +716,7 @@
       } else if (r === '8' || r === '12' || r === '16' || r === '18') {
         inner = `<text x="50%" y="54%" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-weight="900" font-size="var(--cg-badge-font-size, 27px)" font-family="var(--cg-font-family)">${r}</text>`;
       } else {
-        inner = `<circle cx="50%" cy="50%" r="35%" fill="#ffffff" opacity="0.9"/>`;
+        inner = `<circle cx="50%" cy="50%" r="35%" fill="#ffffff" opacity="0.95"/>`;
       }
       return `<svg viewBox="0 0 100 100" class="badge-svg">${inner}</svg>`;
     }
@@ -804,110 +811,111 @@
         slotWarning.innerHTML = '';
       }
 
+      // Initial States (Snug alignment above line)
       gsap.set(stage, { opacity: 1, scale: 1 });
-      gsap.set(badgeWrapper, { opacity: 0, scale: 0.6, rotation: -15 });
+      gsap.set(badgeWrapper, { opacity: 0, scale: 0.82, x: 14 });
       gsap.set(textSlotMask, { width: 0, opacity: 0 });
       gsap.set(accentLine, { scaleX: 0 });
-      gsap.set(slotPrimary, { opacity: 0, yPercent: 100 });
-      gsap.set(slotWarning, { opacity: 0, yPercent: 100 });
+      gsap.set(slotPrimary, { opacity: 0, yPercent: 120 });
+      gsap.set(slotWarning, { opacity: 0, yPercent: 120 });
 
       masterTL = gsap.timeline({ paused: true });
 
-      // Intro
+      // Sophisticated, smooth badge entrance (Apple-grade easing)
       masterTL.to(badgeWrapper, {
         opacity: 1,
         scale: 1,
-        rotation: 0,
-        duration: 0.45,
-        ease: 'back.out(1.7)'
+        x: 0,
+        duration: 0.8,
+        ease: 'power3.out'
       });
 
       if (isLogoOnly) return;
 
-      // Phase 1: Rating text (0s to 30s)
+      // Phase 1: Accent Line Expands & Rating Text Springs up from Line
       const primaryWidth = slotPrimary.scrollWidth + 14;
       masterTL
+        .to(accentLine, {
+          scaleX: 1,
+          duration: 0.5,
+          ease: 'power3.out'
+        }, '-=0.35')
         .to(textSlotMask, {
           width: primaryWidth,
           opacity: 1,
-          duration: 0.4,
+          duration: 0.5,
           ease: 'power3.out'
-        }, '-=0.15')
-        .to(accentLine, {
-          scaleX: 1,
-          duration: 0.35,
-          ease: 'power2.out'
         }, '<')
         .to(slotPrimary, {
           yPercent: 0,
           opacity: 1,
-          duration: 0.35,
-          ease: 'power2.out'
-        }, '<');
+          duration: 0.55,
+          ease: 'expo.out'
+        }, '<+=0.05');
 
       const ratingHold = currentConfig.hold_time || 30.0;
       const warningHold = currentConfig.warning_hold_time || 30.0;
 
       if (hasWarnings) {
-        // Transition to warning icon at hold_time
+        // Phase 2: Slide 1 Glides Up & Slide 2 Springs Up from Line
         const warningWidth = slotWarning.scrollWidth + 24;
         masterTL
           .to(slotPrimary, {
-            yPercent: -100,
+            yPercent: -120,
             opacity: 0,
-            duration: 0.3,
-            ease: 'power2.in'
+            duration: 0.45,
+            ease: 'power2.inOut'
           }, `+=${ratingHold}`)
           .to(textSlotMask, {
             width: warningWidth,
-            duration: 0.35,
+            duration: 0.5,
             ease: 'power3.inOut'
           }, '<')
           .to(slotWarning, {
             yPercent: 0,
             opacity: 1,
-            duration: 0.35,
-            ease: 'power2.out'
-          }, '<+=0.1');
+            duration: 0.55,
+            ease: 'expo.out'
+          }, '<+=0.08');
 
-        // Outro after warning hold
+        // Phase 3: Outro - Slides smoothly down into the line; Line retracts
         masterTL
           .to(slotWarning, {
-            yPercent: -120,
+            yPercent: 100,
             opacity: 0,
-            duration: 0.35,
+            duration: 0.4,
             ease: 'power2.in'
           }, `+=${warningHold}`)
           .to(accentLine, {
             scaleX: 0,
-            duration: 0.3,
-            ease: 'power2.in'
-          }, '<')
+            duration: 0.4,
+            ease: 'power3.inOut'
+          }, '<+=0.05')
           .to(textSlotMask, {
             width: 0,
             opacity: 0,
-            duration: 0.35,
-            ease: 'power2.in'
+            duration: 0.4,
+            ease: 'power3.inOut'
           }, '<');
       } else {
-        // Outro after rating hold
+        // Phase 3: Outro for Rating Only
         masterTL
           .to(slotPrimary, {
-            yPercent: -120,
+            yPercent: 100,
             opacity: 0,
-            duration: 0.35,
+            duration: 0.4,
             ease: 'power2.in'
           }, `+=${ratingHold}`)
           .to(accentLine, {
             scaleX: 0,
-            duration: 0.3,
-            ease: 'power2.in'
-          }, '<')
+            duration: 0.4,
+            ease: 'power3.inOut'
+          }, '<+=0.05')
           .to(textSlotMask, {
             width: 0,
             opacity: 0,
-            duration: 0.35,
-            ease: 'power2.in'
+            duration: 0.4,
+            ease: 'power3.inOut'
           }, '<');
       }
     }
@@ -947,10 +955,10 @@
       if (stage) {
         gsap.to(stage, {
           opacity: 0,
-          x: 20,
-          scale: 0.9,
-          duration: 0.4,
-          ease: 'power2.in',
+          scale: 0.96,
+          x: 12,
+          duration: 0.6,
+          ease: 'power2.inOut',
           onComplete: () => {
             if (window.caspar && typeof window.caspar.remove === 'function') {
               window.caspar.remove();

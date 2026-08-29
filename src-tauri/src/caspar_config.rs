@@ -421,42 +421,71 @@ pub async fn deploy_caspar_templates(
 pub async fn open_cg_studio_in_browser(
     template_path: Option<String>,
 ) -> Result<String, String> {
-    let base_dir = if let Some(ref p) = template_path {
-        let trimmed = p.trim();
-        if !trimmed.is_empty() {
-            PathBuf::from(trimmed)
-        } else {
-            PathBuf::from("C:/CasparCG/template")
-        }
-    } else {
-        PathBuf::from("C:/CasparCG/template")
-    };
-
-    let target_file = base_dir.join("playout").join("advisory.html");
+    // 1. Ensure template is always extracted into local application data directory
+    let app_template_dir = dirs_next::data_dir()
+        .map(|d| d.join("PlayOutVue").join("templates").join("playout"))
+        .unwrap_or_else(|| PathBuf::from("C:/CasparCG/template/playout"));
     
-    // Ensure template is freshly deployed
+    let _ = std::fs::create_dir_all(&app_template_dir);
+    let app_advisory_file = app_template_dir.join("advisory.html");
+    let _ = std::fs::write(&app_advisory_file, TEMPLATE_ADVISORY);
+
+    let app_vendor_dir = app_template_dir.join("vendor");
+    let _ = std::fs::create_dir_all(&app_vendor_dir);
+    let _ = std::fs::write(app_vendor_dir.join("gsap.min.js"), TEMPLATE_GSAP);
+
+    // 2. Also deploy to CasparCG directory if configured
     let _ = deploy_caspar_templates(template_path.clone(), None, Some(true)).await;
 
-    let target_url = if target_file.exists() {
-        target_file.to_string_lossy().to_string()
+    // 3. Resolve absolute file path to open in browser
+    let mut resolved_file = app_advisory_file.clone();
+
+    if let Some(ref p) = template_path {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            let p_buf = PathBuf::from(trimmed);
+            if p_buf.is_file() && p_buf.exists() {
+                resolved_file = p_buf;
+            } else if p_buf.is_dir() && p_buf.exists() {
+                let candidate = p_buf.join("playout").join("advisory.html");
+                if candidate.exists() {
+                    resolved_file = candidate;
+                } else {
+                    let direct_candidate = p_buf.join("advisory.html");
+                    if direct_candidate.exists() {
+                        resolved_file = direct_candidate;
+                    }
+                }
+            } else {
+                let caspar_candidate = PathBuf::from("C:/CasparCG/template/playout/advisory.html");
+                if caspar_candidate.exists() {
+                    resolved_file = caspar_candidate;
+                }
+            }
+        }
     } else {
-        "http://localhost:5173/templates/playout/advisory.html".to_string()
-    };
+        let caspar_candidate = PathBuf::from("C:/CasparCG/template/playout/advisory.html");
+        if caspar_candidate.exists() {
+            resolved_file = caspar_candidate;
+        }
+    }
+
+    let absolute_path = std::fs::canonicalize(&resolved_file)
+        .unwrap_or(resolved_file);
+
+    let path_str = absolute_path.to_string_lossy().replace('\\', "/");
+    let clean_path = path_str.trim_start_matches("//?/");
+    let formatted_url = format!("file:///{}", clean_path);
 
     #[cfg(target_os = "windows")]
     {
-        let formatted_target = if target_url.starts_with("http") {
-            target_url.clone()
-        } else {
-            format!("file:///{}", target_url.replace('\\', "/"))
-        };
         std::process::Command::new("cmd")
-            .args(["/c", "start", "", &formatted_target])
+            .args(["/c", "start", "", &formatted_url])
             .spawn()
             .map_err(|e| format!("Failed to open browser: {}", e))?;
     }
 
-    Ok(target_url)
+    Ok(formatted_url)
 }
 
 #[tauri::command]
