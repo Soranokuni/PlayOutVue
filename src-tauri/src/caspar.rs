@@ -2,10 +2,10 @@ use rosc::{OscPacket, OscType};
 use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Runtime, State};
@@ -515,25 +515,38 @@ fn handle_playback_path_osc<R: Runtime>(
     }
 
     let normalized_path = normalize_caspar_osc_path(path);
-    s.current_file_path = normalized_path.clone();
+    let path_norm = extract_raw_filename_lower(path);
+    let registered_norm = extract_raw_filename_lower(&s.registered_current_path);
+    let matches_registered = !registered_norm.is_empty() && path_norm == registered_norm;
+    let was_path_confirmed = s.path_confirmed;
 
     // Confirm the foreground has switched to the registered clip so /file/time
     // ticks are trusted again. A stale /file/path from the previous clip won't
     // match `registered_current_path`, so the post-take thrash guard stays
     // armed until the new clip is genuinely on air. For same-file subclips
     // the guard was never armed, so this is a no-op.
-    let registered_norm = extract_raw_filename_lower(&s.registered_current_path);
-    if !registered_norm.is_empty() {
-        let path_norm = extract_raw_filename_lower(path);
-        if path_norm == registered_norm {
-            s.path_confirmed = true;
-        }
-    } else {
+    if matches_registered {
+        s.current_file_path = normalized_path.clone();
+        s.path_confirmed = true;
+    } else if registered_norm.is_empty() {
+        // An initial registration (or a live source without a media path) has
+        // no prior foreground identity to fence. Subsequent registrations must
+        // receive a matching path before time packets can mutate the state.
+        s.current_file_path = normalized_path.clone();
         s.path_confirmed = true;
     }
 
+    let confirmed_uuid = if !was_path_confirmed
+        && s.path_confirmed
+        && !s.foreground_confirmation_emitted
+    {
+        s.foreground_confirmation_emitted = true;
+        s.current_uuid.clone()
+    } else {
+        None
+    };
+
     if let Some(expected) = &s.expected_next_path {
-        let path_norm = extract_raw_filename_lower(path);
         let expected_norm = extract_raw_filename_lower(expected);
         // Guard against same-file transitions (e.g. a subclip that points to
         // the same media file as its parent). When the parent starts playing,
@@ -543,7 +556,6 @@ fn handle_playback_path_osc<R: Runtime>(
         // to the subclip. We only fire when the foreground has *actually*
         // switched to a different file than the one the current item was
         // registered with.
-        let registered_norm = extract_raw_filename_lower(&s.registered_current_path);
         let now_mono = now_ms();
         if s.path_confirmed
             && now_mono >= s.auto_advance_not_before_ms
@@ -555,6 +567,13 @@ fn handle_playback_path_osc<R: Runtime>(
                 s.transition_triggered = true;
                 s.advance_fired = true; // Sync the advance fired flag to prevent double-trigger
                 s.expected_next_path = None; // Clear the expected next path state to avoid deadlock
+                // The OSC path switch can be the event which asks the
+                // frontend to register the next item. Preserve the observed
+                // path so that registration can trust the already-on-air
+                // foreground instead of waiting forever for another (possibly
+                // one-shot) `/file/path` notification.
+                s.observed_transition_path = Some(normalized_path.clone());
+                s.current_file_path = normalized_path;
 
                 let advance = PlaybackAdvance {
                     play_generation: s.play_generation,
@@ -576,6 +595,16 @@ fn handle_playback_path_osc<R: Runtime>(
                 return;
             }
         }
+    }
+
+    if let Some(current_uuid) = confirmed_uuid {
+        let app_clone = app.clone();
+        drop(s);
+        tauri::async_runtime::spawn(async move {
+            let _ = app_clone.emit("caspar://foreground-confirmed", serde_json::json!({
+                "currentUuid": current_uuid,
+            }));
+        });
     }
 }
 
@@ -678,6 +707,13 @@ pub struct PlaybackStateInner {
     pub trim_in_ms: u64,
     pub trim_out_ms: u64,
     pub awaiting_position_reset: bool,
+    /// A foreground path observed by the path-switch advance. This bridges the
+    /// hand-off where OSC reports the new foreground immediately before the
+    /// frontend registers that item as the active playback state.
+    pub observed_transition_path: Option<String>,
+    /// Ensures the frontend receives at most one physical-foreground
+    /// confirmation per registered item.
+    pub foreground_confirmation_emitted: bool,
 
     // Native Timing Gate & Progress Validation
     pub started_at_monotonic_ms: u64,
@@ -715,6 +751,8 @@ impl Default for PlaybackStateInner {
             trim_in_ms: 0,
             trim_out_ms: 0,
             awaiting_position_reset: false,
+            observed_transition_path: None,
+            foreground_confirmation_emitted: false,
             started_at_monotonic_ms: 0,
             auto_advance_not_before_ms: 0,
             accepted_post_take_samples: 0,
@@ -728,10 +766,14 @@ impl Default for PlaybackStateInner {
 pub struct CasparPlaybackState(pub Arc<Mutex<PlaybackStateInner>>);
 
 fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    // Wall clock time can jump backwards/forwards because of NTP, DST or an
+    // operator changing the workstation clock. Every playback deadline and
+    // stale-packet gate must use one process-local monotonic epoch instead.
+    static MONOTONIC_EPOCH: OnceLock<Instant> = OnceLock::new();
+    MONOTONIC_EPOCH
+        .get_or_init(Instant::now)
+        .elapsed()
+        .as_millis() as u64
 }
 
 /// Pure advance decision: exactly one advance per item.
@@ -769,6 +811,7 @@ fn handle_playback_osc<R: Runtime>(
 ) {
     let now = now_ms();
     let mut s = state.lock();
+    let mut foreground_confirmed_uuid: Option<String> = None;
     if !s.is_playing || s.is_paused {
         return;
     }
@@ -789,6 +832,10 @@ fn handle_playback_osc<R: Runtime>(
             let start_window_end = s.trim_in_ms.saturating_add(2500);
             if pos >= s.trim_in_ms && pos <= start_window_end {
                 s.awaiting_position_reset = false;
+                if !s.foreground_confirmation_emitted {
+                    s.foreground_confirmation_emitted = true;
+                    foreground_confirmed_uuid = s.current_uuid.clone();
+                }
             } else {
                 s.last_osc_at_ms = now;
                 return;
@@ -855,25 +902,42 @@ fn handle_playback_osc<R: Runtime>(
             emitted_at_monotonic_ms: now,
         };
         let app_clone = app.clone();
+        let confirmation = foreground_confirmed_uuid;
         drop(s);
         tauri::async_runtime::spawn(async move {
+            if let Some(current_uuid) = confirmation {
+                let _ = app_clone.emit("caspar://foreground-confirmed", serde_json::json!({
+                    "currentUuid": current_uuid,
+                }));
+            }
             let _ = app_clone.emit("caspar://advance", advance);
         });
         return;
     }
 
     // Throttled tick emission.
-    if now.saturating_sub(s.last_tick_emit_ms) >= TICK_THROTTLE_MS {
+    let tick = if now.saturating_sub(s.last_tick_emit_ms) >= TICK_THROTTLE_MS {
         s.last_tick_emit_ms = now;
-        let tick = PlaybackTick {
+        Some(PlaybackTick {
             position_ms: s.position_ms,
             duration_ms: s.duration_ms,
             current_uuid: s.current_uuid.clone(),
-        };
+        })
+    } else {
+        None
+    };
+    if foreground_confirmed_uuid.is_some() || tick.is_some() {
         let app_clone = app.clone();
-        let payload = tick;
+        let confirmation = foreground_confirmed_uuid;
         tauri::async_runtime::spawn(async move {
-            let _ = app_clone.emit("caspar://playback-tick", payload);
+            if let Some(current_uuid) = confirmation {
+                let _ = app_clone.emit("caspar://foreground-confirmed", serde_json::json!({
+                    "currentUuid": current_uuid,
+                }));
+            }
+            if let Some(payload) = tick {
+                let _ = app_clone.emit("caspar://playback-tick", payload);
+            }
         });
     }
 }
@@ -890,7 +954,12 @@ pub fn spawn_playback_watchdog<R: Runtime>(
             let now = now_ms();
             let (emit_stall, emit_advance_payload) = {
                 let mut s = state.lock();
-                if !s.is_playing || s.is_paused || s.current_uuid.is_none() || s.advance_fired {
+                if !s.is_playing
+                    || s.is_paused
+                    || !s.path_confirmed
+                    || s.current_uuid.is_none()
+                    || s.advance_fired
+                {
                     continue;
                 }
                 let gap = now.saturating_sub(s.last_osc_at_ms);
@@ -988,7 +1057,7 @@ pub fn spawn_playback_watchdog<R: Runtime>(
 
 /// Register the current item with the Rust state machine; Rust then owns advance.
 #[tauri::command]
-pub async fn caspar_register_playback(
+pub async fn caspar_register_playback<R: Runtime>(
     uuid: String,
     duration_ms: u64,
     expected_out_point_ms: u64,
@@ -1002,6 +1071,7 @@ pub async fn caspar_register_playback(
     trim_revision: Option<u64>,
     trim_out_ms: Option<u64>,
     state: State<'_, CasparPlaybackState>,
+    app: AppHandle<R>,
 ) -> Result<(), String> {
     let mut s = state.0.lock();
     s.current_uuid = Some(uuid.clone());
@@ -1029,7 +1099,31 @@ pub async fn caspar_register_playback(
     s.trim_out_ms = t_out;
 
     let old_registered = s.registered_current_path.clone();
-    s.path_confirmed = old_registered.is_empty();
+    let transitioned_before_registration = s
+        .observed_transition_path
+        .as_deref()
+        .map(|observed| {
+            extract_raw_filename_lower(observed)
+                == extract_raw_filename_lower(&current_path)
+        })
+        .unwrap_or(false);
+    let same_file_transition_before_registration = s.transition_triggered
+        && !old_registered.is_empty()
+        && extract_raw_filename_lower(&old_registered)
+            == extract_raw_filename_lower(&current_path);
+    // A natural path-switch event may arrive immediately before this command.
+    // In that case the path is already authoritative. Otherwise require a
+    // fresh matching path packet before accepting `/file/time`, preventing
+    // in-flight UDP timing from the previous manual take from corrupting this
+    // item's zeroed position.
+    // A same-file subclip has no observable `/file/path` change. Its
+    // preceding position-based advance is the only transition signal; retain
+    // the path trust in that specific case and let `awaiting_position_reset`
+    // reject the old near-EOF time samples until the producer restarts at the
+    // new trim IN point.
+    s.path_confirmed = old_registered.is_empty()
+        || transitioned_before_registration
+        || same_file_transition_before_registration;
 
     s.current_file_path = current_path.clone();
     s.registered_current_path = current_path;
@@ -1043,6 +1137,14 @@ pub async fn caspar_register_playback(
     s.position_stalled_ticks = 0;
     s.position_ever_advanced = false;
     s.awaiting_position_reset = true;
+    s.observed_transition_path = None;
+    // A path-switch event proves the new foreground is already on air. The
+    // initial registration is also safe to acknowledge. A same-file AUTO
+    // transition is deliberately *not* acknowledged here: its old and new
+    // paths are indistinguishable, so the first reset time sample below is the
+    // physical confirmation.
+    let foreground_confirmed_now = s.path_confirmed && !same_file_transition_before_registration;
+    s.foreground_confirmation_emitted = foreground_confirmed_now;
 
     // Native Monotonic Timing Gate & Sample Progress Init
     let effective_duration_ms = t_out.saturating_sub(trim_in_ms);
@@ -1053,6 +1155,18 @@ pub async fn caspar_register_playback(
     s.auto_advance_not_before_ms = now_mono.saturating_add(effective_duration_ms.saturating_sub(early_tolerance_ms));
     s.accepted_post_take_samples = 0;
     s.last_observed_position_ms = 0;
+
+    let confirmed_uuid = if foreground_confirmed_now {
+        s.current_uuid.clone()
+    } else {
+        None
+    };
+    drop(s);
+    if let Some(current_uuid) = confirmed_uuid {
+        let _ = app.emit("caspar://foreground-confirmed", serde_json::json!({
+            "currentUuid": current_uuid,
+        }));
+    }
 
     Ok(())
 }
@@ -1080,24 +1194,58 @@ pub async fn caspar_set_playback_paused(
 #[tauri::command]
 pub async fn caspar_clear_playback(state: State<'_, CasparPlaybackState>) -> Result<(), String> {
     let mut s = state.0.lock();
+    clear_playback_state(&mut s);
+    Ok(())
+}
+
+/// Clear playback only when the caller still owns the registered UUID. A stale
+/// frontend dispatch uses this after its token is superseded; it must never
+/// clear a newer manual take that has already registered another item.
+#[tauri::command]
+pub async fn caspar_clear_playback_if_uuid(
+    uuid: String,
+    state: State<'_, CasparPlaybackState>,
+) -> Result<(), String> {
+    let mut s = state.0.lock();
+    if s.current_uuid.as_deref() == Some(uuid.as_str()) {
+        clear_playback_state(&mut s);
+    }
+    Ok(())
+}
+
+fn clear_playback_state(s: &mut PlaybackStateInner) {
     s.current_uuid = None;
+    s.play_generation = 0;
+    s.take_id.clear();
+    s.rundown_item_id.clear();
+    s.playback_instance_id.clear();
+    s.trim_revision = 0;
     s.is_playing = false;
     s.is_paused = false;
     s.position_ms = 0;
     s.duration_ms = 0;
     s.trim_in_ms = 0;
+    s.trim_out_ms = 0;
     s.expected_out_point_ms = u64::MAX;
     s.current_file_path = String::new();
     s.registered_current_path = String::new();
     s.path_confirmed = true;
     s.expected_next_path = None;
+    s.last_osc_at_ms = 0;
+    s.last_tick_emit_ms = 0;
     s.advance_fired = false;
     s.stall_emitted = false;
     s.transition_triggered = false;
     s.last_position_ms = 0;
     s.position_stalled_ticks = 0;
     s.position_ever_advanced = false;
-    Ok(())
+    s.awaiting_position_reset = false;
+    s.observed_transition_path = None;
+    s.foreground_confirmation_emitted = false;
+    s.started_at_monotonic_ms = 0;
+    s.auto_advance_not_before_ms = 0;
+    s.accepted_post_take_samples = 0;
+    s.last_observed_position_ms = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,5 +1467,37 @@ mod tests {
         let (pos_1, dur_1) = parse_timing_payload_from_args(&args_1);
         assert_eq!(pos_1, Some(5200));
         assert_eq!(dur_1, None);
+    }
+
+    #[test]
+    fn clearing_stale_playback_resets_every_advance_gate() {
+        let mut state = PlaybackStateInner {
+            current_uuid: Some("old-item".to_string()),
+            is_playing: true,
+            is_paused: true,
+            path_confirmed: false,
+            advance_fired: true,
+            expected_next_path: Some("next-item".to_string()),
+            awaiting_position_reset: true,
+            observed_transition_path: Some("old-item".to_string()),
+            foreground_confirmation_emitted: true,
+            auto_advance_not_before_ms: 99_999,
+            accepted_post_take_samples: 2,
+            ..PlaybackStateInner::default()
+        };
+
+        clear_playback_state(&mut state);
+
+        assert!(state.current_uuid.is_none());
+        assert!(!state.is_playing);
+        assert!(!state.is_paused);
+        assert!(state.path_confirmed);
+        assert!(!state.advance_fired);
+        assert!(state.expected_next_path.is_none());
+        assert!(!state.awaiting_position_reset);
+        assert!(state.observed_transition_path.is_none());
+        assert!(!state.foreground_confirmation_emitted);
+        assert_eq!(state.auto_advance_not_before_ms, 0);
+        assert_eq!(state.accepted_post_take_samples, 0);
     }
 }

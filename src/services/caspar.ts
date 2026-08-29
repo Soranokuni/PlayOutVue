@@ -214,6 +214,10 @@ function parseTimeToMs(t: string | number): number {
 
 let onAdvanceCallback: PlayoutAdvanceCallback | null = null;
 let playToken = 0;
+// AUTO background ownership is distinct from foreground playback ownership.
+// A rundown edit must cancel an in-flight LOADBG without cancelling the
+// on-air item (which would otherwise turn a safe edit into a hard cut).
+let preloadGeneration = 0;
 let consecutiveSkips = 0;
 const MAX_CONSECUTIVE_SKIPS = 3;
 let advanceInFlight = false;
@@ -242,6 +246,27 @@ const preloadedKeys = new Set<string>();
 // the AUTO transition would play from frame 0 — force a hard PLAY instead
 // (validate-on-advance, plan Phase 1).
 const preloadedFingerprints = new Map<string, { trimInMs: number; trimOutMs: number; path: string }>();
+
+const invalidatePreloads = () => {
+    preloadGeneration += 1;
+    preloadedKeys.clear();
+    preloadedFingerprints.clear();
+};
+
+const preloadMatchesItem = (key: string, item: PlayoutItem) => {
+    const fingerprint = preloadedFingerprints.get(key);
+    if (!fingerprint) return false;
+    const hydrated = hydratePlayoutItem(item);
+    return fingerprint.trimInMs === hydrated.trim_in_ms
+        && fingerprint.trimOutMs === hydrated.trim_out_ms
+        && normBasename(fingerprint.path) === normBasename(item.path || item.shortPath || '');
+};
+
+async function applyComplianceForPlayback(item: PlayoutItem, token: number): Promise<boolean> {
+    if (token !== playToken) return false;
+    await casparPlayoutService.applyComplianceForItem?.(item);
+    return token === playToken;
+}
 
 /// Waiters for Rust's `caspar://foreground-confirmed` event (Phase 4).
 let confirmWaiters: Array<{ uuid: string; resolve: (ok: boolean) => void }> = [];
@@ -926,9 +951,12 @@ const ensureFeedbackListener = async () => {
         if (!advanceUnlisten) {
             advanceUnlisten = await listen<QualifiedAdvanceEvent>('caspar://advance', (event) => {
                 const payload = event.payload;
-                const uuid = (payload as any)?.currentUuid || payload?.rundownItemId;
-                // Strict stale-advance guard: drop any advance event that does not match the active item
-                if (currentKey && uuid && uuid === currentKey) {
+                // Strict stale-advance guard: the backend's currently
+                // registered UUID is the only authority. Do not fall back to
+                // a rundown item id: a late UDP event can carry an old intent
+                // record but must never advance the new on-air UUID.
+                const uuid = payload?.currentUuid;
+                if (currentKey && uuid === currentKey) {
                     advanceNext(true, uuid).catch((error) => {
                         console.error('[CasparCG] advanceNext error', error);
                     });
@@ -971,8 +999,7 @@ const performHandshake = async () => {
     await casparPlayoutService.clearCompliance?.();
 
     // Clear in-flight preloads, guard, and duration states on reconnect
-    preloadedKeys.clear();
-    preloadedFingerprints.clear();
+    invalidatePreloads();
     currentCasparDurationMs.value = 0;
     activeGuard.clear();
 
@@ -1015,7 +1042,7 @@ const evaluateResume = async () => {
             // Persisted state was cleared (clip ended during downtime or a
             // stop happened). If the queue is still active, let it continue.
             if (wasPlayingOnDisconnect && currentKey != null && isCasparPlaying.value) {
-                await advanceNext(true);
+                await advanceNext(true, currentKey);
             }
             return;
         }
@@ -1027,7 +1054,7 @@ const evaluateResume = async () => {
             // The interrupted clip finished while CasparCG was down — behave
             // as if it ended normally and start the next item.
             console.warn('[CasparCG] Clip finished during downtime — auto-advancing to the next item.');
-            await advanceNext(true);
+            await advanceNext(true, currentKey);
             return;
         }
 
@@ -1130,7 +1157,15 @@ const sendRawCommand = async (cmd: string) => {
     }
 };
 
-async function preloadNextItemAt(index: number, token: number = playToken, retriesLeft = 6, delayMs = 500) {
+async function preloadNextItemAt(
+    index: number,
+    token: number = playToken,
+    retriesLeft = 6,
+    delayMs = 500,
+    preloadToken: number = preloadGeneration
+) {
+    const isStale = () => token !== playToken || preloadToken !== preloadGeneration;
+    if (isStale()) return;
     if (index < 0 || index >= queuedItems.length) return;
     const snapshotItem = queuedItems[index];
     if (!snapshotItem || snapshotItem.type !== 'video') return;
@@ -1153,8 +1188,8 @@ async function preloadNextItemAt(index: number, token: number = playToken, retri
         if (retriesLeft > 0) {
             const nextDelay = Math.round(delayMs * 1.5);
             setTimeout(() => {
-                if (token !== playToken) return;
-                preloadNextItemAt(index, token, retriesLeft - 1, nextDelay).catch(() => {});
+                if (isStale()) return;
+                preloadNextItemAt(index, token, retriesLeft - 1, nextDelay, preloadToken).catch(() => {});
             }, delayMs);
         } else {
             console.warn(`[CasparCG] preloadNextItemAt gave up after retries for item ${item.filename || item.id}`);
@@ -1173,9 +1208,9 @@ async function preloadNextItemAt(index: number, token: number = playToken, retri
         // dispatch, but by then the LOADBG may already be on the wire after a
         // newer take()/play() (Bug B). Passing the guard into dispatchLoadbg
         // aborts the send itself.
-        const result = await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, true, () => token !== playToken);
+        const result = await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, true, isStale);
         if (result === null) return;
-        if (token === playToken) {
+        if (!isStale()) {
             preloadedKeys.add(queueKey(item));
             preloadedFingerprints.set(queueKey(item), {
                 trimInMs: hydrated.trim_in_ms,
@@ -1229,8 +1264,7 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         if (token !== playToken) return;
 
         onAdvanceCallback?.(key);
-        await casparPlayoutService.applyComplianceForItem?.(item);
-        if (token !== playToken) return;
+        if (!await applyComplianceForPlayback(item, token)) return;
 
         const store = useRundownStore();
 
@@ -1458,13 +1492,7 @@ async function advanceToNext(token: number, natural: boolean) {
         // sides from the same live source makes the fingerprint check below
         // meaningful (Bug A).
         const liveNextItem = findLiveItemById(nextKey) ?? nextItem;
-        const liveHydratedNext = hydratePlayoutItem(liveNextItem);
-        const fingerprint = preloadedFingerprints.get(nextKey);
-        const preloadMatches =
-            !!fingerprint &&
-            fingerprint.trimInMs === liveHydratedNext.trim_in_ms &&
-            fingerprint.trimOutMs === liveHydratedNext.trim_out_ms &&
-            normBasename(fingerprint.path) === normBasename(liveNextItem.path || liveNextItem.shortPath || '');
+        const preloadMatches = preloadMatchesItem(nextKey, liveNextItem);
 
         // Only take the natural (no-PLAY) path when the next clip was
         // successfully preloaded via LOADBG AUTO **with the trim the live
@@ -1529,8 +1557,7 @@ async function advanceToNext(token: number, natural: boolean) {
                 const store = useRundownStore();
                 store.stopPlaybackProgressTimer();
                 onAdvanceCallback?.(key);
-                await casparPlayoutService.applyComplianceForItem?.(liveNextItem);
-                if (transitionToken !== playToken) return;
+                if (!await applyComplianceForPlayback(liveNextItem, transitionToken)) return;
 
                 updateDisplayedTime(0);
                 currentCasparDurationMs.value = durationMs;
@@ -1569,6 +1596,10 @@ async function advanceToNext(token: number, natural: boolean) {
                 // timer with no watchdog. The register .catch logs but doesn't
                 // throw; a register failure here is non-fatal for the timer
                 // since the OSC EOF advance + endGuard still work.
+                // Register the waiter first: a path-switch advance can mean
+                // the next clip is already on air, and its confirmation event
+                // may be emitted during the registration IPC round-trip.
+                const foregroundConfirmation = waitForForegroundConfirmation(key, 1500);
                 await invoke('caspar_register_playback', {
                     uuid: key,
                     durationMs: durationMs,
@@ -1586,7 +1617,17 @@ async function advanceToNext(token: number, natural: boolean) {
                 registerPlayStart(hydrated.id, durationMs);
                 store.startPlaybackProgressTimer(hydrated.id, durationMs, progressStartTime);
 
-                await preloadNextItemAt(nextIndex + 1, transitionToken);
+                // Do not overwrite the current item's LOADBG background until
+                // OSC proves it has become foreground. This preserves B when
+                // A -> B is natural: issuing LOADBG C while B is still only
+                // background would replace B and skip it entirely. A timeout
+                // leaves the next transition to the guarded hard-PLAY fallback
+                // rather than guessing that it is safe to overwrite hardware.
+                if (await foregroundConfirmation && transitionToken === playToken) {
+                    await preloadNextItemAt(nextIndex + 1, transitionToken);
+                } else if (transitionToken === playToken) {
+                    console.warn('[CasparCG] Foreground confirmation timed out; AUTO preload remains disarmed until the next verified transition.');
+                }
 
                 setTimeout(() => {
                     const currentPlayToken = playToken;
@@ -1613,6 +1654,15 @@ async function advanceToNext(token: number, natural: boolean) {
 
 export async function advanceNext(natural = false, sourceUuid?: string | null) {
     if (natural) {
+        // Every automatic transition is ownership-fenced by the item that was
+        // actually on air. The Rust listener already performs this check, but
+        // the end-guard and recovery paths also call this public function;
+        // keeping the invariant here prevents an old guard callback from
+        // advancing the item a producer has just manually taken.
+        if (!sourceUuid || sourceUuid !== currentKey) {
+            console.warn('[CasparCG] Ignoring stale natural advance for a non-current item.');
+            return;
+        }
         // UUID-keyed dedup: drop only a duplicate natural advance for the SAME
         // item inside the window (both the endGuard and the caspar://advance
         // listener can fire for one transition). Advances for different items
@@ -1636,6 +1686,7 @@ export async function advanceNext(natural = false, sourceUuid?: string | null) {
 }
 
 export type QualifiedAdvanceEvent = {
+    currentUuid: string | null;
     playGeneration: number;
     takeId: string;
     rundownItemId: string;
@@ -1702,8 +1753,13 @@ export async function requestAutoAdvance(event: QualifiedAdvanceEvent): Promise<
     return await playItemWithIntent(item as any, takeResult.intent);
 }
 
-export async function playItemWithIntent(item: PlayoutItem, intent: PlaybackIntent): Promise<boolean> {
+export async function playItemWithIntent(
+    item: PlayoutItem,
+    intent: PlaybackIntent,
+    requestToken: number = playToken
+): Promise<boolean> {
     assertPlaybackIntent(intent);
+    if (requestToken !== playToken) return false;
     const store = useRundownStore();
     manualTakeFailure.value = null;
 
@@ -1726,6 +1782,7 @@ export async function playItemWithIntent(item: PlayoutItem, intent: PlaybackInte
 
         if (isLiveActive.value) {
             await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
+            if (requestToken !== playToken) return false;
             isLiveActive.value = false;
         }
 
@@ -1751,6 +1808,7 @@ export async function playItemWithIntent(item: PlayoutItem, intent: PlaybackInte
         }
 
         assertPlaybackIntent(intent);
+        if (requestToken !== playToken) return false;
 
         const dispatchResult = await dispatchPlay(
             hydrated,
@@ -1758,7 +1816,9 @@ export async function playItemWithIntent(item: PlayoutItem, intent: PlaybackInte
             CASPAR_LAYERS.video,
             nextPath,
             0,
-            () => intent.playGeneration !== playbackCoordinator.playGeneration || intent.takeId !== playbackCoordinator.activeIntent?.takeId,
+            () => requestToken !== playToken
+                || intent.playGeneration !== playbackCoordinator.playGeneration
+                || intent.takeId !== playbackCoordinator.activeIntent?.takeId,
             {
                 playGeneration: intent.playGeneration,
                 takeId: intent.takeId,
@@ -1767,7 +1827,11 @@ export async function playItemWithIntent(item: PlayoutItem, intent: PlaybackInte
             }
         );
 
-        if (dispatchResult === null || intent.playGeneration !== playbackCoordinator.playGeneration) return false;
+        if (
+            dispatchResult === null
+            || requestToken !== playToken
+            || intent.playGeneration !== playbackCoordinator.playGeneration
+        ) return false;
 
         const confirmed = playbackCoordinator.confirmTake(
             intent.takeId,
@@ -1787,10 +1851,10 @@ export async function playItemWithIntent(item: PlayoutItem, intent: PlaybackInte
         updateDisplayedTime(0);
 
         onAdvanceCallback?.(key);
-        await casparPlayoutService.applyComplianceForItem?.(item);
+        if (!await applyComplianceForPlayback(item, requestToken)) return false;
 
-        if (queueIndex !== -1) {
-            await preloadNextItemAt(queueIndex + 1, intent.playGeneration);
+        if (queueIndex !== -1 && requestToken === playToken) {
+            await preloadNextItemAt(queueIndex + 1, requestToken);
         }
 
         return true;
@@ -1841,6 +1905,8 @@ export const casparPlayoutService: PlayoutService = {
         // request, and open the advance dedup window for a fresh run
         // (plan §1.4).
         playToken += 1;
+        invalidatePreloads();
+        activeGuard.clear();
         lastAdvanceUuid = null;
         lastAdvanceAt = 0;
         wasPlayingOnDisconnect = false;
@@ -1868,8 +1934,6 @@ export const casparPlayoutService: PlayoutService = {
         }
 
         queuedItems = items.map((i: any) => ({ ...i }));
-        preloadedKeys.clear();
-        preloadedFingerprints.clear();
         playStartTime.value = Date.now();
         playStartIndex.value = startIndex;
 
@@ -1905,12 +1969,13 @@ export const casparPlayoutService: PlayoutService = {
 
     async stop() {
         playToken += 1;
+        invalidatePreloads();
+        activeGuard.clear();
+        playbackCoordinator.stop('operator stop');
         isCasparPlaying.value = false;
         isLiveActive.value = false;
         currentCasparDurationMs.value = 0;
         currentKey = null;
-        preloadedKeys.clear();
-        preloadedFingerprints.clear();
         updateDisplayedTime(0);
         timelineTimers.forEach(clearTimeout);
         timelineTimers = [];
@@ -1951,6 +2016,41 @@ export const casparPlayoutService: PlayoutService = {
             return;
         }
 
+        // Layer 10 has only one background producer. Replacing it with an
+        // arbitrary CUE while a clip is on-air silently disarms the scheduled
+        // LOADBG ... AUTO and can put the wrong item to air at EOF. On-air cue
+        // is therefore allowed only for the actual UUID successor, which is
+        // re-armed as AUTO; cueing any other item belongs to an off-air/preview
+        // workflow and is rejected rather than compromising programme output.
+        if (isCasparPlaying.value && currentKey) {
+            const currentIndex = queuedItems.findIndex((queued) => queueKey(queued) === currentKey);
+            const scheduledNext = currentIndex >= 0 ? queuedItems[currentIndex + 1] : null;
+            if (!scheduledNext || queueKey(scheduledNext) !== queueKey(item)) {
+                throw new Error('Cannot cue a non-next item while programme is on air: it would replace the protected AUTO background.');
+            }
+
+            invalidatePreloads();
+            const token = playToken;
+            const epoch = preloadGeneration;
+            const hydrated = hydratePlayoutItem(item);
+            const result = await dispatchLoadbg(
+                hydrated,
+                PROGRAM_CHANNEL,
+                CASPAR_LAYERS.video,
+                true,
+                () => token !== playToken || epoch !== preloadGeneration
+            );
+            if (result !== null && token === playToken && epoch === preloadGeneration) {
+                preloadedKeys.add(queueKey(item));
+                preloadedFingerprints.set(queueKey(item), {
+                    trimInMs: hydrated.trim_in_ms,
+                    trimOutMs: hydrated.trim_out_ms,
+                    path: hydrated.path
+                });
+            }
+            return;
+        }
+
         const hydrated = hydratePlayoutItem(item);
         await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, false);
         updateDisplayedTime(0);
@@ -1965,15 +2065,13 @@ export const casparPlayoutService: PlayoutService = {
         if (resumeEvalTimer) clearTimeout(resumeEvalTimer);
         resumeEvalTimer = null;
 
-        if (!isCasparConnected.value) {
-            await this.connect();
-        }
+        // Claim both the queue identity and the local cancellation generation
+        // before the first await. Connecting can take seconds; an EOF event
+        // from the previous item in that window must be unable to advance the
+        // newly requested take's successor.
         const store = useRundownStore();
         const item = store.selectedItem;
         if (!item) return;
-
-        currentKey = queueKey(item);
-        manualTakeFailure.value = null;
 
         const takeResult = playbackCoordinator.initiateTake(
             { targetItemId: item.id, rundownRevision: (store as any).rundownRevision || 0, source: 'manual' },
@@ -1986,11 +2084,19 @@ export const casparPlayoutService: PlayoutService = {
             throw new Error(errorMsg);
         }
 
-        playToken = takeResult.intent.playGeneration;
-        preloadedKeys.clear();
-        preloadedFingerprints.clear();
+        currentKey = queueKey(item);
+        manualTakeFailure.value = null;
+        playToken += 1;
+        const takeToken = playToken;
+        invalidatePreloads();
+        activeGuard.clear();
 
-        await playItemWithIntent(item as any, takeResult.intent);
+        if (!isCasparConnected.value) {
+            await this.connect();
+        }
+        if (takeToken !== playToken) return;
+
+        await playItemWithIntent(item as any, takeResult.intent, takeToken);
     },
 
     async clear() {
@@ -2024,6 +2130,47 @@ export const casparPlayoutService: PlayoutService = {
         // reordered/replaced queue is re-resolved on the next advance without any
         // index remapping. This is the §A desync fix.
         queuedItems = items.map((i: any) => ({ ...i }));
+
+        // A queued AUTO background belongs to the prior queue topology. Keep
+        // the foreground token intact (the on-air clip must continue), but
+        // replace an obsolete background with the new UUID-successor. Without
+        // this an operator who moves or deletes the next row can see CasparCG
+        // auto-take the old background while the frontend advances to the
+        // edited queue.
+        if (!isCasparPlaying.value || !currentKey) {
+            invalidatePreloads();
+            return;
+        }
+
+        const currentIndex = queuedItems.findIndex((item) => queueKey(item) === currentKey);
+        if (currentIndex < 0) {
+            // The on-air UUID was removed from the playable queue. Do not
+            // guess a new current index or issue a hard command; the next EOF
+            // transition will stop safely rather than wrapping to row zero.
+            invalidatePreloads();
+            return;
+        }
+
+        const nextItem = queuedItems[currentIndex + 1];
+        if (!nextItem || nextItem.type !== 'video') {
+            invalidatePreloads();
+            return;
+        }
+        const nextKey = queueKey(nextItem);
+        const liveNextItem = findLiveItemById(nextKey) ?? nextItem;
+
+        // A queue update unrelated to the immediate successor must not throw
+        // away a valid, already-armed AUTO background. Doing so close to EOF
+        // would force a fallback PLAY and restart the correctly transitioned
+        // item from frame zero.
+        if (preloadedKeys.has(nextKey) && preloadMatchesItem(nextKey, liveNextItem)) return;
+
+        invalidatePreloads();
+        const token = playToken;
+        const epoch = preloadGeneration;
+        void preloadNextItemAt(currentIndex + 1, token, 6, 250, epoch).catch((error) => {
+            console.warn('[CasparCG] Failed to re-arm AUTO preload after rundown edit', error);
+        });
     },
 
     onAdvance(callback) {

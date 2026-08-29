@@ -15,7 +15,7 @@ mod filesystem;
 mod ingestor_api;
 mod transcoder_sidecar;
 
-use caspar::{caspar_send_command, configure_caspar_osc_listener, prepare_caspar_media_path, CasparOscListenerState, caspar_cg_add, caspar_cg_update, caspar_cg_play, caspar_cg_stop, caspar_play_image, caspar_clear_layer, caspar_register_playback, caspar_clear_playback, caspar_set_playback_paused, CasparPlaybackState};
+use caspar::{caspar_send_command, configure_caspar_osc_listener, prepare_caspar_media_path, CasparOscListenerState, caspar_cg_add, caspar_cg_update, caspar_cg_play, caspar_cg_stop, caspar_play_image, caspar_clear_layer, caspar_register_playback, caspar_clear_playback, caspar_clear_playback_if_uuid, caspar_set_playback_paused, CasparPlaybackState};
 use amcp::AmcpClient;
 use caspar_config::{apply_caspar_decklink_config, caspar_test_connection, deploy_caspar_templates, find_default_caspar_config, load_caspar_config, save_caspar_config_raw, save_caspar_config_structured};
 use diagnostics::{clear_diagnostic_logs, export_diagnostic_logs, get_diagnostic_logs, push_diagnostic_log, redact_path_for_diagnostics, DiagnosticState, init_background_logger};
@@ -129,6 +129,7 @@ pub fn run() {
             caspar_clear_layer,
             caspar_register_playback,
             caspar_clear_playback,
+            caspar_clear_playback_if_uuid,
             caspar_set_playback_paused,
             find_default_caspar_config,
             load_caspar_config,

@@ -420,8 +420,16 @@ export const useRundownStore = defineStore('rundown', () => {
 
     let playbackInterval: ReturnType<typeof setInterval> | null = null;
     let visibilityCleanup: (() => void) | null = null;
+    // Keep persistence in wall-clock epoch milliseconds, but drive the live
+    // progress loop from a monotonic clock so NTP/DST/manual clock changes
+    // cannot make the on-air countdown jump backwards or freeze.
     let playbackStartTime = 0;
+    let playbackStartMonotonicMs = 0;
     let playbackDurationMs = 0;
+
+    const monotonicNow = () => typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
 
     let lastProgressTimerItemId = '';
     let lastProgressTimerStartedAt = 0;
@@ -439,7 +447,9 @@ export const useRundownStore = defineStore('rundown', () => {
         playbackProgressPct.value = 0;
         playbackCountdownStr.value = formatCountdown(durationMs);
 
+        const epochNow = Date.now();
         playbackStartTime = startTime;
+        playbackStartMonotonicMs = monotonicNow() - Math.max(0, epochNow - startTime);
         playbackDurationMs = durationMs;
 
         savePlaybackState(itemId, playbackStartTime, durationMs);
@@ -449,8 +459,7 @@ export const useRundownStore = defineStore('rundown', () => {
                 stopPlaybackProgressTimer();
                 return;
             }
-            const now = Date.now();
-            const elapsed = now - playbackStartTime;
+            const elapsed = monotonicNow() - playbackStartMonotonicMs;
             const pct = Math.min(100, Math.max(0, (elapsed / playbackDurationMs) * 100));
             playbackProgressPct.value = pct;
 
@@ -464,6 +473,7 @@ export const useRundownStore = defineStore('rundown', () => {
             }
         };
 
+        progressLoop();
         playbackInterval = setInterval(progressLoop, 250);
 
         const onVisChange = () => {
