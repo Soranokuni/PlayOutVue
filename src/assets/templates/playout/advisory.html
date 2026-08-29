@@ -2,290 +2,1044 @@
 <html lang="el">
 <head>
   <meta charset="UTF-8">
-  <title>Greek NCRTV Rating Advisory CG Template</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minimalist Greek ESR Broadcast Compliance Advisory CG Template</title>
+  <!-- GSAP 3: Local vendor bundle with CDN fallback -->
+  <script src="vendor/gsap.min.js"></script>
+  <script>
+    if (typeof gsap === 'undefined') {
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"><\/script>');
+    }
+  </script>
   <style>
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
     }
+
     body {
       width: 1920px;
       height: 1080px;
       overflow: hidden;
       background: transparent;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Arial", "Noto Sans", sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       user-select: none;
+      -webkit-font-smoothing: antialiased;
+      transition: background 0.3s ease;
     }
 
-    #advisory-container {
+    /* Dev Preview Background Modes (only applied in browser when !window.caspar) */
+    body.bg-dark-studio {
+      background: radial-gradient(circle at 65% 25%, #1e293b 0%, #0f172a 50%, #020617 100%);
+    }
+
+    body.bg-bright-footage {
+      background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 45%, #cbd5e1 100%);
+    }
+
+    body.bg-checkerboard {
+      background-color: #0f172a;
+      background-image:
+        linear-gradient(45deg, #1e293b 25%, transparent 25%),
+        linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #1e293b 75%),
+        linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+      background-size: 28px 28px;
+      background-position: 0 0, 0 14px, 14px -14px, -14px 0px;
+    }
+
+    body.bg-transparent {
+      background: transparent !important;
+    }
+
+    /* Top-Right Broadcast Safe Area Container */
+    #advisory-stage {
       position: absolute;
-      top: 48px;
-      right: 64px;
+      top: 60px;
+      right: 80px;
       display: flex;
       flex-direction: row-reverse;
       align-items: center;
-      gap: 12px;
-      opacity: 0;
-      transform: translateY(-8px);
-      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+      gap: 14px;
+      z-index: 100;
+      perspective: 1000px;
     }
 
-    #advisory-container.visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
-
-    /* Rating Badge Box */
-    .rating-badge {
-      width: 62px;
-      height: 62px;
+    /* Whiter Neumorphic Frosted Glass Circular Rating Badge */
+    .badge-wrapper {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 32px;
-      font-weight: 900;
-      color: #ffffff;
-      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-      border: 2px solid rgba(255, 255, 255, 0.9);
-      transition: all 0.3s ease;
-      flex-shrink: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.32);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1.5px solid rgba(255, 255, 255, 0.75);
+      box-shadow:
+        0 4px 18px rgba(0, 0, 0, 0.38),
+        -2px -2px 8px rgba(255, 255, 255, 0.35),
+        inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.85),
+        inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.2);
     }
 
-    .rating-badge.rating-k {
-      background: linear-gradient(135deg, #1b8a36 0%, #106324 100%);
-      border-radius: 12px;
-      transform: rotate(45deg);
+    .badge-svg {
       width: 52px;
       height: 52px;
-      margin: 5px;
-    }
-    .rating-badge.rating-k span {
-      transform: rotate(-45deg);
-      font-size: 28px;
+      display: block;
     }
 
-    .rating-badge.rating-8 {
-      background: linear-gradient(135deg, #1572e8 0%, #0d4fa6 100%);
-      border-radius: 50%;
-    }
-
-    .rating-badge.rating-12 {
-      background: linear-gradient(135deg, #e67e22 0%, #ba5806 100%);
-      border-radius: 12px;
-      clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-      height: 60px;
-      width: 68px;
-      padding-top: 14px;
-    }
-
-    .rating-badge.rating-16 {
-      background: linear-gradient(135deg, #8e44ad 0%, #632380 100%);
-      border-radius: 10px;
-    }
-
-    .rating-badge.rating-18 {
-      background: linear-gradient(135deg, #d32f2f 0%, #991414 100%);
-      border-radius: 50%;
-      border-color: #ffffff;
-    }
-
-    /* TP (Telemarketing / Product Placement) Badge */
+    /* Telemarketing / Product Placement (TP) Badge */
     .tp-badge {
-      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-      color: #000000;
-      font-weight: 900;
-      font-size: 16px;
-      letter-spacing: 0.05em;
-      padding: 4px 8px;
-      border-radius: 6px;
-      border: 1.5px solid #ffffff;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
       display: none;
       align-items: center;
       justify-content: center;
-    }
-    .tp-badge.active {
-      display: flex;
-    }
-
-    /* Advisory Text Banner (Pill) */
-    .advisory-pill {
-      display: flex;
-      align-items: center;
-      background: rgba(10, 15, 26, 0.88);
-      backdrop-filter: blur(10px);
-      border: 1.5px solid rgba(255, 255, 255, 0.35);
-      border-radius: 30px;
-      padding: 0;
-      height: 52px;
-      max-width: 0;
-      opacity: 0;
-      overflow: hidden;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-      transition: max-width 0.7s cubic-bezier(0.16, 1, 0.3, 1),
-                  opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-                  padding 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-      white-space: nowrap;
-    }
-
-    .advisory-pill.expanded {
-      max-width: 900px;
-      opacity: 1;
-      padding: 0 24px;
-    }
-
-    .advisory-pill-icon {
-      font-size: 20px;
-      margin-right: 12px;
-      display: inline-block;
+      height: 26px;
+      padding: 0 8px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.30);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1.5px solid rgba(255, 255, 255, 0.70);
+      box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.35),
+        inset 1px 1px 2px rgba(255, 255, 255, 0.8),
+        inset -1px -1px 2px rgba(0, 0, 0, 0.2);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+      -webkit-text-stroke: 0.3px rgba(0, 0, 0, 0.45);
       flex-shrink: 0;
     }
+    .tp-badge.visible {
+      display: flex;
+    }
 
-    .advisory-pill-text {
+    /* Minimalist Floating Typography Container (No Pill Background) */
+    .text-container {
+      position: relative;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 5px;
+    }
+
+    /* Overflow masked text slots for sliding animations */
+    .text-slot-mask {
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      height: 46px;
+      min-width: 40px;
+    }
+
+    .slot-content {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      white-space: nowrap;
+      padding-left: 14px;
+      padding-right: 4px;
+      will-change: transform, opacity;
+    }
+
+    /* High contrast, compact, elegant broadcast typography */
+    .advisory-text {
       color: #ffffff;
-      font-size: 19px;
-      font-weight: 700;
-      letter-spacing: 0.03em;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
-      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+      text-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.95),
+        0 2px 8px rgba(0, 0, 0, 0.85);
+      -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.5);
+      white-space: nowrap;
+      line-height: 1.2;
+      padding-left: 4px;
+    }
+
+    /* Two-line Structured Warning Typography */
+    .warning-text-group {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 1.5px;
+    }
+
+    .warning-lead {
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      color: #e2e8f0;
+      text-transform: uppercase;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+      -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
+      white-space: nowrap;
+      line-height: 1.15;
+    }
+
+    .warning-body {
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      color: #ffffff;
+      text-transform: uppercase;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+      -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.5);
+      white-space: nowrap;
+      line-height: 1.15;
+    }
+
+    /* Combo 2-Line High-Impact Typography */
+    .combo-group .combo-line-1 {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: #f1f5f9;
+      text-transform: uppercase;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+      -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
+      white-space: nowrap;
+      line-height: 1.15;
+    }
+
+    .combo-group .combo-line-2 {
+      font-size: 11.5px;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      color: #ffffff;
+      text-transform: uppercase;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+      -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.5);
+      white-space: nowrap;
+      line-height: 1.15;
+    }
+
+    /* Whiter Neumorphic Warning Mini Icon Stencil */
+    .warning-icon-wrapper {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.32);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1.5px solid rgba(255, 255, 255, 0.70);
+      box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.35),
+        inset 1px 1px 2px rgba(255, 255, 255, 0.8),
+        inset -1px -1px 2px rgba(0, 0, 0, 0.2);
+    }
+
+    .warning-icon-svg {
+      width: 28px;
+      height: 28px;
+      display: block;
+    }
+
+    /* Dynamic Underline Accent Line */
+    .accent-line {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(270deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.45) 80%, rgba(255, 255, 255, 0) 100%);
+      border-radius: 1px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+      transform-origin: right center;
+      transform: scaleX(0);
+    }
+
+    /* Dev Preview Toolbar */
+    #dev-toolbar {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      border-radius: 14px;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+      z-index: 9999;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      color: #f1f5f9;
+      transition: opacity 0.25s, transform 0.25s;
+    }
+
+    #dev-toolbar.hidden {
+      opacity: 0;
+      transform: translateX(-50%) translateY(40px);
+      pointer-events: none;
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .toolbar-label {
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+      margin-right: 4px;
+    }
+
+    .toolbar-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #f8fafc;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .toolbar-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .toolbar-btn.active {
+      background: #38bdf8;
+      color: #0f172a;
+      border-color: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+    }
+
+    .toolbar-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #cbd5e1;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 4px 8px;
+      border-radius: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .toolbar-checkbox input {
+      accent-color: #38bdf8;
+      cursor: pointer;
+    }
+
+    .toolbar-divider {
+      width: 1px;
+      height: 22px;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .btn-action-play {
+      background: rgba(34, 197, 94, 0.2);
+      border-color: rgba(34, 197, 94, 0.5);
+      color: #4ade80;
+    }
+    .btn-action-play:hover {
+      background: #22c55e;
+      color: #0f172a;
+    }
+
+    .btn-action-stop {
+      background: rgba(239, 68, 68, 0.2);
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #f87171;
+    }
+    .btn-action-stop:hover {
+      background: #ef4444;
+      color: #ffffff;
+    }
+
+    .toolbar-hint {
+      font-size: 10px;
+      color: #64748b;
     }
   </style>
 </head>
-<body>
-  <div id="advisory-container">
-    <div id="rating-badge" class="rating-badge rating-18">
-      <span id="rating-number">18</span>
+<body class="bg-dark-studio">
+
+  <!-- Broadcast On-Air Graphics Layer Stage -->
+  <div id="advisory-stage">
+    <!-- Whiter Neumorphic Frosted Stencil Badge Container -->
+    <div id="rating-badge-container" class="badge-wrapper">
+      <svg id="badge-svg" class="badge-svg" viewBox="0 0 52 52">
+        <defs>
+          <mask id="badge-stencil-mask">
+            <!-- White solid base preserves badge shape -->
+            <circle cx="26" cy="26" r="24.5" fill="#ffffff" />
+            <!-- Centered black stencil cutout punches 100% transparent hole -->
+            <text
+              id="stencil-text"
+              x="26"
+              y="26.5"
+              text-anchor="middle"
+              dominant-baseline="central"
+              font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+              font-weight="900"
+              font-size="25"
+              fill="#000000"
+            >16</text>
+          </mask>
+        </defs>
+
+        <!-- 1. The frosted-glass circular fill with negative-space cutout -->
+        <circle
+          cx="26"
+          cy="26"
+          r="24.5"
+          fill="rgba(255, 255, 255, 0.38)"
+          stroke="rgba(255, 255, 255, 0.85)"
+          stroke-width="1.5"
+          mask="url(#badge-stencil-mask)"
+        />
+
+        <!-- 2. Precise hairline contour around the transparent cutout glyph for 100% readability on bright/white backgrounds -->
+        <text
+          id="stencil-outline-text"
+          x="26"
+          y="26.5"
+          text-anchor="middle"
+          dominant-baseline="central"
+          font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+          font-weight="900"
+          font-size="25"
+          fill="none"
+          stroke="rgba(0, 0, 0, 0.6)"
+          stroke-width="1.2"
+          stroke-linejoin="round"
+        >16</text>
+      </svg>
     </div>
+
+    <!-- Product Placement (TP) Badge -->
     <div id="tp-badge" class="tp-badge">TP</div>
-    <div id="advisory-pill" class="advisory-pill">
-      <span id="advisory-icon" class="advisory-pill-icon">⚠️</span>
-      <span id="advisory-text" class="advisory-pill-text">ΑΥΤΗ Η ΤΑΙΝΙΑ ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ</span>
+
+    <!-- Minimalist Floating Typography Container (No Pill Background) -->
+    <div id="text-container" class="text-container">
+      <div id="text-slot-mask" class="text-slot-mask">
+        <!-- Dynamic Slots inserted by buildTimeline() -->
+      </div>
+
+      <!-- Dynamic Bottom Accent Line -->
+      <div id="accent-line" class="accent-line"></div>
     </div>
   </div>
 
+  <!-- Standalone Browser Testing & Dev Toolbar -->
+  <div id="dev-toolbar">
+    <div class="toolbar-group">
+      <span class="toolbar-label">Rating:</span>
+      <button class="toolbar-btn" data-rating="K" onclick="setDevRating('K')">K</button>
+      <button class="toolbar-btn" data-rating="8" onclick="setDevRating('8')">8</button>
+      <button class="toolbar-btn" data-rating="12" onclick="setDevRating('12')">12</button>
+      <button class="toolbar-btn active" data-rating="16" onclick="setDevRating('16')">16</button>
+      <button class="toolbar-btn" data-rating="18" onclick="setDevRating('18')">18</button>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-group">
+      <label class="toolbar-checkbox">
+        <input type="checkbox" id="chk-explanation" checked onchange="updateDevConfig()"> 📜 Επεξήγηση
+      </label>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-group">
+      <span class="toolbar-label">Warnings:</span>
+      <label class="toolbar-checkbox">
+        <input type="checkbox" id="chk-violence" checked onchange="updateDevConfig()"> ⚔️ Βία
+      </label>
+      <label class="toolbar-checkbox">
+        <input type="checkbox" id="chk-sex" onchange="updateDevConfig()"> 🔞 Σεξ
+      </label>
+      <label class="toolbar-checkbox">
+        <input type="checkbox" id="chk-drugs" checked onchange="updateDevConfig()"> 💊 Ναρκωτικά
+      </label>
+      <label class="toolbar-checkbox">
+        <input type="checkbox" id="chk-language" onchange="updateDevConfig()"> 💬 Φρασεολογία
+      </label>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-group">
+      <span class="toolbar-label">BG:</span>
+      <button class="toolbar-btn active" data-bg="dark" onclick="setDevBackground('dark')">🎬 Dark</button>
+      <button class="toolbar-btn" data-bg="bright" onclick="setDevBackground('bright')">☀️ Bright</button>
+      <button class="toolbar-btn" data-bg="checker" onclick="setDevBackground('checker')">🏁 Grid</button>
+      <button class="toolbar-btn" data-bg="transparent" onclick="setDevBackground('transparent')">🌫️ Transp</button>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-group">
+      <button class="toolbar-btn btn-action-play" onclick="window.play()">▶ Play</button>
+      <button class="toolbar-btn btn-action-stop" onclick="window.stop()">⏹ Stop</button>
+      <button class="toolbar-btn" onclick="replayTimeline()">↺ Replay</button>
+    </div>
+
+    <span class="toolbar-hint">[1-5] Rating | [B] BG | [Space/P] Play | [S] Stop | [R] Replay | [H] Hide</span>
+  </div>
+
   <script>
-    let hideTimer = null;
-    let repeatTimer = null;
-    let config = {
-      rating: '18',
-      text: 'ΑΥΤΗ Η ΤΑΙΝΙΑ ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ',
-      durationSec: 30,
-      repeatIntervalSec: 600, // 10 minutes
+    // Optimized, Crisp Vector Broadcast Stencils for Individual Categories & Combos (28x28 viewBox, center at 14,14)
+    const WARNING_GLYPHS = {
+      violence: `
+        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="3" stroke-linecap="round" fill="none">
+          <path d="M7 7 L21 21 M21 7 L7 21" />
+          <path d="M5.5 8.5 L8.5 5.5 M19.5 5.5 L22.5 8.5 M5.5 19.5 L8.5 22.5 M19.5 22.5 L22.5 19.5" />
+        </g>
+        <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" fill="none">
+          <path d="M7 7 L21 21 M21 7 L7 21" />
+          <path d="M5.5 8.5 L8.5 5.5 M19.5 5.5 L22.5 8.5 M5.5 19.5 L8.5 22.5 M19.5 22.5 L22.5 19.5" />
+          <circle cx="5" cy="5" r="1" fill="#ffffff" stroke="none" />
+          <circle cx="23" cy="5" r="1" fill="#ffffff" stroke="none" />
+        </g>
+      `,
+      sex: `
+        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+          <circle cx="10.5" cy="16.5" r="3.8" />
+          <path d="M13.2 13.8 L20.5 6.5 M16.5 6.5 L20.5 6.5 L20.5 10.5" />
+          <circle cx="16.5" cy="11.5" r="3.8" />
+          <path d="M16.5 15.3 L16.5 22.5 M13.5 19.5 L19.5 19.5" />
+        </g>
+        <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+          <circle cx="10.5" cy="16.5" r="3.8" fill="rgba(255, 255, 255, 0.15)" />
+          <path d="M13.2 13.8 L20.5 6.5 M16.5 6.5 L20.5 6.5 L20.5 10.5" />
+          <circle cx="16.5" cy="11.5" r="3.8" fill="rgba(255, 255, 255, 0.15)" />
+          <path d="M16.5 15.3 L16.5 22.5 M13.5 19.5 L19.5 19.5" />
+        </g>
+      `,
+      drugs: `
+        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="3" stroke-linecap="round" fill="none">
+          <path d="M10 18 L18 10 C19.8 8.2 19.8 5.2 18 3.5 C16.2 1.7 13.2 1.7 11.5 3.5 L3.5 11.5 C1.7 13.2 1.7 16.2 3.5 18 C5.2 19.8 8.2 19.8 10 18 Z" fill="rgba(0, 0, 0, 0.6)" />
+          <line x1="7.5" y1="11" x2="13.5" y2="17" />
+        </g>
+        <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" fill="none">
+          <path d="M10 18 L18 10 C19.8 8.2 19.8 5.2 18 3.5 C16.2 1.7 13.2 1.7 11.5 3.5 L3.5 11.5 C1.7 13.2 1.7 16.2 3.5 18 C5.2 19.8 8.2 19.8 10 18 Z" fill="rgba(255, 255, 255, 0.85)" />
+          <line x1="7.5" y1="11" x2="13.5" y2="17" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2" />
+        </g>
+      `,
+      language: `
+        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+          <path d="M5 6 C5 4 6.5 3 9 3 L19 3 C21.5 3 23 4 23 6 L23 14 C23 16 21.5 17 19 17 L13 17 L7.5 22.5 L8.2 17 L7 17 C5 17 4.5 16 5 14 Z" fill="rgba(0, 0, 0, 0.6)" />
+          <line x1="14" y1="6.5" x2="14" y2="11.5" />
+          <circle cx="14" cy="14.5" r="0.9" fill="#000000" />
+        </g>
+        <g stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+          <path d="M5 6 C5 4 6.5 3 9 3 L19 3 C21.5 3 23 4 23 6 L23 14 C23 16 21.5 17 19 17 L13 17 L7.5 22.5 L8.2 17 L7 17 C5 17 4.5 16 5 14 Z" fill="rgba(255, 255, 255, 0.85)" />
+          <line x1="14" y1="6.5" x2="14" y2="11.5" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2" />
+          <circle cx="14" cy="14.5" r="1.1" fill="rgba(15, 23, 42, 0.95)" stroke="none" />
+        </g>
+      `,
+      combo: `
+        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+          <path d="M14 3.5 L22 7.2 V14 C22 19.5 18.5 23.5 14 25 C9.5 23.5 6 19.5 6 14 V7.2 Z" fill="rgba(0, 0, 0, 0.6)" />
+          <line x1="14" y1="7.5" x2="14" y2="14.5" />
+          <circle cx="14" cy="18" r="0.9" fill="#000000" />
+        </g>
+        <g stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+          <path d="M14 3.5 L22 7.2 V14 C22 19.5 18.5 23.5 14 25 C9.5 23.5 6 19.5 6 14 V7.2 Z" fill="rgba(255, 255, 255, 0.85)" />
+          <line x1="14" y1="7.5" x2="14" y2="14.5" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2" />
+          <circle cx="14" cy="18" r="1.1" fill="rgba(15, 23, 42, 0.95)" stroke="none" />
+        </g>
+      `
+    };
+
+    const DEFAULT_RATING_TEXTS = {
+      'K': 'ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ',
+      '8': 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8',
+      '12': 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 12',
+      '16': 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16',
+      '18': 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 18'
+    };
+
+    const WARNING_TEXT_MAP = {
+      violence: 'ΣΚΗΝΕΣ ΒΙΑΣ',
+      sex: 'ΣΚΗΝΕΣ ΣΕΞ',
+      drugs: 'ΧΡΗΣΗ ΟΥΣΙΩΝ',
+      language: 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ'
+    };
+
+    function formatComboLines(warnings) {
+      if (!warnings || warnings.length === 0) return { line1: '', line2: '' };
+      const labels = warnings.map(w => WARNING_TEXT_MAP[w] || w);
+      
+      if (labels.length === 2) {
+        return {
+          line1: `ΠΕΡΙΕΧΕΙ ${labels[0]}`,
+          line2: `ΚΑΙ ${labels[1]}`
+        };
+      }
+      if (labels.length === 3) {
+        return {
+          line1: `ΠΕΡΙΕΧΕΙ ${labels[0]} & ${labels[1]}`,
+          line2: `ΚΑΙ ${labels[2]}`
+        };
+      }
+      if (labels.length >= 4) {
+        return {
+          line1: `ΠΕΡΙΕΧΕΙ ${labels[0]}, ${labels[1]}`,
+          line2: `${labels[2]} & ${labels[3]}`
+        };
+      }
+      return {
+        line1: 'ΠΕΡΙΕΧΕΙ',
+        line2: labels[0] || ''
+      };
+    }
+
+    // Configuration Model
+    let currentConfig = {
+      rating: '16',
+      custom_text: 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16',
+      show_explanation: true,
+      warnings: ['violence', 'drugs'],
+      hold_time: 4.0,           // Fast preview default (CasparCG overrides to 30.0)
+      warning_hold_time: 3.0,   // Fast preview default (CasparCG overrides to 30.0)
+      top: 60,
+      left: null,
       tp: false
     };
+
+    let masterTL = null;
+    const BG_MODES = ['dark', 'bright', 'checker', 'transparent'];
+    let currentBgIndex = 0;
+
+    function normalizeWarning(w) {
+      if (!w) return null;
+      const str = String(w).toLowerCase();
+      if (str.includes('βια') || str === 'violence') return 'violence';
+      if (str.includes('σεξ') || str === 'sex') return 'sex';
+      if (str.includes('ουσι') || str.includes('ναρκω') || str === 'drugs' || str === 'substances') return 'drugs';
+      if (str.includes('φρασε') || str.includes('υβρ') || str === 'language') return 'language';
+      return null;
+    }
+
+    function buildTimeline() {
+      if (masterTL) {
+        masterTL.kill();
+      }
+
+      const stage = document.getElementById('advisory-stage');
+      const badgeContainer = document.getElementById('rating-badge-container');
+      const textSlotMask = document.getElementById('text-slot-mask');
+      const accentLine = document.getElementById('accent-line');
+      const stencilText = document.getElementById('stencil-text');
+      const stencilOutlineText = document.getElementById('stencil-outline-text');
+      const tpBadge = document.getElementById('tp-badge');
+
+      // Cancel any in-flight outro tweens on stage
+      gsap.killTweensOf(stage);
+      gsap.set(stage, { opacity: 1, x: 0, y: 0, scale: 1 });
+
+      // Clear dynamic text slots
+      textSlotMask.innerHTML = '';
+
+      // Update badge text (stencil mask cutout and hairline contour)
+      const ratingStr = String(currentConfig.rating || '16').toUpperCase();
+      const displayRating = ratingStr === 'NONE' ? '' : (ratingStr === 'K' ? 'K' : ratingStr);
+      stencilText.textContent = displayRating;
+      if (stencilOutlineText) {
+        stencilOutlineText.textContent = displayRating;
+      }
+
+      // Update TP badge
+      if (currentConfig.tp) {
+        tpBadge.classList.add('visible');
+      } else {
+        tpBadge.classList.remove('visible');
+      }
+
+      // Position override if supplied
+      if (currentConfig.top !== undefined && currentConfig.top !== null) {
+        stage.style.top = typeof currentConfig.top === 'number' ? `${currentConfig.top}px` : currentConfig.top;
+      }
+      if (currentConfig.left !== undefined && currentConfig.left !== null) {
+        stage.style.left = typeof currentConfig.left === 'number' ? `${currentConfig.left}px` : currentConfig.left;
+        stage.style.right = 'auto';
+      }
+
+      // Determine if explanation banner should be created
+      const isLogoOnly = currentConfig.show_explanation === false ||
+                         currentConfig.custom_text === '__LOGO_ONLY__' ||
+                         currentConfig.custom_text === 'LOGO_ONLY' ||
+                         currentConfig.custom_text === '__NONE__';
+
+      let slotPrimary = null;
+      let primaryWidth = 0;
+
+      if (!isLogoOnly) {
+        // 1. Create Primary Rating Slot
+        const primaryText = currentConfig.custom_text || DEFAULT_RATING_TEXTS[ratingStr] || `ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ ${ratingStr}`;
+        slotPrimary = document.createElement('div');
+        slotPrimary.className = 'slot-content';
+        slotPrimary.id = 'slot-primary';
+        slotPrimary.innerHTML = `<span class="advisory-text">${primaryText}</span>`;
+        textSlotMask.appendChild(slotPrimary);
+        primaryWidth = Math.ceil(slotPrimary.getBoundingClientRect().width) + 16;
+      }
+
+      // 2. Parse normalized warnings list
+      const rawWarnings = Array.isArray(currentConfig.warnings)
+        ? currentConfig.warnings
+        : (currentConfig.warnings ? [currentConfig.warnings] : []);
+      
+      const parsedWarnings = rawWarnings
+        .map(normalizeWarning)
+        .filter((w, idx, self) => w && self.indexOf(w) === idx);
+
+      // 3. Create Warning Slots
+      const warningSlots = [];
+      const warningWidths = [];
+
+      if (parsedWarnings.length > 1) {
+        // Multi-Warning Combination Slot (2-Line Balanced Layout + Heraldic Shield Emblem)
+        const wSlotCombo = document.createElement('div');
+        wSlotCombo.className = 'slot-content';
+        wSlotCombo.id = 'slot-warning-combo';
+        
+        const comboLines = formatComboLines(parsedWarnings);
+
+        wSlotCombo.innerHTML = `
+          <div class="warning-icon-wrapper">
+            <svg class="warning-icon-svg" viewBox="0 0 28 28">
+              ${WARNING_GLYPHS.combo}
+            </svg>
+          </div>
+          <div class="warning-text-group combo-group">
+            <span class="warning-lead combo-line-1">${comboLines.line1}</span>
+            <span class="warning-body combo-line-2">${comboLines.line2}</span>
+          </div>
+        `;
+        textSlotMask.appendChild(wSlotCombo);
+        warningSlots.push(wSlotCombo);
+        warningWidths.push(Math.ceil(wSlotCombo.getBoundingClientRect().width) + 16);
+      } else if (parsedWarnings.length === 1) {
+        // Single Warning Slot (Icon + 2 Lines)
+        const warningKey = parsedWarnings[0];
+        const wSlot = document.createElement('div');
+        wSlot.className = 'slot-content';
+        wSlot.id = 'slot-warning-0';
+        
+        const glyphSvg = WARNING_GLYPHS[warningKey] || WARNING_GLYPHS.violence;
+        const warningLabel = WARNING_TEXT_MAP[warningKey] || 'ΣΚΗΝΕΣ ΠΡΟΕΙΔΟΠΟΙΗΣΗΣ';
+
+        wSlot.innerHTML = `
+          <div class="warning-icon-wrapper">
+            <svg class="warning-icon-svg" viewBox="0 0 28 28">
+              ${glyphSvg}
+            </svg>
+          </div>
+          <div class="warning-text-group">
+            <span class="warning-lead">ΠΕΡΙΕΧΕΙ</span>
+            <span class="warning-body">${warningLabel}</span>
+          </div>
+        `;
+        textSlotMask.appendChild(wSlot);
+        warningSlots.push(wSlot);
+        warningWidths.push(Math.ceil(wSlot.getBoundingClientRect().width) + 16);
+      }
+
+      // Initial Mask Width
+      const initialWidth = slotPrimary ? primaryWidth : (warningWidths[0] || 0);
+      textSlotMask.style.width = `${initialWidth}px`;
+
+      // Initial GSAP Setup
+      gsap.set(stage, { opacity: 1, x: 0, y: 0, scale: 1 });
+      gsap.set(badgeContainer, { scale: 0, opacity: 0 });
+      gsap.set(accentLine, { scaleX: 0 });
+      
+      if (slotPrimary) {
+        gsap.set(slotPrimary, { yPercent: 100, opacity: 0, position: 'relative' });
+      }
+      
+      warningSlots.forEach(ws => {
+        gsap.set(ws, { yPercent: 100, opacity: 0, position: 'absolute', right: 0, top: 0, bottom: 0 });
+      });
+
+      // Construct GSAP Master Timeline
+      masterTL = gsap.timeline({
+        paused: true
+      });
+
+      // Phase 1: Intro (Badge Pops In)
+      masterTL.to(badgeContainer, {
+        scale: 1,
+        opacity: 1,
+        duration: 0.7,
+        ease: 'elastic.out(1, 0.45)'
+      });
+
+      if (slotPrimary) {
+        // Animate Primary Explanation Banner
+        masterTL
+          .to(accentLine, {
+            scaleX: 1,
+            duration: 0.4,
+            ease: 'power3.out'
+          }, '-=0.35')
+          .to(slotPrimary, {
+            yPercent: 0,
+            opacity: 1,
+            duration: 0.45,
+            ease: 'back.out(1.4)'
+          }, '-=0.2');
+
+        // Main Rating Hold
+        const holdTime = Number(currentConfig.hold_time) || 4.0;
+        masterTL.to({}, { duration: holdTime });
+      }
+
+      // Phase 2: Warning Transition
+      if (warningSlots.length > 0) {
+        const warningHoldTime = Number(currentConfig.warning_hold_time) || 3.0;
+
+        warningSlots.forEach((ws, i) => {
+          const prevEl = (i === 0) ? slotPrimary : warningSlots[i - 1];
+          const targetWidth = warningWidths[i];
+
+          if (prevEl) {
+            masterTL
+              .to(prevEl, {
+                yPercent: -120,
+                opacity: 0,
+                duration: 0.35,
+                ease: 'power2.in'
+              })
+              .to(textSlotMask, {
+                width: targetWidth,
+                duration: 0.4,
+                ease: 'power2.inOut'
+              }, '<')
+              .to(ws, {
+                yPercent: 0,
+                opacity: 1,
+                duration: 0.45,
+                ease: 'back.out(1.2)'
+              }, '-=0.08');
+          } else {
+            // Direct warning entrance when explanation is skipped (Logo Only + Warning)
+            masterTL
+              .to(accentLine, {
+                scaleX: 1,
+                duration: 0.4,
+                ease: 'power3.out'
+              }, '-=0.35')
+              .to(textSlotMask, {
+                width: targetWidth,
+                duration: 0.4,
+                ease: 'power2.inOut'
+              }, '<')
+              .to(ws, {
+                yPercent: 0,
+                opacity: 1,
+                duration: 0.45,
+                ease: 'back.out(1.2)'
+              }, '-=0.2');
+          }
+
+          // Hold for warning duration
+          masterTL.to({}, { duration: warningHoldTime });
+        });
+      }
+
+      // Phase 3: Outro
+      if (slotPrimary || warningSlots.length > 0) {
+        masterTL
+          .to(accentLine, {
+            scaleX: 0,
+            duration: 0.3,
+            ease: 'power2.in'
+          })
+          .to(textSlotMask, {
+            opacity: 0,
+            duration: 0.3,
+            ease: 'power2.in'
+          }, '<');
+      }
+    }
 
     function applyConfig(data) {
       if (!data) return;
       if (typeof data === 'string') {
-        try { data = JSON.parse(data); } catch (e) {}
-      }
-
-      if (data.rating !== undefined) config.rating = String(data.rating).toLowerCase();
-      if (data.text !== undefined) config.text = String(data.text);
-      if (data.durationSec !== undefined) config.durationSec = Number(data.durationSec) || 30;
-      if (data.repeatIntervalSec !== undefined) config.repeatIntervalSec = Number(data.repeatIntervalSec) || 600;
-      if (data.tp !== undefined) config.tp = Boolean(data.tp);
-
-      render();
-    }
-
-    function render() {
-      const container = document.getElementById('advisory-container');
-      const badge = document.getElementById('rating-badge');
-      const ratingNumber = document.getElementById('rating-number');
-      const tpEl = document.getElementById('tp-badge');
-      const textEl = document.getElementById('advisory-text');
-      const iconEl = document.getElementById('advisory-icon');
-
-      if (config.rating === 'none' || !config.rating) {
-        container.classList.remove('visible');
-        return;
-      }
-
-      // Set rating classes
-      badge.className = 'rating-badge rating-' + config.rating;
-      ratingNumber.textContent = config.rating === 'k' ? 'K' : config.rating;
-
-      // Set TP
-      if (config.tp) {
-        tpEl.classList.add('active');
-      } else {
-        tpEl.classList.remove('active');
-      }
-
-      // Set Advisory Text & Icon
-      const text = config.text.trim();
-      textEl.textContent = text;
-
-      if (text.includes('ΒΙΑΣ') || text.includes('ΒΙΑ')) {
-        iconEl.textContent = '⚔️';
-      } else if (text.includes('ΣΕΞ')) {
-        iconEl.textContent = '🔞';
-      } else if (text.includes('ΟΥΣΙΩΝ')) {
-        iconEl.textContent = '💊';
-      } else if (text.includes('ΦΡΑΣΕΟΛΟΓΙΑ') || text.includes('ΥΒΡΕΙΣ')) {
-        iconEl.textContent = '💬';
-      } else {
-        iconEl.textContent = '⚠️';
-      }
-
-      container.classList.add('visible');
-      triggerBannerAnimation();
-    }
-
-    function triggerBannerAnimation() {
-      const pill = document.getElementById('advisory-pill');
-      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-
-      if (config.text && config.text.trim().length > 0 && config.rating !== 'k' && config.rating !== '8') {
-        pill.classList.add('expanded');
-
-        if (config.durationSec > 0) {
-          hideTimer = setTimeout(() => {
-            pill.classList.remove('expanded');
-          }, config.durationSec * 1000);
+        try {
+          data = JSON.parse(data);
+        } catch (e) {
+          console.warn('[Advisory CG] JSON parse error in data payload', e);
         }
-      } else {
-        pill.classList.remove('expanded');
       }
 
-      // Repeat animation every repeatIntervalSec (e.g. 10 minutes)
-      if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
-      if (config.repeatIntervalSec > 0 && config.text && config.text.trim().length > 0) {
-        repeatTimer = setInterval(() => {
-          triggerBannerAnimation();
-        }, config.repeatIntervalSec * 1000);
+      if (data.rating !== undefined) currentConfig.rating = String(data.rating).toUpperCase();
+      if (data.show_explanation !== undefined) currentConfig.show_explanation = Boolean(data.show_explanation);
+      if (data.explanation !== undefined) currentConfig.show_explanation = Boolean(data.explanation);
+      if (data.custom_text !== undefined) currentConfig.custom_text = String(data.custom_text);
+      else if (data.text !== undefined) currentConfig.custom_text = String(data.text);
+      if (data.warnings !== undefined) currentConfig.warnings = data.warnings;
+      if (data.hold_time !== undefined) currentConfig.hold_time = Number(data.hold_time) || 4.0;
+      else if (data.durationSec !== undefined) currentConfig.hold_time = Number(data.durationSec) || 4.0;
+      if (data.warning_hold_time !== undefined) currentConfig.warning_hold_time = Number(data.warning_hold_time) || 3.0;
+      if (data.top !== undefined) currentConfig.top = data.top;
+      if (data.left !== undefined) currentConfig.left = data.left;
+      if (data.tp !== undefined) currentConfig.tp = Boolean(data.tp);
+
+      buildTimeline();
+    }
+
+    function replayTimeline() {
+      if (masterTL) {
+        masterTL.restart();
       }
     }
 
-    // CasparCG AMCP CG Interface
+    // Background Mode Switcher for Standalone Dev Preview
+    function setDevBackground(mode) {
+      document.body.className = `bg-${mode === 'dark' ? 'dark-studio' : (mode === 'bright' ? 'bright-footage' : mode)}`;
+      document.querySelectorAll('.toolbar-btn[data-bg]').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-bg') === mode);
+      });
+      currentBgIndex = BG_MODES.indexOf(mode);
+    }
+
+    function cycleDevBackground() {
+      currentBgIndex = (currentBgIndex + 1) % BG_MODES.length;
+      setDevBackground(BG_MODES[currentBgIndex]);
+    }
+
+    // CasparCG AMCP CG Standard Interface
     window.play = function() {
-      render();
+      if (masterTL) {
+        masterTL.play(0);
+      }
     };
 
     window.stop = function() {
-      if (hideTimer) clearTimeout(hideTimer);
-      if (repeatTimer) clearInterval(repeatTimer);
-      const pill = document.getElementById('advisory-pill');
-      const container = document.getElementById('advisory-container');
-      pill.classList.remove('expanded');
-      container.classList.remove('visible');
+      const stage = document.getElementById('advisory-stage');
+      if (stage) {
+        gsap.to(stage, {
+          opacity: 0,
+          x: 20,
+          scale: 0.9,
+          duration: 0.4,
+          ease: 'power2.in',
+          onComplete: () => {
+            if (window.caspar && typeof window.caspar.remove === 'function') {
+              window.caspar.remove();
+            }
+          }
+        });
+      } else if (masterTL) {
+        masterTL.timeScale(2.5).reverse();
+      }
     };
 
     window.update = function(data) {
       applyConfig(data);
+      if (masterTL) {
+        masterTL.play(0);
+      }
     };
 
-    // Auto-init with URL search params or defaults
+    // Dev Toolbar Helpers
+    function setDevRating(rating) {
+      currentConfig.rating = rating;
+      currentConfig.custom_text = DEFAULT_RATING_TEXTS[rating] || '';
+      document.querySelectorAll('.toolbar-btn[data-rating]').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-rating') === rating);
+      });
+      updateDevConfig();
+    }
+
+    function updateDevConfig() {
+      const warnings = [];
+      if (document.getElementById('chk-violence')?.checked) warnings.push('violence');
+      if (document.getElementById('chk-sex')?.checked) warnings.push('sex');
+      if (document.getElementById('chk-drugs')?.checked) warnings.push('drugs');
+      if (document.getElementById('chk-language')?.checked) warnings.push('language');
+      currentConfig.warnings = warnings;
+      currentConfig.show_explanation = !!document.getElementById('chk-explanation')?.checked;
+
+      buildTimeline();
+      replayTimeline();
+    }
+
+    // Keyboard Shortcuts for Dev Preview
+    window.addEventListener('keydown', (e) => {
+      if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+
+      const key = e.key.toUpperCase();
+      if (key === '1') setDevRating('K');
+      else if (key === '2') setDevRating('8');
+      else if (key === '3') setDevRating('12');
+      else if (key === '4') setDevRating('16');
+      else if (key === '5') setDevRating('18');
+      else if (key === 'B') cycleDevBackground();
+      else if (key === ' ' || key === 'P') {
+        e.preventDefault();
+        window.play();
+      } else if (key === 'S') {
+        window.stop();
+      } else if (key === 'R') {
+        replayTimeline();
+      } else if (key === 'H') {
+        const tb = document.getElementById('dev-toolbar');
+        if (tb) tb.classList.toggle('hidden');
+      }
+    });
+
+    // Hide Dev Toolbar & force transparency when executed inside CasparCG
+    if (window.caspar) {
+      document.body.className = 'bg-transparent';
+      const tb = document.getElementById('dev-toolbar');
+      if (tb) tb.style.display = 'none';
+    }
+
+    // Auto-Init with URL Parameters or Defaults
     try {
       const params = new URLSearchParams(window.location.search);
-      if (params.has('rating')) config.rating = params.get('rating');
-      if (params.has('text')) config.text = params.get('text');
-      if (params.has('tp')) config.tp = params.get('tp') === '1' || params.get('tp') === 'true';
+      if (params.has('rating')) currentConfig.rating = params.get('rating').toUpperCase();
+      if (params.has('text')) currentConfig.custom_text = params.get('text');
+      if (params.has('tp')) currentConfig.tp = params.get('tp') === '1' || params.get('tp') === 'true';
     } catch(e) {}
 
+    buildTimeline();
     window.play();
   </script>
 </body>

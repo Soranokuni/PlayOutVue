@@ -55,6 +55,7 @@ export const useSettingsStore = defineStore('settings', {
         autoResumeAfterRestart: true,
 
         // Character Generator (CG) settings
+        complianceRenderMode: 'html5' as 'html5' | 'legacy_png',
         cg: {
             stationIdPath: '',
             stationIdEnabled: true,
@@ -78,7 +79,7 @@ export const useSettingsStore = defineStore('settings', {
         cgCrawlPosition: 'bottom' as 'top' | 'bottom',
         cgCrawlText: '',
         cgCrawlActive: false,
-        cgExplanationTemplate: 'playout/explanation',
+        cgExplanationTemplate: 'playout/advisory',
     }),
 
     actions: {

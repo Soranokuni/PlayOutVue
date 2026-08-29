@@ -41,6 +41,7 @@ const localState = ref({
     recycleBinAutoPurge: 'disabled' as 'disabled' | '1week' | '2weeks' | '3weeks' | '1month',
     
     // CG settings
+    complianceRenderMode: 'html5' as 'html5' | 'legacy_png',
     cg: {
         stationIdPath: '',
         stationIdEnabled: true,
@@ -66,7 +67,7 @@ const localState = ref({
     cgCrawlPosition: 'bottom' as 'top' | 'bottom',
     cgCrawlText: '',
     cgCrawlActive: false,
-    cgExplanationTemplate: 'playout/explanation'
+    cgExplanationTemplate: 'playout/advisory'
 });
 
 const currentActivePos = computed({
@@ -128,6 +129,44 @@ const onDragEnd = () => {
     window.removeEventListener('mouseup', onDragEnd);
 };
 
+const applyPositionPreset = (preset: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'unified-advisory') => {
+    const layer = selectedWizardLayer.value;
+    if (preset === 'top-right') {
+        if (layer === 'logo') localState.value.cgStationLogoPos = { left: 88, top: 5, width: 8, height: 8 };
+        else if (layer === 'rating') localState.value.cgRatingBadgePos = { left: 88, top: 5, width: 7, height: 7 };
+        else if (layer === 'tp') localState.value.cgTPPos = { left: 88, top: 13, width: 7, height: 7 };
+        else if (layer === 'explanation') localState.value.cgExplanationBannerPos = { left: 56, top: 5, width: 31, height: 7 };
+    } else if (preset === 'top-left') {
+        if (layer === 'logo') localState.value.cgStationLogoPos = { left: 5, top: 5, width: 8, height: 8 };
+        else if (layer === 'rating') localState.value.cgRatingBadgePos = { left: 5, top: 5, width: 7, height: 7 };
+        else if (layer === 'tp') localState.value.cgTPPos = { left: 5, top: 13, width: 7, height: 7 };
+        else if (layer === 'explanation') localState.value.cgExplanationBannerPos = { left: 13, top: 5, width: 31, height: 7 };
+    } else if (preset === 'bottom-right') {
+        if (layer === 'logo') localState.value.cgStationLogoPos = { left: 88, top: 87, width: 8, height: 8 };
+        else if (layer === 'rating') localState.value.cgRatingBadgePos = { left: 88, top: 87, width: 7, height: 7 };
+        else if (layer === 'tp') localState.value.cgTPPos = { left: 88, top: 79, width: 7, height: 7 };
+        else if (layer === 'explanation') localState.value.cgExplanationBannerPos = { left: 56, top: 87, width: 31, height: 7 };
+    } else if (preset === 'bottom-left') {
+        if (layer === 'logo') localState.value.cgStationLogoPos = { left: 5, top: 87, width: 8, height: 8 };
+        else if (layer === 'rating') localState.value.cgRatingBadgePos = { left: 5, top: 87, width: 7, height: 7 };
+        else if (layer === 'tp') localState.value.cgTPPos = { left: 5, top: 79, width: 7, height: 7 };
+        else if (layer === 'explanation') localState.value.cgExplanationBannerPos = { left: 13, top: 87, width: 31, height: 7 };
+    } else if (preset === 'unified-advisory') {
+        // Greek NCRTV Standard Top-Right Stencil Advisory Combo
+        localState.value.cgRatingBadgePos = { left: 89, top: 5.5, width: 6.5, height: 6.5 };
+        localState.value.cgTPPos = { left: 89, top: 12.5, width: 6.5, height: 6.5 };
+        localState.value.cgExplanationBannerPos = { left: 58, top: 5.5, width: 30, height: 6.5 };
+    }
+};
+
+const resetAllLayersToStandard = () => {
+    localState.value.cgStationLogoPos = { left: 5, top: 5, width: 10, height: 10 };
+    localState.value.cgRatingBadgePos = { left: 88, top: 5, width: 7, height: 7 };
+    localState.value.cgTPPos = { left: 88, top: 13, width: 7, height: 7 };
+    localState.value.cgExplanationBannerPos = { left: 58, top: 5, width: 29, height: 7 };
+    localState.value.cgCrawlPos = { left: 0, top: 92, width: 100, height: 8 };
+};
+
 // Auto logo scanning
 const scanLogosFolder = async () => {
     if (!localState.value.localMediaPath) {
@@ -179,6 +218,36 @@ const scanLogosFolder = async () => {
     }
 };
 
+const isDeployingTemplates = ref(false);
+const deployTemplatesFromSettings = async () => {
+    isDeployingTemplates.value = true;
+    try {
+        const configPath = localState.value.casparConfigPath || '';
+        const templatePath = configPath.trim()
+            ? configPath.replace(/[/\\][^/\\]+$/, '/template')
+            : (localState.value.localMediaPath ? `${localState.value.localMediaPath}/../template` : null);
+        const mediaPath = localState.value.localMediaPath || (configPath.trim() ? configPath.replace(/[/\\][^/\\]+$/, '/media') : null);
+
+        const res = await invoke<{ template_dir: string; deployed: string[]; skipped: string[] }>('deploy_caspar_templates', {
+            templatePath,
+            mediaPath,
+            overwrite: true
+        });
+
+        // Ensure cgExplanationTemplate is reset to playout/advisory if it was legacy/invalid
+        if (!localState.value.cgExplanationTemplate || localState.value.cgExplanationTemplate === 'testdada' || localState.value.cgExplanationTemplate === 'playout/explanation') {
+            localState.value.cgExplanationTemplate = 'playout/advisory';
+        }
+
+        alert(`Broadcast CG Templates & Logos deployed successfully!\n\nTarget Directory:\n${res.template_dir}\n\nFiles Deployed:\n• ${res.deployed.join('\n• ')}`);
+    } catch (e: any) {
+        console.error('Failed to deploy templates:', e);
+        alert(`Failed to deploy templates: ${e}`);
+    } finally {
+        isDeployingTemplates.value = false;
+    }
+};
+
 const mapLocalState = () => {
     localState.value = {
         localMediaPath: settings.localMediaPath,
@@ -203,6 +272,7 @@ const mapLocalState = () => {
         recycleBinAutoPurge: settings.recycleBinAutoPurge || 'disabled',
         
         // CG settings
+        complianceRenderMode: settings.complianceRenderMode || 'html5',
         cg: {
             stationIdPath: settings.cg?.stationIdPath || '',
             stationIdEnabled: settings.cg?.stationIdEnabled !== false,
@@ -228,7 +298,9 @@ const mapLocalState = () => {
         cgCrawlPosition: settings.cgCrawlPosition || 'bottom',
         cgCrawlText: settings.cgCrawlText || '',
         cgCrawlActive: settings.cgCrawlActive || false,
-        cgExplanationTemplate: settings.cgExplanationTemplate || 'playout/explanation'
+        cgExplanationTemplate: (settings.cgExplanationTemplate && settings.cgExplanationTemplate !== 'testdada' && settings.cgExplanationTemplate !== 'playout/explanation')
+            ? settings.cgExplanationTemplate
+            : 'playout/advisory'
     };
 };
 
@@ -270,12 +342,18 @@ const emptyBinFromSettings = async () => {
     }
 };
 
-const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | 'badge-k' | 'badge-8' | 'badge-12' | 'badge-16' | 'badge-18' | 'badge-tp') => {
+const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | 'badge-k' | 'badge-8' | 'badge-12' | 'badge-16' | 'badge-18' | 'badge-tp' | 'caspar-config' | 'cg-advisory-template' | 'cg-crawl-template') => {
     const isDirectory = target === 'media' || target === 'logos' || target === 'ffmpeg-bin';
+    const isConfigFile = target === 'caspar-config';
+    const isTemplateFile = target === 'cg-advisory-template' || target === 'cg-crawl-template';
+
     const defaultPath = (() => {
         if (target === 'media') return localState.value.localMediaPath;
         if (target === 'ffmpeg-bin') return localState.value.ffmpegBinPath;
         if (target === 'logos') return localState.value.logosPath;
+        if (target === 'caspar-config') return localState.value.casparConfigPath;
+        if (target === 'cg-advisory-template') return localState.value.cgExplanationTemplate;
+        if (target === 'cg-crawl-template') return localState.value.cgCrawlTemplate;
         if (target === 'cg-logo') return localState.value.cg.stationIdPath;
         if (target === 'badge-k') return localState.value.cgRatingKPath;
         if (target === 'badge-8') return localState.value.cgRating8Path;
@@ -285,14 +363,37 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
         return localState.value.cgRatingTPPath;
     })();
 
+    let filters = undefined;
+    let title = 'Choose File';
+    if (isDirectory) {
+        title = 'Choose Folder';
+        filters = undefined;
+    } else if (isConfigFile) {
+        title = 'Choose casparcg.config';
+        filters = [
+            { name: 'CasparCG Config', extensions: ['config', 'xml'] },
+            { name: 'All Files', extensions: ['*'] }
+        ];
+    } else if (isTemplateFile) {
+        title = 'Choose HTML / Flash CG Template';
+        filters = [
+            { name: 'HTML5 & Flash Templates', extensions: ['html', 'htm', 'ft'] },
+            { name: 'All Files', extensions: ['*'] }
+        ];
+    } else {
+        title = 'Choose Image File';
+        filters = [
+            { name: 'Image Files', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] },
+            { name: 'All Files', extensions: ['*'] }
+        ];
+    }
+
     const selection = await open({
-        title: isDirectory ? 'Choose Folder' : 'Choose Image File',
+        title,
         multiple: false,
         directory: isDirectory,
         defaultPath: defaultPath || undefined,
-        filters: isDirectory
-            ? undefined
-            : [{ name: 'Image Files', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
+        filters
     });
 
     if (!selection || Array.isArray(selection)) return;
@@ -300,6 +401,18 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     if (target === 'media') localState.value.localMediaPath = selection;
     else if (target === 'ffmpeg-bin') localState.value.ffmpegBinPath = selection;
     else if (target === 'logos') localState.value.logosPath = selection;
+    else if (target === 'caspar-config') localState.value.casparConfigPath = selection;
+    else if (target === 'cg-advisory-template') {
+        // If file is selected, simplify relative path if inside a template directory
+        const normalized = selection.replace(/\\/g, '/');
+        const match = normalized.match(/template\/(.+?)(\.html|\.htm|\.ft)?$/i);
+        localState.value.cgExplanationTemplate = match ? match[1]! : selection;
+    }
+    else if (target === 'cg-crawl-template') {
+        const normalized = selection.replace(/\\/g, '/');
+        const match = normalized.match(/template\/(.+?)(\.html|\.htm|\.ft)?$/i);
+        localState.value.cgCrawlTemplate = match ? match[1]! : selection;
+    }
     else if (target === 'cg-logo') localState.value.cg.stationIdPath = selection;
     else if (target === 'badge-k') localState.value.cgRatingKPath = selection;
     else if (target === 'badge-8') localState.value.cgRating8Path = selection;
@@ -654,14 +767,20 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                       </div>
                       <div class="form-group">
                           <label>casparcg.config Path</label>
-                          <input type="text" class="glass-input" v-model="localState.casparConfigPath" placeholder="C:/CasparCG/casparcg.config">
+                          <div class="input-with-button">
+                              <input type="text" class="glass-input" v-model="localState.casparConfigPath" placeholder="C:/CasparCG/casparcg.config">
+                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse casparcg.config" @click="pickPath('caspar-config')">📁 Browse</button>
+                          </div>
                           <span class="hint-text">Direct path to your CasparCG XML config file.</span>
                       </div>
                   </div>
 
-                  <div style="display:flex;gap:10px;margin-top:12px;">
-                      <button class="glass-btn btn-primary" @click="showDecklinkWizard = true">Open Setup Wizard</button>
-                      <button class="glass-btn" @click="showCasparConfigurator = true">Advanced XML Configurator</button>
+                  <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;">
+                       <button class="glass-btn btn-primary" @click="showDecklinkWizard = true">Open Setup Wizard</button>
+                       <button class="glass-btn" @click="showCasparConfigurator = true">Advanced XML Configurator</button>
+                       <button class="glass-btn" @click="deployTemplatesFromSettings" :disabled="isDeployingTemplates" style="background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                           {{ isDeployingTemplates ? '⏳ Deploying Templates...' : '🚀 Deploy CG Templates & Logos to CasparCG' }}
+                       </button>
                   </div>
               </section>
 
@@ -697,6 +816,42 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 
           <!-- CG & Layouts Tab -->
           <div v-if="activeTab === 'cg'">
+              <!-- Graphics Pipeline Selector -->
+              <section class="settings-section">
+                  <h3 class="text-secondary section-title">Age Rating Graphics Engine (Σήματα Καταλληλότητας)</h3>
+                  <div class="qc-radio-grid">
+                      <div
+                          class="qc-radio-card"
+                          :class="{ active: localState.complianceRenderMode === 'html5' }"
+                          @click="localState.complianceRenderMode = 'html5'"
+                      >
+                          <div class="qc-radio-header">
+                              <span class="qc-badge badge-prod">RECOMMENDED (SOTA)</span>
+                              <input type="radio" value="html5" v-model="localState.complianceRenderMode" />
+                          </div>
+                          <div class="qc-card-title">HTML5 Vector Graphics (Layer 32)</div>
+                          <p class="qc-desc">
+                              Dynamic frosted-glass stencils with 30s Greek ESR rating &amp; content warning banners, smooth elastic pop-in and fade-out. No PNG files required.
+                          </p>
+                      </div>
+
+                      <div
+                          class="qc-radio-card"
+                          :class="{ active: localState.complianceRenderMode === 'legacy_png' }"
+                          @click="localState.complianceRenderMode = 'legacy_png'"
+                      >
+                          <div class="qc-radio-header">
+                              <span class="qc-badge badge-lenient">LEGACY PIPELINE</span>
+                              <input type="radio" value="legacy_png" v-model="localState.complianceRenderMode" />
+                          </div>
+                          <div class="qc-card-title">Static PNG Images (Layer 31)</div>
+                          <p class="qc-desc">
+                              Plays classic static image badges (<code style="font-size:0.75rem;">16.png</code>, <code style="font-size:0.75rem;">K.png</code>) via CasparCG Image Producer.
+                          </p>
+                      </div>
+                  </div>
+              </section>
+
               <!-- Logo Scanning and Paths -->
               <section class="settings-section">
                   <h3 class="text-secondary section-title" style="display:flex; justify-content:space-between; align-items:center;">
@@ -765,24 +920,61 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                   </div>
               </section>
 
+              <!-- CG HTML5 Templates -->
+              <section class="settings-section">
+                  <h3 class="text-secondary section-title">CG HTML5 Templates</h3>
+                  <div class="form-grid">
+                      <div class="form-group">
+                          <label>Greek ESR Advisory Template (Layer 32)</label>
+                          <div class="input-with-button">
+                              <input type="text" class="glass-input" v-model="localState.cgExplanationTemplate" placeholder="playout/advisory">
+                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse template file" @click="pickPath('cg-advisory-template')">📁</button>
+                          </div>
+                          <span class="hint-text">Default: <code>playout/advisory</code> (Standard Greek ESR 30s Rating Banner &amp; Content Warnings).</span>
+                      </div>
+
+                      <div class="form-group">
+                          <label>Emergency Crawl Template (Layer 33)</label>
+                          <div class="input-with-button">
+                              <input type="text" class="glass-input" v-model="localState.cgCrawlTemplate" placeholder="playout/crawl">
+                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse crawl template file" @click="pickPath('cg-crawl-template')">📁</button>
+                          </div>
+                          <span class="hint-text">Default: <code>playout/crawl</code> (50fps Broadcast Ticker).</span>
+                      </div>
+                  </div>
+              </section>
+
               <!-- Interactive Layout Positioning Studio -->
               <section class="settings-section">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                      <h3 class="text-secondary section-title" style="margin-bottom:0;">On-Screen Graphic Positioning Studio</h3>
+                  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                      <h3 class="text-secondary section-title" style="margin-bottom:0;">On-Screen Graphic Positioning Studio (Σήματα)</h3>
                       <div style="display:flex; align-items:center; gap:8px;">
                           <label style="font-size:0.8rem; color:var(--text-secondary);">Selected Layer:</label>
                           <select v-model="selectedWizardLayer" class="select-layer">
-                              <option value="logo">Station Logo</option>
-                              <option value="rating">Rating Badge</option>
-                              <option value="tp">Telemarketing (TP)</option>
-                              <option value="explanation">Explanation Banner</option>
-                              <option value="crawl">Emergency Crawl</option>
+                              <option value="logo">Station Logo (L30)</option>
+                              <option value="rating">Rating Badge (L31)</option>
+                              <option value="tp">Telemarketing TP (L34)</option>
+                              <option value="explanation">Advisory / Explanation (L32)</option>
+                              <option value="crawl">Emergency Crawl (L33)</option>
                           </select>
                       </div>
                   </div>
 
+                  <!-- Quick Position Presets Toolbar -->
+                  <div class="position-presets-bar" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:0.75rem;">
+                      <span style="font-size:0.75rem; font-weight:700; color:#94a3b8; align-self:center; margin-right:4px;">Presets:</span>
+                      <button type="button" class="preset-btn" @click="applyPositionPreset('top-right')">↗ Top-Right</button>
+                      <button type="button" class="preset-btn" @click="applyPositionPreset('top-left')">↖ Top-Left</button>
+                      <button type="button" class="preset-btn" @click="applyPositionPreset('bottom-right')">↘ Bottom-Right</button>
+                      <button type="button" class="preset-btn" @click="applyPositionPreset('bottom-left')">↙ Bottom-Left</button>
+                      <button type="button" class="preset-btn btn-highlight" @click="applyPositionPreset('unified-advisory')">🇬🇷 Greek Advisory Standard</button>
+                      <button type="button" class="preset-btn" @click="resetAllLayersToStandard">↺ Reset All Layers</button>
+                  </div>
+
                   <div class="mock-screen">
-                      <div class="safe-area-border" title="10% Title Safe Area"></div>
+                      <!-- Broadcast Safe Areas (EBU R95: 90% Action Safe, 80% Title Safe) -->
+                      <div class="safe-area-action" title="90% Action Safe Area"></div>
+                      <div class="safe-area-border" title="80% Title Safe Area"></div>
 
                       <!-- Station Logo Box -->
                       <div
@@ -796,7 +988,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           }"
                           @mousedown="onDragStart($event, 'logo')"
                       >
-                          <span class="box-label">Station Logo</span>
+                          <span class="box-label">Logo</span>
                       </div>
 
                       <!-- Rating Box -->
@@ -811,7 +1003,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           }"
                           @mousedown="onDragStart($event, 'rating')"
                       >
-                          <span class="box-label">Rating</span>
+                          <span class="box-label">16</span>
                       </div>
 
                       <!-- TP Box -->
@@ -841,7 +1033,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           }"
                           @mousedown="onDragStart($event, 'explanation')"
                       >
-                          <span class="box-label">Explanation</span>
+                          <span class="box-label">⚠️ Advisory Banner</span>
                       </div>
 
                       <!-- Crawl Box -->
@@ -856,31 +1048,43 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           }"
                           @mousedown="onDragStart($event, 'crawl')"
                       >
-                          <span class="box-label">Crawl Text</span>
+                          <span class="box-label">Emergency Crawl Ticker</span>
                       </div>
                   </div>
 
-                  <!-- Precision Coordinate Sliders -->
+                  <!-- Precision Coordinate Sliders with Exact Numeric Inputs -->
                   <div class="wizard-sliders" style="margin-top: 1.25rem;">
                       <div class="slider-row">
                           <span class="slider-label">Left X (%)</span>
-                          <input type="range" min="0" :max="100 - currentActivePos.width" v-model.number="currentActivePos.left">
-                          <span class="slider-value">{{ currentActivePos.left }}%</span>
+                          <input type="range" min="0" :max="100 - currentActivePos.width" step="0.5" v-model.number="currentActivePos.left">
+                          <div class="input-coord-wrap">
+                              <input type="number" min="0" :max="100 - currentActivePos.width" step="0.5" class="coord-number-input" v-model.number="currentActivePos.left">
+                              <span class="coord-unit">%</span>
+                          </div>
                       </div>
                       <div class="slider-row">
                           <span class="slider-label">Top Y (%)</span>
-                          <input type="range" min="0" :max="100 - currentActivePos.height" v-model.number="currentActivePos.top">
-                          <span class="slider-value">{{ currentActivePos.top }}%</span>
+                          <input type="range" min="0" :max="100 - currentActivePos.height" step="0.5" v-model.number="currentActivePos.top">
+                          <div class="input-coord-wrap">
+                              <input type="number" min="0" :max="100 - currentActivePos.height" step="0.5" class="coord-number-input" v-model.number="currentActivePos.top">
+                              <span class="coord-unit">%</span>
+                          </div>
                       </div>
                       <div class="slider-row">
                           <span class="slider-label">Width (%)</span>
-                          <input type="range" min="2" max="100" v-model.number="currentActivePos.width">
-                          <span class="slider-value">{{ currentActivePos.width }}%</span>
+                          <input type="range" min="2" max="100" step="0.5" v-model.number="currentActivePos.width">
+                          <div class="input-coord-wrap">
+                              <input type="number" min="2" max="100" step="0.5" class="coord-number-input" v-model.number="currentActivePos.width">
+                              <span class="coord-unit">%</span>
+                          </div>
                       </div>
                       <div class="slider-row">
                           <span class="slider-label">Height (%)</span>
-                          <input type="range" min="2" max="100" v-model.number="currentActivePos.height">
-                          <span class="slider-value">{{ currentActivePos.height }}%</span>
+                          <input type="range" min="2" max="100" step="0.5" v-model.number="currentActivePos.height">
+                          <div class="input-coord-wrap">
+                              <input type="number" min="2" max="100" step="0.5" class="coord-number-input" v-model.number="currentActivePos.height">
+                              <span class="coord-unit">%</span>
+                          </div>
                       </div>
                   </div>
               </section>
@@ -1202,63 +1406,113 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 .mock-screen {
     width: 100%;
     aspect-ratio: 16 / 9;
-    background: #000;
+    background: #06090e;
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 8px;
     position: relative;
     overflow: hidden;
     margin-top: 0.75rem;
-    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.9);
 }
 
-.safe-area-border {
+.safe-area-action {
     position: absolute;
     top: 5%;
     left: 5%;
     width: 90%;
     height: 90%;
-    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border: 1px dashed rgba(34, 197, 94, 0.35);
+    pointer-events: none;
+}
+
+.safe-area-border {
+    position: absolute;
+    top: 10%;
+    left: 10%;
+    width: 80%;
+    height: 80%;
+    border: 1px dashed rgba(234, 179, 8, 0.4);
     pointer-events: none;
 }
 
 .layer-box {
     position: absolute;
     cursor: move;
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    border: 1.5px solid rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(8px);
     display: flex;
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
     user-select: none;
+    border-radius: 4px;
 }
 
 .layer-box:hover {
     border-color: #38bdf8;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
 }
 
 .layer-box.is-selected {
     border-color: #38bdf8;
     border-width: 2px;
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.7);
     z-index: 10;
 }
 
 .box-label {
-    font-size: 0.65rem;
-    font-weight: 700;
+    font-size: 0.68rem;
+    font-weight: 800;
     color: #fff;
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
     text-transform: uppercase;
     text-align: center;
     padding: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.logo-box { background: rgba(56, 189, 248, 0.25); }
-.rating-box { background: rgba(245, 158, 11, 0.25); }
-.tp-box { background: rgba(244, 63, 94, 0.25); }
-.explanation-box { background: rgba(168, 85, 247, 0.25); }
-.crawl-box { background: rgba(59, 130, 246, 0.25); }
+.logo-box { background: rgba(56, 189, 248, 0.3); border-radius: 6px; }
+.rating-box { background: rgba(255, 255, 255, 0.28); border-radius: 50%; border-color: rgba(255, 255, 255, 0.8); }
+.tp-box { background: rgba(255, 255, 255, 0.25); border-radius: 4px; }
+.explanation-box { background: rgba(255, 255, 255, 0.22); border-radius: 16px; }
+.crawl-box { background: rgba(15, 23, 42, 0.75); border-radius: 0; border-top-color: #38bdf8; }
+
+.position-presets-bar {
+    margin-bottom: 0.5rem;
+}
+
+.preset-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #cbd5e1;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.preset-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.35);
+    color: #fff;
+}
+
+.preset-btn.btn-highlight {
+    background: rgba(56, 189, 248, 0.18);
+    border-color: rgba(56, 189, 248, 0.45);
+    color: #38bdf8;
+}
+
+.preset-btn.btn-highlight:hover {
+    background: rgba(56, 189, 248, 0.3);
+    border-color: #38bdf8;
+    color: #fff;
+}
 
 .wizard-sliders {
     display: flex;
@@ -1268,7 +1522,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 
 .slider-row {
     display: grid;
-    grid-template-columns: 90px 1fr 60px;
+    grid-template-columns: 90px 1fr 90px;
     align-items: center;
     gap: 1rem;
 }
@@ -1279,12 +1533,38 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     font-weight: 600;
 }
 
-.slider-value {
-    font-size: 0.8rem;
+.input-coord-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #0b0f17;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 5px;
+    padding: 3px 6px;
+}
+
+.coord-number-input {
+    width: 50px;
+    background: transparent;
+    border: none;
     color: #f1f5f9;
-    text-align: right;
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 0.8rem;
     font-weight: 700;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    text-align: right;
+    outline: none;
+    -moz-appearance: textfield;
+}
+.coord-number-input::-webkit-outer-spin-button,
+.coord-number-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.coord-unit {
+    font-size: 0.75rem;
+    color: #64748b;
+    font-weight: 600;
 }
 
 .wizard-sliders input[type="range"] {

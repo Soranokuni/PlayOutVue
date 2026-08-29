@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useMediaDefaultsStore, type LibraryIndicator } from './mediaDefaults';
 import { useRundownStore, parseBroadcastRating, serializeBroadcastRating } from './rundown';
 import type { ComplianceRating } from './rundown';
+import type { ContentDescriptorId } from '../lib/greekCompliance';
 import { invoke } from '@tauri-apps/api/core';
 
 export interface QcFinding {
@@ -728,6 +729,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             uuid: string,
             updates: {
                 complianceRating?: ComplianceRating;
+                complianceDescriptors?: ContentDescriptorId[];
                 complianceText?: string;
                 tp_flag?: boolean;
                 content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';

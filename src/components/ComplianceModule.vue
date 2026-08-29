@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import { activePlayoutCapabilities, getActivePlayoutService } from '../services/playout';
 import { useRundownStore, type ComplianceRating } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
@@ -7,8 +8,12 @@ import {
   GREEK_CONTENT_DESCRIPTORS,
   GREEK_COMPLIANCE_PRESETS,
   buildGreekAdvisoryText,
+  formatCompliancePayload,
   type ContentDescriptorId,
-  type GreekCompliancePreset
+  type GreekCompliancePreset,
+  type GreekRating,
+  type GreekWarningType,
+  type GreekComplianceConfig
 } from '../lib/greekCompliance';
 
 const store = useRundownStore();
@@ -29,6 +34,7 @@ const selectedDescriptors = ref<ContentDescriptorId[]>([]);
 const advisoryText = ref('');
 const tpFlag = ref(false);
 const isOverlayActive = ref(false);
+const isAdvisoryTriggering = ref(false);
 const durationSec = ref(30);
 const repeatIntervalSec = ref(600);
 
@@ -94,8 +100,61 @@ const persistCompliance = () => {
 
 watch([selectedRating, advisoryText, tpFlag], persistCompliance);
 
+const triggerAdvisory = async () => {
+  const currentItem = item.value;
+  if (!currentItem || selectedRating.value === 'none') return;
+  persistCompliance();
+
+  isAdvisoryTriggering.value = true;
+  try {
+    const rawRating = selectedRating.value === 'k' ? 'K' : selectedRating.value;
+    const mappedWarnings: GreekWarningType[] = selectedDescriptors.value.map(d => {
+      if (d === 'substances') return 'drugs';
+      return d as GreekWarningType;
+    });
+
+    const config: GreekComplianceConfig = {
+      rating: rawRating as GreekRating,
+      warnings: mappedWarnings,
+      customText: advisoryText.value.trim() || undefined,
+      holdTime: 4,
+      warningHoldTime: 3
+    };
+
+    const payloadJson = formatCompliancePayload(config);
+    const dataObj = JSON.parse(payloadJson);
+    dataObj.tp = tpFlag.value;
+
+    await invoke('caspar_cg_add', {
+      channel: 1,
+      layer: 32, // standard explanation / advisory layer
+      template: 'playout/advisory',
+      play: true,
+      data: dataObj
+    }).catch(async (err) => {
+      console.warn('[ComplianceModule] Direct caspar_cg_add failed, falling back to service:', err);
+      await getActivePlayoutService().applyComplianceForItem?.({
+        ...currentItem,
+        complianceRating: selectedRating.value,
+        complianceDescriptors: [...selectedDescriptors.value],
+        complianceText: advisoryText.value.trim(),
+        tp_flag: tpFlag.value
+      });
+    });
+
+    isOverlayActive.value = true;
+  } catch (e) {
+    console.error('Failed to trigger advisory graphics:', e);
+  } finally {
+    setTimeout(() => {
+      isAdvisoryTriggering.value = false;
+    }, 800);
+  }
+};
+
 const applyComplianceOverlay = async () => {
-  if (!item.value) return;
+  const currentItem = item.value;
+  if (!currentItem) return;
   persistCompliance();
   if (!activePlayoutCapabilities.value.compliance) {
     isOverlayActive.value = false;
@@ -107,7 +166,7 @@ const applyComplianceOverlay = async () => {
   }
   try {
     await getActivePlayoutService().applyComplianceForItem?.({
-      ...item.value,
+      ...currentItem,
       complianceRating: selectedRating.value,
       complianceDescriptors: [...selectedDescriptors.value],
       complianceText: advisoryText.value.trim(),
@@ -230,9 +289,12 @@ const clearComplianceOverlay = async () => {
               {{ selectedRating.toUpperCase() }}
             </div>
             <div v-if="tpFlag" class="preview-tp">TP</div>
-            <div v-if="advisoryText" class="preview-pill">
-              <span class="pill-icon">⚠️</span>
-              <span class="pill-text">{{ advisoryText }}</span>
+            <div v-if="advisoryText" class="preview-floating-text-wrap">
+              <div class="preview-text-row">
+                <span class="pill-icon">⚠️</span>
+                <span class="preview-floating-text">{{ advisoryText }}</span>
+              </div>
+              <div class="preview-accent-line"></div>
             </div>
           </div>
         </div>
@@ -241,6 +303,17 @@ const clearComplianceOverlay = async () => {
 
     <!-- Playout Push Actions -->
     <div class="actions">
+      <button
+        v-if="selectedRating !== 'none'"
+        class="glass-btn btn-trigger-advisory full-width"
+        style="margin-bottom: 8px;"
+        :disabled="isAdvisoryTriggering"
+        @click="triggerAdvisory"
+      >
+        <span v-if="!isAdvisoryTriggering">⚡ Trigger On-Air Advisory (CG 1-32)</span>
+        <span v-else>⏳ Pushing Advisory CG...</span>
+      </button>
+
       <button v-if="!isOverlayActive" class="glass-btn btn-primary full-width" @click="applyComplianceOverlay">
         ▶ Push Overlay (Top-Right L32)
       </button>
@@ -498,48 +571,75 @@ const clearComplianceOverlay = async () => {
 }
 
 .preview-badge {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 900;
   color: #fff;
-  border: 1.5px solid #fff;
+  background: rgba(255, 255, 255, 0.28);
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  backdrop-filter: blur(16px);
+  box-shadow:
+    0 3px 12px rgba(0, 0, 0, 0.35),
+    -1px -1px 4px rgba(255, 255, 255, 0.35),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.85),
+    inset -1px -1px 2px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
 }
 
-.badge-k { background: #166534; border-radius: 6px; transform: rotate(45deg); width: 30px; height: 30px; }
-.badge-8 { background: #1e40af; border-radius: 50%; }
-.badge-12 { background: #9a3412; clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border-radius: 0; }
-.badge-16 { background: #6b21a8; border-radius: 6px; }
-.badge-18 { background: #991b1b; border-radius: 50%; }
+.badge-k, .badge-8, .badge-12, .badge-16, .badge-18 {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 50%;
+  border-color: rgba(255, 255, 255, 0.7);
+}
 
 .preview-tp {
-  background: #f59e0b;
-  color: #000;
+  background: rgba(255, 255, 255, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(14px);
+  color: #fff;
   font-size: 11px;
   font-weight: 900;
   padding: 2px 6px;
   border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.preview-pill {
-  background: rgba(15, 23, 42, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 20px;
-  padding: 4px 12px;
+.preview-floating-text-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  position: relative;
+  padding: 0 2px;
+}
+
+.preview-text-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
-.pill-icon { font-size: 13px; }
-.pill-text {
-  font-size: 11px;
-  font-weight: 700;
+.pill-icon { font-size: 12px; }
+
+.preview-floating-text {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
   color: #fff;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   white-space: nowrap;
+}
+
+.preview-accent-line {
+  height: 1.5px;
+  background: linear-gradient(270deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.35) 75%, rgba(255, 255, 255, 0) 100%);
+  border-radius: 1px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 /* Actions */
@@ -554,6 +654,25 @@ const clearComplianceOverlay = async () => {
   cursor: pointer;
   transition: 0.15s;
   font-size: 0.85rem;
+}
+
+.btn-trigger-advisory {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.3) 0%, rgba(14, 165, 233, 0.2) 100%);
+  color: #38bdf8;
+  border: 1.5px solid rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
+  font-weight: 800;
+}
+
+.btn-trigger-advisory:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.45) 0%, rgba(14, 165, 233, 0.35) 100%);
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.btn-trigger-advisory:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-primary {
