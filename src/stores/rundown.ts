@@ -9,6 +9,7 @@ import { useMediaLibraryStore } from './mediaLibrary';
 import { clampTrimIn, clampTrimOut } from '../utils/frameMath';
 import { savePlaybackState, loadPlaybackState, clearPlaybackState } from '../lib/playbackPersistence';
 import { applyWeekdayAnchor, parseClockAnchor, formatClockTime, weekdayLabel } from '../utils/timeFormat';
+import { parseDescriptorsFromText, type ContentDescriptorId } from '../lib/greekCompliance';
 
 export type ComplianceRating = 'none' | 'k' | '8' | '12' | '16' | '18';
 export type RundownItemType = 'video' | 'live' | 'graphic' | 'gap';
@@ -267,17 +268,18 @@ export interface BroadcastMetadata {
     contentType: 'movie' | 'show' | 'documentary' | 'news' | 'none';
     timeline: Array<{ start: number; end: number; text: string }>;
     advisoryText?: string;
+    descriptors?: ContentDescriptorId[];
 }
 
 export const parseBroadcastRating = (ratingStr: string | null | undefined): BroadcastMetadata => {
     const raw = (ratingStr || '').trim();
     if (!raw) {
-        return { ageRating: 'none', tpFlag: false, contentType: 'none', timeline: [], advisoryText: '' };
+        return { ageRating: 'none', tpFlag: false, contentType: 'none', timeline: [], advisoryText: '', descriptors: [] };
     }
     const parts = raw.split('|');
     const age = mapApiRatingToCompliance(parts[0]);
     if (parts.length === 1) {
-        return { ageRating: age, tpFlag: false, contentType: 'none', timeline: [], advisoryText: '' };
+        return { ageRating: age, tpFlag: false, contentType: 'none', timeline: [], advisoryText: '', descriptors: [] };
     }
     const tpFlag = (parts[1] || '').toUpperCase() === 'TP';
     const rawContent = (parts[2] || '').toLowerCase();
@@ -297,7 +299,8 @@ export const parseBroadcastRating = (ratingStr: string | null | undefined): Broa
         }
     }
     const advisoryText = timeline[0]?.text || '';
-    return { ageRating: age, tpFlag, contentType, timeline, advisoryText };
+    const descriptors = parseDescriptorsFromText(advisoryText);
+    return { ageRating: age, tpFlag, contentType, timeline, advisoryText, descriptors };
 };
 
 export const getMetadataFromAssetResponse = (asset: { rating?: string | null, tp?: string | null }): BroadcastMetadata => {
@@ -1708,7 +1711,7 @@ export const useRundownStore = defineStore('rundown', () => {
         clockInterval = setInterval(() => {
             clockMs.value = Date.now();
         }, newId ? 1000 : 5000);
-    });
+        });
 
     const getItemDurationMs = (item: RundownItem): number => {
         if (item.type === 'gap') return 0;
@@ -1793,6 +1796,8 @@ export const useRundownStore = defineStore('rundown', () => {
         playoutvueId: string | undefined,
         updates: {
             complianceRating?: ComplianceRating;
+            complianceDescriptors?: ContentDescriptorId[];
+            complianceText?: string;
             tp_flag?: boolean;
             content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
             timeline?: Array<{ start: number; end: number; text: string }>;
@@ -1808,13 +1813,21 @@ export const useRundownStore = defineStore('rundown', () => {
         const age = updates.complianceRating !== undefined ? updates.complianceRating : (item.complianceRating || 'none');
         const tp = updates.tp_flag !== undefined ? updates.tp_flag : (item.tp_flag || false);
         const content = updates.content_type !== undefined ? updates.content_type : (item.content_type || 'none');
-        const timeline = updates.timeline !== undefined ? updates.timeline : (item.timeline || []);
+        const timeline = updates.timeline !== undefined
+            ? updates.timeline
+            : (updates.complianceText ? [{ start: 0, end: 30000, text: updates.complianceText }] : (item.timeline || []));
+        const descriptors = updates.complianceDescriptors !== undefined
+            ? updates.complianceDescriptors
+            : (item.complianceDescriptors || []);
+        const text = updates.complianceText !== undefined
+            ? updates.complianceText
+            : (item.complianceText || timeline[0]?.text || '');
 
         // Serialize
         const serialized = serializeBroadcastRating({
             ageRating: age,
             tpFlag: tp,
-contentType: content,
+            contentType: content,
             timeline: timeline
         });
 
@@ -1837,6 +1850,8 @@ contentType: content,
         playlist.items[idx] = {
             ...item,
             complianceRating: age,
+            complianceDescriptors: descriptors,
+            complianceText: text,
             tp_flag: tp,
             content_type: content,
             timeline: timeline

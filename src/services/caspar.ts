@@ -11,6 +11,7 @@ import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../l
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
 import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordinator';
+import { parseDescriptorsFromText } from '../lib/greekCompliance';
 
 export const playbackCoordinator = new PlaybackCoordinator();
 
@@ -296,7 +297,7 @@ const getSettingsSnapshot = () => {
             cgRating16Path: '',
             cgRating18Path: '',
             cgRatingTPPath: '',
-            cgExplanationTemplate: 'playout/explanation',
+            cgExplanationTemplate: 'playout/advisory',
             cgCrawlTemplate: 'playout/crawl',
             cgCrawlText: '',
             cgCrawlActive: false,
@@ -924,9 +925,13 @@ const ensureFeedbackListener = async () => {
 
         if (!advanceUnlisten) {
             advanceUnlisten = await listen<QualifiedAdvanceEvent>('caspar://advance', (event) => {
-                requestAutoAdvance(event.payload).catch((error) => {
-                    console.error('[CasparCG] requestAutoAdvance error', error);
-                });
+                const payload = event.payload;
+                const uuid = (payload as any)?.currentUuid || payload?.rundownItemId;
+                if (!currentKey || !uuid || uuid === currentKey) {
+                    advanceNext(true, uuid).catch((error) => {
+                        console.error('[CasparCG] advanceNext error', error);
+                    });
+                }
             });
         }
 
@@ -1167,7 +1172,7 @@ async function preloadNextItemAt(index: number, token: number = playToken, retri
         // dispatch, but by then the LOADBG may already be on the wire after a
         // newer take()/play() (Bug B). Passing the guard into dispatchLoadbg
         // aborts the send itself.
-        const result = await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, false, () => token !== playToken);
+        const result = await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, true, () => token !== playToken);
         if (result === null) return;
         if (token === playToken) {
             preloadedKeys.add(queueKey(item));
@@ -1793,6 +1798,7 @@ export async function playItemWithIntent(item: PlayoutItem, intent: PlaybackInte
         updateDisplayedTime(0);
 
         onAdvanceCallback?.(key);
+        await casparPlayoutService.applyComplianceForItem?.(item);
 
         if (queueIndex !== -1) {
             await preloadNextItemAt(queueIndex + 1, intent.playGeneration);
@@ -2090,72 +2096,103 @@ export const casparPlayoutService: PlayoutService = {
         const rating = (item.complianceRating || 'none') as ComplianceRating;
         const tpFlag = !!item.tp_flag;
 
-        // Age rating badge (image producer via typed command).
-        let ratingSourcePath = '';
-        if (rating === 'k') ratingSourcePath = settings.cgRatingKPath;
-        else if (rating === '8') ratingSourcePath = settings.cgRating8Path;
-        else if (rating === '12') ratingSourcePath = settings.cgRating12Path;
-        else if (rating === '16') ratingSourcePath = settings.cgRating16Path;
-        else if (rating === '18') ratingSourcePath = settings.cgRating18Path;
+        const renderMode = settings.complianceRenderMode || 'html5';
 
-        if (!ratingSourcePath && rating !== 'none') {
-            ratingSourcePath = getRatingAssetPath(rating);
-        }
+        if (renderMode === 'legacy_png') {
+            // Legacy Static PNG Image Mode (Layer 31 & Layer 34)
+            let ratingSourcePath = '';
+            if (rating === 'k') ratingSourcePath = settings.cgRatingKPath;
+            else if (rating === '8') ratingSourcePath = settings.cgRating8Path;
+            else if (rating === '12') ratingSourcePath = settings.cgRating12Path;
+            else if (rating === '16') ratingSourcePath = settings.cgRating16Path;
+            else if (rating === '18') ratingSourcePath = settings.cgRating18Path;
 
-        if (ratingSourcePath) {
-            const path = await prepareCasparMediaPath(ratingSourcePath);
-            await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: ratingLayer, path }).catch((e: any) => {
-                console.warn('[CasparCG] Failed to play rating badge', e);
-            });
+            if (!ratingSourcePath && rating !== 'none') {
+                ratingSourcePath = getRatingAssetPath(rating);
+            }
 
-            const rx = (settings.cgRatingBadgePos?.left ?? 88) / 100;
-            const ry = (settings.cgRatingBadgePos?.top ?? 5) / 100;
-            const rw = (settings.cgRatingBadgePos?.width ?? 7) / 100;
-            const rh = (settings.cgRatingBadgePos?.height ?? 7) / 100;
-            await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${ratingLayer} FILL ${rx.toFixed(4)} ${ry.toFixed(4)} ${rw.toFixed(4)} ${rh.toFixed(4)}`);
+            if (ratingSourcePath) {
+                const path = await prepareCasparMediaPath(ratingSourcePath);
+                await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: ratingLayer, path }).catch((e: any) => {
+                    console.warn('[CasparCG] Failed to play rating badge', e);
+                });
+
+                const rx = (settings.cgRatingBadgePos?.left ?? 88) / 100;
+                const ry = (settings.cgRatingBadgePos?.top ?? 5) / 100;
+                const rw = (settings.cgRatingBadgePos?.width ?? 7) / 100;
+                const rh = (settings.cgRatingBadgePos?.height ?? 7) / 100;
+                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${ratingLayer} FILL ${rx.toFixed(4)} ${ry.toFixed(4)} ${rw.toFixed(4)} ${rh.toFixed(4)}`);
+            } else {
+                await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: ratingLayer }).catch(() => {});
+            }
+
+            // TP badge (image producer)
+            const tpSourcePath = settings.cgRatingTPPath || (tpFlag ? resolveLogoAsset('TP.png') : '');
+            if (tpFlag && tpSourcePath) {
+                const path = await prepareCasparMediaPath(tpSourcePath);
+                await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: tpLayer, path }).catch((e: any) => {
+                    console.warn('[CasparCG] Failed to play TP badge', e);
+                });
+
+                const tpx = (settings.cgTPPos?.left ?? 88) / 100;
+                const tpy = (settings.cgTPPos?.top ?? 13) / 100;
+                const tpw = (settings.cgTPPos?.width ?? 7) / 100;
+                const tph = (settings.cgTPPos?.height ?? 7) / 100;
+                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${tpLayer} FILL ${tpx.toFixed(4)} ${tpy.toFixed(4)} ${tpw.toFixed(4)} ${tph.toFixed(4)}`);
+            } else {
+                await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: tpLayer }).catch(() => {});
+            }
+
+            // In legacy mode, Layer 32 HTML5 template is cleared
+            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
         } else {
+            // SOTA HTML5 Vector Graphics Mode (Layer 32 advisory.html with 30s banner and continuous stencil badge)
+            // Ensure Layer 31 and Layer 34 PNG layers are completely cleared so no legacy PNGs ever display
             await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: ratingLayer }).catch(() => {});
-        }
-
-        // TP badge (image producer). Fallback to resolveLogoAsset('TP.png') when
-        // the configured path is unset (plan §B fix).
-        const tpSourcePath = settings.cgRatingTPPath || (tpFlag ? resolveLogoAsset('TP.png') : '');
-        if (tpFlag && tpSourcePath) {
-            const path = await prepareCasparMediaPath(tpSourcePath);
-            await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: tpLayer, path }).catch((e: any) => {
-                console.warn('[CasparCG] Failed to play TP badge', e);
-            });
-
-            const tpx = (settings.cgTPPos?.left ?? 88) / 100;
-            const tpy = (settings.cgTPPos?.top ?? 13) / 100;
-            const tpw = (settings.cgTPPos?.width ?? 7) / 100;
-            const tph = (settings.cgTPPos?.height ?? 7) / 100;
-            await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${tpLayer} FILL ${tpx.toFixed(4)} ${tpy.toFixed(4)} ${tpw.toFixed(4)} ${tph.toFixed(4)}`);
-        } else {
             await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: tpLayer }).catch(() => {});
-        }
 
-        // Unified Greek NCRTV Rating Badge & 30s Advisory Banner (HTML5 CG Template, layer 32).
-        if (rating !== 'none') {
-            const template = settings.cgExplanationTemplate || 'playout/advisory';
-            const advisoryText = item.complianceText || '';
-            await invoke('caspar_cg_add', {
-                channel: PROGRAM_CHANNEL,
-                layer: CASPAR_LAYERS.explanation,
-                template,
-                play: true,
-                data: {
-                    rating,
-                    text: advisoryText,
+            // Unified Greek NCRTV Rating Badge & 30s Advisory Banner (HTML5 CG Template, layer 32).
+            if (rating !== 'none' || tpFlag) {
+                let template = settings.cgExplanationTemplate || 'playout/advisory';
+                if (!template || template === 'testdada') {
+                    template = 'playout/advisory';
+                }
+                const advisoryText = item.complianceText || '';
+                const isLogoOnly = advisoryText === '__LOGO_ONLY__' || advisoryText === 'LOGO_ONLY';
+                let descriptors = item.complianceDescriptors || [];
+                if ((!descriptors || descriptors.length === 0) && advisoryText && !isLogoOnly) {
+                    descriptors = parseDescriptorsFromText(advisoryText);
+                }
+
+                const cgData = {
+                    rating: rating !== 'none' ? rating : 'none',
+                    text: isLogoOnly ? '' : advisoryText,
+                    custom_text: isLogoOnly ? '__LOGO_ONLY__' : advisoryText,
+                    explanation: !isLogoOnly,
+                    show_explanation: !isLogoOnly,
+                    warnings: descriptors,
                     durationSec: 30,
+                    hold_time: 30,
+                    warning_hold_time: 30,
                     repeatIntervalSec: 600,
                     tp: tpFlag
-                }
-            }).catch((e: any) => {
-                console.warn('[CasparCG] Failed to add unified advisory CG', e);
-            });
-        } else {
-            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
+                };
+
+                // Clear layer 32 first so previous instance is completely removed, then add fresh with full payload
+                await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
+
+                await invoke('caspar_cg_add', {
+                    channel: PROGRAM_CHANNEL,
+                    layer: CASPAR_LAYERS.explanation,
+                    template,
+                    play: true,
+                    data: cgData
+                }).catch((e: any) => {
+                    console.warn('[CasparCG] Failed to add unified advisory CG', e);
+                });
+            } else {
+                await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
+            }
         }
     },
 

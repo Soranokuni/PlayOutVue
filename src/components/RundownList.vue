@@ -16,7 +16,7 @@ import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
 import { activeScope } from '../composables/useOperatorShortcuts';
 import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget, type GeometrySnapshot } from '../lib/reorderHelper';
-import { GREEK_COMPLIANCE_PRESETS, type GreekCompliancePreset } from '../lib/greekCompliance';
+import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -354,6 +354,7 @@ const saveMetadata = async (
   playoutvueId: string | undefined,
   updates: {
     complianceRating?: ComplianceRating;
+    complianceDescriptors?: ContentDescriptorId[];
     complianceText?: string;
     timeline?: Array<{ start: number; end: number; text: string }>;
     tp_flag?: boolean;
@@ -374,6 +375,86 @@ const contentTypeOptions = [
   { id: 'documentary', label: 'Documentary' },
   { id: 'news', label: 'News' }
 ] as const;
+
+interface AgeRatingOption {
+  id: ComplianceRating;
+  label: string;
+  logoOnly?: boolean;
+}
+
+const ageRatingOptions: AgeRatingOption[] = [
+  { id: 'k', label: '🔘 Κ — Κατάλληλο για όλους (με επεξήγηση)' },
+  { id: '8', label: '🔘 8 — Κατάλληλο άνω των 8 (με επεξήγηση)' },
+  { id: '12', label: '🔘 12 — Κατάλληλο άνω των 12 (με επεξήγηση)' },
+  { id: '16', label: '🔘 16 — Κατάλληλο άνω των 16 (με επεξήγηση)' },
+  { id: '18', label: '🔘 18 — Κατάλληλο άνω των 18 (με επεξήγηση)' },
+  { id: 'k', label: '🏷️ Κ — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
+  { id: '8', label: '🏷️ 8 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
+  { id: '12', label: '🏷️ 12 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
+  { id: '16', label: '🏷️ 16 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
+  { id: '18', label: '🏷️ 18 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
+  { id: 'none', label: '❌ Χωρίς Σήμανση (None)' }
+];
+
+const ctxSetAgeRating = async (opt: AgeRatingOption) => {
+  const item = contextMenu.value.item;
+  if (item && item.type !== 'gap') {
+    const isLogoOnly = !!opt.logoOnly;
+    const currentText = item.complianceText || '';
+    const newText = isLogoOnly ? '__LOGO_ONLY__' : (currentText === '__LOGO_ONLY__' ? '' : currentText);
+    await saveMetadata(
+      item.playoutvueId,
+      {
+        complianceRating: opt.id,
+        complianceText: newText
+      },
+      item.id
+    );
+  }
+  closeContextMenu();
+};
+
+const ctxToggleDescriptor = async (descriptorId: ContentDescriptorId) => {
+  const item = contextMenu.value.item;
+  if (item && item.type !== 'gap') {
+    const currentDescriptors: ContentDescriptorId[] = Array.isArray(item.complianceDescriptors)
+      ? [...(item.complianceDescriptors as ContentDescriptorId[])]
+      : [];
+    const idx = currentDescriptors.indexOf(descriptorId);
+    if (idx >= 0) {
+      currentDescriptors.splice(idx, 1);
+    } else {
+      currentDescriptors.push(descriptorId);
+    }
+    const newText = buildGreekAdvisoryText(currentDescriptors);
+    await saveMetadata(
+      item.playoutvueId,
+      {
+        complianceDescriptors: currentDescriptors,
+        complianceText: newText,
+        timeline: newText ? [{ start: 0, end: 30000, text: newText }] : []
+      },
+      item.id
+    );
+  }
+  closeContextMenu();
+};
+
+const ctxClearDescriptors = async () => {
+  const item = contextMenu.value.item;
+  if (item && item.type !== 'gap') {
+    await saveMetadata(
+      item.playoutvueId,
+      {
+        complianceDescriptors: [],
+        complianceText: '',
+        timeline: []
+      },
+      item.id
+    );
+  }
+  closeContextMenu();
+};
 
 const ctxApplyCompliancePreset = async (preset: GreekCompliancePreset) => {
   const item = contextMenu.value.item;
@@ -477,13 +558,46 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'submenu',
-        label: '🇬🇷 Greek Warning Presets (ΕΣΡ)',
-        children: GREEK_COMPLIANCE_PRESETS.map(p => ({
-          type: 'action',
-          label: p.name,
-          checked: item.complianceRating === p.ageRating && item.complianceText === p.advisoryText,
-          action: () => ctxApplyCompliancePreset(p)
-        }))
+        label: '🇬🇷 Σήματα Καταλληλότητας (Ηλικία)',
+        children: ageRatingOptions.map(r => {
+          const itemRating = item.complianceRating || 'none';
+          const itemIsLogoOnly = item.complianceText === '__LOGO_ONLY__';
+          let isChecked = false;
+          if (r.id === 'none') {
+            isChecked = itemRating === 'none';
+          } else if (r.logoOnly) {
+            isChecked = itemRating === r.id && itemIsLogoOnly;
+          } else {
+            isChecked = itemRating === r.id && !itemIsLogoOnly;
+          }
+          return {
+            type: 'action' as const,
+            label: r.label,
+            checked: isChecked,
+            action: () => ctxSetAgeRating(r)
+          };
+        })
+      },
+      {
+        type: 'submenu',
+        label: '⚠️ Προειδοποιήσεις Περιεχομένου (ΕΣΡ)',
+        children: [
+          ...GREEK_CONTENT_DESCRIPTORS.map(d => {
+            const isChecked = Array.isArray(item.complianceDescriptors) && item.complianceDescriptors.includes(d.id);
+            return {
+              type: 'action' as const,
+              label: `${isChecked ? '☑' : '☐'} ${d.icon} ${d.label}`,
+              checked: isChecked,
+              action: () => ctxToggleDescriptor(d.id)
+            };
+          }),
+          {
+            type: 'action' as const,
+            label: '🧹 Καθαρισμός Προειδοποιήσεων',
+            disabled: !item.complianceDescriptors || item.complianceDescriptors.length === 0,
+            action: ctxClearDescriptors
+          }
+        ]
       },
       { type: 'divider' },
       {

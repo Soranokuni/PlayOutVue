@@ -323,10 +323,18 @@ pub struct TemplateDeployResult {
 
 const TEMPLATE_ADVISORY: &str = include_str!("../../public/templates/playout/advisory.html");
 const TEMPLATE_CRAWL: &str = include_str!("../../public/templates/playout/crawl.html");
+const TEMPLATE_GSAP: &str = include_str!("../../public/templates/playout/vendor/gsap.min.js");
+
+const LOGO_K: &[u8] = include_bytes!("../../logos/K.png");
+const LOGO_8: &[u8] = include_bytes!("../../logos/8.png");
+const LOGO_12: &[u8] = include_bytes!("../../logos/12.png");
+const LOGO_16: &[u8] = include_bytes!("../../logos/16.png");
+const LOGO_18: &[u8] = include_bytes!("../../logos/18.png");
 
 #[tauri::command]
 pub async fn deploy_caspar_templates(
     template_path: Option<String>,
+    media_path: Option<String>,
     overwrite: Option<bool>,
 ) -> Result<TemplateDeployResult, String> {
     let base_dir = if let Some(ref p) = template_path {
@@ -344,23 +352,61 @@ pub async fn deploy_caspar_templates(
     std::fs::create_dir_all(&target_dir)
         .map_err(|e| format!("Failed to create template directory '{}': {}", target_dir.display(), e))?;
 
+    let vendor_dir = target_dir.join("vendor");
+    std::fs::create_dir_all(&vendor_dir)
+        .map_err(|e| format!("Failed to create vendor directory '{}': {}", vendor_dir.display(), e))?;
+
     let overwrite_files = overwrite.unwrap_or(false);
     let mut deployed = Vec::new();
     let mut skipped = Vec::new();
 
     let files = [
-        ("advisory.html", TEMPLATE_ADVISORY),
-        ("crawl.html", TEMPLATE_CRAWL),
+        ("advisory.html", TEMPLATE_ADVISORY, target_dir.clone()),
+        ("explanation.html", TEMPLATE_ADVISORY, target_dir.clone()),
+        ("crawl.html", TEMPLATE_CRAWL, target_dir.clone()),
+        ("vendor/gsap.min.js", TEMPLATE_GSAP, target_dir.clone()),
     ];
 
-    for (name, content) in files {
-        let file_path = target_dir.join(name);
+    for (name, content, dir) in files {
+        let file_path = dir.join(name);
         if file_path.exists() && !overwrite_files {
             skipped.push(format!("playout/{}", name));
         } else {
             std::fs::write(&file_path, content)
                 .map_err(|e| format!("Failed to write template '{}': {}", file_path.display(), e))?;
             deployed.push(format!("playout/{}", name));
+        }
+    }
+
+    // Deploy Logos if media_path is provided or if media/ folder is alongside template/
+    let logos_dir = if let Some(ref mp) = media_path {
+        let trimmed = mp.trim();
+        if !trimmed.is_empty() {
+            Some(PathBuf::from(trimmed).join("logos"))
+        } else {
+            None
+        }
+    } else {
+        base_dir.parent().map(|p| p.join("media").join("logos"))
+    };
+
+    if let Some(target_logos_dir) = logos_dir {
+        let _ = std::fs::create_dir_all(&target_logos_dir);
+        let logo_files: [(&str, &[u8]); 5] = [
+            ("K.png", LOGO_K),
+            ("8.png", LOGO_8),
+            ("12.png", LOGO_12),
+            ("16.png", LOGO_16),
+            ("18.png", LOGO_18),
+        ];
+
+        for (name, bytes) in logo_files {
+            let file_path = target_logos_dir.join(name);
+            if file_path.exists() && !overwrite_files {
+                skipped.push(format!("logos/{}", name));
+            } else if std::fs::write(&file_path, bytes).is_ok() {
+                deployed.push(format!("logos/{}", name));
+            }
         }
     }
 
@@ -482,7 +528,8 @@ pub async fn apply_caspar_decklink_config(payload: DeckLinkApplyPayload) -> Resu
             .or_else(|| config.paths.template_path.clone())
             .unwrap_or_else(|| "C:/CasparCG/template/".to_string());
 
-        if let Ok(res) = deploy_caspar_templates(Some(template_base), Some(false)).await {
+        let media_base = config.paths.media_path.clone();
+        if let Ok(res) = deploy_caspar_templates(Some(template_base), media_base, Some(false)).await {
             templates_deployed = Some(res);
         }
     }

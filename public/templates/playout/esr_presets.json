@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "Greek ESR Broadcast Compliance Configuration",
+  "version": "2.0.0",
+  "regulatory_framework": "ESR Greece Υ.Α. 2/2019",
+  "timings": {
+    "program_start_hold_seconds": 30.0,
+    "warning_hold_seconds": 30.0,
+    "periodic_repeat_interval_minutes": 10,
+    "dev_preview_hold_seconds": 4.0,
+    "dev_preview_warning_hold_seconds": 3.0
+  },
+  "ratings": {
+    "K": {
+      "symbol": "K",
+      "text": "ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ",
+      "official_name": "Κατάλληλο για όλους",
+      "time_slots": "Ελεύθερη μετάδοση όλο το 24ωρο"
+    },
+    "8": {
+      "symbol": "8",
+      "text": "ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8",
+      "official_name": "Κατάλληλο για άνω των 8 ετών",
+      "time_slots": "Ελεύθερη μετάδοση με προστασία παιδικής ζώνης"
+    },
+    "12": {
+      "symbol": "12",
+      "text": "ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 12",
+      "official_name": "Κατάλληλο για άνω των 12 ετών",
+      "time_slots": "Μετάδοση μετά τις 21:00 (Παρασκευή/Σάββατο μετά τις 22:00)"
+    },
+    "16": {
+      "symbol": "16",
+      "text": "ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16",
+      "official_name": "Κατάλληλο για άνω των 16 ετών",
+      "time_slots": "Μετάδοση αυστηρά μετά τις 22:00"
+    },
+    "18": {
+      "symbol": "18",
+      "text": "ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 18",
+      "official_name": "Κατάλληλο για άνω των 18 ετών",
+      "time_slots": "Μετάδοση αυστηρά μετά τις 00:00 (Μεσάνυχτα)"
+    }
+  },
+  "warnings": {
+    "violence": {
+      "badge": "ΒΙΑ",
+      "lead": "ΠΕΡΙΕΧΕΙ",
+      "body": "ΣΚΗΝΕΣ ΒΙΑΣ",
+      "full_text": "Αυτή η ταινία / εκπομπή περιέχει σκηνές βίας"
+    },
+    "sex": {
+      "badge": "ΣΕΞ",
+      "lead": "ΠΕΡΙΕΧΕΙ",
+      "body": "ΣΚΗΝΕΣ ΣΕΞ",
+      "full_text": "Αυτή η ταινία / εκπομπή περιέχει σκηνές σεξ"
+    },
+    "drugs": {
+      "badge": "ΝΑΡΚΩΤΙΚΑ",
+      "lead": "ΠΕΡΙΕΧΕΙ",
+      "body": "ΧΡΗΣΗ ΟΥΣΙΩΝ",
+      "full_text": "Αυτή η ταινία / εκπομπή περιέχει χρήση ουσιών"
+    },
+    "language": {
+      "badge": "ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ",
+      "lead": "ΠΕΡΙΕΧΕΙ",
+      "body": "ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ",
+      "full_text": "Αυτή η ταινία / εκπομπή περιέχει ακατάλληλη φρασεολογία"
+    }
+  }
+}

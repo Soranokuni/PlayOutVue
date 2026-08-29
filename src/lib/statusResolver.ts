@@ -40,6 +40,10 @@ export function hasActiveWarnings(
     if (lower.includes('trim_in_not_keyframe_aligned') || lower.includes('keyframe_aligned')) {
       return false;
     }
+    // Standard PAL 25fps transcode conversions are expected and harmless on-air
+    if (lower.includes('fps_converted') || lower.includes('frame rate was converted')) {
+      return false;
+    }
     if (sensitivity === 'lenient') {
       // In lenient mode, ignore minor loudness/GOP variances, only flag critical/fatal warnings
       if (lower.includes('loudness') || lower.includes('gop') || lower.includes('advisory')) {

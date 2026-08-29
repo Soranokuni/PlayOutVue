@@ -1,5 +1,76 @@
 import type { ComplianceRating } from '../stores/rundown';
 
+export type GreekRating = 'K' | '8' | '12' | '16' | '18';
+export type GreekWarningType = 'violence' | 'sex' | 'drugs' | 'language';
+
+export interface GreekComplianceConfig {
+  rating: GreekRating;
+  warnings: GreekWarningType[];
+  customText?: string;
+  holdTime?: number;
+  warningHoldTime?: number;
+}
+
+export function getGreekRatingDefaultText(rating: GreekRating): string {
+  switch (rating) {
+    case 'K':
+      return 'ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ';
+    case '8':
+      return 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8';
+    case '12':
+      return 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 12';
+    case '16':
+      return 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16';
+    case '18':
+      return 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 18';
+    default:
+      return '';
+  }
+}
+
+export function getGreekWarningText(warning: GreekWarningType): string {
+  switch (warning) {
+    case 'violence':
+      return 'ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ';
+    case 'sex':
+      return 'ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΣΕΞ';
+    case 'drugs':
+      return 'ΠΕΡΙΕΧΕΙ ΧΡΗΣΗ ΟΥΣΙΩΝ';
+    case 'language':
+      return 'ΠΕΡΙΕΧΕΙ ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ';
+    default:
+      return '';
+  }
+}
+
+export function getGreekWarningBadgeLabel(warning: GreekWarningType): string {
+  switch (warning) {
+    case 'violence':
+      return 'ΒΙΑ';
+    case 'sex':
+      return 'ΣΕΞ';
+    case 'drugs':
+      return 'ΝΑΡΚΩΤΙΚΑ';
+    case 'language':
+      return 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ';
+    default:
+      return '';
+  }
+}
+
+export function formatCompliancePayload(config: GreekComplianceConfig): string {
+  const payload = {
+    rating: config.rating,
+    custom_text: config.customText || getGreekRatingDefaultText(config.rating),
+    warnings: config.warnings.map(w => getGreekWarningBadgeLabel(w)),
+    hold_time: config.holdTime ?? 4,
+    warning_hold_time: config.warningHoldTime ?? 3,
+    top: 60,
+    left: 80
+  };
+  return JSON.stringify(payload);
+}
+
 export type ContentDescriptorId = 'violence' | 'sex' | 'substances' | 'language';
 
 export interface ContentDescriptor {
@@ -56,6 +127,17 @@ export function buildGreekAdvisoryText(descriptors: ContentDescriptorId[], prefi
   const allButLast = tags.slice(0, -1).join(', ');
   const last = tags[tags.length - 1];
   return `${basePrefix}${allButLast} ΚΑΙ ${last}`;
+}
+
+export function parseDescriptorsFromText(text: string | null | undefined): ContentDescriptorId[] {
+  if (!text) return [];
+  const upper = text.toUpperCase();
+  const res: ContentDescriptorId[] = [];
+  if (upper.includes('ΒΙΑ')) res.push('violence');
+  if (upper.includes('ΣΕΞ')) res.push('sex');
+  if (upper.includes('ΟΥΣΙ') || upper.includes('ΝΑΡΚΩ')) res.push('substances');
+  if (upper.includes('ΦΡΑΣ') || upper.includes('ΥΒΡ')) res.push('language');
+  return res;
 }
 
 export const GREEK_COMPLIANCE_PRESETS: GreekCompliancePreset[] = [
