@@ -12,6 +12,21 @@
     }
   </script>
   <style>
+    :root {
+      --cg-font-family: 'Outfit', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --cg-top: 60px;
+      --cg-right: 60px;
+      --cg-badge-size: 54px;
+      --cg-badge-font-size: 27px;
+      --cg-badge-radius: 50%;
+      --cg-explanation-font-size: 13px;
+      --cg-warning-lead-font-size: 10.5px;
+      --cg-warning-body-font-size: 12px;
+      --cg-warning-icon-size: 28px;
+      --cg-accent-line-height: 2px;
+      --cg-accent-color: rgba(255, 255, 255, 0.95);
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -23,13 +38,13 @@
       height: 1080px;
       overflow: hidden;
       background: transparent;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: var(--cg-font-family);
       user-select: none;
       -webkit-font-smoothing: antialiased;
       transition: background 0.3s ease;
     }
 
-    /* Dev Preview Background Modes (only applied in browser when !window.caspar) */
+    /* Dev Preview Background Modes */
     body.bg-dark-studio {
       background: radial-gradient(circle at 65% 25%, #1e293b 0%, #0f172a 50%, #020617 100%);
     }
@@ -38,7 +53,7 @@
       background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 45%, #cbd5e1 100%);
     }
 
-    body.bg-checkerboard {
+    body.bg-checkerboard, body.bg-checker {
       background-color: #0f172a;
       background-image:
         linear-gradient(45deg, #1e293b 25%, transparent 25%),
@@ -56,8 +71,8 @@
     /* Top-Right Broadcast Safe Area Container */
     #advisory-stage {
       position: absolute;
-      top: 60px;
-      right: 80px;
+      top: var(--cg-top, 60px);
+      right: var(--cg-right, 60px);
       display: flex;
       flex-direction: row-reverse;
       align-items: center;
@@ -66,30 +81,30 @@
       perspective: 1000px;
     }
 
-    /* Whiter Neumorphic Frosted Glass Circular Rating Badge */
+    /* Whiter Neumorphic Frosted Glass Rating Badge */
     .badge-wrapper {
       position: relative;
-      width: 52px;
-      height: 52px;
+      width: var(--cg-badge-size, 54px);
+      height: var(--cg-badge-size, 54px);
+      min-width: var(--cg-badge-size, 54px);
+      min-height: var(--cg-badge-size, 54px);
       flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: 50%;
+      border-radius: var(--cg-badge-radius, 50%);
       background: rgba(255, 255, 255, 0.32);
-      backdrop-filter: blur(20px) saturate(180%);
-      -webkit-backdrop-filter: blur(20px) saturate(180%);
-      border: 1.5px solid rgba(255, 255, 255, 0.75);
+      border: 1.5px solid rgba(255, 255, 255, 0.85);
       box-shadow:
-        0 4px 18px rgba(0, 0, 0, 0.38),
+        0 4px 18px rgba(0, 0, 0, 0.45),
         -2px -2px 8px rgba(255, 255, 255, 0.35),
         inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.85),
-        inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.2);
+        inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.25);
     }
 
     .badge-svg {
-      width: 52px;
-      height: 52px;
+      width: 100%;
+      height: 100%;
       display: block;
     }
 
@@ -105,23 +120,17 @@
       font-weight: 900;
       letter-spacing: 0.05em;
       color: #ffffff;
-      background: rgba(255, 255, 255, 0.30);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1.5px solid rgba(255, 255, 255, 0.70);
-      box-shadow:
-        0 3px 10px rgba(0, 0, 0, 0.35),
-        inset 1px 1px 2px rgba(255, 255, 255, 0.8),
-        inset -1px -1px 2px rgba(0, 0, 0, 0.2);
+      background: rgba(15, 23, 42, 0.88);
+      border: 1.5px solid rgba(255, 255, 255, 0.85);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
-      -webkit-text-stroke: 0.3px rgba(0, 0, 0, 0.45);
       flex-shrink: 0;
     }
     .tp-badge.visible {
       display: flex;
     }
 
-    /* Minimalist Floating Typography Container (No Pill Background) */
+    /* Minimalist Floating Typography Container */
     .text-container {
       position: relative;
       display: inline-flex;
@@ -138,25 +147,26 @@
       display: flex;
       align-items: center;
       justify-content: flex-end;
-      height: 46px;
+      height: 48px;
       min-width: 40px;
     }
 
     .slot-content {
       display: inline-flex;
       align-items: center;
-      justify-content: flex-end;
+      justify-content: flex-start;
       gap: 10px;
       white-space: nowrap;
-      padding-left: 14px;
-      padding-right: 4px;
+      padding-left: 12px;
+      padding-right: 6px;
       will-change: transform, opacity;
+      box-sizing: border-box;
     }
 
     /* High contrast, compact, elegant broadcast typography */
     .advisory-text {
       color: #ffffff;
-      font-size: 13px;
+      font-size: var(--cg-explanation-font-size, 13px);
       font-weight: 800;
       letter-spacing: 0.05em;
       text-transform: uppercase;
@@ -179,7 +189,7 @@
     }
 
     .warning-lead {
-      font-size: 10.5px;
+      font-size: var(--cg-warning-lead-font-size, 10.5px);
       font-weight: 800;
       letter-spacing: 0.06em;
       color: #e2e8f0;
@@ -191,7 +201,7 @@
     }
 
     .warning-body {
-      font-size: 12px;
+      font-size: var(--cg-warning-body-font-size, 12px);
       font-weight: 900;
       letter-spacing: 0.05em;
       color: #ffffff;
@@ -227,28 +237,26 @@
       line-height: 1.15;
     }
 
-    /* Whiter Neumorphic Warning Mini Icon Stencil */
+    /* Solid Broadcast High-Contrast Warning Mini Icon Container */
     .warning-icon-wrapper {
-      width: 28px;
-      height: 28px;
+      width: var(--cg-warning-icon-size, 28px);
+      height: var(--cg-warning-icon-size, 28px);
+      min-width: var(--cg-warning-icon-size, 28px);
+      min-height: var(--cg-warning-icon-size, 28px);
       flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.32);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1.5px solid rgba(255, 255, 255, 0.70);
-      box-shadow:
-        0 3px 10px rgba(0, 0, 0, 0.35),
-        inset 1px 1px 2px rgba(255, 255, 255, 0.8),
-        inset -1px -1px 2px rgba(0, 0, 0, 0.2);
+      background: radial-gradient(circle, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.98) 100%);
+      border: 1.5px solid rgba(255, 255, 255, 0.88);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+      box-sizing: border-box;
     }
 
     .warning-icon-svg {
-      width: 28px;
-      height: 28px;
+      width: 100%;
+      height: 100%;
       display: block;
     }
 
@@ -258,8 +266,8 @@
       bottom: 0;
       right: 0;
       width: 100%;
-      height: 2px;
-      background: linear-gradient(270deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.45) 80%, rgba(255, 255, 255, 0) 100%);
+      height: var(--cg-accent-line-height, 2px);
+      background: linear-gradient(270deg, var(--cg-accent-color, rgba(255, 255, 255, 0.95)) 0%, rgba(255, 255, 255, 0.45) 80%, rgba(255, 255, 255, 0) 100%);
       border-radius: 1px;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
       transform-origin: right center;
@@ -514,11 +522,11 @@
   </div>
 
   <script>
-    // Optimized, Crisp Vector Broadcast Stencils for Individual Categories & Combos (28x28 viewBox, center at 14,14)
+    // Optimized, Crisp Standalone Vector Broadcast Stencils (28x28 viewBox, center at 14,14)
     const WARNING_GLYPHS = {
       violence: `
-        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="3" stroke-linecap="round" fill="none">
+        <circle cx="14" cy="14" r="13" fill="rgba(15, 23, 42, 0.95)" stroke="rgba(255, 255, 255, 0.88)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.95)" stroke-width="3.2" stroke-linecap="round" fill="none">
           <path d="M7 7 L21 21 M21 7 L7 21" />
           <path d="M5.5 8.5 L8.5 5.5 M19.5 5.5 L22.5 8.5 M5.5 19.5 L8.5 22.5 M19.5 22.5 L22.5 19.5" />
         </g>
@@ -530,8 +538,8 @@
         </g>
       `,
       sex: `
-        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <circle cx="14" cy="14" r="13" fill="rgba(15, 23, 42, 0.95)" stroke="rgba(255, 255, 255, 0.88)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.95)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
           <circle cx="10.5" cy="16.5" r="3.8" />
           <path d="M13.2 13.8 L20.5 6.5 M16.5 6.5 L20.5 6.5 L20.5 10.5" />
           <circle cx="16.5" cy="11.5" r="3.8" />
@@ -545,39 +553,39 @@
         </g>
       `,
       drugs: `
-        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="3" stroke-linecap="round" fill="none">
+        <circle cx="14" cy="14" r="13" fill="rgba(15, 23, 42, 0.95)" stroke="rgba(255, 255, 255, 0.88)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.95)" stroke-width="3.2" stroke-linecap="round" fill="none">
           <path d="M10 18 L18 10 C19.8 8.2 19.8 5.2 18 3.5 C16.2 1.7 13.2 1.7 11.5 3.5 L3.5 11.5 C1.7 13.2 1.7 16.2 3.5 18 C5.2 19.8 8.2 19.8 10 18 Z" fill="rgba(0, 0, 0, 0.6)" />
           <line x1="7.5" y1="11" x2="13.5" y2="17" />
         </g>
         <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" fill="none">
-          <path d="M10 18 L18 10 C19.8 8.2 19.8 5.2 18 3.5 C16.2 1.7 13.2 1.7 11.5 3.5 L3.5 11.5 C1.7 13.2 1.7 16.2 3.5 18 C5.2 19.8 8.2 19.8 10 18 Z" fill="rgba(255, 255, 255, 0.85)" />
-          <line x1="7.5" y1="11" x2="13.5" y2="17" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2" />
+          <path d="M10 18 L18 10 C19.8 8.2 19.8 5.2 18 3.5 C16.2 1.7 13.2 1.7 11.5 3.5 L3.5 11.5 C1.7 13.2 1.7 16.2 3.5 18 C5.2 19.8 8.2 19.8 10 18 Z" fill="rgba(255, 255, 255, 0.95)" />
+          <line x1="7.5" y1="11" x2="13.5" y2="17" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2.2" />
         </g>
       `,
       language: `
-        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <circle cx="14" cy="14" r="13" fill="rgba(15, 23, 42, 0.95)" stroke="rgba(255, 255, 255, 0.88)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.95)" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" fill="none">
           <path d="M5 6 C5 4 6.5 3 9 3 L19 3 C21.5 3 23 4 23 6 L23 14 C23 16 21.5 17 19 17 L13 17 L7.5 22.5 L8.2 17 L7 17 C5 17 4.5 16 5 14 Z" fill="rgba(0, 0, 0, 0.6)" />
           <line x1="14" y1="6.5" x2="14" y2="11.5" />
           <circle cx="14" cy="14.5" r="0.9" fill="#000000" />
         </g>
-        <g stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
-          <path d="M5 6 C5 4 6.5 3 9 3 L19 3 C21.5 3 23 4 23 6 L23 14 C23 16 21.5 17 19 17 L13 17 L7.5 22.5 L8.2 17 L7 17 C5 17 4.5 16 5 14 Z" fill="rgba(255, 255, 255, 0.85)" />
-          <line x1="14" y1="6.5" x2="14" y2="11.5" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2" />
+        <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+          <path d="M5 6 C5 4 6.5 3 9 3 L19 3 C21.5 3 23 4 23 6 L23 14 C23 16 21.5 17 19 17 L13 17 L7.5 22.5 L8.2 17 L7 17 C5 17 4.5 16 5 14 Z" fill="rgba(255, 255, 255, 0.95)" />
+          <line x1="14" y1="6.5" x2="14" y2="11.5" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2.2" />
           <circle cx="14" cy="14.5" r="1.1" fill="rgba(15, 23, 42, 0.95)" stroke="none" />
         </g>
       `,
       combo: `
-        <circle cx="14" cy="14" r="13" fill="rgba(255, 255, 255, 0.32)" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.3" />
-        <g stroke="rgba(0, 0, 0, 0.85)" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <circle cx="14" cy="14" r="13" fill="rgba(15, 23, 42, 0.95)" stroke="rgba(255, 255, 255, 0.88)" stroke-width="1.3" />
+        <g stroke="rgba(0, 0, 0, 0.95)" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" fill="none">
           <path d="M14 3.5 L22 7.2 V14 C22 19.5 18.5 23.5 14 25 C9.5 23.5 6 19.5 6 14 V7.2 Z" fill="rgba(0, 0, 0, 0.6)" />
           <line x1="14" y1="7.5" x2="14" y2="14.5" />
           <circle cx="14" cy="18" r="0.9" fill="#000000" />
         </g>
-        <g stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
-          <path d="M14 3.5 L22 7.2 V14 C22 19.5 18.5 23.5 14 25 C9.5 23.5 6 19.5 6 14 V7.2 Z" fill="rgba(255, 255, 255, 0.85)" />
-          <line x1="14" y1="7.5" x2="14" y2="14.5" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2" />
+        <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+          <path d="M14 3.5 L22 7.2 V14 C22 19.5 18.5 23.5 14 25 C9.5 23.5 6 19.5 6 14 V7.2 Z" fill="rgba(255, 255, 255, 0.95)" />
+          <line x1="14" y1="7.5" x2="14" y2="14.5" stroke="rgba(15, 23, 42, 0.95)" stroke-width="2.2" />
           <circle cx="14" cy="18" r="1.1" fill="rgba(15, 23, 42, 0.95)" stroke="none" />
         </g>
       `
@@ -629,13 +637,14 @@
     // Configuration Model
     let currentConfig = {
       rating: '16',
-      custom_text: 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16',
+      rating_text: 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16',
+      warning_text: '',
       show_explanation: true,
       warnings: ['violence', 'drugs'],
-      hold_time: 4.0,           // Fast preview default (CasparCG overrides to 30.0)
-      warning_hold_time: 3.0,   // Fast preview default (CasparCG overrides to 30.0)
+      hold_time: 30.0,          // 30 seconds for Slide 1 (Rating explanation)
+      warning_hold_time: 30.0,  // 30 seconds for Slide 2 (Warning SVG descriptor)
       top: 60,
-      left: null,
+      right: 60,
       tp: false
     };
 
@@ -651,6 +660,23 @@
       if (str.includes('ουσι') || str.includes('ναρκω') || str === 'drugs' || str === 'substances') return 'drugs';
       if (str.includes('φρασε') || str.includes('υβρ') || str === 'language') return 'language';
       return null;
+    }
+
+    function applyStylingVariables(styling) {
+      if (!styling || typeof styling !== 'object') return;
+      const root = document.documentElement;
+      if (styling.fontFamily) root.style.setProperty('--cg-font-family', styling.fontFamily);
+      if (styling.topOffsetPx !== undefined) root.style.setProperty('--cg-top', `${styling.topOffsetPx}px`);
+      if (styling.rightOffsetPx !== undefined) root.style.setProperty('--cg-right', `${styling.rightOffsetPx}px`);
+      if (styling.badgeSizePx !== undefined) root.style.setProperty('--cg-badge-size', `${styling.badgeSizePx}px`);
+      if (styling.badgeFontSizePx !== undefined) root.style.setProperty('--cg-badge-font-size', `${styling.badgeFontSizePx}px`);
+      if (styling.badgeBorderRadiusPx !== undefined) root.style.setProperty('--cg-badge-radius', `${styling.badgeBorderRadiusPx}px`);
+      if (styling.explanationFontSizePx !== undefined) root.style.setProperty('--cg-explanation-font-size', `${styling.explanationFontSizePx}px`);
+      if (styling.warningLeadFontSizePx !== undefined) root.style.setProperty('--cg-warning-lead-font-size', `${styling.warningLeadFontSizePx}px`);
+      if (styling.warningBodyFontSizePx !== undefined) root.style.setProperty('--cg-warning-body-font-size', `${styling.warningBodyFontSizePx}px`);
+      if (styling.warningIconSizePx !== undefined) root.style.setProperty('--cg-warning-icon-size', `${styling.warningIconSizePx}px`);
+      if (styling.accentLineHeightPx !== undefined) root.style.setProperty('--cg-accent-line-height', `${styling.accentLineHeightPx}px`);
+      if (styling.accentColor) root.style.setProperty('--cg-accent-color', styling.accentColor);
     }
 
     function buildTimeline() {
@@ -675,7 +701,7 @@
 
       // Update badge text (stencil mask cutout and hairline contour)
       const ratingStr = String(currentConfig.rating || '16').toUpperCase();
-      const displayRating = ratingStr === 'NONE' ? '' : (ratingStr === 'K' ? 'K' : ratingStr);
+      const displayRating = (ratingStr === 'NONE' || ratingStr === 'NULL') ? '' : (ratingStr === 'K' ? 'K' : ratingStr);
       stencilText.textContent = displayRating;
       if (stencilOutlineText) {
         stencilOutlineText.textContent = displayRating;
@@ -688,33 +714,25 @@
         tpBadge.classList.remove('visible');
       }
 
-      // Position override if supplied
-      if (currentConfig.top !== undefined && currentConfig.top !== null) {
-        stage.style.top = typeof currentConfig.top === 'number' ? `${currentConfig.top}px` : currentConfig.top;
-      }
-      if (currentConfig.left !== undefined && currentConfig.left !== null) {
-        stage.style.left = typeof currentConfig.left === 'number' ? `${currentConfig.left}px` : currentConfig.left;
-        stage.style.right = 'auto';
-      }
-
       // Determine if explanation banner should be created
       const isLogoOnly = currentConfig.show_explanation === false ||
+                         currentConfig.rating_text === '__LOGO_ONLY__' ||
+                         currentConfig.rating_text === 'LOGO_ONLY' ||
                          currentConfig.custom_text === '__LOGO_ONLY__' ||
-                         currentConfig.custom_text === 'LOGO_ONLY' ||
-                         currentConfig.custom_text === '__NONE__';
+                         currentConfig.custom_text === 'LOGO_ONLY';
 
+      // 1. Create Slide 1 (Rating Explanation Slot)
       let slotPrimary = null;
       let primaryWidth = 0;
 
-      if (!isLogoOnly) {
-        // 1. Create Primary Rating Slot
-        const primaryText = currentConfig.custom_text || DEFAULT_RATING_TEXTS[ratingStr] || `ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ ${ratingStr}`;
+      if (!isLogoOnly && ratingStr && ratingStr !== 'NONE') {
+        const ratingText = currentConfig.rating_text || DEFAULT_RATING_TEXTS[ratingStr] || `ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ ${ratingStr}`;
         slotPrimary = document.createElement('div');
         slotPrimary.className = 'slot-content';
         slotPrimary.id = 'slot-primary';
-        slotPrimary.innerHTML = `<span class="advisory-text">${primaryText}</span>`;
+        slotPrimary.innerHTML = `<span class="advisory-text">${ratingText}</span>`;
         textSlotMask.appendChild(slotPrimary);
-        primaryWidth = Math.ceil(slotPrimary.getBoundingClientRect().width) + 16;
+        primaryWidth = Math.ceil(slotPrimary.scrollWidth || slotPrimary.getBoundingClientRect().width) + 20;
       }
 
       // 2. Parse normalized warnings list
@@ -726,60 +744,60 @@
         .map(normalizeWarning)
         .filter((w, idx, self) => w && self.indexOf(w) === idx);
 
-      // 3. Create Warning Slots
-      const warningSlots = [];
-      const warningWidths = [];
+      // 3. Create Slide 2 (Warning Advisory with SVG Icon)
+      let slotWarning = null;
+      let warningWidth = 0;
 
-      if (parsedWarnings.length > 1) {
-        // Multi-Warning Combination Slot (2-Line Balanced Layout + Heraldic Shield Emblem)
-        const wSlotCombo = document.createElement('div');
-        wSlotCombo.className = 'slot-content';
-        wSlotCombo.id = 'slot-warning-combo';
-        
-        const comboLines = formatComboLines(parsedWarnings);
+      if (!isLogoOnly && parsedWarnings.length > 0) {
+        if (parsedWarnings.length > 1) {
+          // Multi-Warning Combo (Heraldic Shield + 2-Line Layout)
+          slotWarning = document.createElement('div');
+          slotWarning.className = 'slot-content';
+          slotWarning.id = 'slot-warning-combo';
+          
+          const comboLines = formatComboLines(parsedWarnings);
 
-        wSlotCombo.innerHTML = `
-          <div class="warning-icon-wrapper">
-            <svg class="warning-icon-svg" viewBox="0 0 28 28">
-              ${WARNING_GLYPHS.combo}
-            </svg>
-          </div>
-          <div class="warning-text-group combo-group">
-            <span class="warning-lead combo-line-1">${comboLines.line1}</span>
-            <span class="warning-body combo-line-2">${comboLines.line2}</span>
-          </div>
-        `;
-        textSlotMask.appendChild(wSlotCombo);
-        warningSlots.push(wSlotCombo);
-        warningWidths.push(Math.ceil(wSlotCombo.getBoundingClientRect().width) + 16);
-      } else if (parsedWarnings.length === 1) {
-        // Single Warning Slot (Icon + 2 Lines)
-        const warningKey = parsedWarnings[0];
-        const wSlot = document.createElement('div');
-        wSlot.className = 'slot-content';
-        wSlot.id = 'slot-warning-0';
-        
-        const glyphSvg = WARNING_GLYPHS[warningKey] || WARNING_GLYPHS.violence;
-        const warningLabel = WARNING_TEXT_MAP[warningKey] || 'ΣΚΗΝΕΣ ΠΡΟΕΙΔΟΠΟΙΗΣΗΣ';
+          slotWarning.innerHTML = `
+            <div class="warning-icon-wrapper">
+              <svg class="warning-icon-svg" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
+                ${WARNING_GLYPHS.combo}
+              </svg>
+            </div>
+            <div class="warning-text-group combo-group">
+              <span class="warning-lead combo-line-1">${comboLines.line1}</span>
+              <span class="warning-body combo-line-2">${comboLines.line2}</span>
+            </div>
+          `;
+          textSlotMask.appendChild(slotWarning);
+          warningWidth = Math.ceil(slotWarning.scrollWidth || slotWarning.getBoundingClientRect().width) + 24;
+        } else {
+          // Single Warning (Category Vector Icon + 2-Line Descriptor)
+          const warningKey = parsedWarnings[0];
+          slotWarning = document.createElement('div');
+          slotWarning.className = 'slot-content';
+          slotWarning.id = 'slot-warning-0';
+          
+          const glyphSvg = WARNING_GLYPHS[warningKey] || WARNING_GLYPHS.violence;
+          const warningLabel = WARNING_TEXT_MAP[warningKey] || 'ΣΚΗΝΕΣ ΠΡΟΕΙΔΟΠΟΙΗΣΗΣ';
 
-        wSlot.innerHTML = `
-          <div class="warning-icon-wrapper">
-            <svg class="warning-icon-svg" viewBox="0 0 28 28">
-              ${glyphSvg}
-            </svg>
-          </div>
-          <div class="warning-text-group">
-            <span class="warning-lead">ΠΕΡΙΕΧΕΙ</span>
-            <span class="warning-body">${warningLabel}</span>
-          </div>
-        `;
-        textSlotMask.appendChild(wSlot);
-        warningSlots.push(wSlot);
-        warningWidths.push(Math.ceil(wSlot.getBoundingClientRect().width) + 16);
+          slotWarning.innerHTML = `
+            <div class="warning-icon-wrapper">
+              <svg class="warning-icon-svg" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
+                ${glyphSvg}
+              </svg>
+            </div>
+            <div class="warning-text-group">
+              <span class="warning-lead">ΠΕΡΙΕΧΕΙ</span>
+              <span class="warning-body">${warningLabel}</span>
+            </div>
+          `;
+          textSlotMask.appendChild(slotWarning);
+          warningWidth = Math.ceil(slotWarning.scrollWidth || slotWarning.getBoundingClientRect().width) + 24;
+        }
       }
 
-      // Initial Mask Width
-      const initialWidth = slotPrimary ? primaryWidth : (warningWidths[0] || 0);
+      // Set initial mask width
+      const initialWidth = slotPrimary ? primaryWidth : (slotWarning ? warningWidth : 0);
       textSlotMask.style.width = `${initialWidth}px`;
 
       // Initial GSAP Setup
@@ -790,17 +808,19 @@
       if (slotPrimary) {
         gsap.set(slotPrimary, { yPercent: 100, opacity: 0, position: 'relative' });
       }
-      
-      warningSlots.forEach(ws => {
-        gsap.set(ws, { yPercent: 100, opacity: 0, position: 'absolute', right: 0, top: 0, bottom: 0 });
-      });
+      if (slotWarning) {
+        // Warning slot starts hidden below
+        gsap.set(slotWarning, { yPercent: 100, opacity: 0, position: slotPrimary ? 'absolute' : 'relative', right: 0, top: 0, bottom: 0 });
+      }
 
       // Construct GSAP Master Timeline
       masterTL = gsap.timeline({
         paused: true
       });
 
-      // Phase 1: Intro (Badge Pops In)
+      // ----------------------------------------------------
+      // Phase 1: Intro (0s) - Badge Scales in + Slide 1 (Rating text)
+      // ----------------------------------------------------
       masterTL.to(badgeContainer, {
         scale: 1,
         opacity: 1,
@@ -809,7 +829,6 @@
       });
 
       if (slotPrimary) {
-        // Animate Primary Explanation Banner
         masterTL
           .to(accentLine, {
             scaleX: 1,
@@ -823,75 +842,82 @@
             ease: 'back.out(1.4)'
           }, '-=0.2');
 
-        // Main Rating Hold
-        const holdTime = Number(currentConfig.hold_time) || 4.0;
-        masterTL.to({}, { duration: holdTime });
+        // Hold Slide 1 for ratingHoldTime (default 30 seconds)
+        const ratingHoldTime = Number(currentConfig.hold_time) || 30.0;
+        masterTL.to({}, { duration: ratingHoldTime });
       }
 
-      // Phase 2: Warning Transition
-      if (warningSlots.length > 0) {
-        const warningHoldTime = Number(currentConfig.warning_hold_time) || 3.0;
+      // ----------------------------------------------------
+      // Phase 2: Warning Transition (30s) - Slide 2 (SVG Icon + Warning text)
+      // ----------------------------------------------------
+      if (slotWarning) {
+        const warningHoldTime = Number(currentConfig.warning_hold_time) || 30.0;
 
-        warningSlots.forEach((ws, i) => {
-          const prevEl = (i === 0) ? slotPrimary : warningSlots[i - 1];
-          const targetWidth = warningWidths[i];
+        if (slotPrimary) {
+          masterTL
+            .to(slotPrimary, {
+              yPercent: -120,
+              opacity: 0,
+              duration: 0.35,
+              ease: 'power2.in'
+            })
+            .to(textSlotMask, {
+              width: warningWidth,
+              duration: 0.4,
+              ease: 'power2.inOut'
+            }, '<')
+            .to(slotWarning, {
+              yPercent: 0,
+              opacity: 1,
+              duration: 0.45,
+              ease: 'back.out(1.2)'
+            }, '-=0.08');
+        } else {
+          // Warning direct entrance if rating explanation is disabled
+          masterTL
+            .to(accentLine, {
+              scaleX: 1,
+              duration: 0.4,
+              ease: 'power3.out'
+            }, '-=0.35')
+            .to(textSlotMask, {
+              width: warningWidth,
+              duration: 0.4,
+              ease: 'power2.inOut'
+            }, '<')
+            .to(slotWarning, {
+              yPercent: 0,
+              opacity: 1,
+              duration: 0.45,
+              ease: 'back.out(1.2)'
+            }, '-=0.2');
+        }
 
-          if (prevEl) {
-            masterTL
-              .to(prevEl, {
-                yPercent: -120,
-                opacity: 0,
-                duration: 0.35,
-                ease: 'power2.in'
-              })
-              .to(textSlotMask, {
-                width: targetWidth,
-                duration: 0.4,
-                ease: 'power2.inOut'
-              }, '<')
-              .to(ws, {
-                yPercent: 0,
-                opacity: 1,
-                duration: 0.45,
-                ease: 'back.out(1.2)'
-              }, '-=0.08');
-          } else {
-            // Direct warning entrance when explanation is skipped (Logo Only + Warning)
-            masterTL
-              .to(accentLine, {
-                scaleX: 1,
-                duration: 0.4,
-                ease: 'power3.out'
-              }, '-=0.35')
-              .to(textSlotMask, {
-                width: targetWidth,
-                duration: 0.4,
-                ease: 'power2.inOut'
-              }, '<')
-              .to(ws, {
-                yPercent: 0,
-                opacity: 1,
-                duration: 0.45,
-                ease: 'back.out(1.2)'
-              }, '-=0.2');
-          }
-
-          // Hold for warning duration
-          masterTL.to({}, { duration: warningHoldTime });
-        });
+        // Hold Slide 2 for warningHoldTime (default 30 seconds)
+        masterTL.to({}, { duration: warningHoldTime });
       }
 
-      // Phase 3: Outro
-      if (slotPrimary || warningSlots.length > 0) {
+      // ----------------------------------------------------
+      // Phase 3: Outro (60s) - Banner Slides Out; Badge stays on air
+      // ----------------------------------------------------
+      if (slotPrimary || slotWarning) {
+        const activeSlide = slotWarning || slotPrimary;
         masterTL
+          .to(activeSlide, {
+            yPercent: -120,
+            opacity: 0,
+            duration: 0.35,
+            ease: 'power2.in'
+          })
           .to(accentLine, {
             scaleX: 0,
             duration: 0.3,
             ease: 'power2.in'
-          })
+          }, '<')
           .to(textSlotMask, {
+            width: 0,
             opacity: 0,
-            duration: 0.3,
+            duration: 0.35,
             ease: 'power2.in'
           }, '<');
       }
@@ -907,18 +933,31 @@
         }
       }
 
+      if (data.styling) {
+        applyStylingVariables(data.styling);
+      }
+
       if (data.rating !== undefined) currentConfig.rating = String(data.rating).toUpperCase();
       if (data.show_explanation !== undefined) currentConfig.show_explanation = Boolean(data.show_explanation);
       if (data.explanation !== undefined) currentConfig.show_explanation = Boolean(data.explanation);
-      if (data.custom_text !== undefined) currentConfig.custom_text = String(data.custom_text);
-      else if (data.text !== undefined) currentConfig.custom_text = String(data.text);
+      
+      if (data.rating_text !== undefined) currentConfig.rating_text = String(data.rating_text);
+      else if (data.custom_text !== undefined) currentConfig.rating_text = String(data.custom_text);
+      
+      if (data.warning_text !== undefined) currentConfig.warning_text = String(data.warning_text);
       if (data.warnings !== undefined) currentConfig.warnings = data.warnings;
-      if (data.hold_time !== undefined) currentConfig.hold_time = Number(data.hold_time) || 4.0;
-      else if (data.durationSec !== undefined) currentConfig.hold_time = Number(data.durationSec) || 4.0;
-      if (data.warning_hold_time !== undefined) currentConfig.warning_hold_time = Number(data.warning_hold_time) || 3.0;
+      
+      if (data.hold_time !== undefined) currentConfig.hold_time = Number(data.hold_time) || 30.0;
+      else if (data.durationSec !== undefined) currentConfig.hold_time = Number(data.durationSec) || 30.0;
+      
+      if (data.warning_hold_time !== undefined) currentConfig.warning_hold_time = Number(data.warning_hold_time) || 30.0;
+      
       if (data.top !== undefined) currentConfig.top = data.top;
-      if (data.left !== undefined) currentConfig.left = data.left;
+      if (data.right !== undefined) currentConfig.right = data.right;
       if (data.tp !== undefined) currentConfig.tp = Boolean(data.tp);
+
+      buildTimeline();
+    }
 
       buildTimeline();
     }

@@ -11,7 +11,7 @@ import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../l
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
 import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordinator';
-import { parseDescriptorsFromText } from '../lib/greekCompliance';
+import { parseDescriptorsFromText, getGreekRatingDefaultText } from '../lib/greekCompliance';
 
 export const playbackCoordinator = new PlaybackCoordinator();
 
@@ -2301,18 +2301,25 @@ export const casparPlayoutService: PlayoutService = {
                     descriptors = parseDescriptorsFromText(advisoryText);
                 }
 
+                const ratingExplanationText = isLogoOnly ? '' : getGreekRatingDefaultText(rating as any);
+                const ratingHoldSec = settings.cgAdvisoryConfig?.ratingHoldSec ?? 30;
+                const warningHoldSec = settings.cgAdvisoryConfig?.warningHoldSec ?? 30;
+
                 const cgData = {
                     rating: rating !== 'none' ? rating : 'none',
-                    text: isLogoOnly ? '' : advisoryText,
-                    custom_text: isLogoOnly ? '__LOGO_ONLY__' : advisoryText,
+                    rating_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
+                    warning_text: isLogoOnly ? '' : advisoryText,
+                    text: isLogoOnly ? '' : ratingExplanationText,
+                    custom_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
                     explanation: !isLogoOnly,
                     show_explanation: !isLogoOnly,
                     warnings: descriptors,
-                    durationSec: 30,
-                    hold_time: 30,
-                    warning_hold_time: 30,
+                    durationSec: ratingHoldSec,
+                    hold_time: ratingHoldSec,
+                    warning_hold_time: warningHoldSec,
                     repeatIntervalSec: 600,
-                    tp: tpFlag
+                    tp: tpFlag,
+                    styling: settings.cgAdvisoryConfig
                 };
 
                 // Clear layer 32 first so previous instance is completely removed, then add fresh with full payload
