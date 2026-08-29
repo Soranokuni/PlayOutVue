@@ -927,7 +927,8 @@ const ensureFeedbackListener = async () => {
             advanceUnlisten = await listen<QualifiedAdvanceEvent>('caspar://advance', (event) => {
                 const payload = event.payload;
                 const uuid = (payload as any)?.currentUuid || payload?.rundownItemId;
-                if (!currentKey || !uuid || uuid === currentKey) {
+                // Strict stale-advance guard: drop any advance event that does not match the active item
+                if (currentKey && uuid && uuid === currentKey) {
                     advanceNext(true, uuid).catch((error) => {
                         console.error('[CasparCG] advanceNext error', error);
                     });
@@ -1983,6 +1984,7 @@ export const casparPlayoutService: PlayoutService = {
         const item = store.selectedItem;
         if (!item) return;
 
+        currentKey = queueKey(item);
         manualTakeFailure.value = null;
 
         const takeResult = playbackCoordinator.initiateTake(
