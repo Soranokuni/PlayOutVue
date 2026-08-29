@@ -544,7 +544,13 @@ fn handle_playback_path_osc<R: Runtime>(
         // switched to a different file than the one the current item was
         // registered with.
         let registered_norm = extract_raw_filename_lower(&s.registered_current_path);
-        if path_norm == expected_norm && !registered_norm.is_empty() && path_norm != registered_norm {
+        let now_mono = now_ms();
+        if s.path_confirmed
+            && now_mono >= s.auto_advance_not_before_ms
+            && path_norm == expected_norm
+            && !registered_norm.is_empty()
+            && path_norm != registered_norm
+        {
             if !s.transition_triggered {
                 s.transition_triggered = true;
                 s.advance_fired = true; // Sync the advance fired flag to prevent double-trigger
@@ -560,7 +566,7 @@ fn handle_playback_path_osc<R: Runtime>(
                     reason: "osc-path-switch".to_string(),
                     observed_position_ms: s.position_ms,
                     expected_duration_ms: s.duration_ms,
-                    emitted_at_monotonic_ms: now_ms(),
+                    emitted_at_monotonic_ms: now_mono,
                 };
                 let app_clone = app.clone();
                 drop(s); // release lock before emit
