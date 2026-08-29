@@ -5,6 +5,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../stores/settings';
 import CasparConfigModal from './CasparConfigModal.vue';
 import DeckLinkWizard from './DeckLinkWizard.vue';
+import CgTemplateEditorModal from './CgTemplateEditorModal.vue';
 
 const props = defineProps({
   isOpen: Boolean
@@ -14,6 +15,7 @@ const emit = defineEmits(['close']);
 const settings = useSettingsStore();
 const showCasparConfigurator = ref(false);
 const showDecklinkWizard = ref(false);
+const showCgStudioModal = ref(false);
 const activeTab = ref<'general' | 'playout' | 'cg'>('general');
 const selectedWizardLayer = ref<'logo' | 'rating' | 'tp' | 'explanation' | 'crawl'>('logo');
 
@@ -941,6 +943,13 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           </div>
                           <span class="hint-text">Default: <code>playout/crawl</code> (50fps Broadcast Ticker).</span>
                       </div>
+
+                      <div class="form-group" style="grid-column: 1 / -1; margin-top: 4px;">
+                          <button type="button" class="glass-btn studio-launch-btn" @click="showCgStudioModal = true">
+                              🎨 Launch Universal CG Template Studio (Greek Advisory Customizer)
+                          </button>
+                          <span class="hint-text" style="margin-top: 4px;">Interactive live studio to adjust fonts, sizes, safe areas, badge scale, and warning icons with universal default persistence.</span>
+                      </div>
                   </div>
               </section>
 
@@ -1111,6 +1120,12 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
       :is-open="showDecklinkWizard"
       :initial-path="localState.casparConfigPath"
       @close="showDecklinkWizard = false"
+    />
+
+    <CgTemplateEditorModal
+      v-if="showCgStudioModal"
+      :is-open="showCgStudioModal"
+      @close="showCgStudioModal = false"
     />
   </Teleport>
 </template>
@@ -1587,5 +1602,28 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     .qc-card-grid {
         grid-template-columns: 1fr;
     }
+}
+
+.studio-launch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.25) 0%, rgba(59, 130, 246, 0.25) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    color: #38bdf8;
+    font-weight: 700;
+    padding: 10px 18px;
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.studio-launch-btn:hover {
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.45) 0%, rgba(59, 130, 246, 0.45) 100%);
+    border-color: #38bdf8;
+    color: #ffffff;
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
+    transform: translateY(-1px);
 }
 </style>

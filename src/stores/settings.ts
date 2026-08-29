@@ -1,6 +1,40 @@
 import { defineStore } from 'pinia';
 import type { PlayoutEngine } from '../services/playout';
 
+export interface CgAdvisoryTemplateConfig {
+    fontFamily: string;
+    topOffsetPx: number;
+    rightOffsetPx: number;
+    badgeSizePx: number;
+    badgeFontSizePx: number;
+    badgeBorderRadiusPx: number;
+    explanationFontSizePx: number;
+    warningLeadFontSizePx: number;
+    warningBodyFontSizePx: number;
+    warningIconSizePx: number;
+    accentLineHeightPx: number;
+    accentColor: string;
+    ratingHoldSec: number;
+    warningHoldSec: number;
+}
+
+export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
+    fontFamily: 'Outfit, system-ui, -apple-system, sans-serif',
+    topOffsetPx: 60,
+    rightOffsetPx: 60,
+    badgeSizePx: 54,
+    badgeFontSizePx: 27,
+    badgeBorderRadiusPx: 12,
+    explanationFontSizePx: 13,
+    warningLeadFontSizePx: 10.5,
+    warningBodyFontSizePx: 12,
+    warningIconSizePx: 28,
+    accentLineHeightPx: 2,
+    accentColor: 'rgba(255, 255, 255, 0.95)',
+    ratingHoldSec: 30,
+    warningHoldSec: 30,
+};
+
 export const useSettingsStore = defineStore('settings', {
     state: () => ({
         playoutEngine: 'casparcg' as PlayoutEngine,
@@ -80,6 +114,24 @@ export const useSettingsStore = defineStore('settings', {
         cgCrawlText: '',
         cgCrawlActive: false,
         cgExplanationTemplate: 'playout/advisory',
+
+        // Universal CG Advisory Template Customizer Configuration
+        cgAdvisoryConfig: {
+            fontFamily: 'Outfit, system-ui, -apple-system, sans-serif',
+            topOffsetPx: 60,
+            rightOffsetPx: 60,
+            badgeSizePx: 54,
+            badgeFontSizePx: 27,
+            badgeBorderRadiusPx: 12,
+            explanationFontSizePx: 13,
+            warningLeadFontSizePx: 10.5,
+            warningBodyFontSizePx: 12,
+            warningIconSizePx: 28,
+            accentLineHeightPx: 2,
+            accentColor: 'rgba(255, 255, 255, 0.95)',
+            ratingHoldSec: 30,
+            warningHoldSec: 30,
+        } as CgAdvisoryTemplateConfig,
     }),
 
     actions: {
