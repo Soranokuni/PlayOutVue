@@ -23,6 +23,7 @@
       --cg-warning-body-font-size: 12px;
       --cg-warning-icon-size: 28px;
       --cg-accent-line-height: 2px;
+      --cg-line-gap: 8px;
     }
 
     * {
@@ -157,7 +158,7 @@
       flex-direction: column;
       align-items: flex-end;
       justify-content: center;
-      padding-bottom: 2px;
+      padding-bottom: var(--cg-line-gap, 8px); /* Adequate spacing between text and underline */
     }
 
     /* Overflow masked text slots for sliding animations */
@@ -167,13 +168,15 @@
       display: flex;
       align-items: center;
       justify-content: flex-end;
-      height: 46px;
+      height: 44px;
       min-width: 40px;
     }
 
     .slot-content {
       position: absolute;
       right: 0;
+      top: 0;
+      bottom: 0;
       display: inline-flex;
       align-items: center;
       justify-content: flex-end;
@@ -182,7 +185,6 @@
       padding-left: 14px;
       padding-right: 4px;
       opacity: 0;
-      transform: translateY(100%);
       will-change: transform, opacity;
     }
 
@@ -729,6 +731,13 @@
         </div>
         <div class="studio-slider-row">
           <div class="studio-slider-header">
+            <span>Text to Line Gap</span>
+            <span id="val-line-gap" class="studio-value-tag">8px</span>
+          </div>
+          <input type="range" id="sld-line-gap" min="2" max="24" step="1" value="8" class="studio-slider" oninput="updateStudioStyles()">
+        </div>
+        <div class="studio-slider-row">
+          <div class="studio-slider-header">
             <span>Accent Line Thickness</span>
             <span id="val-accent-height" class="studio-value-tag">2px</span>
           </div>
@@ -930,6 +939,7 @@
       if (style.warningBodyFontSizePx !== undefined) root.style.setProperty('--cg-warning-body-font-size', style.warningBodyFontSizePx + 'px');
       if (style.warningIconSizePx !== undefined) root.style.setProperty('--cg-warning-icon-size', style.warningIconSizePx + 'px');
       if (style.accentLineHeightPx !== undefined) root.style.setProperty('--cg-accent-line-height', style.accentLineHeightPx + 'px');
+      if (style.lineGapPx !== undefined) root.style.setProperty('--cg-line-gap', style.lineGapPx + 'px');
     }
 
     function buildTimeline() {
@@ -1285,7 +1295,8 @@
         warningLeadFontSizePx: Number(document.getElementById('sld-warning-lead-font').value),
         warningBodyFontSizePx: Number(document.getElementById('sld-warning-body-font').value),
         warningIconSizePx: Number(document.getElementById('sld-icon-size').value),
-        accentLineHeightPx: Number(document.getElementById('sld-accent-height').value)
+        accentLineHeightPx: Number(document.getElementById('sld-accent-height').value),
+        lineGapPx: Number(document.getElementById('sld-line-gap').value)
       };
 
       document.getElementById('val-top-margin').textContent = style.topOffsetPx + 'px';
@@ -1297,6 +1308,7 @@
       document.getElementById('val-warning-body-font').textContent = style.warningBodyFontSizePx + 'px';
       document.getElementById('val-icon-size').textContent = style.warningIconSizePx + 'px';
       document.getElementById('val-accent-height').textContent = style.accentLineHeightPx + 'px';
+      document.getElementById('val-line-gap').textContent = style.lineGapPx + 'px';
 
       applyStylingVariables(style);
       buildTimeline();
@@ -1326,6 +1338,7 @@
         warningBodyFontSizePx: Number(document.getElementById('sld-warning-body-font').value),
         warningIconSizePx: Number(document.getElementById('sld-icon-size').value),
         accentLineHeightPx: Number(document.getElementById('sld-accent-height').value),
+        lineGapPx: Number(document.getElementById('sld-line-gap').value),
         ratingHoldSec: Number(document.getElementById('sld-rating-hold').value),
         warningHoldSec: Number(document.getElementById('sld-warning-hold').value)
       };
@@ -1350,6 +1363,7 @@
       document.getElementById('sld-warning-body-font').value = 12;
       document.getElementById('sld-icon-size').value = 28;
       document.getElementById('sld-accent-height').value = 2;
+      document.getElementById('sld-line-gap').value = 8;
       document.getElementById('sld-rating-hold').value = 30;
       document.getElementById('sld-warning-hold').value = 30;
 
@@ -1370,6 +1384,10 @@
           applyStylingVariables(cfg);
           if (cfg.ratingHoldSec) currentConfig.hold_time = cfg.ratingHoldSec;
           if (cfg.warningHoldSec) currentConfig.warning_hold_time = cfg.warningHoldSec;
+          if (cfg.lineGapPx && document.getElementById('sld-line-gap')) {
+            document.getElementById('sld-line-gap').value = cfg.lineGapPx;
+            document.getElementById('val-line-gap').textContent = cfg.lineGapPx + 'px';
+          }
         }
       } catch(e) {}
     }
