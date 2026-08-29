@@ -2,37 +2,51 @@ import { defineStore } from 'pinia';
 import type { PlayoutEngine } from '../services/playout';
 
 export interface CgAdvisoryTemplateConfig {
+    themeName?: 'frosted' | 'matte-slate' | 'vibrant-accent' | 'inset-embossed' | 'dark-obsidian' | 'soft-slate' | 'periwinkle' | 'high-contrast';
+    badgeShape?: 'circle' | 'squircle' | 'pill';
+    stencilStyle?: 'neumorphic' | 'frosted' | 'contrast';
     fontFamily: string;
     topOffsetPx: number;
     rightOffsetPx: number;
+    textOffsetYPx?: number;
+    anchorPosition?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
     badgeSizePx: number;
     badgeFontSizePx: number;
     badgeBorderRadiusPx: number;
+    shadowBlurPx?: number;
     explanationFontSizePx: number;
     warningLeadFontSizePx: number;
     warningBodyFontSizePx: number;
     warningIconSizePx: number;
     accentLineHeightPx: number;
+    accentStyle?: 'gradient' | 'solid' | 'bevel' | 'none';
     accentColor: string;
     ratingHoldSec: number;
     warningHoldSec: number;
 }
 
 export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
+    themeName: 'frosted',
+    badgeShape: 'circle',
+    stencilStyle: 'neumorphic',
     fontFamily: 'Outfit, system-ui, -apple-system, sans-serif',
     topOffsetPx: 60,
     rightOffsetPx: 60,
+    textOffsetYPx: 0,
+    anchorPosition: 'top-right',
     badgeSizePx: 54,
     badgeFontSizePx: 27,
     badgeBorderRadiusPx: 12,
+    shadowBlurPx: 18,
     explanationFontSizePx: 13,
     warningLeadFontSizePx: 10.5,
     warningBodyFontSizePx: 12,
     warningIconSizePx: 28,
     accentLineHeightPx: 2,
+    accentStyle: 'gradient',
     accentColor: 'rgba(255, 255, 255, 0.95)',
-    ratingHoldSec: 30,
-    warningHoldSec: 30,
+    ratingHoldSec: 4,
+    warningHoldSec: 26,
 };
 
 export const useSettingsStore = defineStore('settings', {
@@ -50,8 +64,8 @@ export const useSettingsStore = defineStore('settings', {
         // Local logo and ratings asset folder
         logosPath: '',
 
-        // Visual Theme ('dark' | 'monokai' | 'light')
-        theme: 'dark' as 'dark' | 'monokai' | 'light',
+        // Visual Theme ('dark' | 'monokai' | 'light' | 'soft-slate' | 'periwinkle')
+        theme: 'dark' as 'dark' | 'monokai' | 'light' | 'soft-slate' | 'periwinkle',
 
         // UI Scale ('standard' | 'comfortable' | 'large')
         uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',

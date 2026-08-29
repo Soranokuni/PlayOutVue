@@ -110,6 +110,82 @@
   color-scheme: light;
 }
 
+/* Soft Slate Neumorphic ("Clean Clay / Tactile Studio" - Images 1, 3, 5) */
+.soft-slate-theme {
+  --bg-primary: #e0e5ec;
+  --bg-secondary: #e6ebf2;
+  --bg-tertiary: #d5dce6;
+  --bg-surface: #e8edf4;
+  --bg-surface-elevated: #f0f4f8;
+  --bg-hover: rgba(59, 130, 246, 0.08);
+  --bg-active: rgba(59, 130, 246, 0.18);
+  --bg-input: #e2e7ee;
+
+  --neu-shadow-raised: 6px 6px 14px #c2c9d6, -6px -6px 14px #ffffff;
+  --neu-shadow-inset: inset 3px 3px 6px #c2c9d6, inset -3px -3px 6px #ffffff;
+  --neu-shadow-pill: 4px 4px 10px #c2c9d6, -4px -4px 10px #ffffff;
+
+  --accent-blue: #2563eb;
+  --accent-cyan: #0284c7;
+  --accent-red: #ef4444;
+  --accent-green: #10b981;
+  --accent-yellow: #d97706;
+  --accent-orange: #f97316;
+  --accent-purple: #7c3aed;
+  --onair-glow: rgba(239, 68, 68, 0.35);
+
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-inverse: #ffffff;
+
+  --border-radius-base: 14px;
+  --border-subtle: rgba(255, 255, 255, 0.65);
+  --border-medium: rgba(148, 163, 184, 0.28);
+  --border-strong: rgba(100, 116, 139, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.85);
+  --glass-bg: rgba(232, 237, 244, 0.94);
+  color-scheme: light;
+}
+
+/* Lavender / Periwinkle Studio Glow ("SOTA Music / Entertainment" - Images 2, 4) */
+.periwinkle-theme {
+  --bg-primary: #ece8f6;
+  --bg-secondary: #f4f1fb;
+  --bg-tertiary: #ded8ee;
+  --bg-surface: #f8f6fd;
+  --bg-surface-elevated: #ffffff;
+  --bg-hover: rgba(124, 105, 239, 0.08);
+  --bg-active: rgba(124, 105, 239, 0.20);
+  --bg-input: #eae5f5;
+
+  --neu-shadow-raised: 6px 6px 16px #cfc7e4, -6px -6px 16px #ffffff;
+  --neu-shadow-inset: inset 3px 3px 6px #cfc7e4, inset -3px -3px 6px #ffffff;
+  --neu-shadow-pill: 4px 4px 12px #cfc7e4, -4px -4px 12px #ffffff;
+
+  --accent-blue: #6366f1;
+  --accent-cyan: #0ea5e9;
+  --accent-red: #f43f5e;
+  --accent-green: #10b981;
+  --accent-yellow: #f59e0b;
+  --accent-orange: #fb923c;
+  --accent-purple: #7c69ef;
+  --onair-glow: rgba(244, 63, 94, 0.35);
+
+  --text-primary: #1e1b4b;
+  --text-secondary: #4c4767;
+  --text-muted: #787195;
+  --text-inverse: #ffffff;
+
+  --border-radius-base: 14px;
+  --border-subtle: rgba(255, 255, 255, 0.75);
+  --border-medium: rgba(167, 139, 250, 0.30);
+  --border-strong: rgba(139, 92, 246, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.90);
+  --glass-bg: rgba(248, 246, 253, 0.95);
+  color-scheme: light;
+}
+
 /* ==========================================================================
    DYNAMIC UI SCALE SYSTEM
    ========================================================================== */
@@ -227,6 +303,39 @@ textarea {
   border: 1px solid var(--glass-border);
   border-radius: var(--border-radius-base);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+/* Neumorphism Utilities */
+.neu-panel {
+  background: var(--bg-surface);
+  border-radius: var(--border-radius-base);
+  box-shadow: var(--neu-shadow-raised, 0 10px 25px rgba(0, 0, 0, 0.15));
+  border: 1px solid var(--border-subtle);
+}
+
+.neu-inset-panel {
+  background: var(--bg-input);
+  border-radius: var(--border-radius-base);
+  box-shadow: var(--neu-shadow-inset, inset 0 2px 6px rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--border-subtle);
+}
+
+.neu-btn {
+  background: var(--bg-surface-elevated);
+  border-radius: 9999px;
+  box-shadow: var(--neu-shadow-pill, 0 4px 10px rgba(0, 0, 0, 0.15));
+  border: 1px solid var(--border-subtle);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.neu-btn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.neu-btn:active {
+  box-shadow: var(--neu-shadow-inset, inset 0 2px 4px rgba(0, 0, 0, 0.2));
+  transform: translateY(1px);
 }
 
 /* Base utility classes */
