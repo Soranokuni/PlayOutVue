@@ -1588,18 +1588,6 @@ async function advanceToNext(token: number, natural: boolean) {
 
                 await preloadNextItemAt(nextIndex + 1, transitionToken);
 
-                // Phase 4: fire-and-forget foreground verification. The Rust
-                // state machine emits `caspar://foreground-confirmed` once OSC
-                // proves the new clip is on air; on timeout we verify via INFO
-                // and only hard-PLAY when the on-air clip is provably wrong.
-                void confirmAndRepairForeground(
-                    key,
-                    hydrated,
-                    nextItemPath,
-                    currentItem.path || currentItem.shortPath || '',
-                    transitionToken
-                );
-
                 setTimeout(() => {
                     const currentPlayToken = playToken;
                     refreshCurrentProducerDuration(liveNextItem, key, currentPlayToken, durationMs).catch((error: any) => {
