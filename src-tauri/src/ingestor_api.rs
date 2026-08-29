@@ -574,7 +574,11 @@ pub async fn update_ingestor_rating<R: Runtime>(
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
     let start_time = std::time::Instant::now();
-    let upper = rating.to_ascii_uppercase();
+    let final_rating = if rating.contains('|') {
+        rating.trim().to_string()
+    } else {
+        rating.trim().to_ascii_uppercase()
+    };
 
     let base_url = resolve_base_url(
         &get_ingestor_api_base_url(&app),
@@ -582,7 +586,7 @@ pub async fn update_ingestor_rating<R: Runtime>(
     );
 
     let url = format!("{}/api/assets/{}/rating", base_url, uuid);
-    diagnostics.push("info", "ingestor", format!("Updating Ingestor asset '{}' rating to '{}' at '{}'", uuid, upper, url));
+    diagnostics.push("info", "ingestor", format!("Updating Ingestor asset '{}' rating to '{}' at '{}'", uuid, final_rating, url));
     let client = build_client()?;
 
     #[derive(Serialize)]
@@ -593,7 +597,7 @@ pub async fn update_ingestor_rating<R: Runtime>(
 
     let response_res = client
         .put(&url)
-        .json(&RatingPayload { rating: upper.clone() })
+        .json(&RatingPayload { rating: final_rating.clone() })
         .send()
         .await;
 
@@ -619,7 +623,7 @@ pub async fn update_ingestor_rating<R: Runtime>(
         return Err(err);
     }
 
-    diagnostics.push("info", "ingestor", format!("Successfully updated rating to '{}' for asset '{}' in {}ms", upper, uuid, elapsed));
+    diagnostics.push("info", "ingestor", format!("Successfully updated rating to '{}' for asset '{}' in {}ms", final_rating, uuid, elapsed));
     Ok(())
 }
 

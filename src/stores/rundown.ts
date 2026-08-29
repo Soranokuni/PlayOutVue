@@ -1841,22 +1841,7 @@ export const useRundownStore = defineStore('rundown', () => {
             timeline: timeline
         });
 
-        // If backend UUID exists, update database first
-        const dbUuid = playoutvueId || item.playoutvueId;
-        if (dbUuid && !dbUuid.startsWith('local:')) {
-            try {
-                await invoke('update_ingestor_rating', {
-                    uuid: dbUuid,
-                    rating: age,
-                    apiBaseUrlOverride: null
-                });
-            } catch (error) {
-                console.error('[Store] Failed to update backend rating:', error);
-                return;
-            }
-        }
-
-        // Update local item
+        // Update local item immediately
         playlist.items[idx] = {
             ...item,
             complianceRating: age,
@@ -1868,17 +1853,16 @@ export const useRundownStore = defineStore('rundown', () => {
         };
         triggerRef(playlists);
 
-        // Sync with MediaLibrary store
+        // Sync other items in rundown with same playoutvueId
+        const dbUuid = playoutvueId || item.playoutvueId;
         if (dbUuid) {
-            const mediaLibrary = useMediaLibraryStore();
-            mediaLibrary.updateAsset(dbUuid, { rating: serialized });
-
-            // Also sync other items in rundown with same playoutvueId
             playlist.items.forEach((e, i) => {
                 if (e.playoutvueId === dbUuid && e.id !== itemId) {
                     playlist.items[i] = {
                         ...e,
                         complianceRating: age,
+                        complianceDescriptors: descriptors,
+                        complianceText: text,
                         tp_flag: tp,
                         content_type: content,
                         timeline: timeline
@@ -1886,6 +1870,29 @@ export const useRundownStore = defineStore('rundown', () => {
                 }
             });
             triggerRef(playlists);
+
+            const mediaLibrary = useMediaLibraryStore();
+            mediaLibrary.updateAsset(dbUuid, { rating: serialized, tp: tp ? 'TP' : 'None' });
+        }
+
+        // Backend persistence
+        if (dbUuid && !dbUuid.startsWith('local:')) {
+            try {
+                await invoke('update_ingestor_rating', {
+                    uuid: dbUuid,
+                    rating: serialized,
+                    apiBaseUrlOverride: null
+                });
+                if (updates.tp_flag !== undefined) {
+                    await invoke('update_ingestor_tp', {
+                        uuid: dbUuid,
+                        tp: tp ? 'TP' : 'None',
+                        apiBaseUrlOverride: null
+                    });
+                }
+            } catch (error) {
+                console.error('[Store] Failed to update backend rating:', error);
+            }
         }
     };
 

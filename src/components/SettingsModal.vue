@@ -5,7 +5,6 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../stores/settings';
 import CasparConfigModal from './CasparConfigModal.vue';
 import DeckLinkWizard from './DeckLinkWizard.vue';
-import CgTemplateEditorModal from './CgTemplateEditorModal.vue';
 
 const props = defineProps({
   isOpen: Boolean
@@ -15,9 +14,19 @@ const emit = defineEmits(['close']);
 const settings = useSettingsStore();
 const showCasparConfigurator = ref(false);
 const showDecklinkWizard = ref(false);
-const showCgStudioModal = ref(false);
 const activeTab = ref<'general' | 'playout' | 'cg'>('general');
 const selectedWizardLayer = ref<'logo' | 'rating' | 'tp' | 'explanation' | 'crawl'>('logo');
+
+async function launchBrowserStudio() {
+    try {
+        await invoke('open_cg_studio_in_browser', {
+            templatePath: localState.value.cgExplanationTemplate || null
+        });
+    } catch (e) {
+        console.error('Failed to open browser studio via Tauri:', e);
+        window.open('/templates/playout/advisory.html', '_blank');
+    }
+}
 
 // Local shadow state so we don't mutate Pinia instantly on every keystroke
 const localState = ref({
@@ -945,10 +954,10 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                       </div>
 
                       <div class="form-group" style="grid-column: 1 / -1; margin-top: 4px;">
-                          <button type="button" class="glass-btn studio-launch-btn" @click="showCgStudioModal = true">
-                              🎨 Launch Universal CG Template Studio (Greek Advisory Customizer)
+                          <button type="button" class="glass-btn studio-launch-btn" @click="launchBrowserStudio">
+                              🌐 Open Greek Advisory Template Studio in Browser
                           </button>
-                          <span class="hint-text" style="margin-top: 4px;">Interactive live studio to adjust fonts, sizes, safe areas, badge scale, and warning icons with universal default persistence.</span>
+                          <span class="hint-text" style="margin-top: 4px;">Opens the interactive WYSIWYG studio in your default browser to customize fonts, sizes, margins, and icons with universal station default persistence.</span>
                       </div>
                   </div>
               </section>
@@ -1120,12 +1129,6 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
       :is-open="showDecklinkWizard"
       :initial-path="localState.casparConfigPath"
       @close="showDecklinkWizard = false"
-    />
-
-    <CgTemplateEditorModal
-      v-if="showCgStudioModal"
-      :is-open="showCgStudioModal"
-      @close="showCgStudioModal = false"
     />
   </Teleport>
 </template>

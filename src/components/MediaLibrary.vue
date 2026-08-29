@@ -19,7 +19,7 @@ import StatusIndicator from './StatusIndicator.vue';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
-import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
+import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaLibrary';
 
 const store = useRundownStore();
@@ -499,7 +499,7 @@ function makeRundownDraftFromAsset(asset: LibraryAsset) {
         seek: 0,
         length: 0,
         complianceRating: compliance,
-        complianceDescriptors: [],
+        complianceDescriptors: meta.descriptors || [],
         complianceText: meta.advisoryText || meta.timeline[0]?.text || '',
         timeline: meta.timeline || [],
         tp_flag: meta.tpFlag,
@@ -646,6 +646,9 @@ function onAssetPointerDown(event: PointerEvent, asset: LibraryAsset) {
         length: 0,
         complianceRating: meta.ageRating ||
             mediaDefaults.getCompliance(asset.uuid, asset.current_path),
+        complianceDescriptors: meta.descriptors || [],
+        complianceText: meta.advisoryText || meta.timeline[0]?.text || '',
+        timeline: meta.timeline || [],
         tp_flag: meta.tpFlag,
         content_type: meta.contentType,
         display_name: asset.display_name,
@@ -1350,6 +1353,7 @@ async function ctxApplyCompliancePreset(preset: GreekCompliancePreset) {
   if (asset) {
     await mediaLibrary.updateAssetMetadata(asset.uuid, {
       complianceRating: preset.ageRating,
+      complianceDescriptors: parseDescriptorsFromText(preset.advisoryText),
       complianceText: preset.advisoryText,
       timeline: preset.advisoryText ? [{ start: 0, end: (preset.displayDurationSec || 30) * 1000, text: preset.advisoryText }] : []
     });
