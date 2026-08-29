@@ -757,13 +757,43 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                 timeline: timeline
             });
 
-            // 1. Update backend database first
+            const descriptors = updates.complianceDescriptors !== undefined
+                ? updates.complianceDescriptors
+                : (currentMeta.descriptors || []);
+
+            // 1. Update local asset
+            updateAsset(uuid, { rating: serialized, tp: tp ? 'TP' : 'None' });
+
+            // 2. Sync with Rundown Store items
+            const rundownStore = useRundownStore();
+            for (const playlist of rundownStore.playlists) {
+                let changed = false;
+                playlist.items.forEach((item, idx) => {
+                    if (item.playoutvueId === uuid) {
+                        playlist.items[idx] = {
+                            ...item,
+                            complianceRating: age,
+                            complianceDescriptors: descriptors,
+                            complianceText: advisoryText,
+                            tp_flag: tp,
+                            content_type: content,
+                            timeline: timeline
+                        };
+                        changed = true;
+                    }
+                });
+                if (changed) {
+                    rundownStore.triggerPlaylistsUpdate();
+                }
+            }
+
+            // 3. Update backend database
             if (!uuid.startsWith('local:')) {
                 try {
-                    if (updates.complianceRating !== undefined || updates.complianceText !== undefined) {
+                    if (updates.complianceRating !== undefined || updates.complianceText !== undefined || updates.complianceDescriptors !== undefined) {
                         await invoke('update_ingestor_rating', {
                             uuid,
-                            rating: age,
+                            rating: serialized,
                             apiBaseUrlOverride: null
                         });
                     }
@@ -776,32 +806,6 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                     }
                 } catch (error) {
                     console.error('[LibraryStore] Failed to update backend metadata:', error);
-                    return;
-                }
-            }
-
-            // 2. Update local asset
-            updateAsset(uuid, { rating: serialized, tp: tp ? 'TP' : 'None' });
-
-            // 3. Sync with Rundown Store items
-            const rundownStore = useRundownStore();
-            for (const playlist of rundownStore.playlists) {
-                let changed = false;
-                playlist.items.forEach((item, idx) => {
-                    if (item.playoutvueId === uuid) {
-                        playlist.items[idx] = {
-                            ...item,
-                            complianceRating: age,
-                            complianceText: advisoryText,
-                            tp_flag: tp,
-                            content_type: content,
-                            timeline: timeline
-                        };
-                        changed = true;
-                    }
-                });
-                if (changed) {
-                    rundownStore.triggerPlaylistsUpdate();
                 }
             }
         }

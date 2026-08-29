@@ -16,7 +16,7 @@ import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
 import { activeScope } from '../composables/useOperatorShortcuts';
 import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget, type GeometrySnapshot } from '../lib/reorderHelper';
-import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
+import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -463,6 +463,7 @@ const ctxApplyCompliancePreset = async (preset: GreekCompliancePreset) => {
       item.playoutvueId,
       {
         complianceRating: preset.ageRating,
+        complianceDescriptors: parseDescriptorsFromText(preset.advisoryText),
         complianceText: preset.advisoryText,
         timeline: preset.advisoryText ? [{ start: 0, end: (preset.displayDurationSec || 30) * 1000, text: preset.advisoryText }] : []
       },

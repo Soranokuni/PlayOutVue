@@ -418,6 +418,48 @@ pub async fn deploy_caspar_templates(
 }
 
 #[tauri::command]
+pub async fn open_cg_studio_in_browser(
+    template_path: Option<String>,
+) -> Result<String, String> {
+    let base_dir = if let Some(ref p) = template_path {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            PathBuf::from(trimmed)
+        } else {
+            PathBuf::from("C:/CasparCG/template")
+        }
+    } else {
+        PathBuf::from("C:/CasparCG/template")
+    };
+
+    let target_file = base_dir.join("playout").join("advisory.html");
+    
+    // Ensure template is freshly deployed
+    let _ = deploy_caspar_templates(template_path.clone(), None, Some(true)).await;
+
+    let target_url = if target_file.exists() {
+        target_file.to_string_lossy().to_string()
+    } else {
+        "http://localhost:5173/templates/playout/advisory.html".to_string()
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let formatted_target = if target_url.starts_with("http") {
+            target_url.clone()
+        } else {
+            format!("file:///{}", target_url.replace('\\', "/"))
+        };
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", &formatted_target])
+            .spawn()
+            .map_err(|e| format!("Failed to open browser: {}", e))?;
+    }
+
+    Ok(target_url)
+}
+
+#[tauri::command]
 pub async fn find_default_caspar_config() -> Option<String> {
     default_config_candidates()
         .into_iter()
