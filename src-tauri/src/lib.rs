@@ -23,7 +23,7 @@ use caspar_process::{
     caspar_process_start, caspar_process_stop, caspar_process_validate_path,
     CasparProcessSupervisor, DEFAULT_AMCP_PORT,
 };
-use caspar_config::{apply_caspar_decklink_config, caspar_test_connection, deploy_caspar_templates, find_default_caspar_config, load_caspar_config, open_cg_studio_in_browser, save_caspar_config_raw, save_caspar_config_structured};
+use caspar_config::{apply_caspar_decklink_config, caspar_test_connection, deploy_caspar_templates, find_default_caspar_config, load_caspar_config, open_advisory_in_editor, open_cg_studio_in_browser, open_template_directory, read_svg_file, save_caspar_config_raw, save_caspar_config_structured};
 use diagnostics::{clear_diagnostic_logs, export_diagnostic_logs, get_diagnostic_logs, push_diagnostic_log, redact_path_for_diagnostics, DiagnosticState, init_background_logger};
 use tauri::Manager;
 use tauri::menu::MenuBuilder;
@@ -150,6 +150,9 @@ pub fn run() {
             apply_caspar_decklink_config,
             deploy_caspar_templates,
             open_cg_studio_in_browser,
+            open_advisory_in_editor,
+            open_template_directory,
+            read_svg_file,
             caspar_test_connection,
             list_filesystem_roots,
             browse_filesystem,

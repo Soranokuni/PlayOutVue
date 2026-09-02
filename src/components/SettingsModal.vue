@@ -525,6 +525,122 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     else if (target === 'badge-18') localState.value.cgRating18Path = selection;
     else if (target === 'badge-tp') localState.value.cgRatingTPPath = selection;
 };
+
+const showCustomSvgOverrides = ref(false);
+const newCustomRatingKey = ref('');
+const newCustomRatingPath = ref('');
+
+const extraCustomRatings = computed(() => {
+    const paths = localState.value.cgAdvisoryConfig?.customRatingSvgPaths || {};
+    return Object.keys(paths).filter(k => !['K', '8', '12', '16', '18'].includes(k));
+});
+
+const setCustomRatingSvg = (rating: string, path: string) => {
+    if (!localState.value.cgAdvisoryConfig.customRatingSvgPaths) {
+        localState.value.cgAdvisoryConfig.customRatingSvgPaths = {};
+    }
+    localState.value.cgAdvisoryConfig.customRatingSvgPaths[rating] = path;
+};
+
+const pickCustomLogoSvg = async () => {
+    const selection = await open({
+        title: 'Choose Station Logo SVG',
+        multiple: false,
+        directory: false,
+        filters: [
+            { name: 'SVG / Vector Images', extensions: ['svg', 'png'] },
+            { name: 'All Files', extensions: ['*'] }
+        ]
+    });
+    if (selection && !Array.isArray(selection)) {
+        localState.value.cgAdvisoryConfig.customLogoSvgPath = selection;
+    }
+};
+
+const pickCustomRatingSvg = async (rating: string) => {
+    const selection = await open({
+        title: `Choose SVG for Rating ${rating}`,
+        multiple: false,
+        directory: false,
+        filters: [
+            { name: 'SVG / Vector Images', extensions: ['svg', 'png'] },
+            { name: 'All Files', extensions: ['*'] }
+        ]
+    });
+    if (selection && !Array.isArray(selection)) {
+        setCustomRatingSvg(rating, selection);
+    }
+};
+
+const pickNewCustomRatingPath = async () => {
+    const selection = await open({
+        title: 'Choose SVG for New Rating',
+        multiple: false,
+        directory: false,
+        filters: [
+            { name: 'SVG / Vector Images', extensions: ['svg', 'png'] },
+            { name: 'All Files', extensions: ['*'] }
+        ]
+    });
+    if (selection && !Array.isArray(selection)) {
+        newCustomRatingPath.value = selection;
+    }
+};
+
+const addNewCustomRating = () => {
+    const k = newCustomRatingKey.value.trim().toUpperCase();
+    const p = newCustomRatingPath.value.trim();
+    if (!k || !p) {
+        alert('Please specify both a rating tag (e.g. PG) and an SVG file path.');
+        return;
+    }
+    setCustomRatingSvg(k, p);
+    newCustomRatingKey.value = '';
+    newCustomRatingPath.value = '';
+};
+
+const removeCustomRating = (key: string) => {
+    if (localState.value.cgAdvisoryConfig?.customRatingSvgPaths) {
+        delete localState.value.cgAdvisoryConfig.customRatingSvgPaths[key];
+    }
+};
+
+const openAdvisoryInEditor = async () => {
+    try {
+        const path = await invoke<string>('open_advisory_in_editor', {
+            templatePath: localState.value.cgExplanationTemplate || null
+        });
+        console.info('[Settings] Opened advisory template in editor:', path);
+    } catch (e) {
+        alert(`Failed to open template in editor: ${e}`);
+    }
+};
+
+const openTemplateDir = async () => {
+    try {
+        const path = await invoke<string>('open_template_directory', {
+            templatePath: localState.value.cgExplanationTemplate || null
+        });
+        console.info('[Settings] Opened template directory:', path);
+    } catch (e) {
+        alert(`Failed to open directory: ${e}`);
+    }
+};
+
+const redeployTemplates = async () => {
+    try {
+        const res = await invoke<any>('deploy_caspar_templates', {
+            templatePath: localState.value.cgExplanationTemplate || null,
+            mediaPath: localState.value.localMediaPath || null,
+            overwrite: true
+        });
+        alert(`Templates successfully redeployed to CasparCG!
+Deployed files:
+${res.deployed?.join('\n') || 'None'}`);
+    } catch (e) {
+        alert(`Template deployment failed: ${e}`);
+    }
+};
 </script>
 
 <template>
@@ -1099,6 +1215,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                               <option value="vibrant-accent">Option 2: Vibrant Accent Extrusion</option>
                               <option value="inset-embossed">Option 3: Inset Embossed Slate</option>
                               <option value="dark-obsidian">Option 5: Obsidian Dark MCR</option>
+                              <option value="custom">Option 6: Custom (Manual SVG Overrides)</option>
                           </select>
                       </div>
 
@@ -1143,6 +1260,72 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                       <div class="form-group">
                           <label>Warning Descriptors Hold (Seconds)</label>
                           <input type="number" min="4" max="120" class="glass-input" v-model.number="localState.cgAdvisoryConfig.warningHoldSec" placeholder="30">
+                      </div>
+                  </div>
+
+                  <!-- Manual SVG Overrides (Custom Logos & Ratings) -->
+                  <div class="custom-overrides-card" style="margin-top: 16px; border: 1px solid var(--color-border-subtle); border-radius: 8px; padding: 12px; background: rgba(0, 0, 0, 0.25);">
+                      <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" @click="showCustomSvgOverrides = !showCustomSvgOverrides">
+                          <span style="font-weight: 600; font-size: 0.88rem; display: inline-flex; align-items: center; gap: 8px;">
+                              🛠️ Manual SVG Overrides (Custom Logos &amp; Ratings)
+                          </span>
+                          <button type="button" class="glass-btn btn-secondary" style="padding: 2px 8px; font-size: 0.72rem;">
+                              {{ showCustomSvgOverrides ? '▲ Collapse' : '▼ Expand' }}
+                          </button>
+                      </div>
+
+                      <div v-if="showCustomSvgOverrides || localState.cgAdvisoryConfig.themeName === 'custom'" style="margin-top: 12px; display: flex; flex-direction: column; gap: 12px;">
+                          <div class="form-group">
+                              <label>Custom Station Logo SVG Path</label>
+                              <div class="input-with-button">
+                                  <input type="text" class="glass-input" v-model="localState.cgAdvisoryConfig.customLogoSvgPath" placeholder="C:/PlayOut/logos/logo.svg">
+                                  <button class="glass-btn" style="flex-shrink: 0;" @click="pickCustomLogoSvg" title="Browse SVG file">📁</button>
+                              </div>
+                              <span class="hint-text">Leave blank to use default embedded SITIA neumorphic SVG logo.</span>
+                          </div>
+
+                          <div class="form-group">
+                              <label>Custom Age Rating SVGs (Optional Overrides)</label>
+                              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+                                  <div v-for="r in ['K', '8', '12', '16', '18']" :key="r">
+                                      <span style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-secondary);">Rating {{ r }} SVG:</span>
+                                      <div class="input-with-button" style="margin-top: 4px;">
+                                          <input type="text" class="glass-input" :value="localState.cgAdvisoryConfig.customRatingSvgPaths?.[r] || ''" @input="setCustomRatingSvg(r, ($event.target as HTMLInputElement).value)" :placeholder="`Custom ${r}.svg`">
+                                          <button class="glass-btn" style="flex-shrink: 0;" @click="pickCustomRatingSvg(r)">📁</button>
+                                      </div>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <!-- Add New Custom Rating Logo -->
+                          <div class="form-group" style="border-top: 1px dashed rgba(255, 255, 255, 0.15); padding-top: 10px;">
+                              <label>Add New Custom Rating (e.g. PG, NR, 15)</label>
+                              <div style="display: flex; gap: 8px;">
+                                  <input type="text" class="glass-input" style="max-width: 100px;" v-model="newCustomRatingKey" placeholder="PG / NR">
+                                  <input type="text" class="glass-input" style="flex: 1;" v-model="newCustomRatingPath" placeholder="C:/path/to/custom_rating.svg">
+                                  <button type="button" class="glass-btn" @click="pickNewCustomRatingPath">📁</button>
+                                  <button type="button" class="glass-btn btn-primary" @click="addNewCustomRating">➕ Add</button>
+                              </div>
+                              <div v-if="extraCustomRatings.length > 0" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px;">
+                                  <span v-for="key in extraCustomRatings" :key="key" class="tag" style="background: rgba(132, 40, 140, 0.3); border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 4px; padding: 2px 6px; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 4px;">
+                                      {{ key }}: {{ localState.cgAdvisoryConfig.customRatingSvgPaths?.[key] }}
+                                      <button type="button" style="background:none; border:none; color:#f87171; cursor:pointer;" @click="removeCustomRating(key)">✕</button>
+                                  </span>
+                              </div>
+                          </div>
+
+                          <!-- Quick Action Buttons for Graphics Leads -->
+                          <div style="display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--color-border-subtle); padding-top: 10px;">
+                              <button type="button" class="glass-btn" @click="openAdvisoryInEditor" title="Open advisory.html in system text editor">
+                                  📝 Open advisory.html in Editor
+                              </button>
+                              <button type="button" class="glass-btn" @click="openTemplateDir" title="Open CasparCG template folder in Explorer">
+                                  📂 Open Template Folder
+                              </button>
+                              <button type="button" class="glass-btn btn-primary" @click="redeployTemplates" title="Redeploy templates to CasparCG">
+                                  🚀 Redeploy Templates
+                              </button>
+                          </div>
                       </div>
                   </div>
               </section>
