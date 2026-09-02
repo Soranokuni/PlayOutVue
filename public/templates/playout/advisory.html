@@ -156,6 +156,74 @@
       flex-direction: row;
     }
 
+    /* Flexible Ordering for Station ID & Rating Elements */
+    #station-logo-container {
+      order: 2;
+    }
+    #rating-badge-container {
+      order: 1;
+    }
+    #tp-badge {
+      order: 3;
+    }
+    #text-container {
+      order: 4;
+    }
+
+    /* Studio Mode Switcher Bar */
+    .studio-mode-bar {
+      display: flex;
+      gap: 6px;
+      padding: 8px 12px;
+      background: rgba(15, 23, 42, 0.7);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .studio-mode-btn {
+      flex: 1;
+      padding: 6px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(30, 41, 59, 0.6);
+      color: #94a3b8;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: center;
+    }
+
+    .studio-mode-btn:hover {
+      background: rgba(51, 65, 85, 0.8);
+      color: #ffffff;
+    }
+
+    .studio-mode-btn.active {
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      color: #ffffff;
+      border-color: #38bdf8;
+      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+    }
+
+    /* Vector Studio Color Picker Row */
+    .vector-ctrl-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .vector-color-input {
+      width: 34px;
+      height: 26px;
+      padding: 0;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
+    }
+
     /* Station Branding SVG Logo Container */
     .station-logo-wrapper {
       display: none;
@@ -297,8 +365,8 @@
       justify-content: flex-end;
       gap: 10px;
       white-space: nowrap;
-      padding-left: 14px;
-      padding-right: 6px;
+      padding-left: 20px;
+      padding-right: 8px;
       opacity: 0;
       will-change: transform, opacity;
       transform: translate3d(0, 0, 0);
@@ -769,35 +837,89 @@
       <!-- STATION BRANDING SVG LOGO (Edit here or via Playout Custom Theme) -->
       <!-- ================================================================= -->
       <div id="station-logo-container" class="station-logo-wrapper" title="Station ID Branding Logo">
-        <svg id="station-logo-svg" class="station-logo-svg" viewBox="0 0 200 200">
-          <defs>
-            <filter id="sitia-shadow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="3" dy="6" stdDeviation="5" flood-color="#140217" flood-opacity="0.75" />
-              <feDropShadow dx="-2" dy="-2" stdDeviation="4" flood-color="#c864d4" flood-opacity="0.4" />
-            </filter>
-            <linearGradient id="sitia-purple-grad" x1="15%" y1="10%" x2="85%" y2="90%">
-              <stop offset="0%" stop-color="#84288c" />
-              <stop offset="45%" stop-color="#702177" />
-              <stop offset="100%" stop-color="#47104b" />
-            </linearGradient>
-            <filter id="sitia-extrusion" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="1.2" dy="2.8" stdDeviation="1.0" flood-color="#2a052e" flood-opacity="0.95" />
-            </filter>
-            <linearGradient id="sitia-text-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stop-color="#ffffff" />
-              <stop offset="60%" stop-color="#f5e8f8" />
-              <stop offset="100%" stop-color="#e8d5ec" />
-            </linearGradient>
-          </defs>
-          <g filter="url(#sitia-shadow)">
-            <rect x="10" y="10" width="180" height="180" rx="50" ry="50" fill="url(#sitia-purple-grad)" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1.8" shape-rendering="geometricPrecision" />
-          </g>
-          <text x="101" y="116" text-anchor="middle" dominant-baseline="central" alignment-baseline="central" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Montserrat, Arial, sans-serif" font-weight="900" font-size="44" letter-spacing="2.5px" fill="#250428" opacity="0.95" shape-rendering="geometricPrecision">SITIA</text>
-          <text x="100" y="114" text-anchor="middle" dominant-baseline="central" alignment-baseline="central" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Montserrat, Arial, sans-serif" font-weight="900" font-size="44" letter-spacing="2.5px" fill="url(#sitia-text-grad)" stroke="rgba(255, 255, 255, 0.7)" stroke-width="0.6" filter="url(#sitia-extrusion)" shape-rendering="geometricPrecision">SITIA</text>
-        </svg>
+        <svg id="station-logo-svg" class="station-logo-svg" viewBox="0 0 200 200" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <defs>
+    <!-- Broadcast-safe Neumorphic Dual-Shadow Filter (-135 deg light source) -->
+    <filter id="sitia-neumorphic-depth" x="-40%" y="-40%" width="180%" height="180%">
+      <!-- Dark ambient drop shadow (+5px, +7px, stdDev 6) -->
+      <feDropShadow dx="5" dy="7" stdDeviation="6" flood-color="#18031d" flood-opacity="0.85" />
+      <!-- Specular light highlight (-3.5px, -3.5px, stdDev 4.5, Rec. 709 safe #f0f5fc) -->
+      <feDropShadow dx="-3.5" dy="-3.5" stdDeviation="4.5" flood-color="#f0f5fc" flood-opacity="0.5" />
+    </filter>
+
+    <!-- Convex Surface Gradient (135 deg: #8a2c94 -> #702177 -> #46104c) -->
+    <linearGradient id="sitia-convex-surface" x1="10%" y1="10%" x2="90%" y2="90%">
+      <stop offset="0%" stop-color="#8a2c94" />
+      <stop offset="42%" stop-color="#702177" />
+      <stop offset="100%" stop-color="#46104c" />
+    </linearGradient>
+
+    <!-- 1px High-Contrast Micro-Border Gradient (135 deg) -->
+    <linearGradient id="sitia-micro-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255, 255, 255, 0.7)" />
+      <stop offset="50%" stop-color="rgba(255, 255, 255, 0.3)" />
+      <stop offset="100%" stop-color="rgba(40, 5, 45, 0.5)" />
+    </linearGradient>
+
+    <!-- 3D Extruded Text Face Gradient -->
+    <linearGradient id="sitia-text-face" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="55%" stop-color="#f7edf9" />
+      <stop offset="100%" stop-color="#e6d2e9" />
+    </linearGradient>
+
+    <!-- Subtle Text Drop Shadow Filter -->
+    <filter id="sitia-text-depth" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="1" dy="2.2" stdDeviation="0.8" flood-color="#1f0224" flood-opacity="0.9" />
+    </filter>
+  </defs>
+
+  <!-- Base Squircle with Dual Neumorphic Shadows -->
+  <g filter="url(#sitia-neumorphic-depth)">
+    <!-- Main Tactile Squircle Body (rx="52" ry="52" on 180x180 is ~28.8% continuous G2 curvature) -->
+    <rect
+      x="10"
+      y="10"
+      width="180"
+      height="180"
+      rx="52"
+      ry="52"
+      fill="url(#sitia-convex-surface)"
+      stroke="url(#sitia-micro-border)"
+      stroke-width="1.6"
+    />
+  </g>
+
+  <!-- Vectorized 3D Chiseled "SITIA" Wordmark -->
+  <!-- Layer 1: Deep Physical Bevel Extrusion (offset dx=1.6, dy=3.2) -->
+  <path
+    d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
+    transform="translate(1.6, 3.2)"
+    fill="#200324"
+    opacity="0.95"
+  />
+
+  <!-- Layer 2: Mid Bevel Shadow (offset dx=0.8, dy=1.6) -->
+  <path
+    d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
+    transform="translate(0.8, 1.6)"
+    fill="#3d0943"
+    opacity="0.9"
+  />
+
+  <!-- Layer 3: Crisp Pale-Lilac Face with Top Specular Rim & Depth Filter -->
+  <path
+    d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
+    fill="url(#sitia-text-face)"
+    stroke="rgba(255, 255, 255, 0.7)"
+    stroke-width="0.5"
+    filter="url(#sitia-text-depth)"
+  />
+</svg>
+
       </div>
 
-      <!-- Unified Rating Stencil Badge Container (Single Compositor Layer) -->
+      <!-- Unified Rating Stencil Badge<!-- Unified Rating Stencil Badge Container (Single Compositor Layer) -->
       <div id="rating-badge-container" class="badge-wrapper">
         <svg id="badge-svg" class="badge-svg" viewBox="0 0 52 52" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
           <defs>
@@ -881,12 +1003,146 @@
     <!-- Segmented Navigation Tabs -->
     <div class="studio-nav-tabs">
       <button class="studio-tab-btn active" data-tab="content" onclick="switchStudioTab('content')">🏷️ Content</button>
+      <button class="studio-tab-btn" data-tab="vector" onclick="switchStudioTab('vector')">✨ Vector Studio</button>
       <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')">🎨 Design &amp; Theme</button>
       <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')">📐 Geometry</button>
       <button class="studio-tab-btn" data-tab="timing" onclick="switchStudioTab('timing')">⏱️ Motion</button>
     </div>
 
     <div class="studio-scroll-body">
+      <!-- TAB: Interactive Vector & Brand Editor -->
+      <div id="tab-pane-vector" class="studio-tab-pane">
+        <!-- Target Selector -->
+        <div class="studio-group">
+          <div class="studio-group-title">🎯 Editor Target</div>
+          <div class="studio-btn-row">
+            <button class="studio-btn active" id="btn-target-logo" onclick="setVectorEditorTarget('logo')">📺 Station ID Logo</button>
+            <button class="studio-btn" id="btn-target-rating" onclick="setVectorEditorTarget('rating')">🏷️ Rating Badge Stencil</button>
+          </div>
+        </div>
+
+        <!-- Geometry & Shape -->
+        <div class="studio-group">
+          <div class="studio-group-title">📐 Geometry &amp; Shape</div>
+          <div class="studio-btn-row">
+            <button class="studio-btn active" id="btn-shape-squircle" onclick="setVectorShape('squircle')">Squircle (G2)</button>
+            <button class="studio-btn" id="btn-shape-circle" onclick="setVectorShape('circle')">Circle</button>
+            <button class="studio-btn" id="btn-shape-pill" onclick="setVectorShape('pill')">Pill Tag</button>
+          </div>
+          <div style="margin-top: 10px;">
+            <div class="studio-slider-label">
+              <span>Corner Curvature Radius</span>
+              <span id="val-vec-radius" class="studio-slider-val">52px</span>
+            </div>
+            <input type="range" min="0" max="60" value="52" id="sld-vec-radius" oninput="updateVectorEditor()">
+          </div>
+        </div>
+
+        <!-- Surface Physics & Colors -->
+        <div class="studio-group">
+          <div class="studio-group-title">🎨 Surface Physics &amp; Colors</div>
+          <div class="vector-ctrl-row">
+            <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Extrusion Paradigm</span>
+            <select class="studio-select" id="sel-vec-extrusion" style="max-width: 140px;" onchange="updateVectorEditor()">
+              <option value="convex">Convex (3D Dome)</option>
+              <option value="flat">Flat Extrusion</option>
+              <option value="concave">Concave (Dish)</option>
+              <option value="inset">Inset (Embossed)</option>
+            </select>
+          </div>
+          <div class="vector-ctrl-row">
+            <span style="font-size: 11.5px; color: #cbd5e1;">Base Fill Color</span>
+            <input type="color" id="col-vec-base" value="#702177" class="vector-color-input" oninput="updateVectorEditor()">
+          </div>
+          <div class="vector-ctrl-row">
+            <span style="font-size: 11.5px; color: #cbd5e1;">Gradient Stop 2</span>
+            <input type="color" id="col-vec-grad" value="#46104c" class="vector-color-input" oninput="updateVectorEditor()">
+          </div>
+          <div style="margin-top: 6px;">
+            <div class="studio-slider-label">
+              <span>Gradient Angle</span>
+              <span id="val-vec-angle" class="studio-slider-val">135°</span>
+            </div>
+            <input type="range" min="0" max="360" value="135" id="sld-vec-angle" oninput="updateVectorEditor()">
+          </div>
+        </div>
+
+        <!-- Neumorphic Dual-Shadow Engine (PDF Spec) -->
+        <div class="studio-group">
+          <div class="studio-group-title">💡 Optical Dual-Shadow Engine (-135°)</div>
+          <div class="vector-ctrl-row">
+            <span style="font-size: 11.5px; color: #cbd5e1;">Light Specular Rim</span>
+            <input type="color" id="col-vec-specular" value="#f0f5fc" class="vector-color-input" oninput="updateVectorEditor()">
+          </div>
+          <div class="vector-ctrl-row">
+            <span style="font-size: 11.5px; color: #cbd5e1;">Ambient Drop Shadow</span>
+            <input type="color" id="col-vec-shadow" value="#18031d" class="vector-color-input" oninput="updateVectorEditor()">
+          </div>
+          <div style="margin-top: 6px;">
+            <div class="studio-slider-label">
+              <span>Shadow Blur / Elevation</span>
+              <span id="val-vec-blur" class="studio-slider-val">6px</span>
+            </div>
+            <input type="range" min="0" max="25" value="6" id="sld-vec-blur" oninput="updateVectorEditor()">
+          </div>
+          <div class="vector-ctrl-row" style="margin-top: 8px;">
+            <label style="font-size: 11.5px; color: #cbd5e1; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+              <input type="checkbox" id="chk-vec-microborder" checked onchange="updateVectorEditor()"> 1px Micro-Border Stroke
+            </label>
+          </div>
+        </div>
+
+        <!-- Stencil & Typography Customizer -->
+        <div class="studio-group">
+          <div class="studio-group-title">🔤 Wordmark &amp; Stencil Typography</div>
+          <div class="vector-ctrl-row">
+            <span style="font-size: 11.5px; color: #cbd5e1;">Identifier Text / Num</span>
+            <input type="text" id="txt-vec-content" value="SITIA" class="studio-select" style="max-width: 130px; text-transform: uppercase;" oninput="updateVectorEditor()">
+          </div>
+          <div class="vector-ctrl-row">
+            <span style="font-size: 11.5px; color: #cbd5e1;">Font Family</span>
+            <select class="studio-select" id="sel-vec-font" style="max-width: 140px;" onchange="updateVectorEditor()">
+              <option value="Segoe UI">Segoe UI</option>
+              <option value="Outfit">Outfit</option>
+              <option value="Montserrat">Montserrat</option>
+              <option value="Helvetica Neue">Helvetica Neue</option>
+              <option value="Arial">Arial</option>
+            </select>
+          </div>
+          <div style="margin-top: 6px;">
+            <div class="studio-slider-label">
+              <span>Font Size</span>
+              <span id="val-vec-fontsize" class="studio-slider-val">44px</span>
+            </div>
+            <input type="range" min="14" max="52" value="44" id="sld-vec-fontsize" oninput="updateVectorEditor()">
+          </div>
+          <div class="vector-ctrl-row" style="margin-top: 6px;">
+            <span style="font-size: 11.5px; color: #cbd5e1;">Bevel Cutout Style</span>
+            <select class="studio-select" id="sel-vec-cutout" style="max-width: 140px;" onchange="updateVectorEditor()">
+              <option value="extruded">3D Chiseled Bevel</option>
+              <option value="negative">Negative Stencil Hole</option>
+              <option value="solid">Solid High Contrast</option>
+            </select>
+          </div>
+          <div class="vector-ctrl-row">
+            <span style="font-size: 11.5px; color: #cbd5e1;">Face Color</span>
+            <input type="color" id="col-vec-text" value="#f7edf9" class="vector-color-input" oninput="updateVectorEditor()">
+          </div>
+          <div class="vector-ctrl-row">
+            <span style="font-size: 11.5px; color: #cbd5e1;">Bevel Shadow Color</span>
+            <input type="color" id="col-vec-textshadow" value="#200324" class="vector-color-input" oninput="updateVectorEditor()">
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="studio-group">
+          <div class="studio-group-title">⚡ Actions</div>
+          <button class="action-btn-primary" onclick="copyVectorSvgCode()">📋 Copy Generated SVG Code</button>
+          <button class="action-btn-secondary" style="margin-top: 6px;" onclick="resetVectorEditor()">↩️ Reset to Default SITIA Squircle</button>
+          <div id="vec-status-msg" class="save-status-msg" style="margin-top: 6px;"></div>
+        </div>
+      </div>
+
       <!-- TAB 1: Content & Flags -->
       <div id="tab-pane-content" class="studio-tab-pane active">
         <!-- Age Rating -->
@@ -1379,6 +1635,28 @@
       };
     }
 
+    function getCanvasScale() {
+      const canvas = document.getElementById('broadcast-canvas');
+      if (!canvas) return 1;
+      const transform = canvas.style.transform || '';
+      const match = transform.match(/scale\(([^)]+)\)/);
+      if (match) {
+        const val = parseFloat(match[1]);
+        if (!isNaN(val) && val > 0) return val;
+      }
+      return 1;
+    }
+
+    function getUnscaledWidth(el) {
+      if (!el) return 0;
+      const scale = getCanvasScale();
+      const naturalW = Math.max(el.scrollWidth || 0, el.offsetWidth || 0);
+      const rect = el.getBoundingClientRect();
+      const rectW = rect && rect.width > 0 ? (rect.width / (scale > 0 ? scale : 1)) : 0;
+      // Generous 28px safety buffer prevents any left-edge glyph slicing
+      return Math.ceil(Math.max(naturalW, rectW)) + 28;
+    }
+
     let currentConfig = {
       rating: '16',
       custom_text: null, // Dynamic default based on rating
@@ -1599,19 +1877,25 @@
         tpBadge.classList.remove('visible');
       }
 
-      // Update Station Logo container & visibility
+      // Update Station Logo & Rating Badge Visibility and Ordering
       const stationLogoContainer = document.getElementById('station-logo-container');
       if (stationLogoContainer) {
-        if (ratingStr === 'NONE' || currentConfig.show_station_logo) {
+        if (ratingStr === 'NONE') {
+          badgeContainer.style.display = 'none';
+          stationLogoContainer.style.display = 'flex';
           stationLogoContainer.classList.add('visible');
-          if (ratingStr === 'NONE') {
-            badgeContainer.style.display = 'none';
-          } else {
-            badgeContainer.style.display = 'flex';
-          }
-        } else {
-          stationLogoContainer.classList.remove('visible');
+          stationLogoContainer.style.order = '1';
+        } else if (currentConfig.show_station_logo) {
           badgeContainer.style.display = 'flex';
+          badgeContainer.style.order = '1';
+          stationLogoContainer.style.display = 'flex';
+          stationLogoContainer.classList.add('visible');
+          stationLogoContainer.style.order = '2';
+        } else {
+          badgeContainer.style.display = 'flex';
+          badgeContainer.style.order = '1';
+          stationLogoContainer.style.display = 'none';
+          stationLogoContainer.classList.remove('visible');
         }
       }
 
@@ -1648,7 +1932,7 @@
         // Measure real width
         slotPrimary.style.visibility = 'hidden';
         slotPrimary.style.display = 'inline-flex';
-        primaryWidth = Math.ceil(slotPrimary.getBoundingClientRect().width) + 16;
+        primaryWidth = getUnscaledWidth(slotPrimary);
         slotPrimary.style.visibility = '';
       }
 
@@ -1682,7 +1966,7 @@
         
         wSlotCombo.style.visibility = 'hidden';
         wSlotCombo.style.display = 'inline-flex';
-        const w = Math.ceil(wSlotCombo.getBoundingClientRect().width) + 16;
+        const w = getUnscaledWidth(wSlotCombo);
         wSlotCombo.style.visibility = '';
 
         warningSlots.push(wSlotCombo);
@@ -1706,7 +1990,7 @@
 
         wSlot.style.visibility = 'hidden';
         wSlot.style.display = 'inline-flex';
-        const w = Math.ceil(wSlot.getBoundingClientRect().width) + 16;
+        const w = getUnscaledWidth(wSlot);
         wSlot.style.visibility = '';
 
         warningSlots.push(wSlot);
@@ -1732,12 +2016,19 @@
 
       masterTL = gsap.timeline({ paused: true });
 
-      // Phase 1: Intro (Badge Pops In synchronously on single GPU layer)
-      masterTL.to(badgeContainer, {
+      // Phase 1: Intro (Badges Pop In synchronously on single GPU layer)
+      const activeBadges = [];
+      if (badgeContainer && badgeContainer.style.display !== 'none') activeBadges.push(badgeContainer);
+      if (stationLogoContainer && stationLogoContainer.style.display !== 'none') activeBadges.push(stationLogoContainer);
+      
+      gsap.set(activeBadges, { scale: 0, opacity: 0 });
+
+      masterTL.to(activeBadges, {
         scale: 1,
         opacity: 1,
         duration: 0.6,
-        ease: 'power3.out'
+        ease: 'power3.out',
+        stagger: 0.08
       });
 
       if (slotPrimary) {
@@ -1983,6 +2274,7 @@
       const d = document.getElementById('chk-drugs')?.checked;
       const l = document.getElementById('chk-language')?.checked;
       const tp = document.getElementById('chk-tp')?.checked;
+      const sl = document.getElementById('chk-station-logo')?.checked;
 
       const warnings = [];
       if (v) warnings.push('violence');
@@ -2151,6 +2443,194 @@
     }
 
     window.addEventListener('resize', resizeCanvas);
+
+
+    // =========================================================================
+    // Initial Cached Station Logo SVG
+    // =========================================================================
+    let INITIAL_STATION_LOGO_SVG = '';
+    window.addEventListener('DOMContentLoaded', function() {
+      const logoEl = document.getElementById('station-logo-container');
+      if (logoEl) INITIAL_STATION_LOGO_SVG = logoEl.innerHTML.trim();
+    });
+
+    // =========================================================================
+    // On-Air Display Mode Controller
+    // =========================================================================
+    function setStudioDisplayMode(mode) {
+      document.querySelectorAll('.studio-mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.id === ('mode-btn-' + mode));
+      });
+
+      if (mode === 'logo') {
+        currentConfig.rating = 'NONE';
+        currentConfig.show_station_logo = true;
+      } else if (mode === 'combo') {
+        if (currentConfig.rating === 'NONE') currentConfig.rating = '16';
+        currentConfig.show_station_logo = true;
+      } else {
+        // rating only
+        if (currentConfig.rating === 'NONE') currentConfig.rating = '16';
+        currentConfig.show_station_logo = false;
+      }
+
+      // Sync checkbox in content tab if present
+      const chk = document.getElementById('chk-station-logo');
+      if (chk) chk.checked = currentConfig.show_station_logo;
+
+      buildTimeline();
+      replayTimeline();
+    }
+
+    // =========================================================================
+    // Full-Fledged Vector & Brand Studio Editor Engine
+    // =========================================================================
+    let currentVectorTarget = 'logo'; // 'logo' | 'rating'
+
+    function setVectorEditorTarget(target) {
+      currentVectorTarget = target;
+      document.getElementById('btn-target-logo').classList.toggle('active', target === 'logo');
+      document.getElementById('btn-target-rating').classList.toggle('active', target === 'rating');
+
+      if (target === 'logo') {
+        document.getElementById('txt-vec-content').value = 'SITIA';
+        document.getElementById('col-vec-base').value = '#702177';
+        document.getElementById('col-vec-grad').value = '#46104c';
+        document.getElementById('sel-vec-cutout').value = 'extruded';
+      } else {
+        document.getElementById('txt-vec-content').value = currentConfig.rating || '16';
+        document.getElementById('col-vec-base').value = '#e2e8f0';
+        document.getElementById('col-vec-grad').value = '#b0b7c0';
+        document.getElementById('sel-vec-cutout').value = 'negative';
+      }
+      updateVectorEditor();
+    }
+
+    function setVectorShape(shape) {
+      document.getElementById('btn-shape-squircle').classList.toggle('active', shape === 'squircle');
+      document.getElementById('btn-shape-circle').classList.toggle('active', shape === 'circle');
+      document.getElementById('btn-shape-pill').classList.toggle('active', shape === 'pill');
+
+      if (shape === 'circle') {
+        document.getElementById('sld-vec-radius').value = 60;
+      } else if (shape === 'squircle') {
+        document.getElementById('sld-vec-radius').value = 52;
+      } else {
+        document.getElementById('sld-vec-radius').value = 24;
+      }
+      document.getElementById('val-vec-radius').textContent = document.getElementById('sld-vec-radius').value + 'px';
+      updateVectorEditor();
+    }
+
+    function updateVectorEditor() {
+      const radius = document.getElementById('sld-vec-radius').value;
+      const extrusion = document.getElementById('sel-vec-extrusion').value;
+      const baseCol = document.getElementById('col-vec-base').value;
+      const gradCol = document.getElementById('col-vec-grad').value;
+      const angle = document.getElementById('sld-vec-angle').value;
+      const specularCol = document.getElementById('col-vec-specular').value;
+      const shadowCol = document.getElementById('col-vec-shadow').value;
+      const blur = document.getElementById('sld-vec-blur').value;
+      const microBorder = document.getElementById('chk-vec-microborder').checked;
+      const text = document.getElementById('txt-vec-content').value.trim().toUpperCase() || 'SITIA';
+      const font = document.getElementById('sel-vec-font').value;
+      const fontSize = document.getElementById('sld-vec-fontsize').value;
+      const cutout = document.getElementById('sel-vec-cutout').value;
+      const textCol = document.getElementById('col-vec-text').value;
+      const textShadowCol = document.getElementById('col-vec-textshadow').value;
+
+      document.getElementById('val-vec-radius').textContent = radius + 'px';
+      document.getElementById('val-vec-angle').textContent = angle + '°';
+      document.getElementById('val-vec-blur').textContent = blur + 'px';
+      document.getElementById('val-vec-fontsize').textContent = fontSize + 'px';
+
+      // Generate dynamic SVG markup
+      const strokeMarkup = microBorder
+        ? 'stroke="url(#dynamic-micro-border)" stroke-width="1.6"'
+        : 'stroke="none"';
+
+      let textLayers = '';
+      if (cutout === 'extruded') {
+        textLayers = '<text x="101" y="117" text-anchor="middle" dominant-baseline="central" font-family="' + font + ', sans-serif" font-weight="900" font-size="' + fontSize + '" fill="' + textShadowCol + '" opacity="0.95">' + text + '</text>' +
+          '<text x="100" y="115" text-anchor="middle" dominant-baseline="central" font-family="' + font + ', sans-serif" font-weight="900" font-size="' + fontSize + '" fill="' + textCol + '" stroke="rgba(255,255,255,0.6)" stroke-width="0.5">' + text + '</text>';
+      } else if (cutout === 'negative') {
+        textLayers = '<text x="100" y="115" text-anchor="middle" dominant-baseline="central" font-family="' + font + ', sans-serif" font-weight="900" font-size="' + fontSize + '" fill="none" stroke="' + textShadowCol + '" stroke-width="1.2">' + text + '</text>';
+      } else {
+        textLayers = '<text x="100" y="115" text-anchor="middle" dominant-baseline="central" font-family="' + font + ', sans-serif" font-weight="900" font-size="' + fontSize + '" fill="' + textCol + '">' + text + '</text>';
+      }
+
+      const generatedSvg = '<svg id="station-logo-svg" class="station-logo-svg" viewBox="0 0 200 200" width="200" height="200" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">' +
+        '<defs>' +
+        '<filter id="dynamic-neumorphic-depth" x="-40%" y="-40%" width="180%" height="180%">' +
+        '<feDropShadow dx="5" dy="7" stdDeviation="' + blur + '" flood-color="' + shadowCol + '" flood-opacity="0.85" />' +
+        '<feDropShadow dx="-3.5" dy="-3.5" stdDeviation="' + Math.max(1, blur * 0.7) + '" flood-color="' + specularCol + '" flood-opacity="0.5" />' +
+        '</filter>' +
+        '<linearGradient id="dynamic-surface" x1="10%" y1="10%" x2="90%" y2="90%">' +
+        '<stop offset="0%" stop-color="' + baseCol + '" />' +
+        '<stop offset="100%" stop-color="' + gradCol + '" />' +
+        '</linearGradient>' +
+        '<linearGradient id="dynamic-micro-border" x1="0%" y1="0%" x2="100%" y2="100%">' +
+        '<stop offset="0%" stop-color="rgba(255, 255, 255, 0.7)" />' +
+        '<stop offset="100%" stop-color="rgba(40, 5, 45, 0.5)" />' +
+        '</linearGradient>' +
+        '</defs>' +
+        '<g filter="url(#dynamic-neumorphic-depth)">' +
+        '<rect x="10" y="10" width="180" height="180" rx="' + radius + '" ry="' + radius + '" fill="url(#dynamic-surface)" ' + strokeMarkup + ' />' +
+        '</g>' +
+        textLayers +
+        '</svg>';
+
+      if (currentVectorTarget === 'logo') {
+        const logoCont = document.getElementById('station-logo-container');
+        if (logoCont) logoCont.innerHTML = generatedSvg;
+        currentConfig.customLogoSvg = generatedSvg;
+      } else {
+        const badgeCont = document.getElementById('rating-badge-container');
+        if (badgeCont) badgeCont.innerHTML = generatedSvg;
+        if (!currentConfig.customLogos) currentConfig.customLogos = {};
+        currentConfig.customLogos[String(currentConfig.rating || '16').toUpperCase()] = generatedSvg;
+      }
+    }
+
+    function copyVectorSvgCode() {
+      const container = currentVectorTarget === 'logo'
+        ? document.getElementById('station-logo-container')
+        : document.getElementById('rating-badge-container');
+      if (!container) return;
+      const svgCode = container.innerHTML.trim();
+      navigator.clipboard.writeText(svgCode).then(() => {
+        const msg = document.getElementById('vec-status-msg');
+        if (msg) {
+          msg.textContent = '✓ SVG Code copied to clipboard!';
+          setTimeout(() => { msg.textContent = ''; }, 3000);
+        }
+      }).catch(() => {
+        alert('Failed to copy to clipboard. SVG code:\n' + svgCode);
+      });
+    }
+
+    function resetVectorEditor() {
+      const logoCont = document.getElementById('station-logo-container');
+      if (logoCont && INITIAL_STATION_LOGO_SVG) {
+        logoCont.innerHTML = INITIAL_STATION_LOGO_SVG;
+      }
+      currentConfig.customLogoSvg = null;
+      if (currentConfig.customLogos) {
+        delete currentConfig.customLogos[String(currentConfig.rating || '16').toUpperCase()];
+      }
+      document.getElementById('txt-vec-content').value = 'SITIA';
+      document.getElementById('col-vec-base').value = '#702177';
+      document.getElementById('col-vec-grad').value = '#46104c';
+      document.getElementById('sld-vec-radius').value = 52;
+      setVectorShape('squircle');
+      const msg = document.getElementById('vec-status-msg');
+      if (msg) {
+        msg.textContent = '✓ Restored default SITIA squircle logo';
+        setTimeout(() => { msg.textContent = ''; }, 3000);
+      }
+      buildTimeline();
+      replayTimeline();
+    }
 
     // Initializer
     loadSavedDefaults();
