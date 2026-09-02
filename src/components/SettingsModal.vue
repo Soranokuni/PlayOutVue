@@ -62,6 +62,7 @@ const localState = ref({
     casparcgConfigFilename: 'casparcg.config',
     casparAutoStart: false,
     casparKeepAliveOnExit: true,
+    casparAutoRelaunchOnCrash: true,
     playoutProfile: 'PAL_1080I50' as 'PAL_1080I50' | 'PAL_1080P25',
     transitionFrames: 2,
     prerollFrames: 2,
@@ -304,6 +305,7 @@ const mapLocalState = () => {
         casparcgConfigFilename: settings.casparcgConfigFilename || 'casparcg.config',
         casparAutoStart: settings.casparAutoStart ?? false,
         casparKeepAliveOnExit: settings.casparKeepAliveOnExit ?? true,
+        casparAutoRelaunchOnCrash: settings.casparAutoRelaunchOnCrash ?? true,
         
         // CG settings
         complianceRenderMode: settings.complianceRenderMode || 'html5',
@@ -949,6 +951,10 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                           <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                               <input type="checkbox" v-model="localState.casparKeepAliveOnExit">
                               <span>24/7 Playout Continuity (Keep server running if PlayOut exits)</span>
+                          </label>
+                          <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                              <input type="checkbox" v-model="localState.casparAutoRelaunchOnCrash">
+                              <span>Auto-relaunch CasparCG on crash (with sliding-window crash loop protection)</span>
                           </label>
                       </div>
                   </div>

@@ -50,6 +50,8 @@ describe('casparProcess service', () => {
       amcpPort: 5250,
       isPortOpen: true,
       keepAliveOnExit: true,
+      autoRelaunchOnCrash: true,
+      circuitBreakerTripped: false,
       canControl: true,
     };
 
@@ -81,6 +83,8 @@ describe('casparProcess service', () => {
       amcpPort: 5250,
       isPortOpen: false,
       keepAliveOnExit: true,
+      autoRelaunchOnCrash: true,
+      circuitBreakerTripped: false,
       canControl: true,
     };
 

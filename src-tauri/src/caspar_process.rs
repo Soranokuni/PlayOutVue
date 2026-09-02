@@ -8,10 +8,11 @@
 //! 5. Windows Job Object supervision (configurable kill-on-close vs 24/7 broadcast persistence).
 
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
-use tauri::{AppHandle, Emitter, Runtime, State};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio::sync::Mutex;
 
 use crate::runtime_settings::{RuntimeSettings, RuntimeSettingsState};
@@ -67,6 +68,8 @@ pub struct CasparProcessStatus {
     pub amcp_port: u16,
     pub is_port_open: bool,
     pub keep_alive_on_exit: bool,
+    pub auto_relaunch_on_crash: bool,
+    pub circuit_breaker_tripped: bool,
     pub can_control: bool,
 }
 
@@ -321,27 +324,35 @@ pub async fn is_port_listening(port: u16) -> bool {
 // Supervisor State & Process Control
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Supervisor State & Process Control
+// ---------------------------------------------------------------------------
+
 struct SupervisorInner {
     state: CasparProcessState,
     child: Option<tokio::process::Child>,
     pid: Option<u32>,
     exit_code: Option<i32>,
     last_error: Option<String>,
+    expected_stop: bool,
+    circuit_breaker_tripped: bool,
     #[allow(dead_code)]
     job_guard: Option<JobObjectGuard>,
 }
 
+#[derive(Clone)]
 pub struct CasparProcessSupervisor {
-    instance_lock: InstanceLock,
+    instance_lock: Arc<InstanceLock>,
     amcp_port: u16,
     inner: Arc<Mutex<SupervisorInner>>,
+    crash_history: Arc<parking_lot::Mutex<VecDeque<Instant>>>,
 }
 
 impl CasparProcessSupervisor {
     pub fn new(amcp_port: u16) -> Self {
         let lock = InstanceLock::acquire(amcp_port);
         Self {
-            instance_lock: lock,
+            instance_lock: Arc::new(lock),
             amcp_port,
             inner: Arc::new(Mutex::new(SupervisorInner {
                 state: CasparProcessState::Stopped,
@@ -349,8 +360,11 @@ impl CasparProcessSupervisor {
                 pid: None,
                 exit_code: None,
                 last_error: None,
+                expected_stop: false,
+                circuit_breaker_tripped: false,
                 job_guard: None,
             })),
+            crash_history: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
         }
     }
 
@@ -399,17 +413,39 @@ impl CasparProcessSupervisor {
             amcp_port: port,
             is_port_open: port_open,
             keep_alive_on_exit: settings.caspar_keep_alive_on_exit,
+            auto_relaunch_on_crash: settings.caspar_auto_relaunch_on_crash,
+            circuit_breaker_tripped: inner.circuit_breaker_tripped,
             can_control,
         }
     }
 
-    pub async fn start<R: Runtime>(
+    pub fn start<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        settings: &RuntimeSettings,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'static>> {
+        let app = app.clone();
+        let settings = settings.clone();
+        let supervisor = self.clone();
+        Box::pin(async move {
+            supervisor.start_internal(&app, &settings).await
+        })
+    }
+
+    async fn start_internal<R: Runtime>(
         &self,
         app: &AppHandle<R>,
         settings: &RuntimeSettings,
     ) -> Result<(), String> {
         if !self.is_primary() {
             return Err("Cannot start server: This instance is in MONITOR MODE (Read-Only).".to_string());
+        }
+
+        // Reset manual stop and circuit breaker on explicit start
+        {
+            let mut inner = self.inner.lock().await;
+            inner.expected_stop = false;
+            inner.circuit_breaker_tripped = false;
         }
 
         let exe_path = resolve_caspar_executable(&settings.casparcg_executable_path)
@@ -506,79 +542,19 @@ impl CasparProcessSupervisor {
             inner.pid = pid;
             inner.exit_code = None;
             inner.last_error = None;
+            inner.expected_stop = false;
             inner.job_guard = job_guard;
         }
 
         emit_state_change(app, self, settings).await;
 
-        // Background monitor for child termination & port readiness
-        let inner_clone = self.inner.clone();
+        // Background monitor for child termination, port readiness & steady-state lifecycle
+        let supervisor_clone = self.clone();
         let app_handle = app.clone();
+        let settings_clone = settings.clone();
 
         tauri::async_runtime::spawn(async move {
-            let mut boot_wait_cycles = 0;
-            let max_boot_cycles = 30; // 15 seconds max (500ms intervals)
-
-            loop {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                boot_wait_cycles += 1;
-
-                let mut inner = inner_clone.lock().await;
-                if let Some(ref mut child) = inner.child {
-                    // Check if child exited prematurely
-                    match child.try_wait() {
-                        Ok(Some(status)) => {
-                            let code = status.code().unwrap_or(-1);
-                            eprintln!("[CasparProcess] Process exited with status: {}", code);
-                            crate::diagnostics::push_caspar_process_log(
-                                "ERROR",
-                                &format!("CasparCG process exited unexpectedly with code {}", code),
-                            );
-                            inner.state = CasparProcessState::Crashed;
-                            inner.exit_code = Some(code);
-                            inner.last_error = Some(format!("Server crashed with exit code {}", code));
-                            inner.child = None;
-                            inner.pid = None;
-                            drop(inner);
-                            let _ = app_handle.emit("caspar://process-state-changed", ());
-                            break;
-                        }
-                        Ok(None) => {
-                            // Still running, check if port is open
-                            if inner.state == CasparProcessState::Starting {
-                                drop(inner);
-                                if is_port_listening(port).await {
-                                    let mut inner = inner_clone.lock().await;
-                                    inner.state = CasparProcessState::Operational;
-                                    crate::diagnostics::push_caspar_process_log(
-                                        "INFO",
-                                        "CasparCG AMCP Port 5250 is open. Engine ready.",
-                                    );
-                                    drop(inner);
-                                    let _ = app_handle.emit("caspar://process-state-changed", ());
-                                    break;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("[CasparProcess] Error polling child: {}", e);
-                            break;
-                        }
-                    }
-                } else {
-                    break;
-                }
-
-                if boot_wait_cycles >= max_boot_cycles {
-                    let mut inner = inner_clone.lock().await;
-                    if inner.state == CasparProcessState::Starting {
-                        inner.last_error = Some("Startup timeout: AMCP port not responding".to_string());
-                    }
-                    drop(inner);
-                    let _ = app_handle.emit("caspar://process-state-changed", ());
-                    break;
-                }
-            }
+            run_process_watchdog(supervisor_clone, app_handle, settings_clone, port).await;
         });
 
         Ok(())
@@ -592,6 +568,12 @@ impl CasparProcessSupervisor {
     ) -> Result<(), String> {
         if !self.is_primary() {
             return Err("Cannot stop server: This instance is in MONITOR MODE (Read-Only).".to_string());
+        }
+
+        {
+            let mut inner = self.inner.lock().await;
+            inner.expected_stop = true;
+            inner.circuit_breaker_tripped = false;
         }
 
         let child = {
@@ -633,8 +615,238 @@ impl CasparProcessSupervisor {
     ) -> Result<(), String> {
         self.stop(app, settings, true).await?;
         tokio::time::sleep(Duration::from_millis(800)).await;
+        self.crash_history.lock().clear();
         self.start(app, settings).await
     }
+}
+
+async fn run_process_watchdog<R: Runtime>(
+    supervisor: CasparProcessSupervisor,
+    app: AppHandle<R>,
+    settings: RuntimeSettings,
+    port: u16,
+) {
+    let mut boot_cycles = 0;
+    let max_boot_cycles = 30; // 15 seconds (500ms intervals)
+    let mut is_operational = false;
+
+    // Phase 1: Boot monitoring
+    while boot_cycles < max_boot_cycles {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        boot_cycles += 1;
+
+        let mut inner = supervisor.inner.lock().await;
+        if let Some(ref mut child) = inner.child {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let code = status.code().unwrap_or(-1);
+                    let was_expected = inner.expected_stop;
+                    inner.child = None;
+                    inner.pid = None;
+                    inner.exit_code = Some(code);
+                    drop(inner);
+
+                    if !was_expected {
+                        handle_crash(&supervisor, &app, code, &settings).await;
+                    } else {
+                        let mut inner = supervisor.inner.lock().await;
+                        inner.state = CasparProcessState::Stopped;
+                        drop(inner);
+                        let _ = app.emit("caspar://process-state-changed", ());
+                    }
+                    return;
+                }
+                Ok(None) => {
+                    if !is_operational && is_port_listening(port).await {
+                        is_operational = true;
+                        inner.state = CasparProcessState::Operational;
+                        inner.last_error = None;
+                        crate::diagnostics::push_caspar_process_log(
+                            "INFO",
+                            "CasparCG AMCP Port 5250 is open. Engine operational.",
+                        );
+                        drop(inner);
+                        let _ = app.emit("caspar://process-state-changed", ());
+                        break;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[CasparProcess] Error polling child during boot: {}", e);
+                    break;
+                }
+            }
+        } else {
+            return;
+        }
+    }
+
+    if !is_operational {
+        let mut inner = supervisor.inner.lock().await;
+        if inner.state == CasparProcessState::Starting {
+            inner.last_error = Some("Startup timeout: AMCP port not responding within 15s".to_string());
+        }
+        drop(inner);
+        let _ = app.emit("caspar://process-state-changed", ());
+        return;
+    }
+
+    // Phase 2: Continuous steady-state supervision
+    let mut healthy_seconds = 0u32;
+    loop {
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        healthy_seconds += 1;
+
+        // Reset crash counter after 60s of uninterrupted healthy operation
+        if healthy_seconds == 60 {
+            {
+                supervisor.crash_history.lock().clear();
+            }
+        }
+
+        let mut inner = supervisor.inner.lock().await;
+        if let Some(ref mut child) = inner.child {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let code = status.code().unwrap_or(-1);
+                    let was_expected = inner.expected_stop;
+                    inner.child = None;
+                    inner.pid = None;
+                    inner.exit_code = Some(code);
+                    drop(inner);
+
+                    if !was_expected {
+                        handle_crash(&supervisor, &app, code, &settings).await;
+                    } else {
+                        let mut inner = supervisor.inner.lock().await;
+                        inner.state = CasparProcessState::Stopped;
+                        drop(inner);
+                        let _ = app.emit("caspar://process-state-changed", ());
+                    }
+                    return;
+                }
+                Ok(None) => {
+                    // Still running healthy
+                }
+                Err(e) => {
+                    eprintln!("[CasparProcess] Error polling child in steady state: {}", e);
+                    return;
+                }
+            }
+        } else {
+            // Child was taken by stop()
+            return;
+        }
+    }
+}
+
+async fn handle_crash<R: Runtime>(
+    supervisor: &CasparProcessSupervisor,
+    app: &AppHandle<R>,
+    exit_code: i32,
+    fallback_settings: &RuntimeSettings,
+) {
+    eprintln!("[CasparProcess] Process exited unexpectedly with code {}", exit_code);
+    crate::diagnostics::push_caspar_process_log(
+        "ERROR",
+        &format!("CasparCG process exited unexpectedly with code {}", exit_code),
+    );
+
+    let crash_count_in_window = {
+        let now = Instant::now();
+        let mut history = supervisor.crash_history.lock();
+        while let Some(&front) = history.front() {
+            if now.duration_since(front) > Duration::from_secs(60) {
+                history.pop_front();
+            } else {
+                break;
+            }
+        }
+        history.push_back(now);
+        history.len()
+    };
+
+    // Read live runtime settings if available
+    let settings = if let Some(state) = app.try_state::<RuntimeSettingsState>() {
+        state.snapshot()
+    } else {
+        fallback_settings.clone()
+    };
+
+    let max_crashes_before_trip = 3;
+
+    // Check sliding window circuit breaker
+    if crash_count_in_window > max_crashes_before_trip {
+        let mut inner = supervisor.inner.lock().await;
+        inner.state = CasparProcessState::Crashed;
+        inner.circuit_breaker_tripped = true;
+        inner.last_error = Some(format!(
+            "Circuit breaker tripped: CasparCG crashed {} times in 60s. Auto-relaunch paused to prevent crash loop.",
+            crash_count_in_window
+        ));
+        drop(inner);
+
+        crate::diagnostics::push_caspar_process_log(
+            "ERROR",
+            &format!(
+                "Circuit breaker TRIPPED ({} crashes in 60s). Auto-relaunch paused. Check logs and configuration.",
+                crash_count_in_window
+            ),
+        );
+        let _ = app.emit("caspar://process-state-changed", ());
+        return;
+    }
+
+    if !settings.caspar_auto_relaunch_on_crash || !supervisor.is_primary() {
+        let mut inner = supervisor.inner.lock().await;
+        inner.state = CasparProcessState::Crashed;
+        inner.last_error = Some(format!("Server crashed with exit code {}", exit_code));
+        drop(inner);
+        let _ = app.emit("caspar://process-state-changed", ());
+        return;
+    }
+
+    // Auto-relaunch allowed!
+    {
+        let mut inner = supervisor.inner.lock().await;
+        inner.state = CasparProcessState::Starting;
+        inner.last_error = Some(format!(
+            "Server crashed (code {}). Auto-relaunching in 1.5s (attempt {} of {})...",
+            exit_code, crash_count_in_window, max_crashes_before_trip
+        ));
+    }
+    let _ = app.emit("caspar://process-state-changed", ());
+
+    crate::diagnostics::push_caspar_process_log(
+        "WARN",
+        &format!(
+            "Auto-relaunch active. Waiting 1500ms settle delay before restart (attempt {} of {})...",
+            crash_count_in_window, max_crashes_before_trip
+        ),
+    );
+
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    let settings_now = if let Some(state) = app.try_state::<RuntimeSettingsState>() {
+        state.snapshot()
+    } else {
+        settings
+    };
+
+    let supervisor_restart = supervisor.clone();
+    let app_restart = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = supervisor_restart.start(&app_restart, &settings_now).await {
+            crate::diagnostics::push_caspar_process_log(
+                "ERROR",
+                &format!("Auto-relaunch failed to spawn CasparCG: {}", e),
+            );
+            let mut inner = supervisor_restart.inner.lock().await;
+            inner.state = CasparProcessState::Crashed;
+            inner.last_error = Some(format!("Auto-relaunch failed: {}", e));
+            drop(inner);
+            let _ = app_restart.emit("caspar://process-state-changed", ());
+        }
+    });
 }
 
 async fn emit_state_change<R: Runtime>(
@@ -783,5 +995,54 @@ mod tests {
         let lock2 = InstanceLock::acquire(5251);
         assert_eq!(lock1.identifier(), "port_5250");
         assert_eq!(lock2.identifier(), "port_5251");
+    }
+
+    #[test]
+    fn test_caspar_status_auto_relaunch_fields() {
+        let status = CasparProcessStatus {
+            state: "crashed".to_string(),
+            role: "primary".to_string(),
+            pid: None,
+            executable_path: "C:\\CasparCG\\casparcg.exe".to_string(),
+            resolved_executable_path: Some("C:\\CasparCG\\casparcg.exe".to_string()),
+            working_dir: Some("C:\\CasparCG".to_string()),
+            config_filename: "casparcg.config".to_string(),
+            exit_code: Some(-1073741819),
+            last_error: Some("Access violation".to_string()),
+            amcp_port: 5250,
+            is_port_open: false,
+            keep_alive_on_exit: true,
+            auto_relaunch_on_crash: true,
+            circuit_breaker_tripped: false,
+            can_control: true,
+        };
+
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"autoRelaunchOnCrash\":true"));
+        assert!(json.contains("\"circuitBreakerTripped\":false"));
+    }
+
+    #[test]
+    fn test_circuit_breaker_sliding_window() {
+        let mut history: VecDeque<Instant> = VecDeque::new();
+        let now = Instant::now();
+
+        // 4 crashes within 10 seconds
+        history.push_back(now - Duration::from_secs(8));
+        history.push_back(now - Duration::from_secs(5));
+        history.push_back(now - Duration::from_secs(2));
+        history.push_back(now);
+
+        // Prune older than 60s
+        while let Some(&front) = history.front() {
+            if now.duration_since(front) > Duration::from_secs(60) {
+                history.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        assert_eq!(history.len(), 4);
+        assert!(history.len() > 3); // Trip breaker
     }
 }

@@ -89,6 +89,7 @@ export const useSettingsStore = defineStore('settings', {
         casparcgConfigFilename: 'casparcg.config',
         casparAutoStart: false,
         casparKeepAliveOnExit: true,
+        casparAutoRelaunchOnCrash: true,
 
         // DeckLink consumer settings
         decklinkEmbeddedAudio: false,
