@@ -1317,6 +1317,9 @@ pub async fn caspar_play_image(
 ) -> Result<String, String> {
     let cmd = crate::amcp::play_image_cmd(channel, layer, &path);
     let resp = client.send(&cmd).await?;
+    if resp.code >= 400 {
+        return Err(format!("CasparCG error {}: {}", resp.code, resp.body));
+    }
     Ok(resp.body)
 }
 

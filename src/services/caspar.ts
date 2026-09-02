@@ -12,6 +12,7 @@ import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
 import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordinator';
 import { parseDescriptorsFromText, getGreekRatingDefaultText } from '../lib/greekCompliance';
+import { onCasparProcessStateChange, type CasparProcessStatus } from './casparProcess';
 
 export const playbackCoordinator = new PlaybackCoordinator();
 
@@ -354,7 +355,7 @@ const startHeartbeat = () => {
     if (heartbeatTimer) return;
     heartbeatTimer = setInterval(() => {
         if (!isCasparConnected.value || reconnectInFlight) return;
-        sendRawCommandCore('INFO').catch(() => {});
+        sendRawCommand('INFO').catch(() => {});
     }, HEARTBEAT_INTERVAL_MS);
 };
 
@@ -1009,12 +1010,12 @@ const performHandshake = async () => {
 /// Schedule the post-reconnect crash-resume evaluation. A single timer per
 /// reconnect cycle; token-guarded so a manual stop/take during the window
 /// cancels it.
-const scheduleResumeEvaluation = () => {
+const scheduleResumeEvaluation = (isForcedServerRestart = false) => {
     if (resumeEvalTimer) clearTimeout(resumeEvalTimer);
     resumeEvalToken = playToken;
     resumeEvalTimer = setTimeout(() => {
         resumeEvalTimer = null;
-        evaluateResume().catch((error) => {
+        evaluateResume(isForcedServerRestart).catch((error) => {
             console.warn('[CasparCG] Resume evaluation failed', error);
         });
     }, RESUME_EVAL_DELAY_MS);
@@ -1025,14 +1026,15 @@ const scheduleResumeEvaluation = () => {
 /// - No persisted state (clip finished / user stopped) but we were mid-queue →
 ///   advance the queue normally.
 /// - Clip still within its duration → re-issue PLAY ... SEEK at crash position.
-const evaluateResume = async () => {
-    if (resumeInFlight || playToken !== resumeEvalToken) return;
+const evaluateResume = async (isForcedServerRestart = false) => {
+    if (resumeInFlight) return;
     resumeInFlight = true;
     try {
         const settings = useSettingsStore();
         if (settings.autoResumeAfterRestart === false) return;
 
-        if (Date.now() - lastOscTickAtMs < RESUME_TICK_SURVIVAL_MS) {
+        // If this was a forced server restart (watchdog relaunch), we know the engine died
+        if (!isForcedServerRestart && Date.now() - lastOscTickAtMs < RESUME_TICK_SURVIVAL_MS) {
             console.info('[CasparCG] OSC ticks survived the transport drop — no resume needed.');
             return;
         }
@@ -1058,6 +1060,13 @@ const evaluateResume = async () => {
             return;
         }
 
+        if (queuedItems.length === 0) {
+            const store = useRundownStore();
+            if (store.activeItems.length > 0) {
+                queuedItems = store.activeItems.map((i: any) => ({ ...i }));
+            }
+        }
+
         const index = queuedItems.findIndex((it) => it.id === state.itemId || queueKey(it) === state.uuid);
         if (index === -1) {
             console.warn('[CasparCG] Interrupted item no longer in the queue — skipping resume.');
@@ -1066,17 +1075,9 @@ const evaluateResume = async () => {
         }
 
         const label = state.path || queuedItems[index]?.filename || 'the interrupted item';
-        const shouldResume = await ask(
-            `CasparCG restarted while ${label} was on air. Resume at ${(elapsed / 1000).toFixed(1)} seconds into its trimmed window?`,
-            { title: 'Playback recovery', kind: 'warning', okLabel: 'Resume', cancelLabel: 'Stop' }
-        );
-        if (!shouldResume) {
-            clearPlaybackState();
-            await casparPlayoutService.stop();
-            return;
-        }
-        console.warn(`[CasparCG] Operator approved recovery for "${label}" at ${(elapsed / 1000).toFixed(1)}s.`);
+        console.warn(`[CasparCG] Auto-resuming "${label}" at ${(elapsed / 1000).toFixed(1)}s into its trimmed window.`);
         await casparPlayoutService.play([...queuedItems], index, elapsed);
+        await casparPlayoutService.syncBrandingAssets?.();
     } finally {
         resumeInFlight = false;
         wasPlayingOnDisconnect = false;
@@ -1265,6 +1266,20 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
 
         onAdvanceCallback?.(key);
         if (!await applyComplianceForPlayback(item, token)) return;
+
+        // Synchronously persist playback state immediately at dispatch start
+        savePlaybackState(key, Date.now() - resumeSeekMs, durationMs, {
+            itemId: item.id,
+            path: item.path,
+            trimInMs: (item as any)?.trim_in_ms,
+            trimOutMs: (item as any)?.trim_out_ms,
+            positionMs: resumeSeekMs,
+            updatedAt: Date.now(),
+            channelOutputRateHz: getSettingsSnapshot().playoutProfile === 'PAL_1080P25' ? 25 : 50,
+        });
+
+        // Ensure station branding logo is running on Layer 30
+        casparPlayoutService.syncBrandingAssets?.().catch(() => {});
 
         const store = useRundownStore();
 
@@ -1984,11 +1999,15 @@ export const casparPlayoutService: PlayoutService = {
         if (resumeEvalTimer) clearTimeout(resumeEvalTimer);
         resumeEvalTimer = null;
         if (isCasparConnected.value) {
-            // Targeted clears first (clean logging), then the nuclear fallback.
+            // Targeted clears first (clean logging)
             await this.clearCompliance?.();
             await this.clearOverlays?.();
-            await this.clearBranding?.();
-            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}`);
+            const settings = getSettingsSnapshot();
+            if (settings.cg?.stationIdEnabled === false) {
+                await this.clearBranding?.();
+            }
+            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
+            await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
         }
 
         // Release Rust playback ownership.
@@ -2200,20 +2219,80 @@ export const casparPlayoutService: PlayoutService = {
         const logoPath = logoSourcePath ? await prepareCasparMediaPath(logoSourcePath) : '';
 
         if (logoEnabled && logoPath) {
-            await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: logoLayer, path: logoPath }).catch((e: any) => {
-                console.warn('[CasparCG] Failed to play station logo', e);
-            });
+            const cleanPath = logoPath.replace(/\\/g, '/').replace(/"/g, '');
+            const pathWithoutExt = cleanPath.replace(/\.[^/.]+$/, '');
 
-            const opacity = 0.8; // Defaults strictly to 80% opacity
-            const lx = (settings.cgStationLogoPos?.left ?? 5) / 100;
-            const ly = (settings.cgStationLogoPos?.top ?? 5) / 100;
-            const lw = (settings.cgStationLogoPos?.width ?? 12) / 100;
-            const lh = (settings.cgStationLogoPos?.height ?? 12) / 100;
+            let playSuccess = false;
+            for (let attempt = 1; attempt <= 3 && !playSuccess; attempt++) {
+                try {
+                    await invoke('caspar_play_image', {
+                        channel: PROGRAM_CHANNEL,
+                        layer: logoLayer,
+                        path: cleanPath
+                    });
+                    playSuccess = true;
+                } catch (err1) {
+                    try {
+                        await invoke('caspar_play_image', {
+                            channel: PROGRAM_CHANNEL,
+                            layer: logoLayer,
+                            path: pathWithoutExt
+                        });
+                        playSuccess = true;
+                    } catch (err2) {
+                        if (attempt < 3) {
+                            console.info(`[CasparCG] Station logo not ready in media scanner (attempt ${attempt}/3). Triggering CLS rescan...`);
+                            await sendRawCommandCore('CLS').catch(() => {});
+                            await wait(300 * attempt);
+                        } else {
+                            console.warn('[CasparCG] Failed to play station logo after retries and CLS rescan:', err2);
+                        }
+                    }
+                }
+            }
 
-            await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${logoLayer} FILL ${lx.toFixed(4)} ${ly.toFixed(4)} ${lw.toFixed(4)} ${lh.toFixed(4)}`);
-            await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${logoLayer} OPACITY ${opacity.toFixed(3)}`);
+            if (playSuccess) {
+                const opacity = 0.8; // Defaults strictly to 80% opacity
+                const lx = (settings.cgStationLogoPos?.left ?? 5) / 100;
+                const ly = (settings.cgStationLogoPos?.top ?? 5) / 100;
+                const lw = (settings.cgStationLogoPos?.width ?? 12) / 100;
+                const lh = (settings.cgStationLogoPos?.height ?? 12) / 100;
+
+                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${logoLayer} FILL ${lx.toFixed(4)} ${ly.toFixed(4)} ${lw.toFixed(4)} ${lh.toFixed(4)}`);
+                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${logoLayer} OPACITY ${opacity.toFixed(3)}`);
+            }
         } else {
             await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: logoLayer }).catch(() => {});
+        }
+    },
+
+    handleProcessStateEvent(status: CasparProcessStatus) {
+        if (status.state === 'crashed' || status.state === 'starting') {
+            if (isCasparPlaying.value && currentKey != null) {
+                wasPlayingOnDisconnect = true;
+                const item = findLiveItemById(currentKey);
+                if (item) {
+                    savePlaybackState(currentKey, Date.now() - currentCasparMs.value, currentCasparDurationMs.value, {
+                        itemId: item.id,
+                        path: item.path,
+                        trimInMs: (item as any)?.trim_in_ms,
+                        trimOutMs: (item as any)?.trim_out_ms,
+                        positionMs: currentCasparMs.value,
+                        updatedAt: Date.now(),
+                        channelOutputRateHz: getSettingsSnapshot().playoutProfile === 'PAL_1080P25' ? 25 : 50,
+                    });
+                }
+            }
+            lastOscTickAtMs = 0;
+            markDisconnected(`Process supervisor reported CasparCG ${status.state}`);
+        } else if (status.state === 'operational') {
+            console.info('[CasparCG] Process supervisor reported CasparCG is operational. Reconnecting...');
+            reconnectRequested = true;
+            runReconnectAttempt(true).then(() => {
+                scheduleResumeEvaluation(true);
+            }).catch((err) => {
+                console.warn('[CasparCG] Reconnect after process startup failed:', err);
+            });
         }
     },
 
@@ -2434,3 +2513,8 @@ export const updateCrawlTickerText = async () => {
         });
     }
 };
+
+// Automatically bind process supervisor lifecycle to playout engine
+onCasparProcessStateChange((status) => {
+    casparPlayoutService.handleProcessStateEvent?.(status);
+});

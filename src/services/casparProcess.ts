@@ -61,6 +61,9 @@ export async function refreshProcessStatus(): Promise<CasparProcessStatus | null
   try {
     const status = await invoke<CasparProcessStatus>('caspar_process_get_status');
     processStatus.value = status;
+    processStateListeners.forEach((fn) => {
+      try { fn(status); } catch (e) { console.warn('[CasparProcess] Listener error:', e); }
+    });
     return status;
   } catch (err) {
     console.warn('[CasparProcess] Failed to query status:', err);
@@ -116,6 +119,26 @@ export async function restartCasparServer(): Promise<void> {
   }
 }
 
+export type ProcessStateListener = (status: CasparProcessStatus) => void;
+const processStateListeners = new Set<ProcessStateListener>();
+
+/**
+ * Subscribe to CasparCG process state changes.
+ */
+export function onCasparProcessStateChange(listener: ProcessStateListener): () => void {
+  processStateListeners.add(listener);
+  if (processStatus.value) {
+    try {
+      listener(processStatus.value);
+    } catch (e) {
+      console.warn('[CasparProcess] Listener error on subscribe:', e);
+    }
+  }
+  return () => {
+    processStateListeners.delete(listener);
+  };
+}
+
 /**
  * Register listener for Tauri lifecycle events.
  */
@@ -129,9 +152,19 @@ export async function initCasparProcessListener(): Promise<() => void> {
       'caspar://process-state-changed',
       (event) => {
         if (event.payload && typeof event.payload === 'object' && 'state' in event.payload) {
-          processStatus.value = event.payload as CasparProcessStatus;
+          const status = event.payload as CasparProcessStatus;
+          processStatus.value = status;
+          processStateListeners.forEach((fn) => {
+            try { fn(status); } catch (e) { console.warn('[CasparProcess] Listener error:', e); }
+          });
         } else {
-          refreshProcessStatus().catch(() => {});
+          refreshProcessStatus().then((status) => {
+            if (status) {
+              processStateListeners.forEach((fn) => {
+                try { fn(status); } catch (e) { console.warn('[CasparProcess] Listener error:', e); }
+              });
+            }
+          }).catch(() => {});
         }
       }
     );
@@ -139,7 +172,12 @@ export async function initCasparProcessListener(): Promise<() => void> {
     console.warn('[CasparProcess] Failed to bind event listener:', err);
   }
 
-  await refreshProcessStatus();
+  const initialStatus = await refreshProcessStatus();
+  if (initialStatus) {
+    processStateListeners.forEach((fn) => {
+      try { fn(initialStatus); } catch (e) { console.warn('[CasparProcess] Initial listener error:', e); }
+    });
+  }
 
   return () => {
     if (unlistenStateChanged) {

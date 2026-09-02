@@ -48,6 +48,7 @@ export interface PlayoutService {
     clearOverlays?(): Promise<void>;
     /// Clear the station logo branding layer (plan §3.2).
     clearBranding?(): Promise<void>;
+    handleProcessStateEvent?(status: any): void;
 }
 
 export const getActivePlayoutService = (): PlayoutService => casparPlayoutService;
