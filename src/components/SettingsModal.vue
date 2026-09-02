@@ -5,6 +5,18 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore, DEFAULT_CG_ADVISORY_CONFIG, type CgAdvisoryTemplateConfig } from '../stores/settings';
 import CasparConfigModal from './CasparConfigModal.vue';
 import DeckLinkWizard from './DeckLinkWizard.vue';
+import {
+    processStatus,
+    processState,
+    isPrimaryInstance,
+    isStarting,
+    isStopping,
+    startCasparServer,
+    stopCasparServer,
+    restartCasparServer,
+    validateCasparExecutablePath,
+    type CasparValidationInfo
+} from '../services/casparProcess';
 
 const props = defineProps({
   isOpen: Boolean
@@ -16,6 +28,8 @@ const showCasparConfigurator = ref(false);
 const showDecklinkWizard = ref(false);
 const activeTab = ref<'general' | 'playout' | 'cg'>('general');
 const selectedWizardLayer = ref<'logo' | 'rating' | 'tp' | 'explanation' | 'crawl'>('logo');
+const validationInfo = ref<CasparValidationInfo | null>(null);
+const isValidating = ref(false);
 
 async function launchBrowserStudio() {
     try {
@@ -44,6 +58,10 @@ const localState = ref({
     liveInputSourceName: '',
     casparConfigPath: '',
     casparOscPort: 6250,
+    casparcgExecutablePath: '',
+    casparcgConfigFilename: 'casparcg.config',
+    casparAutoStart: false,
+    casparKeepAliveOnExit: true,
     playoutProfile: 'PAL_1080I50' as 'PAL_1080I50' | 'PAL_1080P25',
     transitionFrames: 2,
     prerollFrames: 2,
@@ -282,6 +300,10 @@ const mapLocalState = () => {
         autoResumeAfterRestart: settings.autoResumeAfterRestart !== false,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
         recycleBinAutoPurge: settings.recycleBinAutoPurge || 'disabled',
+        casparcgExecutablePath: settings.casparcgExecutablePath || '',
+        casparcgConfigFilename: settings.casparcgConfigFilename || 'casparcg.config',
+        casparAutoStart: settings.casparAutoStart ?? false,
+        casparKeepAliveOnExit: settings.casparKeepAliveOnExit ?? true,
         
         // CG settings
         complianceRenderMode: settings.complianceRenderMode || 'html5',
@@ -320,8 +342,60 @@ const mapLocalState = () => {
     };
 };
 
+const validateCasparExe = async (path: string) => {
+    if (!path.trim()) {
+        validationInfo.value = null;
+        return;
+    }
+    isValidating.value = true;
+    try {
+        validationInfo.value = await validateCasparExecutablePath(path);
+    } catch {
+        validationInfo.value = null;
+    } finally {
+        isValidating.value = false;
+    }
+};
+
+const onExecutableInput = (e: Event) => {
+    const val = (e.target as HTMLInputElement).value;
+    validateCasparExe(val);
+};
+
+const handleStartServerFromSettings = async () => {
+    try {
+        await startCasparServer();
+    } catch (e) {
+        alert(`Failed to start CasparCG server: ${e}`);
+    }
+};
+
+const handleStopServerFromSettings = async () => {
+    const confirmed = confirm("Are you sure you want to stop the CasparCG server? Any active on-air playback will be halted.");
+    if (!confirmed) return;
+    try {
+        await stopCasparServer();
+    } catch (e) {
+        alert(`Failed to stop CasparCG server: ${e}`);
+    }
+};
+
+const handleRestartServerFromSettings = async () => {
+    const confirmed = confirm("Restart CasparCG server? On-air playback will momentarily restart.");
+    if (!confirmed) return;
+    try {
+        await restartCasparServer();
+    } catch (e) {
+        alert(`Failed to restart CasparCG server: ${e}`);
+    }
+};
+
 onMounted(() => {
     mapLocalState();
+
+    if (localState.value.casparcgExecutablePath) {
+        validateCasparExe(localState.value.casparcgExecutablePath);
+    }
 
     if (!settings.logosPath) {
         invoke<string | null>('find_default_logos_dir')
@@ -358,9 +432,10 @@ const emptyBinFromSettings = async () => {
     }
 };
 
-const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | 'badge-k' | 'badge-8' | 'badge-12' | 'badge-16' | 'badge-18' | 'badge-tp' | 'caspar-config' | 'cg-advisory-template' | 'cg-crawl-template') => {
+const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | 'badge-k' | 'badge-8' | 'badge-12' | 'badge-16' | 'badge-18' | 'badge-tp' | 'caspar-config' | 'caspar-exe' | 'cg-advisory-template' | 'cg-crawl-template') => {
     const isDirectory = target === 'media' || target === 'logos' || target === 'ffmpeg-bin';
     const isConfigFile = target === 'caspar-config';
+    const isExeFile = target === 'caspar-exe';
     const isTemplateFile = target === 'cg-advisory-template' || target === 'cg-crawl-template';
 
     const defaultPath = (() => {
@@ -368,6 +443,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
         if (target === 'ffmpeg-bin') return localState.value.ffmpegBinPath;
         if (target === 'logos') return localState.value.logosPath;
         if (target === 'caspar-config') return localState.value.casparConfigPath;
+        if (target === 'caspar-exe') return localState.value.casparcgExecutablePath;
         if (target === 'cg-advisory-template') return localState.value.cgExplanationTemplate;
         if (target === 'cg-crawl-template') return localState.value.cgCrawlTemplate;
         if (target === 'cg-logo') return localState.value.cg.stationIdPath;
@@ -384,6 +460,12 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     if (isDirectory) {
         title = 'Choose Folder';
         filters = undefined;
+    } else if (isExeFile) {
+        title = 'Choose casparcg.exe';
+        filters = [
+            { name: 'CasparCG Executable', extensions: ['exe'] },
+            { name: 'All Files', extensions: ['*'] }
+        ];
     } else if (isConfigFile) {
         title = 'Choose casparcg.config';
         filters = [
@@ -418,6 +500,10 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     else if (target === 'ffmpeg-bin') localState.value.ffmpegBinPath = selection;
     else if (target === 'logos') localState.value.logosPath = selection;
     else if (target === 'caspar-config') localState.value.casparConfigPath = selection;
+    else if (target === 'caspar-exe') {
+        localState.value.casparcgExecutablePath = selection;
+        validateCasparExe(selection);
+    }
     else if (target === 'cg-advisory-template') {
         // If file is selected, simplify relative path if inside a template directory
         const normalized = selection.replace(/\\/g, '/');
@@ -801,6 +887,96 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
                               Greek NCRTV Advisory + 50fps Crawl
                           </p>
                       </div>
+                  </div>
+              </section>
+
+              <!-- CasparCG Process Lifecycle & Binary Management -->
+              <section class="settings-section">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                      <h3 class="text-secondary section-title" style="margin: 0;">CasparCG Process & Lifecycle Supervision</h3>
+                      <div style="display: flex; gap: 8px; align-items: center;">
+                          <span class="instance-role-badge" :class="isPrimaryInstance ? 'role-primary' : 'role-monitor'">
+                              {{ isPrimaryInstance ? '🛡️ PRIMARY SUPERVISOR' : '👁️ MONITOR MODE (READ-ONLY)' }}
+                          </span>
+                          <span class="process-state-badge" :class="'state-' + processState">
+                              {{ processStatus?.pid ? `PID: ${processStatus.pid} (${processState.toUpperCase()})` : processState.toUpperCase() }}
+                          </span>
+                      </div>
+                  </div>
+                  <p class="hint-text" style="margin: 0 0 12px 0;">
+                      Configure the host binary path for dynamic process lifecycle management. When Primary, PlayOutVue supervises server startup, monitors child health, and prevents split-brain command collisions.
+                  </p>
+
+                  <div class="form-grid">
+                      <div class="form-group" style="grid-column: span 2;">
+                          <label>CasparCG Executable Path (casparcg.exe)</label>
+                          <div class="input-with-button">
+                              <input
+                                  type="text"
+                                  class="glass-input"
+                                  v-model="localState.casparcgExecutablePath"
+                                  placeholder="e.g. C:/CasparCG/casparcg.exe"
+                                  @input="onExecutableInput"
+                              >
+                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse CasparCG binary" @click="pickPath('caspar-exe')">📁 Browse</button>
+                          </div>
+                          <div v-if="validationInfo" style="margin-top: 6px; font-size: 0.75rem; display: flex; align-items: center; gap: 6px;">
+                              <span :style="{ color: validationInfo.isValid ? '#4ade80' : '#f87171' }">
+                                  {{ validationInfo.isValid ? '✓' : '⚠️' }} {{ validationInfo.message }}
+                              </span>
+                              <span v-if="validationInfo.parentDir" class="hint-text">
+                                  (Working Dir CWD: {{ validationInfo.parentDir }})
+                              </span>
+                          </div>
+                      </div>
+
+                      <div class="form-group">
+                          <label>Config Filename / Channel Argument</label>
+                          <input
+                              type="text"
+                              class="glass-input"
+                              v-model="localState.casparcgConfigFilename"
+                              placeholder="casparcg.config (or custom like channel_2.config)"
+                          >
+                          <span class="hint-text">Allows multi-instance channel configurations in the same folder.</span>
+                      </div>
+
+                      <div class="form-group" style="display: flex; flex-direction: column; justify-content: center; gap: 8px;">
+                          <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                              <input type="checkbox" v-model="localState.casparAutoStart">
+                              <span>Auto-start CasparCG server on PlayOut launch</span>
+                          </label>
+                          <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                              <input type="checkbox" v-model="localState.casparKeepAliveOnExit">
+                              <span>24/7 Playout Continuity (Keep server running if PlayOut exits)</span>
+                          </label>
+                      </div>
+                  </div>
+
+                  <!-- Process Lifecycle Actions -->
+                  <div style="display: flex; gap: 10px; margin-top: 14px; align-items: center;">
+                      <button
+                          class="glass-btn btn-primary"
+                          :disabled="!isPrimaryInstance || isStarting || processState === 'starting' || processState === 'operational'"
+                          @click="handleStartServerFromSettings"
+                      >
+                          {{ isStarting ? '⏳ Starting...' : '▶ Start Server' }}
+                      </button>
+                      <button
+                          class="glass-btn"
+                          :disabled="!isPrimaryInstance || isStopping || processState === 'stopped' || processState === 'unconfigured'"
+                          @click="handleStopServerFromSettings"
+                          style="color: #f87171; border-color: rgba(248, 113, 113, 0.4);"
+                      >
+                          {{ isStopping ? '⏳ Stopping...' : '■ Stop Server' }}
+                      </button>
+                      <button
+                          class="glass-btn"
+                          :disabled="!isPrimaryInstance || isStarting || processState === 'stopped' || processState === 'unconfigured'"
+                          @click="handleRestartServerFromSettings"
+                      >
+                          🔄 Restart Server
+                      </button>
                   </div>
               </section>
 
@@ -1730,5 +1906,60 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     color: #ffffff;
     box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
     transform: translateY(-1px);
+}
+
+.instance-role-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.04em;
+}
+.role-primary {
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(34, 197, 94, 0.4);
+    color: #4ade80;
+}
+.role-monitor {
+    background: rgba(168, 85, 247, 0.15);
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    color: #c084fc;
+}
+.process-state-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.04em;
+}
+.state-operational {
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(34, 197, 94, 0.4);
+    color: #4ade80;
+}
+.state-starting {
+    background: rgba(56, 189, 248, 0.15);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    color: #38bdf8;
+}
+.state-stopped {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    color: #fbbf24;
+}
+.state-crashed {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #f87171;
+}
+.state-unconfigured {
+    background: rgba(148, 163, 184, 0.15);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    color: #94a3b8;
+}
+.state-external_running {
+    background: rgba(168, 85, 247, 0.15);
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    color: #c084fc;
 }
 </style>

@@ -85,6 +85,10 @@ export const useSettingsStore = defineStore('settings', {
         liveInputSourceName: '',
         casparConfigPath: '',
         casparOscPort: 6250,
+        casparcgExecutablePath: '',
+        casparcgConfigFilename: 'casparcg.config',
+        casparAutoStart: false,
+        casparKeepAliveOnExit: true,
 
         // DeckLink consumer settings
         decklinkEmbeddedAudio: false,

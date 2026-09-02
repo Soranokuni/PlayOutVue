@@ -9,6 +9,22 @@ pub struct RuntimeSettings {
     pub debug_enabled: bool,
     pub ffmpeg_bin_path: String,
     pub ingestor_api_base_url: String,
+    #[serde(default)]
+    pub casparcg_executable_path: String,
+    #[serde(default = "default_casparcg_config_filename")]
+    pub casparcg_config_filename: String,
+    #[serde(default)]
+    pub caspar_auto_start: bool,
+    #[serde(default = "default_true")]
+    pub caspar_keep_alive_on_exit: bool,
+}
+
+fn default_casparcg_config_filename() -> String {
+    "casparcg.config".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for RuntimeSettings {
@@ -17,6 +33,10 @@ impl Default for RuntimeSettings {
             debug_enabled: false,
             ffmpeg_bin_path: String::new(),
             ingestor_api_base_url: "http://127.0.0.1:4353".to_string(),
+            casparcg_executable_path: String::new(),
+            casparcg_config_filename: default_casparcg_config_filename(),
+            caspar_auto_start: false,
+            caspar_keep_alive_on_exit: true,
         }
     }
 }

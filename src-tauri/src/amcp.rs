@@ -99,6 +99,23 @@ pub struct AmcpClient {
     respawn: Arc<Mutex<()>>,
     /// Holds the live sender for the current worker; swapped on respawn.
     worker: Arc<AsyncMutex<mpsc::Sender<AmcpRequest>>>,
+    /// When true, rejects mutating AMCP commands (Monitor / Read-Only mode).
+    read_only: Arc<Mutex<bool>>,
+}
+
+/// Returns true if an AMCP command is a safe telemetry/read-only query.
+pub fn is_safe_read_only_command(cmd: &str) -> bool {
+    let upper = cmd.trim().to_uppercase();
+    upper.starts_with("INFO")
+        || upper.starts_with("DIAG")
+        || upper.starts_with("VERSION")
+        || upper.starts_with("TLS")
+        || upper.starts_with("CINF")
+        || upper.starts_with("GL INFO")
+        || upper.starts_with("HELP")
+        || upper.starts_with("BYE")
+        || upper.starts_with("PING")
+        || upper.starts_with("DATA RETRIEVE")
 }
 
 impl AmcpClient {
@@ -116,11 +133,29 @@ impl AmcpClient {
         AmcpClient {
             respawn: Arc::new(Mutex::new(())),
             worker: Arc::new(AsyncMutex::new(tx)),
+            read_only: Arc::new(Mutex::new(false)),
         }
+    }
+
+    /// Update the read-only / monitor mode state.
+    pub fn set_read_only(&self, read_only: bool) {
+        *self.read_only.lock() = read_only;
+    }
+
+    /// Query whether monitor mode is active.
+    pub fn is_read_only(&self) -> bool {
+        *self.read_only.lock()
     }
 
     /// Send a single AMCP command and await its framed reply.
     pub async fn send(&self, cmd: &str) -> Result<AmcpResponse, String> {
+        if self.is_read_only() && !is_safe_read_only_command(cmd) {
+            return Err(format!(
+                "AMCP command '{}' rejected: Instance is running in MONITOR MODE (Read-Only).",
+                cmd.trim()
+            ));
+        }
+
         let normalized = if cmd.ends_with("\r\n") {
             cmd.to_string()
         } else {
@@ -750,6 +785,33 @@ mod tests {
             play_trimmed_cmd(1, 10, "media/clip", 100, 250),
             "PLAY 1-10 \"media/clip\" SEEK 100 LENGTH 150"
         );
+    }
+
+    #[test]
+    fn test_monitor_mode_safe_commands() {
+        assert!(is_safe_read_only_command("INFO"));
+        assert!(is_safe_read_only_command("INFO 1"));
+        assert!(is_safe_read_only_command("INFO 1-10"));
+        assert!(is_safe_read_only_command("DIAG"));
+        assert!(is_safe_read_only_command("VERSION"));
+        assert!(is_safe_read_only_command("TLS"));
+        assert!(is_safe_read_only_command("CINF \"test\""));
+        assert!(is_safe_read_only_command("GL INFO"));
+        assert!(is_safe_read_only_command("BYE"));
+        assert!(is_safe_read_only_command("PING"));
+    }
+
+    #[test]
+    fn test_monitor_mode_blocks_mutations() {
+        assert!(!is_safe_read_only_command("PLAY 1-10 \"test\""));
+        assert!(!is_safe_read_only_command("LOADBG 1-10 \"test\" AUTO"));
+        assert!(!is_safe_read_only_command("PAUSE 1-10"));
+        assert!(!is_safe_read_only_command("RESUME 1-10"));
+        assert!(!is_safe_read_only_command("STOP 1-10"));
+        assert!(!is_safe_read_only_command("CLEAR 1"));
+        assert!(!is_safe_read_only_command("CG 1-32 ADD 1 \"template\" 1 \"{}\""));
+        assert!(!is_safe_read_only_command("CG 1-32 CLEAR"));
+        assert!(!is_safe_read_only_command("MIXER 1-10 FILL 0 0 1 1"));
     }
 
     /// Stale/degenerate IN points must never inject a SEEK. When IN >= OUT
