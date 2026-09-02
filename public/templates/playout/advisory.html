@@ -1167,11 +1167,13 @@
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       box-shadow:
-        0 3px 10px rgba(0, 0, 0, 0.35),
-        inset 1px 1px 2px rgba(255, 255, 255, 0.8),
-        inset -1px -1px 2px rgba(0, 0, 0, 0.20);
+        0 3px 10px rgba(0, 0, 0, 0.45),
+        inset 1.2px 1.2px 2.5px rgba(255, 255, 255, 0.85),
+        inset -1.2px -1.2px 2.5px rgba(0, 0, 0, 0.35);
       backface-visibility: hidden;
-      overflow: visible;
+      overflow: hidden;
+      padding: 3.5px;
+      box-sizing: border-box;
     }
 
     .warning-icon-svg {
@@ -1921,7 +1923,7 @@
               <!-- 2. MOVIE -->
               <div class="show-tag-row" id="row-tag-movie">
                 <div class="tag-row-icon" title="3D Cinema Clapperboard">
-                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="mov-stripes" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc" /><stop offset="40%" stop-color="#cbd5e1" /><stop offset="100%" stop-color="#475569" /></linearGradient><linearGradient id="mov-body" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#334155" /><stop offset="100%" stop-color="#0f172a" /></linearGradient><filter id="mov-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#mov-shadow)"><rect x="2" y="8.5" width="18" height="11" rx="1.8" fill="url(#mov-body)" stroke="rgba(255,255,255,0.4)" stroke-width="0.8" /><line x1="5" y1="13" x2="17" y2="13" stroke="rgba(255,255,255,0.3)" stroke-width="0.9" /><line x1="5" y1="16" x2="13" y2="16" stroke="rgba(255,255,255,0.3)" stroke-width="0.9" /><path d="M2.5 7 L19 4 L18.5 7.5 L2 8.5 Z" fill="url(#mov-stripes)" stroke="rgba(0,0,0,0.5)" stroke-width="0.6" /><circle cx="3.2" cy="7.8" r="1.1" fill="#f8fafc" /></g></svg>
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wmov-body" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#334155" /><stop offset="100%" stop-color="#0f172a" /></linearGradient><filter id="wmov-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wmov-sh)"><rect x="2.5" y="8.5" width="17" height="10.5" rx="1.6" fill="url(#wmov-body)" stroke="#ffffff" stroke-width="0.9" /><line x1="5.5" y1="12.5" x2="16.5" y2="12.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><line x1="5.5" y1="15.5" x2="13.5" y2="15.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><path d="M2.8 7 L18.5 4.2 L18 7.5 L2.5 8.5 Z" fill="#ffffff" stroke="#0f172a" stroke-width="0.5" /><circle cx="3.5" cy="7.8" r="1" fill="#0f172a" /></g></svg>
                 </div>
                 <div class="tag-row-label">MOVIE:</div>
                 <input type="text" id="txt-tag-movie" class="studio-select tag-row-input" value="MOVIE TIME" placeholder="MOVIE TIME" oninput="onTagInputChanged('movie')">
@@ -1931,7 +1933,7 @@
               <!-- 3. DOCUMENTARY -->
               <div class="show-tag-row" id="row-tag-documentary">
                 <div class="tag-row-icon" title="3D Terrestrial Globe">
-                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="doc-globe" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8" /><stop offset="50%" stop-color="#0284c7" /><stop offset="100%" stop-color="#0c4a6e" /></linearGradient><filter id="doc-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#doc-shadow)"><circle cx="11" cy="11" r="8.5" fill="url(#doc-globe)" stroke="rgba(255,255,255,0.7)" stroke-width="0.9" /><ellipse cx="11" cy="11" rx="8.5" ry="3.2" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="0.8" /><ellipse cx="11" cy="11" rx="3.5" ry="8.5" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="0.8" /><line x1="2.5" y1="11" x2="19.5" y2="11" stroke="rgba(255,255,255,0.7)" stroke-width="0.8" /><circle cx="8" cy="7.5" r="1.4" fill="#ffffff" opacity="0.8" /></g></svg>
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wdoc-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wdoc-sh)"><circle cx="11" cy="11" r="8" fill="none" stroke="#ffffff" stroke-width="1.2" /><ellipse cx="11" cy="11" rx="8" ry="3.2" fill="none" stroke="#ffffff" stroke-width="0.8" /><ellipse cx="11" cy="11" rx="3.2" ry="8" fill="none" stroke="#ffffff" stroke-width="0.8" /><line x1="3" y1="11" x2="19" y2="11" stroke="#ffffff" stroke-width="0.9" /><circle cx="8" cy="7.5" r="1.2" fill="#ffffff" /></g></svg>
                 </div>
                 <div class="tag-row-label">DOCS:</div>
                 <input type="text" id="txt-tag-documentary" class="studio-select tag-row-input" value="DOCUMENTARY" placeholder="DOCUMENTARY" oninput="onTagInputChanged('documentary')">
@@ -1941,7 +1943,7 @@
               <!-- 4. TELEMARKETING -->
               <div class="show-tag-row" id="row-tag-telemarketing">
                 <div class="tag-row-icon" title="3D Price Tag (ΤΠ)">
-                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="tp-tag-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fbbf24" /><stop offset="60%" stop-color="#f59e0b" /><stop offset="100%" stop-color="#b45309" /></linearGradient><filter id="tp-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#tp-shadow)"><path d="M19 11.5 L12.5 18 L3 8.5 V3 H8.5 L19 11.5 Z" fill="url(#tp-tag-grad)" stroke="rgba(255,255,255,0.8)" stroke-width="0.8" /><circle cx="6" cy="6" r="1.6" fill="#0f172a" stroke="rgba(255,255,255,0.9)" stroke-width="0.6" /><path d="M10.5 10.5 L14.5 14.5 M13 9.5 L9 13.5" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" /></g></svg>
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wtp-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc" /><stop offset="60%" stop-color="#e2e8f0" /><stop offset="100%" stop-color="#cbd5e1" /></linearGradient><filter id="wtp-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wtp-sh)"><path d="M18.5 11.5 L12.5 17.5 L3.5 8.5 V3.5 H8.5 L18.5 11.5 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="6.5" cy="6.5" r="1.3" fill="#ffffff" /><line x1="10.5" y1="10.5" x2="14.5" y2="14.5" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><circle cx="11.5" cy="13.5" r="0.8" fill="#ffffff" /><circle cx="13.5" cy="11.5" r="0.8" fill="#ffffff" /></g></svg>
                 </div>
                 <div class="tag-row-label">TELEMARKETING:</div>
                 <input type="text" id="txt-tag-telemarketing" class="studio-select tag-row-input" value="TELEMARKETING" placeholder="TELEMARKETING" oninput="onTagInputChanged('telemarketing')">
@@ -1951,7 +1953,7 @@
               <!-- 5. SERIES / SHOW -->
               <div class="show-tag-row" id="row-tag-show">
                 <div class="tag-row-icon" title="3D Dual Screens">
-                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="show-screen" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#a855f7" /><stop offset="60%" stop-color="#7e22ce" /><stop offset="100%" stop-color="#581c87" /></linearGradient><filter id="show-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#show-shadow)"><rect x="5.5" y="3" width="13" height="10" rx="1.5" fill="#334155" stroke="rgba(255,255,255,0.3)" stroke-width="0.8" /><rect x="2.5" y="6.5" width="14" height="11" rx="1.8" fill="url(#show-screen)" stroke="rgba(255,255,255,0.8)" stroke-width="0.9" /><polygon points="7.5,9.5 12,12 7.5,14.5" fill="#ffffff" /></g></svg>
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wshow-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wshow-sh)"><rect x="5.5" y="3.5" width="12.5" height="9.5" rx="1.4" fill="none" stroke="#cbd5e1" stroke-width="0.8" opacity="0.8" /><rect x="2.5" y="7" width="13.5" height="10.5" rx="1.6" fill="none" stroke="#ffffff" stroke-width="1.2" /><polygon points="7,10 11.5,12.2 7,14.5" fill="#ffffff" /></g></svg>
                 </div>
                 <div class="tag-row-label">SERIES:</div>
                 <input type="text" id="txt-tag-show" class="studio-select tag-row-input" value="SERIES" placeholder="SERIES" oninput="onTagInputChanged('show')">
@@ -1961,7 +1963,7 @@
               <!-- 6. NEWS -->
               <div class="show-tag-row" id="row-tag-news">
                 <div class="tag-row-icon" title="3D Transmission Tower">
-                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="news-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ef4444" /><stop offset="60%" stop-color="#dc2626" /><stop offset="100%" stop-color="#991b1b" /></linearGradient><filter id="news-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#news-shadow)"><path d="M11 5 L6 19 H16 L11 5 Z" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="1.2" /><line x1="8" y1="12" x2="14" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1" /><line x1="7" y1="15.5" x2="15" y2="15.5" stroke="rgba(255,255,255,0.7)" stroke-width="1" /><circle cx="11" cy="4.5" r="2.2" fill="url(#news-grad)" stroke="#ffffff" stroke-width="0.8" /><path d="M7 2.5 A6 6 0 0 1 15 2.5" fill="none" stroke="#ef4444" stroke-width="1.2" stroke-linecap="round" /><path d="M4.5 1 A9 9 0 0 1 17.5 1" fill="none" stroke="#f87171" stroke-width="1.1" stroke-linecap="round" /></g></svg>
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wnews-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wnews-sh)"><path d="M11 5.5 L6.5 18.5 H15.5 L11 5.5 Z" fill="none" stroke="#ffffff" stroke-width="1.1" /><line x1="8.5" y1="12" x2="13.5" y2="12" stroke="#ffffff" stroke-width="0.9" /><circle cx="11" cy="4.8" r="1.8" fill="#ffffff" /><path d="M7.5 3 A5 5 0 0 1 14.5 3" fill="none" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><path d="M5.5 1 A7.5 7.5 0 0 1 16.5 1" fill="none" stroke="#ffffff" stroke-width="0.9" stroke-linecap="round" opacity="0.75" /></g></svg>
                 </div>
                 <div class="tag-row-label">NEWS:</div>
                 <input type="text" id="txt-tag-news" class="studio-select tag-row-input" value="NEWS" placeholder="NEWS" oninput="onTagInputChanged('news')">
@@ -2666,183 +2668,144 @@
     // Conforms strictly to Rec. 709 legal luma (16 to 235) and -135° light source
     // =========================================================================
     const WARNING_GLYPHS = {
-      // VIOLENCE (ΒΙΑ): Dual Crossed Chiseled Gladius Combat Blades with Ridged Bevels
-      violence: `
-        <svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
-          <defs>
-            <linearGradient id="v-light" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#f8fafc" />
-              <stop offset="50%" stop-color="#e2e8f0" />
-              <stop offset="100%" stop-color="#94a3b8" />
-            </linearGradient>
-            <linearGradient id="v-dark" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#64748b" />
-              <stop offset="60%" stop-color="#334155" />
-              <stop offset="100%" stop-color="#1e293b" />
-            </linearGradient>
-            <linearGradient id="v-gold" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#fef08a" />
-              <stop offset="60%" stop-color="#eab308" />
-              <stop offset="100%" stop-color="#854d0e" />
-            </linearGradient>
-            <filter id="v-shadow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="1.2" dy="1.6" stdDeviation="0.8" flood-color="#0f172a" flood-opacity="0.85" />
-            </filter>
-          </defs>
-          <!-- Blade 1: Top-Left to Bottom-Right -->
-          <g filter="url(#v-shadow)">
-            <!-- Specular Light Facet -->
-            <path d="M7 7 L16 16 L14.5 17.5 L5.5 8.5 Z" fill="url(#v-light)" />
-            <!-- Ambient Shadow Facet -->
-            <path d="M7 7 L17.5 14.5 L16 16 L8.5 5.5 Z" fill="url(#v-dark)" />
-            <!-- Guard & Pommel -->
-            <path d="M21 25 L25 21" stroke="url(#v-gold)" stroke-width="2.6" stroke-linecap="round" />
-            <circle cx="25.5" cy="25.5" r="2.2" fill="url(#v-gold)" />
-          </g>
-          <!-- Blade 2: Top-Right to Bottom-Left -->
-          <g filter="url(#v-shadow)">
-            <!-- Specular Light Facet -->
-            <path d="M25 7 L16 16 L17.5 17.5 L26.5 8.5 Z" fill="url(#v-light)" />
-            <!-- Ambient Shadow Facet -->
-            <path d="M25 7 L14.5 14.5 L16 16 L23.5 5.5 Z" fill="url(#v-dark)" />
-            <!-- Guard & Pommel -->
-            <path d="M11 25 L7 21" stroke="url(#v-gold)" stroke-width="2.6" stroke-linecap="round" />
-            <circle cx="6.5" cy="25.5" r="2.2" fill="url(#v-gold)" />
-          </g>
-          <!-- Central Chiseled Diamond Shield Boss -->
-          <polygon points="16,13.2 18.8,16 16,18.8 13.2,16" fill="#f8fafc" stroke="#334155" stroke-width="0.8" />
-        </svg>
-      `,
+      violence: `<svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="wv-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="60%" stop-color="#f1f5f9" />
+      <stop offset="100%" stop-color="#cbd5e1" />
+    </linearGradient>
+    <linearGradient id="wv-shade" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#cbd5e1" />
+      <stop offset="60%" stop-color="#94a3b8" />
+      <stop offset="100%" stop-color="#64748b" />
+    </linearGradient>
+    <filter id="wv-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="1" dy="1.4" stdDeviation="0.8" flood-color="#000000" flood-opacity="0.9" />
+    </filter>
+  </defs>
+  <g filter="url(#wv-shadow)">
+    <!-- Blade 1: Top-Left to Bottom-Right (Inset from edges: 7.5 to 24.5) -->
+    <path d="M8.5 8.5 L16 16 L14.8 17.2 L7.3 9.7 Z" fill="url(#wv-light)" />
+    <path d="M8.5 8.5 L17.2 14.8 L16 16 L9.7 7.3 Z" fill="url(#wv-shade)" />
+    <path d="M20 23 L23.5 19.5" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" />
+    <circle cx="23.8" cy="23.8" r="1.8" fill="#ffffff" />
 
-      // SEX (ΣΕΞ): Interlocking Mars & Venus 3D Convex Tubular Emblem
-      sex: `
-        <svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
-          <defs>
-            <linearGradient id="sex-tube-m" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#93c5fd" />
-              <stop offset="50%" stop-color="#3b82f6" />
-              <stop offset="100%" stop-color="#1d4ed8" />
-            </linearGradient>
-            <linearGradient id="sex-tube-f" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#fbcfe8" />
-              <stop offset="50%" stop-color="#ec4899" />
-              <stop offset="100%" stop-color="#be185d" />
-            </linearGradient>
-            <filter id="sex-glow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="1" dy="1.5" stdDeviation="0.8" flood-color="#0f172a" flood-opacity="0.8" />
-            </filter>
-          </defs>
-          <g filter="url(#sex-glow)">
-            <!-- Female (Venus) Circle + Cross -->
-            <circle cx="12.5" cy="18" r="5.2" fill="none" stroke="url(#sex-tube-f)" stroke-width="2.4" />
-            <path d="M12.5 23.2 L12.5 27.5 M10.2 25.5 L14.8 25.5" stroke="url(#sex-tube-f)" stroke-width="2.2" stroke-linecap="round" />
-            <!-- Male (Mars) Circle + Arrow -->
-            <circle cx="19.5" cy="13.5" r="5.2" fill="none" stroke="url(#sex-tube-m)" stroke-width="2.4" />
-            <path d="M23.5 9.5 L27.5 5.5 M23.5 5.5 L27.5 5.5 L27.5 9.5" stroke="url(#sex-tube-m)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
-            <!-- Specular Rim Glint -->
-            <circle cx="9" cy="14.5" r="1" fill="#ffffff" opacity="0.85" />
-            <circle cx="23" cy="17" r="1" fill="#ffffff" opacity="0.85" />
-          </g>
-        </svg>
-      `,
+    <!-- Blade 2: Top-Right to Bottom-Left -->
+    <path d="M23.5 8.5 L16 16 L17.2 17.2 L24.7 9.7 Z" fill="url(#wv-light)" />
+    <path d="M23.5 8.5 L14.8 14.8 L16 16 L22.3 7.3 Z" fill="url(#wv-shade)" />
+    <path d="M12 23 L8.5 19.5" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" />
+    <circle cx="8.2" cy="23.8" r="1.8" fill="#ffffff" />
 
-      // DRUGS (ΧΡΗΣΗ ΟΥΣΙΩΝ): 3D Angled Pharmaceutical Capsule with Specular Reflection
-      drugs: `
-        <svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
-          <defs>
-            <linearGradient id="pill-cap-teal" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#5eead4" />
-              <stop offset="50%" stop-color="#0d9488" />
-              <stop offset="100%" stop-color="#115e59" />
-            </linearGradient>
-            <linearGradient id="pill-cap-white" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#ffffff" />
-              <stop offset="60%" stop-color="#f1f5f9" />
-              <stop offset="100%" stop-color="#cbd5e1" />
-            </linearGradient>
-            <filter id="pill-depth" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="1.4" dy="1.8" stdDeviation="0.9" flood-color="#0f172a" flood-opacity="0.8" />
-            </filter>
-          </defs>
-          <g transform="rotate(-45 16 16)" filter="url(#pill-depth)">
-            <!-- Top Cap (Teal/Emerald Convex) -->
-            <path d="M12 16 L20 16 L20 10 C20 6.5 12 6.5 12 10 Z" fill="url(#pill-cap-teal)" />
-            <!-- Bottom Cap (Pristine Specular White) -->
-            <path d="M12 16 L20 16 L20 22 C20 25.5 12 25.5 12 22 Z" fill="url(#pill-cap-white)" />
-            <!-- Raised Division Band with Specular Highlight -->
-            <rect x="11.5" y="15" width="9" height="2" rx="0.5" fill="#ffffff" stroke="#0f172a" stroke-width="0.5" />
-            <!-- Longitudinal Specular Sheen Arc -->
-            <path d="M13.5 9 C13.5 7.5 15 7.5 15 9 L15 23" stroke="rgba(255,255,255,0.7)" stroke-width="1.2" stroke-linecap="round" />
-          </g>
-          <!-- Effervescent Micro-Droplets -->
-          <circle cx="7" cy="11" r="1.2" fill="#5eead4" opacity="0.9" />
-          <circle cx="25" cy="21" r="1.4" fill="#38bdf8" opacity="0.85" />
-        </svg>
-      `,
+    <!-- Central Chiseled Diamond Boss -->
+    <polygon points="16,13.8 18.2,16 16,18.2 13.8,16" fill="#ffffff" stroke="#0f172a" stroke-width="0.7" />
+  </g>
+</svg>`,
+      sex: `<svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="wsex-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="50%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#cbd5e1" />
+    </linearGradient>
+    <filter id="wsex-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="1" dy="1.4" stdDeviation="0.8" flood-color="#000000" flood-opacity="0.9" />
+    </filter>
+  </defs>
+  <g filter="url(#wsex-shadow)">
+    <!-- Female (Venus) Circle + Cross (Centered in 8..24) -->
+    <circle cx="13" cy="17.5" r="4.8" fill="none" stroke="url(#wsex-light)" stroke-width="2.2" />
+    <path d="M13 22.3 L13 26.2 M10.8 24.2 L15.2 24.2" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
 
-      // LANGUAGE (ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ): Convex Dialogue Bubble with Acoustic Censor Waveform
-      language: `
-        <svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
-          <defs>
-            <linearGradient id="lang-bubble-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#f8fafc" />
-              <stop offset="60%" stop-color="#e2e8f0" />
-              <stop offset="100%" stop-color="#94a3b8" />
-            </linearGradient>
-            <filter id="lang-depth" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="1.2" dy="1.6" stdDeviation="0.8" flood-color="#0f172a" flood-opacity="0.8" />
-            </filter>
-          </defs>
-          <g filter="url(#lang-depth)">
-            <!-- Speech Bubble Body -->
-            <path d="M6 8 C6 5.8 7.8 4 10 4 L22 4 C24.2 4 26 5.8 26 8 L26 18 C26 20.2 24.2 22 22 22 L17 22 L13 26.5 L13 22 L10 22 C7.8 22 6 20.2 6 18 Z"
-              fill="url(#lang-bubble-grad)" stroke="rgba(255,255,255,0.9)" stroke-width="0.8" />
-            <!-- Recessed Audio Waveform / Exclamation Censor Bars -->
-            <line x1="10.5" y1="11" x2="10.5" y2="15" stroke="#1e293b" stroke-width="2.2" stroke-linecap="round" />
-            <!-- Center Chiseled Exclamation -->
-            <line x1="16" y1="8.5" x2="16" y2="14.5" stroke="#ef4444" stroke-width="2.6" stroke-linecap="round" />
-            <circle cx="16" cy="17.5" r="1.3" fill="#ef4444" />
-            <line x1="21.5" y1="11" x2="21.5" y2="15" stroke="#1e293b" stroke-width="2.2" stroke-linecap="round" />
-          </g>
-        </svg>
-      `,
+    <!-- Male (Mars) Circle + Arrow -->
+    <circle cx="19" cy="13.5" r="4.8" fill="none" stroke="url(#wsex-light)" stroke-width="2.2" />
+    <path d="M22.5 10 L26 6.5 M22.5 6.5 L26 6.5 L26 10" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
 
-      // COMBO / HERALDIC SHIELD (ΑΣΠΙΔΑ / ΠΟΛΛΑΠΛΗ): Chiseled Multi-Facet Protection Shield
-      combo: `
-        <svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
-          <defs>
-            <linearGradient id="shield-facet-left" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#ffffff" />
-              <stop offset="60%" stop-color="#f1f5f9" />
-              <stop offset="100%" stop-color="#cbd5e1" />
-            </linearGradient>
-            <linearGradient id="shield-facet-right" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#94a3b8" />
-              <stop offset="60%" stop-color="#64748b" />
-              <stop offset="100%" stop-color="#334155" />
-            </linearGradient>
-            <linearGradient id="shield-rim" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#fbbf24" />
-              <stop offset="100%" stop-color="#b45309" />
-            </linearGradient>
-            <filter id="shield-shadow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="1.4" dy="1.8" stdDeviation="0.9" flood-color="#0f172a" flood-opacity="0.85" />
-            </filter>
-          </defs>
-          <g filter="url(#shield-shadow)">
-            <!-- Left Facet (Specular Highlight) -->
-            <path d="M16 3.5 L7 7.5 V15 C7 21 11.5 25.5 16 28 Z" fill="url(#shield-facet-left)" />
-            <!-- Right Facet (Ambient Depth Shadow) -->
-            <path d="M16 3.5 L25 7.5 V15 C25 21 20.5 25.5 16 28 Z" fill="url(#shield-facet-right)" />
-            <!-- 1px Gold Rim Border -->
-            <path d="M16 3.5 L25 7.5 V15 C25 21 20.5 25.5 16 28 C11.5 25.5 7 21 7 15 V7.5 Z"
-              fill="none" stroke="url(#shield-rim)" stroke-width="1.2" stroke-linejoin="round" />
-            <!-- Embossed Tactile Exclamation Mark -->
-            <path d="M16 9 L16 17" stroke="#1e293b" stroke-width="2.6" stroke-linecap="round" />
-            <circle cx="16" cy="21" r="1.4" fill="#1e293b" />
-          </g>
-        </svg>
-      `
+    <!-- Specular Rim Glints -->
+    <circle cx="10" cy="14.5" r="0.9" fill="#ffffff" />
+    <circle cx="22" cy="16.5" r="0.9" fill="#ffffff" />
+  </g>
+</svg>`,
+      drugs: `<svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="wdrug-top" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="60%" stop-color="#e2e8f0" />
+      <stop offset="100%" stop-color="#cbd5e1" />
+    </linearGradient>
+    <linearGradient id="wdrug-bot" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e2e8f0" />
+      <stop offset="60%" stop-color="#94a3b8" />
+      <stop offset="100%" stop-color="#64748b" />
+    </linearGradient>
+    <filter id="wdrug-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="1.2" dy="1.6" stdDeviation="0.85" flood-color="#000000" flood-opacity="0.9" />
+    </filter>
+  </defs>
+  <g transform="rotate(-45 16 16)" filter="url(#wdrug-shadow)">
+    <!-- Top Cap (White Shimmer) -->
+    <path d="M12.5 16 L19.5 16 L19.5 11 C19.5 7.8 12.5 7.8 12.5 11 Z" fill="url(#wdrug-top)" stroke="rgba(255,255,255,0.8)" stroke-width="0.6" />
+    <!-- Bottom Cap (Chiseled Silver White) -->
+    <path d="M12.5 16 L19.5 16 L19.5 21 C19.5 24.2 12.5 24.2 12.5 21 Z" fill="url(#wdrug-bot)" stroke="rgba(255,255,255,0.8)" stroke-width="0.6" />
+    <!-- Raised Division Band with Highlight -->
+    <rect x="12" y="15.2" width="8" height="1.6" rx="0.4" fill="#ffffff" stroke="#0f172a" stroke-width="0.5" />
+    <!-- Longitudinal Specular Sheen Arc -->
+    <path d="M13.8 10 C13.8 8.8 15 8.8 15 10 L15 22" stroke="#ffffff" stroke-width="1" stroke-linecap="round" />
+  </g>
+  <!-- Effervescent Micro-Droplets (Pure White) -->
+  <circle cx="8" cy="12" r="1.1" fill="#ffffff" />
+  <circle cx="24" cy="20" r="1.3" fill="#ffffff" />
+</svg>`,
+      language: `<svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="wlang-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="60%" stop-color="#f1f5f9" />
+      <stop offset="100%" stop-color="#cbd5e1" />
+    </linearGradient>
+    <filter id="wlang-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="1" dy="1.4" stdDeviation="0.8" flood-color="#000000" flood-opacity="0.9" />
+    </filter>
+  </defs>
+  <g filter="url(#wlang-shadow)">
+    <!-- Speech Bubble Body (Comfortably inset: 7 to 25) -->
+    <path d="M7 8 C7 6.2 8.5 4.8 10.5 4.8 L21.5 4.8 C23.5 4.8 25 6.2 25 8 L25 17.5 C25 19.3 23.5 20.8 21.5 20.8 L17 20.8 L13.5 24.8 L13.5 20.8 L10.5 20.8 C8.5 20.8 7 19.3 7 17.5 Z"
+      fill="url(#wlang-body)" stroke="#ffffff" stroke-width="0.8" />
+    <!-- Recessed Audio Waveform / Exclamation Censor Bars in Deep Contrast Charcoal -->
+    <line x1="11.2" y1="10" x2="11.2" y2="15" stroke="#0f172a" stroke-width="2" stroke-linecap="round" />
+    <line x1="16" y1="8" x2="16" y2="14" stroke="#0f172a" stroke-width="2.4" stroke-linecap="round" />
+    <circle cx="16" cy="17" r="1.2" fill="#0f172a" />
+    <line x1="20.8" y1="10" x2="20.8" y2="15" stroke="#0f172a" stroke-width="2" stroke-linecap="round" />
+  </g>
+</svg>`,
+      combo: `<svg class="warning-icon-svg" viewBox="0 0 32 32" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <defs>
+    <linearGradient id="wshield-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="60%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#e2e8f0" />
+    </linearGradient>
+    <linearGradient id="wshield-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#cbd5e1" />
+      <stop offset="60%" stop-color="#94a3b8" />
+      <stop offset="100%" stop-color="#64748b" />
+    </linearGradient>
+    <filter id="wshield-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="1.2" dy="1.6" stdDeviation="0.85" flood-color="#000000" flood-opacity="0.9" />
+    </filter>
+  </defs>
+  <g filter="url(#wshield-shadow)">
+    <!-- Inset Shield Body (7 to 25) -->
+    <!-- Left Specular Facet -->
+    <path d="M16 6 L8 9 L8 16 C8 21.2 11.5 24.8 16 26.2 L16 6 Z" fill="url(#wshield-left)" />
+    <!-- Right Ambient Facet -->
+    <path d="M16 6 L24 9 L24 16 C24 21.2 20.5 24.8 16 26.2 L16 6 Z" fill="url(#wshield-right)" />
+    <!-- Shield Perimeter Chiseled Micro-Border -->
+    <path d="M16 6 L8 9 L8 16 C8 21.2 11.5 24.8 16 26.2 C20.5 24.8 24 21.2 24 16 L24 9 Z" fill="none" stroke="#ffffff" stroke-width="1.2" />
+    <!-- Central Heraldic Inset Cross -->
+    <path d="M16 10 L16 20 M12.5 14 L19.5 14" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" />
+  </g>
+</svg>`
     };
 
     // =========================================================================
@@ -3129,24 +3092,8 @@
       const textCol = document.getElementById('col-logo-text')?.value || '#f7edf9';
       const textShadowCol = document.getElementById('col-logo-textshadow')?.value || '#200324';
 
-      // Update Live Subtitle Tag next to Logo Bug (Hides immediately when empty!)
-      const tagEl = document.getElementById('station-subtitle-tag');
-      const subTextEl = document.getElementById('station-subtitle-text');
-      if (tagEl && subTextEl) {
-        if (!subtitle || subtitle === '') {
-          tagEl.style.display = 'none';
-          tagEl.classList.remove('visible');
-          subTextEl.textContent = '';
-        } else {
-          tagEl.style.display = 'inline-flex';
-          tagEl.classList.add('visible');
-          if (subtitle === 'LIVE' || subtitle.includes('ΖΩΝΤΑΝΑ')) {
-            subTextEl.innerHTML = '<span class="station-live-dot"></span>' + subtitle;
-          } else {
-            subTextEl.textContent = subtitle;
-          }
-        }
-      }
+      // Update Live Subtitle Tag next to Logo Bug using robust renderStationSubtitle
+      renderStationSubtitle(currentShowTag, subtitle);
 
       // Update labels
       if (document.getElementById('val-logo-size')) document.getElementById('val-logo-size').textContent = size + 'px';
@@ -4468,7 +4415,7 @@
     });
 
     // =========================================================================
-    // SOTA UNIFIED MASTER PRESET & SHOW TAG ENGINE
+    // SOTA UNIFIED MASTER PRESET & SHOW TAG ENGINE (PURE WHITE STENCILS)
     // =========================================================================
     const SHOW_TAG_PRESETS = {
       live: {
@@ -4480,34 +4427,34 @@
       movie: {
         id: 'movie',
         label: 'MOVIE TIME',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="mov-stripes" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc" /><stop offset="40%" stop-color="#cbd5e1" /><stop offset="100%" stop-color="#475569" /></linearGradient><linearGradient id="mov-body" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#334155" /><stop offset="100%" stop-color="#0f172a" /></linearGradient><filter id="mov-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#mov-shadow)"><rect x="2" y="8.5" width="18" height="11" rx="1.8" fill="url(#mov-body)" stroke="rgba(255,255,255,0.4)" stroke-width="0.8" /><line x1="5" y1="13" x2="17" y2="13" stroke="rgba(255,255,255,0.3)" stroke-width="0.9" /><line x1="5" y1="16" x2="13" y2="16" stroke="rgba(255,255,255,0.3)" stroke-width="0.9" /><path d="M2.5 7 L19 4 L18.5 7.5 L2 8.5 Z" fill="url(#mov-stripes)" stroke="rgba(0,0,0,0.5)" stroke-width="0.6" /><circle cx="3.2" cy="7.8" r="1.1" fill="#f8fafc" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wmov-body" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#334155" /><stop offset="100%" stop-color="#0f172a" /></linearGradient><filter id="wmov-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wmov-sh)"><rect x="2.5" y="8.5" width="17" height="10.5" rx="1.6" fill="url(#wmov-body)" stroke="#ffffff" stroke-width="0.9" /><line x1="5.5" y1="12.5" x2="16.5" y2="12.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><line x1="5.5" y1="15.5" x2="13.5" y2="15.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><path d="M2.8 7 L18.5 4.2 L18 7.5 L2.5 8.5 Z" fill="#ffffff" stroke="#0f172a" stroke-width="0.5" /><circle cx="3.5" cy="7.8" r="1" fill="#0f172a" /></g></svg>`
       },
       documentary: {
         id: 'documentary',
         label: 'DOCUMENTARY',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="doc-globe" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8" /><stop offset="50%" stop-color="#0284c7" /><stop offset="100%" stop-color="#0c4a6e" /></linearGradient><filter id="doc-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#doc-shadow)"><circle cx="11" cy="11" r="8.5" fill="url(#doc-globe)" stroke="rgba(255,255,255,0.7)" stroke-width="0.9" /><ellipse cx="11" cy="11" rx="8.5" ry="3.2" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="0.8" /><ellipse cx="11" cy="11" rx="3.5" ry="8.5" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="0.8" /><line x1="2.5" y1="11" x2="19.5" y2="11" stroke="rgba(255,255,255,0.7)" stroke-width="0.8" /><circle cx="8" cy="7.5" r="1.4" fill="#ffffff" opacity="0.8" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wdoc-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wdoc-sh)"><circle cx="11" cy="11" r="8" fill="none" stroke="#ffffff" stroke-width="1.2" /><ellipse cx="11" cy="11" rx="8" ry="3.2" fill="none" stroke="#ffffff" stroke-width="0.8" /><ellipse cx="11" cy="11" rx="3.2" ry="8" fill="none" stroke="#ffffff" stroke-width="0.8" /><line x1="3" y1="11" x2="19" y2="11" stroke="#ffffff" stroke-width="0.9" /><circle cx="8" cy="7.5" r="1.2" fill="#ffffff" /></g></svg>`
       },
       telemarketing: {
         id: 'telemarketing',
         label: 'TELEMARKETING',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="tp-tag-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fbbf24" /><stop offset="60%" stop-color="#f59e0b" /><stop offset="100%" stop-color="#b45309" /></linearGradient><filter id="tp-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#tp-shadow)"><path d="M19 11.5 L12.5 18 L3 8.5 V3 H8.5 L19 11.5 Z" fill="url(#tp-tag-grad)" stroke="rgba(255,255,255,0.8)" stroke-width="0.8" /><circle cx="6" cy="6" r="1.6" fill="#0f172a" stroke="rgba(255,255,255,0.9)" stroke-width="0.6" /><path d="M10.5 10.5 L14.5 14.5 M13 9.5 L9 13.5" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wtp-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc" /><stop offset="60%" stop-color="#e2e8f0" /><stop offset="100%" stop-color="#cbd5e1" /></linearGradient><filter id="wtp-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wtp-sh)"><path d="M18.5 11.5 L12.5 17.5 L3.5 8.5 V3.5 H8.5 L18.5 11.5 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="6.5" cy="6.5" r="1.3" fill="#ffffff" /><line x1="10.5" y1="10.5" x2="14.5" y2="14.5" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><circle cx="11.5" cy="13.5" r="0.8" fill="#ffffff" /><circle cx="13.5" cy="11.5" r="0.8" fill="#ffffff" /></g></svg>`
       },
       show: {
         id: 'show',
         label: 'SERIES',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="show-screen" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#a855f7" /><stop offset="60%" stop-color="#7e22ce" /><stop offset="100%" stop-color="#581c87" /></linearGradient><filter id="show-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#show-shadow)"><rect x="5.5" y="3" width="13" height="10" rx="1.5" fill="#334155" stroke="rgba(255,255,255,0.3)" stroke-width="0.8" /><rect x="2.5" y="6.5" width="14" height="11" rx="1.8" fill="url(#show-screen)" stroke="rgba(255,255,255,0.8)" stroke-width="0.9" /><polygon points="7.5,9.5 12,12 7.5,14.5" fill="#ffffff" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wshow-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wshow-sh)"><rect x="5.5" y="3.5" width="12.5" height="9.5" rx="1.4" fill="none" stroke="#cbd5e1" stroke-width="0.8" opacity="0.8" /><rect x="2.5" y="7" width="13.5" height="10.5" rx="1.6" fill="none" stroke="#ffffff" stroke-width="1.2" /><polygon points="7,10 11.5,12.2 7,14.5" fill="#ffffff" /></g></svg>`
       },
       news: {
         id: 'news',
         label: 'NEWS',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="news-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ef4444" /><stop offset="60%" stop-color="#dc2626" /><stop offset="100%" stop-color="#991b1b" /></linearGradient><filter id="news-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#news-shadow)"><path d="M11 5 L6 19 H16 L11 5 Z" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="1.2" /><line x1="8" y1="12" x2="14" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1" /><line x1="7" y1="15.5" x2="15" y2="15.5" stroke="rgba(255,255,255,0.7)" stroke-width="1" /><circle cx="11" cy="4.5" r="2.2" fill="url(#news-grad)" stroke="#ffffff" stroke-width="0.8" /><path d="M7 2.5 A6 6 0 0 1 15 2.5" fill="none" stroke="#ef4444" stroke-width="1.2" stroke-linecap="round" /><path d="M4.5 1 A9 9 0 0 1 17.5 1" fill="none" stroke="#f87171" stroke-width="1.1" stroke-linecap="round" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wnews-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wnews-sh)"><path d="M11 5.5 L6.5 18.5 H15.5 L11 5.5 Z" fill="none" stroke="#ffffff" stroke-width="1.1" /><line x1="8.5" y1="12" x2="13.5" y2="12" stroke="#ffffff" stroke-width="0.9" /><circle cx="11" cy="4.8" r="1.8" fill="#ffffff" /><path d="M7.5 3 A5 5 0 0 1 14.5 3" fill="none" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><path d="M5.5 1 A7.5 7.5 0 0 1 16.5 1" fill="none" stroke="#ffffff" stroke-width="0.9" stroke-linecap="round" opacity="0.75" /></g></svg>`
       }
     };
 
     let currentShowTag = 'none';
+    let currentMasterPresetId = 'default';
     let currentLogoShape = 'squircle';
     let currentRatingShape = 'circle';
-    let currentMasterPresetId = 'default';
 
     // Broadcast standard master preset packages
     const MASTER_STANDARD_PRESETS = {
@@ -4740,13 +4687,11 @@
       const sel = document.getElementById('sel-master-preset');
       if (sel) sel.value = currentMasterPresetId;
 
-      // Update Delete button visibility
       const btnDel = document.getElementById('btn-delete-preset');
       if (btnDel) {
-        btnDel.style.display = (currentMasterPresetId.startsWith('preset_')) ? 'inline-flex' : 'none';
+        btnDel.style.display = (currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_')) ? 'inline-flex' : 'none';
       }
 
-      // Update Default badge button
       const defaultId = localStorage.getItem('PLAYOUT_DEFAULT_PRESET_ID') || 'default';
       const btnDef = document.getElementById('btn-make-default');
       if (btnDef) {
@@ -4761,7 +4706,8 @@
     }
 
     function onSelectMasterPreset(presetId) {
-      currentMasterPresetId = presetId; window.currentMasterPresetId = presetId;
+      currentMasterPresetId = presetId;
+      window.currentMasterPresetId = presetId;
       let preset = null;
 
       if (MASTER_STANDARD_PRESETS[presetId]) {
@@ -4793,10 +4739,14 @@
       }
 
       // 3. Active show tag
-      if (p.showTag) {
+      if (p.showTag && p.showTag !== 'none') {
         activateShowTag(p.showTag, p.subtitle);
       } else if (p.subtitle) {
-        onActiveTaglineInput(p.subtitle);
+        const txtActive = document.getElementById('txt-active-tagline');
+        const txtLogoSub = document.getElementById('txt-logo-subtitle');
+        if (txtActive) txtActive.value = p.subtitle;
+        if (txtLogoSub) txtLogoSub.value = p.subtitle;
+        renderStationSubtitle('none', p.subtitle);
       } else {
         activateShowTag('none');
       }
@@ -4897,6 +4847,7 @@
       userPresets = userPresets.filter(p => p.id !== currentMasterPresetId);
       localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(userPresets));
       currentMasterPresetId = 'default';
+      window.currentMasterPresetId = 'default';
       onSelectMasterPreset('default');
     }
 
@@ -4951,6 +4902,40 @@
     }
 
     // =========================================================================
+    // RELIABLE STATION SUBTITLE RENDERER (Never destroys child elements!)
+    // =========================================================================
+    function renderStationSubtitle(tagKey, explicitText) {
+      const tagEl = document.getElementById('station-subtitle-tag');
+      const subTextEl = document.getElementById('station-subtitle-text');
+      if (!tagEl || !subTextEl) return;
+
+      const text = (explicitText !== undefined && explicitText !== null && explicitText !== '')
+        ? String(explicitText).trim().toUpperCase()
+        : '';
+
+      if (!text) {
+        tagEl.style.display = 'none';
+        tagEl.classList.remove('visible');
+        subTextEl.innerHTML = '<span id="station-subtitle-icon" class="station-subtitle-icon"></span><span id="station-subtitle-label" class="station-subtitle-label"></span>';
+        updateLivePreviewString();
+        return;
+      }
+
+      tagEl.style.display = 'inline-flex';
+      tagEl.classList.add('visible');
+
+      let iconHtml = '';
+      if (tagKey === 'live' || text === 'LIVE' || text.includes('ΖΩΝΤΑΝΑ')) {
+        iconHtml = '<span class="station-live-dot"></span>';
+      } else if (SHOW_TAG_PRESETS[tagKey]) {
+        iconHtml = SHOW_TAG_PRESETS[tagKey].iconSvg;
+      }
+
+      subTextEl.innerHTML = `<span id="station-subtitle-icon" class="station-subtitle-icon">${iconHtml}</span><span id="station-subtitle-label" class="station-subtitle-label">${text}</span>`;
+      updateLivePreviewString();
+    }
+
+    // =========================================================================
     // SHOW TAG CONTENT ACTIVATION & REAL-TIME INPUT HANDLERS
     // =========================================================================
     function activateShowTag(tagKey, explicitText) {
@@ -4960,24 +4945,15 @@
         row.classList.toggle('active', row.id === ('row-tag-' + tagKey));
       });
 
-      const tagEl = document.getElementById('station-subtitle-tag');
-      const iconEl = document.getElementById('station-subtitle-icon');
-      const labelEl = document.getElementById('station-subtitle-label');
       const selIcon = document.getElementById('sel-active-tag-icon');
       const txtActive = document.getElementById('txt-active-tagline');
       const txtLogoSub = document.getElementById('txt-logo-subtitle');
 
       if (tagKey === 'none') {
-        if (tagEl) {
-          tagEl.style.display = 'none';
-          tagEl.classList.remove('visible');
-        }
-        if (iconEl) iconEl.innerHTML = '';
-        if (labelEl) labelEl.textContent = '';
         if (selIcon) selIcon.value = 'none';
         if (txtActive) txtActive.value = '';
         if (txtLogoSub) txtLogoSub.value = '';
-        updateLivePreviewString();
+        renderStationSubtitle('none', '');
         recordAction('TAG', 'Set clean Station ID (no subtitle)');
         return;
       }
@@ -4989,18 +4965,11 @@
         text = input ? input.value.trim().toUpperCase() : (preset ? preset.label : '');
       }
 
-      if (iconEl && preset) iconEl.innerHTML = preset.iconSvg;
-      if (labelEl) labelEl.textContent = text;
       if (selIcon) selIcon.value = tagKey;
       if (txtActive) txtActive.value = text;
       if (txtLogoSub) txtLogoSub.value = text;
 
-      if (tagEl) {
-        tagEl.style.display = 'inline-flex';
-        tagEl.classList.add('visible');
-      }
-
-      updateLivePreviewString();
+      renderStationSubtitle(tagKey, text);
       recordAction('TAG', `Activated on-air show tag: ${text}`);
     }
 
@@ -5008,55 +4977,31 @@
       const input = document.getElementById('txt-tag-' + tagKey);
       const text = input ? input.value.trim().toUpperCase() : '';
       if (currentShowTag === tagKey) {
-        const labelEl = document.getElementById('station-subtitle-label');
         const txtActive = document.getElementById('txt-active-tagline');
         const txtLogoSub = document.getElementById('txt-logo-subtitle');
-        if (labelEl) labelEl.textContent = text;
         if (txtActive) txtActive.value = text;
         if (txtLogoSub) txtLogoSub.value = text;
-        updateLivePreviewString();
+        renderStationSubtitle(tagKey, text);
       }
     }
 
     function onActiveTaglineInput(text) {
       const upper = (text || '').trim().toUpperCase();
-      const labelEl = document.getElementById('station-subtitle-label');
-      const tagEl = document.getElementById('station-subtitle-tag');
       const txtLogoSub = document.getElementById('txt-logo-subtitle');
+      if (txtLogoSub) txtLogoSub.value = upper;
 
-      if (!upper) {
-        if (tagEl) {
-          tagEl.style.display = 'none';
-          tagEl.classList.remove('visible');
-        }
-        if (labelEl) labelEl.textContent = '';
-        if (txtLogoSub) txtLogoSub.value = '';
-        currentShowTag = 'none';
-        document.querySelectorAll('.show-tag-row').forEach(r => r.classList.remove('active'));
-      } else {
-        if (tagEl) {
-          tagEl.style.display = 'inline-flex';
-          tagEl.classList.add('visible');
-        }
-        if (labelEl) labelEl.textContent = upper;
-        if (txtLogoSub) txtLogoSub.value = upper;
-      }
-      updateLivePreviewString();
+      const selIcon = document.getElementById('sel-active-tag-icon')?.value || currentShowTag;
+      renderStationSubtitle(selIcon, upper);
     }
 
     function onManualIconSelected(iconKey) {
-      const iconEl = document.getElementById('station-subtitle-icon');
-      if (SHOW_TAG_PRESETS[iconKey]) {
-        if (iconEl) iconEl.innerHTML = SHOW_TAG_PRESETS[iconKey].iconSvg;
-        currentShowTag = iconKey;
-      } else {
-        if (iconEl) iconEl.innerHTML = '';
-        currentShowTag = 'none';
-      }
+      currentShowTag = iconKey;
       document.querySelectorAll('.show-tag-row').forEach(r => {
         r.classList.toggle('active', r.id === ('row-tag-' + iconKey));
       });
-      updateLivePreviewString();
+      const txtActive = document.getElementById('txt-active-tagline');
+      const text = txtActive ? txtActive.value.trim().toUpperCase() : '';
+      renderStationSubtitle(iconKey, text);
     }
 
     function updateLivePreviewString() {
@@ -5077,7 +5022,7 @@
       }
     }
 
-    // =========================================================================
+      // =========================================================================
     // SAVE AS... MODAL DIALOG
     // =========================================================================
     function openSaveAsDialog() {
