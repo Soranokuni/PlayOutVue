@@ -24,7 +24,7 @@
       --cg-logo-left: 60px;
       --cg-logo-right: 60px;
       --cg-logo-bottom: 60px;
-      --cg-logo-size: 76px;
+      --cg-logo-size: 88px;
       --cg-logo-text-x: 0px;
       --cg-logo-text-y: 0px;
       --cg-logo-text-size: 40px;
@@ -35,8 +35,8 @@
       --cg-right: 60px;
       --cg-left: 60px;
       --cg-bottom: 60px;
-      --cg-badge-size: 54px;
-      --cg-badge-font-size: 27px;
+      --cg-badge-size: 48px;
+      --cg-badge-font-size: 24px;
       --cg-explanation-font-size: 13px;
       --cg-warning-lead-font-size: 10.5px;
       --cg-warning-body-font-size: 12px;
@@ -1607,6 +1607,174 @@
       background: rgba(30, 41, 59, 0.85);
     }
 
+
+    /* Prominent Master Preset Chooser Bar */
+    .studio-preset-bar {
+      padding: 8px 14px;
+      background: linear-gradient(180deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%);
+      border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .preset-select-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(11, 17, 32, 0.9);
+      border: 1.5px solid rgba(56, 189, 248, 0.4);
+      border-radius: 8px;
+      padding: 5px 8px;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.15);
+    }
+
+    .preset-label-icon {
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .studio-preset-dropdown {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .studio-preset-dropdown optgroup {
+      background: #0f172a;
+      color: #38bdf8;
+      font-weight: 800;
+    }
+
+    .studio-preset-dropdown option {
+      background: #0f172a;
+      color: #e2e8f0;
+      font-weight: 600;
+      padding: 6px;
+    }
+
+    .preset-quick-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+      align-items: center;
+    }
+
+    .preset-pill-btn {
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #cbd5e1;
+      border-radius: 5px;
+      padding: 3px 9px;
+      font-size: 10.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .preset-pill-btn:hover {
+      background: rgba(56, 189, 248, 0.25);
+      border-color: rgba(56, 189, 248, 0.5);
+      color: #38bdf8;
+    }
+
+    .preset-pill-btn.active-default {
+      background: rgba(234, 179, 8, 0.22);
+      border-color: rgba(234, 179, 8, 0.65);
+      color: #facc15;
+    }
+
+    /* Show Tag Matrix Rows */
+    .show-tag-matrix {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 6px;
+    }
+
+    .show-tag-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 7px;
+      padding: 4px 8px;
+      transition: all 0.15s ease;
+    }
+
+    .show-tag-row:hover {
+      background: rgba(30, 41, 59, 0.8);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+
+    .show-tag-row.active {
+      background: rgba(56, 189, 248, 0.18);
+      border-color: rgba(56, 189, 248, 0.6);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+    }
+
+    .tag-row-icon {
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .tag-row-label {
+      width: 78px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #94a3b8;
+      flex-shrink: 0;
+      letter-spacing: 0.5px;
+    }
+
+    .tag-row-input {
+      flex: 1;
+      height: 26px;
+      font-size: 11px;
+      padding: 2px 6px;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .tag-row-btn {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #38bdf8;
+      border-radius: 5px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .tag-row-btn:hover {
+      background: #38bdf8;
+      color: #0f172a;
+    }
+
+    .show-tag-row.active .tag-row-btn {
+      background: #38bdf8;
+      color: #0f172a;
+      font-weight: 800;
+    }
+
   </style>
 </head>
 <body>
@@ -1629,6 +1797,32 @@
           <button class="preview-btn" style="padding: 2px 7px; font-size: 10px;" onclick="toggleWorkstationFullscreen()" title="Toggle Fullscreen On-Air View">⛶ Fullscreen</button>
         </div>
         <div class="studio-subtitle">Neumorphic Graphics &amp; NCRTV Compliance Engine</div>
+      </div>
+
+      <!-- Prominent Master Preset Chooser Bar -->
+      <div class="studio-preset-bar">
+        <div class="preset-select-wrapper">
+          <span class="preset-label-icon">🌟</span>
+          <select id="sel-master-preset" class="studio-preset-dropdown" onchange="onSelectMasterPreset(this.value)">
+            <optgroup label="Broadcast Standards">
+              <option value="default" selected>🌟 Sitia HD Standard (Default)</option>
+              <option value="live">🔴 Sitia Live Broadcast</option>
+              <option value="movie">🎬 Primetime Movie Night</option>
+              <option value="documentary">🌍 World Nature &amp; Docs</option>
+              <option value="telemarketing">🛒 Telemarketing Direct (ΤΠ)</option>
+              <option value="show">📺 Prime Drama Series</option>
+              <option value="news">📡 Breaking News &amp; Reports</option>
+            </optgroup>
+            <optgroup label="User Custom Presets" id="optgroup-master-user-presets">
+              <!-- Populated dynamically from localStorage -->
+            </optgroup>
+          </select>
+        </div>
+        <div class="preset-quick-actions">
+          <button type="button" class="preset-pill-btn" onclick="openSaveAsDialog()" title="Save all customizations as a new preset">⭐ Save As...</button>
+          <button type="button" class="preset-pill-btn" id="btn-make-default" onclick="markActivePresetAsDefault()" title="Make this preset the startup default">★ Set Default</button>
+          <button type="button" class="preset-pill-btn" id="btn-delete-preset" style="display: none; color: #f87171;" onclick="deleteActiveMasterPreset()" title="Delete this custom preset">🗑️ Delete</button>
+        </div>
       </div>
 
       <!-- On-Air Display Mode Switcher -->
@@ -1705,6 +1899,100 @@
             </div>
           </div>
 
+          <!-- Show Tag Content & Subtitles (Next to Station ID) -->
+          <div class="studio-group" id="group-station-show-tags">
+            <div class="studio-group-title">🏷️ Show Tag Content &amp; Subtitles (Next to Station ID)</div>
+            <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
+              Edit the text that appears before or after the <strong>|</strong> next to your Station ID. Click <strong>Air This</strong> to switch on-air immediately.
+            </div>
+
+            <!-- Interactive Tag Rows with Editable Text Inputs & Icon Indicators -->
+            <div class="show-tag-matrix">
+              <!-- 1. LIVE -->
+              <div class="show-tag-row" id="row-tag-live">
+                <div class="tag-row-icon" title="Pulsing Crimson Beacon">
+                  <span class="station-live-dot" style="display:inline-block;"></span>
+                </div>
+                <div class="tag-row-label">LIVE:</div>
+                <input type="text" id="txt-tag-live" class="studio-select tag-row-input" value="LIVE" placeholder="LIVE" oninput="onTagInputChanged('live')">
+                <button type="button" class="tag-row-btn" id="btn-air-live" onclick="activateShowTag('live')">Air This</button>
+              </div>
+
+              <!-- 2. MOVIE -->
+              <div class="show-tag-row" id="row-tag-movie">
+                <div class="tag-row-icon" title="3D Cinema Clapperboard">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="mov-stripes" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc" /><stop offset="40%" stop-color="#cbd5e1" /><stop offset="100%" stop-color="#475569" /></linearGradient><linearGradient id="mov-body" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#334155" /><stop offset="100%" stop-color="#0f172a" /></linearGradient><filter id="mov-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#mov-shadow)"><rect x="2" y="8.5" width="18" height="11" rx="1.8" fill="url(#mov-body)" stroke="rgba(255,255,255,0.4)" stroke-width="0.8" /><line x1="5" y1="13" x2="17" y2="13" stroke="rgba(255,255,255,0.3)" stroke-width="0.9" /><line x1="5" y1="16" x2="13" y2="16" stroke="rgba(255,255,255,0.3)" stroke-width="0.9" /><path d="M2.5 7 L19 4 L18.5 7.5 L2 8.5 Z" fill="url(#mov-stripes)" stroke="rgba(0,0,0,0.5)" stroke-width="0.6" /><circle cx="3.2" cy="7.8" r="1.1" fill="#f8fafc" /></g></svg>
+                </div>
+                <div class="tag-row-label">MOVIE:</div>
+                <input type="text" id="txt-tag-movie" class="studio-select tag-row-input" value="MOVIE TIME" placeholder="MOVIE TIME" oninput="onTagInputChanged('movie')">
+                <button type="button" class="tag-row-btn" id="btn-air-movie" onclick="activateShowTag('movie')">Air This</button>
+              </div>
+
+              <!-- 3. DOCUMENTARY -->
+              <div class="show-tag-row" id="row-tag-documentary">
+                <div class="tag-row-icon" title="3D Terrestrial Globe">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="doc-globe" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8" /><stop offset="50%" stop-color="#0284c7" /><stop offset="100%" stop-color="#0c4a6e" /></linearGradient><filter id="doc-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#doc-shadow)"><circle cx="11" cy="11" r="8.5" fill="url(#doc-globe)" stroke="rgba(255,255,255,0.7)" stroke-width="0.9" /><ellipse cx="11" cy="11" rx="8.5" ry="3.2" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="0.8" /><ellipse cx="11" cy="11" rx="3.5" ry="8.5" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="0.8" /><line x1="2.5" y1="11" x2="19.5" y2="11" stroke="rgba(255,255,255,0.7)" stroke-width="0.8" /><circle cx="8" cy="7.5" r="1.4" fill="#ffffff" opacity="0.8" /></g></svg>
+                </div>
+                <div class="tag-row-label">DOCS:</div>
+                <input type="text" id="txt-tag-documentary" class="studio-select tag-row-input" value="DOCUMENTARY" placeholder="DOCUMENTARY" oninput="onTagInputChanged('documentary')">
+                <button type="button" class="tag-row-btn" id="btn-air-documentary" onclick="activateShowTag('documentary')">Air This</button>
+              </div>
+
+              <!-- 4. TELEMARKETING -->
+              <div class="show-tag-row" id="row-tag-telemarketing">
+                <div class="tag-row-icon" title="3D Price Tag (ΤΠ)">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="tp-tag-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fbbf24" /><stop offset="60%" stop-color="#f59e0b" /><stop offset="100%" stop-color="#b45309" /></linearGradient><filter id="tp-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#tp-shadow)"><path d="M19 11.5 L12.5 18 L3 8.5 V3 H8.5 L19 11.5 Z" fill="url(#tp-tag-grad)" stroke="rgba(255,255,255,0.8)" stroke-width="0.8" /><circle cx="6" cy="6" r="1.6" fill="#0f172a" stroke="rgba(255,255,255,0.9)" stroke-width="0.6" /><path d="M10.5 10.5 L14.5 14.5 M13 9.5 L9 13.5" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" /></g></svg>
+                </div>
+                <div class="tag-row-label">TELEMARKETING:</div>
+                <input type="text" id="txt-tag-telemarketing" class="studio-select tag-row-input" value="TELEMARKETING" placeholder="TELEMARKETING" oninput="onTagInputChanged('telemarketing')">
+                <button type="button" class="tag-row-btn" id="btn-air-telemarketing" onclick="activateShowTag('telemarketing')">Air This</button>
+              </div>
+
+              <!-- 5. SERIES / SHOW -->
+              <div class="show-tag-row" id="row-tag-show">
+                <div class="tag-row-icon" title="3D Dual Screens">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="show-screen" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#a855f7" /><stop offset="60%" stop-color="#7e22ce" /><stop offset="100%" stop-color="#581c87" /></linearGradient><filter id="show-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#show-shadow)"><rect x="5.5" y="3" width="13" height="10" rx="1.5" fill="#334155" stroke="rgba(255,255,255,0.3)" stroke-width="0.8" /><rect x="2.5" y="6.5" width="14" height="11" rx="1.8" fill="url(#show-screen)" stroke="rgba(255,255,255,0.8)" stroke-width="0.9" /><polygon points="7.5,9.5 12,12 7.5,14.5" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">SERIES:</div>
+                <input type="text" id="txt-tag-show" class="studio-select tag-row-input" value="SERIES" placeholder="SERIES" oninput="onTagInputChanged('show')">
+                <button type="button" class="tag-row-btn" id="btn-air-show" onclick="activateShowTag('show')">Air This</button>
+              </div>
+
+              <!-- 6. NEWS -->
+              <div class="show-tag-row" id="row-tag-news">
+                <div class="tag-row-icon" title="3D Transmission Tower">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="news-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ef4444" /><stop offset="60%" stop-color="#dc2626" /><stop offset="100%" stop-color="#991b1b" /></linearGradient><filter id="news-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#news-shadow)"><path d="M11 5 L6 19 H16 L11 5 Z" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="1.2" /><line x1="8" y1="12" x2="14" y2="12" stroke="rgba(255,255,255,0.7)" stroke-width="1" /><line x1="7" y1="15.5" x2="15" y2="15.5" stroke="rgba(255,255,255,0.7)" stroke-width="1" /><circle cx="11" cy="4.5" r="2.2" fill="url(#news-grad)" stroke="#ffffff" stroke-width="0.8" /><path d="M7 2.5 A6 6 0 0 1 15 2.5" fill="none" stroke="#ef4444" stroke-width="1.2" stroke-linecap="round" /><path d="M4.5 1 A9 9 0 0 1 17.5 1" fill="none" stroke="#f87171" stroke-width="1.1" stroke-linecap="round" /></g></svg>
+                </div>
+                <div class="tag-row-label">NEWS:</div>
+                <input type="text" id="txt-tag-news" class="studio-select tag-row-input" value="NEWS" placeholder="NEWS" oninput="onTagInputChanged('news')">
+                <button type="button" class="tag-row-btn" id="btn-air-news" onclick="activateShowTag('news')">Air This</button>
+              </div>
+            </div>
+
+            <!-- Active On-Air Tagline Override & Preview -->
+            <div style="margin-top: 10px; padding: 10px 12px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px;">
+              <div style="font-size: 11px; font-weight: 700; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span>Active Subtitle / Tagline</span>
+                <button type="button" class="studio-btn" style="padding: 2px 8px; font-size: 10px;" onclick="activateShowTag('none')">✕ Clean Station ID</button>
+              </div>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <select id="sel-active-tag-icon" class="studio-select" style="width: 130px; font-size: 11px;" onchange="onManualIconSelected(this.value)">
+                  <option value="none">No Icon (Text Only)</option>
+                  <option value="live">🔴 Live Dot</option>
+                  <option value="movie">🎬 Clapperboard</option>
+                  <option value="documentary">🌍 Globe</option>
+                  <option value="telemarketing">🛒 Sale Tag</option>
+                  <option value="show">📺 Screens</option>
+                  <option value="news">📡 Tower Dish</option>
+                </select>
+                <input type="text" id="txt-active-tagline" class="studio-select" style="flex: 1; font-weight: 700; text-transform: uppercase;" value="HD" placeholder="Custom Tagline" oninput="onActiveTaglineInput(this.value)">
+              </div>
+              <div style="font-size: 10.5px; color: #94a3b8; margin-top: 6px;">
+                On-Air Render: <span id="tagline-live-preview" style="color: #38bdf8; font-weight: 800;">SITIA | HD</span>
+              </div>
+            </div>
+          </div>
+
           <!-- Video Canvas Simulation & Transport Controls -->
           <div class="studio-group">
             <div class="studio-group-title">🎬 Video Canvas Simulator</div>
@@ -1761,9 +2049,9 @@
             <div style="margin-top: 8px;">
               <div class="studio-slider-label">
                 <span>Station Logo Size</span>
-                <span id="val-logo-size" class="studio-slider-val">76px</span>
+                <span id="val-logo-size" class="studio-slider-val">88px</span>
               </div>
-              <input type="range" min="40" max="180" value="76" id="sld-logo-size" class="studio-slider" oninput="updateLogoFromControls()">
+              <input type="range" min="40" max="180" value="88" id="sld-logo-size" class="studio-slider" oninput="updateLogoFromControls()">
             </div>
             <div style="margin-top: 6px;">
               <div class="studio-slider-label">
@@ -1891,9 +2179,9 @@
             <div>
               <div class="studio-slider-label">
                 <span>Badge Diameter</span>
-                <span id="val-rating-size" class="studio-slider-val">54px</span>
+                <span id="val-rating-size" class="studio-slider-val">48px</span>
               </div>
-              <input type="range" min="36" max="100" value="54" id="sld-rating-size" class="studio-slider" oninput="updateRatingFromControls()">
+              <input type="range" min="36" max="100" value="48" id="sld-rating-size" class="studio-slider" oninput="updateRatingFromControls()">
             </div>
             <div style="margin-top: 8px;">
               <div class="studio-slider-label">
@@ -2097,10 +2385,11 @@
 
       </div>
 
-      <!-- Footer Action Buttons -->
+      <!-- Footer Action Buttons (Bottom Left) -->
       <div class="studio-footer">
-        <button class="action-btn-primary" onclick="buildTimeline(); replayTimeline();">▶ Replay</button>
-        <button class="action-btn-secondary" onclick="saveBroadcastDefaults()">💾 Save Defaults</button>
+        <button class="action-btn-primary" onclick="buildTimeline(); replayTimeline();" title="Replay on-air animation sequence">▶ Replay</button>
+        <button class="action-btn-secondary" onclick="saveCurrentActivePreset()" title="Save edits to current preset">💾 Save</button>
+        <button class="action-btn-secondary" onclick="openSaveAsDialog()" title="Save as a new named preset" style="background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.6); color: #38bdf8;">⭐ Save As...</button>
       </div>
     </aside>
 
@@ -2783,6 +3072,7 @@
 
     // Dynamic Station Logo Generator
     function setLogoShape(shape) {
+      currentLogoShape = shape;
       ['squircle', 'circle', 'pill', 'shield', 'diamond'].forEach(s => {
         const btn = document.getElementById(`btn-logo-shape-${s}`);
         if (btn) btn.classList.toggle('active', s === shape);
@@ -2949,6 +3239,7 @@
     }
 
     function setRatingShape(shape) {
+      currentRatingShape = shape;
       ['circle', 'squircle', 'pill'].forEach(s => {
         const btn = document.getElementById(`btn-rating-shape-${s}`);
         if (btn) btn.classList.toggle('active', s === shape);
@@ -3180,6 +3471,8 @@
 
       const currentActiveTab = document.querySelector('.studio-tab-btn.active')?.getAttribute('data-tab') || 'content';
 
+      const groupStationTags = document.getElementById('group-station-show-tags');
+
       if (mode === 'rating') {
         // Rating Only: Filter out all Station Logo tabs & controls!
         if (tabStation) tabStation.style.display = 'none';
@@ -3188,6 +3481,7 @@
 
         if (contentGroupRating) contentGroupRating.style.display = 'flex';
         if (contentGroupLegal) contentGroupLegal.style.display = 'flex';
+        if (groupStationTags) groupStationTags.style.display = 'none';
         if (chkStationLabel) chkStationLabel.style.display = 'none';
 
         if (btnCopyLogo) btnCopyLogo.style.display = 'none';
@@ -3199,18 +3493,18 @@
         if (currentConfig.rating === 'NONE') currentConfig.rating = '16';
         currentConfig.show_station_logo = false;
 
-        // Auto-switch away from Station tab if it was active
         if (currentActiveTab === 'station') {
           switchStudioTab('rating');
         }
       } else if (mode === 'logo') {
-        // Station ID Only: Filter out all Rating-only tabs & controls!
+        // Station ID Only: Show Station Logo controls and Show Tags directly in Content tab!
         if (tabStation) tabStation.style.display = 'flex';
         if (tabRating) tabRating.style.display = 'none';
         if (tabMotion) tabMotion.style.display = 'none';
 
         if (contentGroupRating) contentGroupRating.style.display = 'none';
         if (contentGroupLegal) contentGroupLegal.style.display = 'none';
+        if (groupStationTags) groupStationTags.style.display = 'block';
         if (chkStationLabel) chkStationLabel.style.display = 'none';
 
         if (btnCopyLogo) btnCopyLogo.style.display = 'inline-flex';
@@ -3222,9 +3516,8 @@
         currentConfig.rating = 'NONE';
         currentConfig.show_station_logo = true;
 
-        // Auto-switch away from Rating or Motion tabs if active
-        if (currentActiveTab === 'rating' || currentActiveTab === 'motion' || currentActiveTab === 'content') {
-          switchStudioTab('station');
+        if (currentActiveTab === 'rating' || currentActiveTab === 'motion') {
+          switchStudioTab('content');
         }
       } else {
         // Combo (Both): Show all controls & tabs!
@@ -4148,12 +4441,17 @@
 
     // Initialization Sequence
     window.addEventListener('DOMContentLoaded', () => {
-      loadSavedDefaults();
-      loadUserCustomThemes();
       initCanvasDraggables();
+
+      // Master Presets: Load default or operator active preset
+      const startupPresetId = localStorage.getItem('PLAYOUT_DEFAULT_PRESET_ID') || 'default';
+      refreshMasterPresetDropdown();
+      onSelectMasterPreset(startupPresetId);
+
       updateLogoFromControls();
       updateRatingFromControls();
       resizeCanvas();
+      setTimeout(resizeCanvas, 100);
 
       // On-Air Detection: window.caspar OR URL parameter ?onair=1 or ?broadcast=1
       const params = new URLSearchParams(window.location.search);
@@ -4170,7 +4468,7 @@
     });
 
     // =========================================================================
-    // BROADCAST SHOW TAG PRESETS & SOTA NEUMORPHIC SVGS
+    // SOTA UNIFIED MASTER PRESET & SHOW TAG ENGINE
     // =========================================================================
     const SHOW_TAG_PRESETS = {
       live: {
@@ -4181,12 +4479,12 @@
       },
       movie: {
         id: 'movie',
-        label: 'MOVIE',
+        label: 'MOVIE TIME',
         iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="mov-stripes" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc" /><stop offset="40%" stop-color="#cbd5e1" /><stop offset="100%" stop-color="#475569" /></linearGradient><linearGradient id="mov-body" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#334155" /><stop offset="100%" stop-color="#0f172a" /></linearGradient><filter id="mov-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#mov-shadow)"><rect x="2" y="8.5" width="18" height="11" rx="1.8" fill="url(#mov-body)" stroke="rgba(255,255,255,0.4)" stroke-width="0.8" /><line x1="5" y1="13" x2="17" y2="13" stroke="rgba(255,255,255,0.3)" stroke-width="0.9" /><line x1="5" y1="16" x2="13" y2="16" stroke="rgba(255,255,255,0.3)" stroke-width="0.9" /><path d="M2.5 7 L19 4 L18.5 7.5 L2 8.5 Z" fill="url(#mov-stripes)" stroke="rgba(0,0,0,0.5)" stroke-width="0.6" /><circle cx="3.2" cy="7.8" r="1.1" fill="#f8fafc" /></g></svg>`
       },
       documentary: {
         id: 'documentary',
-        label: 'DOCS',
+        label: 'DOCUMENTARY',
         iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="doc-globe" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8" /><stop offset="50%" stop-color="#0284c7" /><stop offset="100%" stop-color="#0c4a6e" /></linearGradient><filter id="doc-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.8" dy="1.2" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.8" /></filter></defs><g filter="url(#doc-shadow)"><circle cx="11" cy="11" r="8.5" fill="url(#doc-globe)" stroke="rgba(255,255,255,0.7)" stroke-width="0.9" /><ellipse cx="11" cy="11" rx="8.5" ry="3.2" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="0.8" /><ellipse cx="11" cy="11" rx="3.5" ry="8.5" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="0.8" /><line x1="2.5" y1="11" x2="19.5" y2="11" stroke="rgba(255,255,255,0.7)" stroke-width="0.8" /><circle cx="8" cy="7.5" r="1.4" fill="#ffffff" opacity="0.8" /></g></svg>`
       },
       telemarketing: {
@@ -4207,78 +4505,591 @@
     };
 
     let currentShowTag = 'none';
+    let currentLogoShape = 'squircle';
+    let currentRatingShape = 'circle';
+    let currentMasterPresetId = 'default';
 
-    function applyShowTagPreset(tagKey, customLabel) {
-      const preset = SHOW_TAG_PRESETS[tagKey];
+    // Broadcast standard master preset packages
+    const MASTER_STANDARD_PRESETS = {
+      'default': {
+        id: 'default',
+        name: '🌟 Sitia HD Standard (Default)',
+        wordmark: 'SITIA',
+        subtitle: 'HD',
+        showTag: 'none',
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        logoSize: 88,
+        logoRadius: 54,
+        logoExtrusion: 'convex',
+        logoBase: '#702177',
+        logoGrad: '#46104c',
+        logoSpecular: '#f0f5fc',
+        logoShadow: '#18031d',
+        logoFont: 'system',
+        logoShape: 'squircle',
+        ratingCutout: 'stencil',
+        ratingShape: 'circle',
+        ratingSize: 48,
+        ratingFontSize: 24,
+        ratingFont: 'system',
+        rating: '16',
+        warnings: ['violence', 'drugs'],
+        tp: false,
+        theme: 'frosted',
+        hold_time: 30.0,
+        warning_hold_time: 30.0,
+        orientation: 'default',
+        displayMode: 'combo'
+      },
+      'live': {
+        id: 'live',
+        name: '🔴 Sitia Live Broadcast',
+        wordmark: 'SITIA',
+        subtitle: 'LIVE',
+        showTag: 'live',
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        logoSize: 88,
+        logoRadius: 54,
+        logoExtrusion: 'convex',
+        logoBase: '#702177',
+        logoGrad: '#46104c',
+        logoSpecular: '#f0f5fc',
+        logoShadow: '#18031d',
+        logoFont: 'system',
+        logoShape: 'squircle',
+        ratingCutout: 'stencil',
+        ratingShape: 'circle',
+        ratingSize: 48,
+        ratingFontSize: 24,
+        ratingFont: 'system',
+        rating: 'K',
+        warnings: [],
+        tp: false,
+        theme: 'frosted',
+        hold_time: 30.0,
+        warning_hold_time: 30.0,
+        orientation: 'default',
+        displayMode: 'combo'
+      },
+      'movie': {
+        id: 'movie',
+        name: '🎬 Primetime Movie Night',
+        wordmark: 'SITIA',
+        subtitle: 'MOVIE TIME',
+        showTag: 'movie',
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        logoSize: 92,
+        logoRadius: 54,
+        logoExtrusion: 'convex',
+        logoBase: '#581c87',
+        logoGrad: '#3b0764',
+        logoSpecular: '#f8fafc',
+        logoShadow: '#0f051d',
+        logoFont: 'display',
+        logoShape: 'squircle',
+        ratingCutout: 'stencil',
+        ratingShape: 'circle',
+        ratingSize: 48,
+        ratingFontSize: 24,
+        ratingFont: 'system',
+        rating: '16',
+        warnings: ['violence', 'drugs'],
+        tp: false,
+        theme: 'frosted',
+        hold_time: 30.0,
+        warning_hold_time: 30.0,
+        orientation: 'default',
+        displayMode: 'combo'
+      },
+      'documentary': {
+        id: 'documentary',
+        name: '🌍 World Nature & Docs',
+        wordmark: 'SITIA',
+        subtitle: 'DOCUMENTARY',
+        showTag: 'documentary',
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        logoSize: 88,
+        logoRadius: 54,
+        logoExtrusion: 'convex',
+        logoBase: '#0284c7',
+        logoGrad: '#075985',
+        logoSpecular: '#f0f9ff',
+        logoShadow: '#082f49',
+        logoFont: 'geometric',
+        logoShape: 'squircle',
+        ratingCutout: 'stencil',
+        ratingShape: 'circle',
+        ratingSize: 48,
+        ratingFontSize: 24,
+        ratingFont: 'system',
+        rating: '8',
+        warnings: [],
+        tp: false,
+        theme: 'frosted',
+        hold_time: 30.0,
+        warning_hold_time: 30.0,
+        orientation: 'default',
+        displayMode: 'combo'
+      },
+      'telemarketing': {
+        id: 'telemarketing',
+        name: '🛒 Telemarketing Direct (ΤΠ)',
+        wordmark: 'SITIA',
+        subtitle: 'TELEMARKETING',
+        showTag: 'telemarketing',
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        logoSize: 86,
+        logoRadius: 54,
+        logoExtrusion: 'convex',
+        logoBase: '#d97706',
+        logoGrad: '#b45309',
+        logoSpecular: '#fffbeb',
+        logoShadow: '#451a03',
+        logoFont: 'system',
+        logoShape: 'squircle',
+        ratingCutout: 'stencil',
+        ratingShape: 'circle',
+        ratingSize: 46,
+        ratingFontSize: 24,
+        ratingFont: 'system',
+        rating: 'K',
+        warnings: [],
+        tp: true,
+        theme: 'frosted',
+        hold_time: 30.0,
+        warning_hold_time: 30.0,
+        orientation: 'default',
+        displayMode: 'combo'
+      },
+      'show': {
+        id: 'show',
+        name: '📺 Prime Drama Series',
+        wordmark: 'SITIA',
+        subtitle: 'SERIES',
+        showTag: 'show',
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        logoSize: 88,
+        logoRadius: 54,
+        logoExtrusion: 'convex',
+        logoBase: '#702177',
+        logoGrad: '#46104c',
+        logoSpecular: '#f0f5fc',
+        logoShadow: '#18031d',
+        logoFont: 'system',
+        logoShape: 'squircle',
+        ratingCutout: 'stencil',
+        ratingShape: 'circle',
+        ratingSize: 48,
+        ratingFontSize: 24,
+        ratingFont: 'system',
+        rating: '12',
+        warnings: ['violence'],
+        tp: false,
+        theme: 'frosted',
+        hold_time: 30.0,
+        warning_hold_time: 30.0,
+        orientation: 'default',
+        displayMode: 'combo'
+      },
+      'news': {
+        id: 'news',
+        name: '📡 Breaking News & Reports',
+        wordmark: 'SITIA',
+        subtitle: 'NEWS',
+        showTag: 'news',
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        logoSize: 88,
+        logoRadius: 54,
+        logoExtrusion: 'convex',
+        logoBase: '#dc2626',
+        logoGrad: '#991b1b',
+        logoSpecular: '#fef2f2',
+        logoShadow: '#450a0a',
+        logoFont: 'system',
+        logoShape: 'squircle',
+        ratingCutout: 'stencil',
+        ratingShape: 'circle',
+        ratingSize: 48,
+        ratingFontSize: 24,
+        ratingFont: 'system',
+        rating: 'K',
+        warnings: [],
+        tp: false,
+        theme: 'frosted',
+        hold_time: 30.0,
+        warning_hold_time: 30.0,
+        orientation: 'default',
+        displayMode: 'combo'
+      }
+    };
+
+    // Populate the Master Preset Chooser dropdown
+    function refreshMasterPresetDropdown() {
+      const optgroup = document.getElementById('optgroup-master-user-presets');
+      if (!optgroup) return;
+
+      const userPresets = getUserPresetsList();
+      if (userPresets.length === 0) {
+        optgroup.innerHTML = '<option disabled>No custom presets saved</option>';
+      } else {
+        optgroup.innerHTML = userPresets.map(p => `
+          <option value="${p.id}">${p.name}</option>
+        `).join('');
+      }
+
+      const sel = document.getElementById('sel-master-preset');
+      if (sel) sel.value = currentMasterPresetId;
+
+      // Update Delete button visibility
+      const btnDel = document.getElementById('btn-delete-preset');
+      if (btnDel) {
+        btnDel.style.display = (currentMasterPresetId.startsWith('preset_')) ? 'inline-flex' : 'none';
+      }
+
+      // Update Default badge button
+      const defaultId = localStorage.getItem('PLAYOUT_DEFAULT_PRESET_ID') || 'default';
+      const btnDef = document.getElementById('btn-make-default');
+      if (btnDef) {
+        if (currentMasterPresetId === defaultId) {
+          btnDef.classList.add('active-default');
+          btnDef.textContent = '★ Default';
+        } else {
+          btnDef.classList.remove('active-default');
+          btnDef.textContent = '★ Set Default';
+        }
+      }
+    }
+
+    function onSelectMasterPreset(presetId) {
+      currentMasterPresetId = presetId; window.currentMasterPresetId = presetId;
+      let preset = null;
+
+      if (MASTER_STANDARD_PRESETS[presetId]) {
+        preset = MASTER_STANDARD_PRESETS[presetId];
+      } else {
+        const userPresets = getUserPresetsList();
+        preset = userPresets.find(p => p.id === presetId);
+      }
+
+      if (!preset) return;
+      applyPresetPackage(preset);
+      refreshMasterPresetDropdown();
+      recordAction('PRESET', `Applied preset: "${preset.name}"`);
+    }
+
+    function applyPresetPackage(p) {
+      if (!p) return;
+
+      // 1. Wordmark & Subtitle
+      const txtWordmark = document.getElementById('txt-logo-content');
+      if (txtWordmark && p.wordmark) txtWordmark.value = p.wordmark;
+
+      // 2. Tag custom text boxes
+      if (p.tagTexts) {
+        Object.keys(p.tagTexts).forEach(tagKey => {
+          const input = document.getElementById('txt-tag-' + tagKey);
+          if (input) input.value = p.tagTexts[tagKey];
+        });
+      }
+
+      // 3. Active show tag
+      if (p.showTag) {
+        activateShowTag(p.showTag, p.subtitle);
+      } else if (p.subtitle) {
+        onActiveTaglineInput(p.subtitle);
+      } else {
+        activateShowTag('none');
+      }
+
+      // 4. Chassis geometry & sizes
+      const sldLogoSize = document.getElementById('sld-logo-size');
+      if (sldLogoSize && p.logoSize) {
+        sldLogoSize.value = p.logoSize;
+        const valEl = document.getElementById('val-logo-size');
+        if (valEl) valEl.textContent = p.logoSize + 'px';
+      }
+
+      const sldLogoRadius = document.getElementById('sld-logo-radius');
+      if (sldLogoRadius && p.logoRadius) {
+        sldLogoRadius.value = p.logoRadius;
+        const valEl = document.getElementById('val-logo-radius');
+        if (valEl) valEl.textContent = p.logoRadius + 'px';
+      }
+
+      if (p.logoShape) setLogoShape(p.logoShape);
+      if (p.logoExtrusion) {
+        const sel = document.getElementById('sel-logo-extrusion');
+        if (sel) sel.value = p.logoExtrusion;
+      }
+
+      if (p.logoBase) document.getElementById('col-logo-base').value = p.logoBase;
+      if (p.logoGrad) document.getElementById('col-logo-grad').value = p.logoGrad;
+      if (p.logoFont) {
+        const sel = document.getElementById('sel-logo-font');
+        if (sel) sel.value = p.logoFont;
+      }
+
+      // 5. Rating Badge
+      const sldRatingSize = document.getElementById('sld-rating-size');
+      if (sldRatingSize && p.ratingSize) {
+        sldRatingSize.value = p.ratingSize;
+        const valEl = document.getElementById('val-rating-size');
+        if (valEl) valEl.textContent = p.ratingSize + 'px';
+      }
+
+      if (p.ratingCutout) {
+        const selCut = document.getElementById('sel-rating-cutout');
+        if (selCut) selCut.value = p.ratingCutout;
+      }
+      if (p.ratingShape) setRatingShape(p.ratingShape);
+      if (p.rating) setStudioRating(p.rating);
+
+      // 6. Theme & Motion
+      if (p.theme) applyThemePreset(p.theme);
+      if (p.hold_time) currentConfig.hold_time = p.hold_time;
+      if (p.warning_hold_time) currentConfig.warning_hold_time = p.warning_hold_time;
+
+      // 7. Orientation & Display mode
+      if (p.orientation && p.orientation !== currentLayoutOrientation) {
+        flipStagePositions();
+      }
+      if (p.displayMode) {
+        setStudioDisplayMode(p.displayMode);
+      }
+
+      updateLogoFromControls();
+      updateRatingFromControls();
+      buildTimeline();
+      replayTimeline();
+    }
+
+    function markActivePresetAsDefault() {
+      localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', currentMasterPresetId);
+      refreshMasterPresetDropdown();
+      recordAction('PRESET', `Marked "${currentMasterPresetId}" as startup default`);
+      alert(`✓ Preset will load automatically on startup!`);
+    }
+
+    function saveCurrentActivePreset() {
+      if (currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_')) {
+        const pkg = captureCurrentPresetPackage(null);
+        let userPresets = getUserPresetsList();
+        const idx = userPresets.findIndex(p => p.id === currentMasterPresetId);
+        if (idx !== -1) {
+          pkg.id = currentMasterPresetId;
+          pkg.name = userPresets[idx].name;
+          userPresets[idx] = pkg;
+          localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(userPresets));
+          refreshMasterPresetDropdown();
+          recordAction('PRESET', `Updated preset: "${pkg.name}"`);
+          alert(`✓ Saved changes to preset "${pkg.name}"!`);
+          return;
+        }
+      }
+      openSaveAsDialog();
+    }
+
+    function deleteActiveMasterPreset() {
+      if (!currentMasterPresetId || !String(currentMasterPresetId).startsWith('preset_')) return;
+      if (!confirm('Are you sure you want to delete this custom preset?')) return;
+
+      let userPresets = getUserPresetsList();
+      userPresets = userPresets.filter(p => p.id !== currentMasterPresetId);
+      localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(userPresets));
+      currentMasterPresetId = 'default';
+      onSelectMasterPreset('default');
+    }
+
+    function captureCurrentPresetPackage(name) {
+      const tagTexts = {
+        live: document.getElementById('txt-tag-live')?.value.trim() || 'LIVE',
+        movie: document.getElementById('txt-tag-movie')?.value.trim() || 'MOVIE TIME',
+        documentary: document.getElementById('txt-tag-documentary')?.value.trim() || 'DOCUMENTARY',
+        telemarketing: document.getElementById('txt-tag-telemarketing')?.value.trim() || 'TELEMARKETING',
+        show: document.getElementById('txt-tag-show')?.value.trim() || 'SERIES',
+        news: document.getElementById('txt-tag-news')?.value.trim() || 'NEWS'
+      };
+
+      return {
+        id: 'preset_' + Date.now(),
+        name: name || 'Custom Preset ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        wordmark: document.getElementById('txt-logo-content')?.value || 'SITIA',
+        subtitle: document.getElementById('txt-logo-subtitle')?.value || 'HD',
+        showTag: currentShowTag || 'none',
+        tagTexts: tagTexts,
+        logoSize: parseInt(document.getElementById('sld-logo-size')?.value) || 88,
+        logoRadius: parseInt(document.getElementById('sld-logo-radius')?.value) || 54,
+        logoExtrusion: document.getElementById('sel-logo-extrusion')?.value || 'convex',
+        logoBase: document.getElementById('col-logo-base')?.value || '#702177',
+        logoGrad: document.getElementById('col-logo-grad')?.value || '#46104c',
+        logoSpecular: document.getElementById('col-logo-specular')?.value || '#f0f5fc',
+        logoShadow: document.getElementById('col-logo-shadow')?.value || '#18031d',
+        logoFont: document.getElementById('sel-logo-font')?.value || 'system',
+        logoShape: currentLogoShape || 'squircle',
+        ratingCutout: document.getElementById('sel-rating-cutout')?.value || 'frosted',
+        ratingShape: currentRatingShape || 'circle',
+        ratingSize: parseInt(document.getElementById('sld-rating-size')?.value) || 48,
+        ratingFontSize: parseInt(document.getElementById('sld-rating-font-size')?.value) || 24,
+        ratingFont: document.getElementById('sel-rating-font')?.value || 'system',
+        rating: currentConfig.rating || '16',
+        warnings: currentConfig.warnings || [],
+        tp: !!currentConfig.tp,
+        theme: currentConfig.theme || 'frosted',
+        hold_time: currentConfig.hold_time || 30.0,
+        warning_hold_time: currentConfig.warning_hold_time || 30.0,
+        orientation: currentLayoutOrientation || 'default',
+        displayMode: currentStudioDisplayMode || 'combo'
+      };
+    }
+
+    function getUserPresetsList() {
+      try {
+        return JSON.parse(localStorage.getItem('PLAYOUT_USER_PRESETS') || '[]');
+      } catch(e) {
+        return [];
+      }
+    }
+
+    // =========================================================================
+    // SHOW TAG CONTENT ACTIVATION & REAL-TIME INPUT HANDLERS
+    // =========================================================================
+    function activateShowTag(tagKey, explicitText) {
+      currentShowTag = tagKey;
+
+      document.querySelectorAll('.show-tag-row').forEach(row => {
+        row.classList.toggle('active', row.id === ('row-tag-' + tagKey));
+      });
+
       const tagEl = document.getElementById('station-subtitle-tag');
       const iconEl = document.getElementById('station-subtitle-icon');
       const labelEl = document.getElementById('station-subtitle-label');
-      const inputEl = document.getElementById('txt-logo-subtitle');
-      const selectEl = document.getElementById('sel-show-tag-icon');
+      const selIcon = document.getElementById('sel-active-tag-icon');
+      const txtActive = document.getElementById('txt-active-tagline');
+      const txtLogoSub = document.getElementById('txt-logo-subtitle');
 
-      if (!preset || tagKey === 'none') {
-        currentShowTag = 'none';
+      if (tagKey === 'none') {
         if (tagEl) {
           tagEl.style.display = 'none';
           tagEl.classList.remove('visible');
         }
         if (iconEl) iconEl.innerHTML = '';
         if (labelEl) labelEl.textContent = '';
-        if (inputEl) inputEl.value = '';
-        if (selectEl) selectEl.value = 'none';
-        document.querySelectorAll('.show-tag-chip').forEach(c => c.classList.remove('active'));
-        recordAction('SHOW TAG', 'Cleared show tag');
+        if (selIcon) selIcon.value = 'none';
+        if (txtActive) txtActive.value = '';
+        if (txtLogoSub) txtLogoSub.value = '';
+        updateLivePreviewString();
+        recordAction('TAG', 'Set clean Station ID (no subtitle)');
         return;
       }
 
-      currentShowTag = tagKey;
-      const label = (customLabel !== undefined && customLabel !== null) ? customLabel : preset.label;
+      const preset = SHOW_TAG_PRESETS[tagKey];
+      let text = explicitText;
+      if (!text) {
+        const input = document.getElementById('txt-tag-' + tagKey);
+        text = input ? input.value.trim().toUpperCase() : (preset ? preset.label : '');
+      }
 
-      if (iconEl) iconEl.innerHTML = preset.iconSvg;
-      if (labelEl) labelEl.textContent = label;
-      if (inputEl) inputEl.value = label;
-      if (selectEl) selectEl.value = tagKey;
+      if (iconEl && preset) iconEl.innerHTML = preset.iconSvg;
+      if (labelEl) labelEl.textContent = text;
+      if (selIcon) selIcon.value = tagKey;
+      if (txtActive) txtActive.value = text;
+      if (txtLogoSub) txtLogoSub.value = text;
 
       if (tagEl) {
         tagEl.style.display = 'inline-flex';
         tagEl.classList.add('visible');
       }
 
-      document.querySelectorAll('.show-tag-chip').forEach(chip => {
-        chip.classList.toggle('active', chip.getAttribute('data-tag') === tagKey);
-      });
-
-      recordAction('SHOW TAG', `Activated show tag preset: ${preset.label}`);
+      updateLivePreviewString();
+      recordAction('TAG', `Activated on-air show tag: ${text}`);
     }
 
-    function onSelectTagIconChange() {
-      const selIcon = document.getElementById('sel-show-tag-icon')?.value;
+    function onTagInputChanged(tagKey) {
+      const input = document.getElementById('txt-tag-' + tagKey);
+      const text = input ? input.value.trim().toUpperCase() : '';
+      if (currentShowTag === tagKey) {
+        const labelEl = document.getElementById('station-subtitle-label');
+        const txtActive = document.getElementById('txt-active-tagline');
+        const txtLogoSub = document.getElementById('txt-logo-subtitle');
+        if (labelEl) labelEl.textContent = text;
+        if (txtActive) txtActive.value = text;
+        if (txtLogoSub) txtLogoSub.value = text;
+        updateLivePreviewString();
+      }
+    }
+
+    function onActiveTaglineInput(text) {
+      const upper = (text || '').trim().toUpperCase();
+      const labelEl = document.getElementById('station-subtitle-label');
+      const tagEl = document.getElementById('station-subtitle-tag');
+      const txtLogoSub = document.getElementById('txt-logo-subtitle');
+
+      if (!upper) {
+        if (tagEl) {
+          tagEl.style.display = 'none';
+          tagEl.classList.remove('visible');
+        }
+        if (labelEl) labelEl.textContent = '';
+        if (txtLogoSub) txtLogoSub.value = '';
+        currentShowTag = 'none';
+        document.querySelectorAll('.show-tag-row').forEach(r => r.classList.remove('active'));
+      } else {
+        if (tagEl) {
+          tagEl.style.display = 'inline-flex';
+          tagEl.classList.add('visible');
+        }
+        if (labelEl) labelEl.textContent = upper;
+        if (txtLogoSub) txtLogoSub.value = upper;
+      }
+      updateLivePreviewString();
+    }
+
+    function onManualIconSelected(iconKey) {
       const iconEl = document.getElementById('station-subtitle-icon');
-      if (selIcon && SHOW_TAG_PRESETS[selIcon]) {
-        if (iconEl) iconEl.innerHTML = SHOW_TAG_PRESETS[selIcon].iconSvg;
-        currentShowTag = selIcon;
+      if (SHOW_TAG_PRESETS[iconKey]) {
+        if (iconEl) iconEl.innerHTML = SHOW_TAG_PRESETS[iconKey].iconSvg;
+        currentShowTag = iconKey;
       } else {
         if (iconEl) iconEl.innerHTML = '';
         currentShowTag = 'none';
       }
-      document.querySelectorAll('.show-tag-chip').forEach(chip => {
-        chip.classList.toggle('active', chip.getAttribute('data-tag') === currentShowTag);
+      document.querySelectorAll('.show-tag-row').forEach(r => {
+        r.classList.toggle('active', r.id === ('row-tag-' + iconKey));
       });
+      updateLivePreviewString();
+    }
+
+    function updateLivePreviewString() {
+      const livePreview = document.getElementById('tagline-live-preview');
+      if (!livePreview) return;
+      const wordmark = document.getElementById('txt-logo-content')?.value || 'SITIA';
+      const labelEl = document.getElementById('station-subtitle-label');
+      const subText = labelEl ? labelEl.textContent.trim() : '';
+
+      if (!subText) {
+        livePreview.textContent = wordmark;
+      } else {
+        if (currentLayoutOrientation === 'flipped') {
+          livePreview.textContent = `${subText} | ${wordmark}`;
+        } else {
+          livePreview.textContent = `${wordmark} | ${subText}`;
+        }
+      }
     }
 
     // =========================================================================
-    // SAVE AS... MODAL & OPERATOR PRESET MANAGEMENT
+    // SAVE AS... MODAL DIALOG
     // =========================================================================
     function openSaveAsDialog() {
       const modal = document.getElementById('save-as-modal');
       const input = document.getElementById('txt-save-as-name');
       if (!modal || !input) return;
-      
+
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const tagLabel = currentShowTag !== 'none' ? ` (${currentShowTag.toUpperCase()})` : '';
-      input.value = `Custom Preset ${timeStr}${tagLabel}`;
-      
+      input.value = `Custom Look ${timeStr}${tagLabel}`;
+
       modal.classList.add('active');
       setTimeout(() => {
         input.focus();
@@ -4299,151 +5110,22 @@
         return;
       }
 
-      const newPreset = {
-        id: 'preset_' + Date.now(),
-        name: name,
-        createdAt: new Date().toISOString(),
-        wordmark: document.getElementById('txt-logo-wordmark')?.value || 'SITIA',
-        subtitle: document.getElementById('txt-logo-subtitle')?.value || '',
-        showTag: currentShowTag || 'none',
-        font: document.getElementById('sel-logo-font')?.value || 'system-heavy',
-        shape: currentLogoShape || 'squircle',
-        size: parseInt(document.getElementById('slider-logo-size')?.value) || 76,
-        radius: parseInt(document.getElementById('slider-logo-radius')?.value) || 52,
-        extrusion: parseFloat(document.getElementById('slider-logo-extrusion')?.value) || 1.0,
-        baseCol: document.getElementById('col-logo-base')?.value || '#702177',
-        gradCol: document.getElementById('col-logo-grad')?.value || '#46104c',
-        specularCol: document.getElementById('col-logo-specular')?.value || '#f0f5fc',
-        shadowCol: document.getElementById('col-logo-shadow')?.value || '#18031d',
-        ratingCutout: currentCutoutMode || 'stencil',
-        ratingShape: currentRatingShape || 'circle',
-        ratingSize: parseInt(document.getElementById('slider-rating-size')?.value) || 78,
-        ratingFont: document.getElementById('sel-rating-font')?.value || 'system-heavy',
-        theme: currentActiveTheme || 'classic_neumorphic',
-        hold_time: currentConfig.hold_time || 30.0,
-        warning_hold_time: currentConfig.warning_hold_time || 30.0,
-        orientation: currentLayoutOrientation || 'default'
-      };
-
+      const pkg = captureCurrentPresetPackage(name);
       try {
-        const stored = JSON.parse(localStorage.getItem('PLAYOUT_USER_PRESETS') || '[]');
-        stored.push(newPreset);
-        localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(stored));
-        renderUserPresetsList();
+        let userPresets = getUserPresetsList();
+        userPresets.push(pkg);
+        localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(userPresets));
+        currentMasterPresetId = pkg.id;
+        refreshMasterPresetDropdown();
         closeSaveAsDialog();
         recordAction('PRESET', `Saved new custom preset: "${name}"`);
+        alert(`✓ Successfully saved custom preset: "${name}"!`);
       } catch (err) {
-        console.error('Failed to save user preset:', err);
-        alert('Failed to save preset to localStorage.');
+        alert('Failed to save preset: ' + err.message);
       }
     }
 
-    function applyUserPreset(presetId) {
-      try {
-        const stored = JSON.parse(localStorage.getItem('PLAYOUT_USER_PRESETS') || '[]');
-        const preset = stored.find(p => p.id === presetId);
-        if (!preset) return;
-
-        // Apply branding
-        const wmInput = document.getElementById('txt-logo-wordmark');
-        if (wmInput && preset.wordmark) wmInput.value = preset.wordmark;
-
-        const subInput = document.getElementById('txt-logo-subtitle');
-        if (subInput && preset.subtitle !== undefined) subInput.value = preset.subtitle;
-
-        if (preset.showTag && preset.showTag !== 'none') {
-          applyShowTagPreset(preset.showTag, preset.subtitle);
-        } else if (preset.subtitle) {
-          updateLogoFromControls();
-        } else {
-          applyShowTagPreset('none');
-        }
-
-        if (preset.font) {
-          const sel = document.getElementById('sel-logo-font');
-          if (sel) sel.value = preset.font;
-        }
-
-        if (preset.shape) setLogoShape(preset.shape);
-        if (preset.size) {
-          const sl = document.getElementById('slider-logo-size');
-          if (sl) sl.value = preset.size;
-        }
-        if (preset.radius) {
-          const sl = document.getElementById('slider-logo-radius');
-          if (sl) sl.value = preset.radius;
-        }
-        if (preset.extrusion) {
-          const sl = document.getElementById('slider-logo-extrusion');
-          if (sl) sl.value = preset.extrusion;
-        }
-
-        if (preset.baseCol) document.getElementById('col-logo-base').value = preset.baseCol;
-        if (preset.gradCol) document.getElementById('col-logo-grad').value = preset.gradCol;
-        if (preset.specularCol) document.getElementById('col-logo-specular').value = preset.specularCol;
-        if (preset.shadowCol) document.getElementById('col-logo-shadow').value = preset.shadowCol;
-
-        if (preset.theme) applyThemePreset(preset.theme);
-        if (preset.ratingCutout) setCutoutMode(preset.ratingCutout);
-        if (preset.ratingShape) setRatingShape(preset.ratingShape);
-        if (preset.ratingSize) {
-          const sl = document.getElementById('slider-rating-size');
-          if (sl) sl.value = preset.ratingSize;
-        }
-
-        if (preset.hold_time) currentConfig.hold_time = preset.hold_time;
-        if (preset.warning_hold_time) currentConfig.warning_hold_time = preset.warning_hold_time;
-
-        updateLogoFromControls();
-        recordAction('PRESET', `Applied custom preset: "${preset.name}"`);
-        buildTimeline();
-        replayTimeline();
-      } catch (err) {
-        console.error('Failed to apply user preset:', err);
-      }
-    }
-
-    function deleteUserPreset(presetId) {
-      try {
-        let stored = JSON.parse(localStorage.getItem('PLAYOUT_USER_PRESETS') || '[]');
-        stored = stored.filter(p => p.id !== presetId);
-        localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(stored));
-        renderUserPresetsList();
-        recordAction('PRESET', `Deleted custom preset (${presetId})`);
-      } catch (err) {
-        console.error('Failed to delete user preset:', err);
-      }
-    }
-
-    function renderUserPresetsList() {
-      const container = document.getElementById('user-presets-container');
-      if (!container) return;
-
-      try {
-        const stored = JSON.parse(localStorage.getItem('PLAYOUT_USER_PRESETS') || '[]');
-        if (stored.length === 0) {
-          container.innerHTML = '<div style="font-size: 11px; color: #64748b; font-style: italic;">No custom presets saved yet. Click "Save As..." to create one.</div>';
-          return;
-        }
-
-        container.innerHTML = stored.map(p => `
-          <div class="user-preset-item">
-            <div style="display: flex; flex-direction: column; gap: 2px;">
-              <span style="font-weight: 700;">${p.name}</span>
-              <span style="font-size: 10px; color: #94a3b8;">${p.wordmark} • ${p.showTag !== 'none' ? p.showTag.toUpperCase() : (p.subtitle || 'HD')} • ${p.shape}</span>
-            </div>
-            <div style="display: flex; gap: 4px;">
-              <button class="action-btn-primary" style="padding: 4px 8px; font-size: 10px;" onclick="applyUserPreset('${p.id}')">Apply</button>
-              <button class="action-btn-secondary" style="padding: 4px 7px; font-size: 10px; color: #f87171;" onclick="deleteUserPreset('${p.id}')">✕</button>
-            </div>
-          </div>
-        `).join('');
-      } catch (err) {
-        container.innerHTML = '<div style="font-size: 11px; color: #ef4444;">Failed to load custom presets.</div>';
-      }
-    }
-
-  </script>
+    </script>
   <!-- Save As Modal Dialog -->
   <div id="save-as-modal" class="studio-modal-overlay">
     <div class="studio-modal-card">
