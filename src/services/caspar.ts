@@ -2311,6 +2311,18 @@ export const casparPlayoutService: PlayoutService = {
 
         const rating = (item.complianceRating || 'none') as ComplianceRating;
         const tpFlag = !!item.tp_flag;
+        const isLive = item.type === 'live';
+        const contentType = (item.content_type || 'none') as string;
+
+        // Determine broadcast show tag from playlist metadata
+        let showTag: string | undefined = undefined;
+        if (isLive) {
+            showTag = 'live';
+        } else if (contentType && contentType !== 'none') {
+            showTag = contentType;
+        } else if (tpFlag) {
+            showTag = 'telemarketing';
+        }
 
         const renderMode = settings.complianceRenderMode || 'html5';
 
@@ -2367,8 +2379,8 @@ export const casparPlayoutService: PlayoutService = {
             await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: ratingLayer }).catch(() => {});
             await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: tpLayer }).catch(() => {});
 
-            // Unified Greek NCRTV Rating Badge & 30s Advisory Banner (HTML5 CG Template, layer 32).
-            if (rating !== 'none' || tpFlag) {
+            // Unified Greek NCRTV Rating Badge, Show Tags & 30s Advisory Banner (HTML5 CG Template, layer 32).
+            if (rating !== 'none' || tpFlag || isLive || (contentType && contentType !== 'none')) {
                 let template = settings.cgExplanationTemplate || 'playout/advisory';
                 if (!template || template === 'testdada') {
                     template = 'playout/advisory';
@@ -2417,14 +2429,17 @@ export const casparPlayoutService: PlayoutService = {
                     warning_text: isLogoOnly ? '' : advisoryText,
                     text: isLogoOnly ? '' : ratingExplanationText,
                     custom_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
-                    explanation: !isLogoOnly,
-                    show_explanation: !isLogoOnly,
+                    explanation: !isLogoOnly && rating !== 'none',
+                    show_explanation: !isLogoOnly && rating !== 'none',
                     warnings: descriptors,
                     durationSec: ratingHoldSec,
                     hold_time: ratingHoldSec,
                     warning_hold_time: warningHoldSec,
                     repeatIntervalSec: 600,
                     tp: tpFlag,
+                    content_type: contentType,
+                    is_live: isLive,
+                    show_tag: showTag,
                     styling: settings.cgAdvisoryConfig,
                     customLogoSvg: customLogoSvg || undefined,
                     customLogos: Object.keys(customLogos).length > 0 ? customLogos : undefined
