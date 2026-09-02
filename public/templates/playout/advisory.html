@@ -12,6 +12,518 @@
     }
   </script>
   <style>
+    /* =========================================================================
+       BROADCAST WORKSTATION LAYOUT (Per User Paint Blueprint)
+       - Left Column: CONTROLS panel in dedicated rounded card
+       - Right Column (Top): 16:9 PREVIEW MONITOR with rounded bezel
+       - Right Column (Bottom): LIVE SVG INSPECTOR & ACTION HISTORY CONSOLE
+       ========================================================================= */
+    body.studio-workstation-mode {
+      margin: 0;
+      padding: 14px;
+      height: 100vh;
+      box-sizing: border-box;
+      background: #090d16;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      overflow: hidden;
+      color: #e2e8f0;
+    }
+
+    .studio-workstation-container {
+      display: flex;
+      gap: 14px;
+      height: calc(100vh - 28px);
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    /* -------------------------------------------------------------
+       LEFT COLUMN: CONTROLS PANEL
+       ------------------------------------------------------------- */
+    .studio-controls-panel {
+      width: 440px;
+      min-width: 420px;
+      max-width: 460px;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-sizing: border-box;
+      flex-shrink: 0;
+    }
+
+    .studio-controls-panel .studio-header {
+      padding: 12px 16px 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(30, 41, 59, 0.5);
+    }
+
+    .studio-controls-panel .studio-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .studio-controls-panel .studio-title {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .studio-controls-panel .studio-title-badge {
+      font-size: 9.5px;
+      background: #0284c7;
+      color: #ffffff;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+    }
+
+    .studio-controls-panel .studio-subtitle {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+
+    .studio-controls-panel .studio-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      box-sizing: border-box;
+    }
+
+    .studio-controls-panel .studio-footer {
+      padding: 10px 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(30, 41, 59, 0.4);
+      display: flex;
+      gap: 8px;
+    }
+
+    /* -------------------------------------------------------------
+       RIGHT COLUMN: WORKSTATION MAIN AREA
+       ------------------------------------------------------------- */
+    .workstation-main-area {
+      flex: 1;
+      height: 100%;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-sizing: border-box;
+    }
+
+    /* -------------------------------------------------------------
+       TOP RIGHT: 16:9 PREVIEW MONITOR
+       ------------------------------------------------------------- */
+    .preview-monitor-card {
+      position: relative;
+      width: 100%;
+      flex: 1;
+      min-height: 280px;
+      background: #020617;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+    }
+
+    .monitor-top-bar {
+      height: 38px;
+      background: rgba(15, 23, 42, 0.92);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .monitor-title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .live-rec-dot {
+      width: 9px;
+      height: 9px;
+      background: #ef4444;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #ef4444;
+      animation: recPulse 1.8s infinite;
+    }
+
+    @keyframes recPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .monitor-title {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      color: #f1f5f9;
+    }
+
+    .monitor-badge {
+      font-size: 10px;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: monospace;
+    }
+
+    .monitor-controls-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .monitor-hint {
+      font-size: 11px;
+      color: #64748b;
+      margin-right: 6px;
+    }
+
+    .monitor-btn {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #e2e8f0;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+
+    .monitor-btn:hover {
+      background: rgba(51, 65, 85, 0.9);
+      border-color: rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+    }
+
+    .preview-screen-viewport {
+      position: relative;
+      width: 100%;
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, #0f172a 0%, #020617 100%);
+    }
+
+    /* True 1920x1080 Broadcast Canvas Inside Viewport */
+    #broadcast-canvas {
+      position: absolute;
+      width: 1920px;
+      height: 1080px;
+      transform-origin: center center;
+      pointer-events: auto;
+      overflow: hidden;
+      background: transparent;
+      user-select: none;
+    }
+
+    /* -------------------------------------------------------------
+       BOTTOM RIGHT: CONSOLE CARD (SVG INSPECTOR & REVERT HISTORY)
+       ------------------------------------------------------------- */
+    .studio-console-card {
+      height: 230px;
+      min-height: 200px;
+      max-height: 280px;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+      box-sizing: border-box;
+    }
+
+    .console-header {
+      height: 38px;
+      background: rgba(30, 41, 59, 0.6);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+    }
+
+    .console-title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .console-icon {
+      font-size: 14px;
+    }
+
+    .console-title {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: #f1f5f9;
+    }
+
+    .console-badge {
+      font-size: 10px;
+      background: rgba(148, 163, 184, 0.15);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      color: #94a3b8;
+      border-radius: 10px;
+      padding: 1px 8px;
+      font-family: monospace;
+    }
+
+    .console-actions-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .console-btn {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+      border-radius: 6px;
+      padding: 4px 9px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .console-btn:hover {
+      background: rgba(51, 65, 85, 0.9);
+      color: #ffffff;
+    }
+
+    .console-btn-primary {
+      background: #0284c7;
+      border: 1px solid #38bdf8;
+      color: #ffffff;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .console-btn-primary:hover {
+      background: #0369a1;
+    }
+
+    .console-body {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .console-inspector-col {
+      width: 320px;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      background: rgba(15, 23, 42, 0.4);
+    }
+
+    .console-history-col {
+      flex: 1;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    .console-col-title {
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+      flex-shrink: 0;
+    }
+
+    .console-attrib-stream {
+      flex: 1;
+      overflow-y: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      color: #94a3b8;
+    }
+
+    .console-attrib-row {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      padding: 2px 0;
+    }
+
+    .console-attrib-key {
+      color: #38bdf8;
+    }
+
+    .console-attrib-val {
+      color: #f1f5f9;
+      font-weight: 600;
+    }
+
+    .console-history-stream {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .console-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 10px;
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      font-size: 11px;
+      transition: background 0.15s ease;
+    }
+
+    .console-item:hover {
+      background: rgba(51, 65, 85, 0.6);
+    }
+
+    .console-item-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .console-item-time {
+      font-family: monospace;
+      color: #64748b;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    .console-item-badge {
+      font-size: 9px;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 3px;
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+    }
+
+    .console-item-badge.logo { background: #702177; color: #fdf2f8; }
+    .console-item-badge.rating { background: #0369a1; color: #e0f2fe; }
+    .console-item-badge.theme { background: #059669; color: #d1fae5; }
+    .console-item-badge.layout { background: #d97706; color: #fef3c7; }
+
+    .console-item-desc {
+      color: #e2e8f0;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .console-item-revert-btn {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #f87171;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
+      margin-left: 8px;
+      transition: all 0.15s ease;
+    }
+
+    .console-item-revert-btn:hover {
+      background: rgba(239, 68, 68, 0.3);
+      color: #ffffff;
+      border-color: #ef4444;
+    }
+
+    /* CASPARCG / BROADCAST LAYER 32 ON-AIR OVERRIDE */
+    body.on-air {
+      margin: 0 !important;
+      padding: 0 !important;
+      background: transparent !important;
+      overflow: hidden !important;
+    }
+
+    body.on-air .studio-controls-panel,
+    body.on-air .studio-console-card,
+    body.on-air .monitor-top-bar {
+      display: none !important;
+    }
+
+    body.on-air .studio-workstation-container,
+    body.on-air .workstation-main-area,
+    body.on-air .preview-monitor-card,
+    body.on-air .preview-screen-viewport {
+      padding: 0 !important;
+      margin: 0 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      background: transparent !important;
+      width: 1920px !important;
+      height: 1080px !important;
+      position: absolute !important;
+      inset: 0 !important;
+    }
+
+    body.on-air #broadcast-canvas {
+      position: absolute !important;
+      inset: 0 !important;
+      transform: none !important;
+      width: 1920px !important;
+      height: 1080px !important;
+    }
+
     :root {
       /* Stage 1: Station Logo Sizing & Positions */
       --cg-logo-top: 60px;
@@ -1039,212 +1551,48 @@
     }
   </style>
 </head>
-<body class="bg-dark-studio">
+<body class="studio-workstation-mode">
+  <!-- Floating Coordinate Drag HUD -->
+  <div id="drag-hud"></div>
 
-  <!-- 1080p Broadcast Stage Canvas -->
-  <div id="broadcast-canvas">
-    <!-- Safe Area Boundary Overlay -->
-    <div id="safe-area-overlay" class="safe-area-overlay">
-      <div class="safe-area-title"></div>
-      <div class="safe-area-action"></div>
-    </div>
+  <!-- Fullscreen Workstation Root (Per User Blueprint) -->
+  <div id="studio-workstation-container" class="studio-workstation-container">
 
-    <!-- Drag Position Floating HUD -->
-    <div id="drag-hud"></div>
-
-    <!-- ================================================================= -->
-    <!-- STAGE 1: INDEPENDENT STATION ID BUG (Default: Top-Left)          -->
-    <!-- ================================================================= -->
-    <div id="station-logo-stage" class="station-stage anchor-top-left canvas-draggable" data-drag="logo" title="Station ID Logo (Drag to move | Hold Shift: Lock X | Hold Ctrl: Lock Y)">
-      <div id="station-logo-container" class="station-logo-wrapper" title="Station ID Branding Logo">
-        <svg id="station-logo-svg" class="station-logo-svg" viewBox="0 0 200 200" width="200" height="200" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
-  <defs>
-    <!-- Broadcast-safe Neumorphic Dual-Shadow Filter (-135 deg light source) -->
-    <filter id="sitia-neumorphic-depth" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow id="sitia-shadow-ambient" dx="5" dy="7" stdDeviation="6" flood-color="#18031d" flood-opacity="0.85" />
-      <feDropShadow id="sitia-shadow-specular" dx="-3.5" dy="-3.5" stdDeviation="4.5" flood-color="#f0f5fc" flood-opacity="0.5" />
-    </filter>
-
-    <!-- Convex Surface Gradient (135 deg) -->
-    <linearGradient id="sitia-convex-surface" x1="10%" y1="10%" x2="90%" y2="90%">
-      <stop id="sitia-grad-stop1" offset="0%" stop-color="#8a2c94" />
-      <stop id="sitia-grad-stop2" offset="42%" stop-color="#702177" />
-      <stop id="sitia-grad-stop3" offset="100%" stop-color="#46104c" />
-    </linearGradient>
-
-    <!-- 1px High-Contrast Micro-Border Gradient (135 deg) -->
-    <linearGradient id="sitia-micro-border" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="rgba(255, 255, 255, 0.7)" />
-      <stop offset="50%" stop-color="rgba(255, 255, 255, 0.3)" />
-      <stop offset="100%" stop-color="rgba(40, 5, 45, 0.5)" />
-    </linearGradient>
-
-    <!-- 3D Extruded Text Face Gradient -->
-    <linearGradient id="sitia-text-face" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="55%" stop-color="#f7edf9" />
-      <stop offset="100%" stop-color="#e6d2e9" />
-    </linearGradient>
-
-    <!-- Subtle Text Drop Shadow Filter -->
-    <filter id="sitia-text-depth" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="1" dy="2.2" stdDeviation="0.8" flood-color="#1f0224" flood-opacity="0.9" />
-    </filter>
-  </defs>
-
-  <!-- Base Squircle with Dual Neumorphic Shadows -->
-  <g id="sitia-squircle-group" filter="url(#sitia-neumorphic-depth)">
-    <rect
-      id="sitia-squircle-rect"
-      x="10"
-      y="10"
-      width="180"
-      height="180"
-      rx="52"
-      ry="52"
-      fill="url(#sitia-convex-surface)"
-      stroke="url(#sitia-micro-border)"
-      stroke-width="1.6"
-    />
-  </g>
-
-  <!-- Vectorized 3D Chiseled Wordmark Group -->
-  <g id="sitia-wordmark-group" transform="translate(0, 0)">
-    <!-- Layer 1: Deep Physical Bevel Extrusion -->
-    <path
-      id="sitia-path-bevel-deep"
-      d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
-      transform="translate(1.6, 3.2)"
-      fill="#200324"
-      opacity="0.95"
-    />
-
-    <!-- Layer 2: Mid Bevel Shadow -->
-    <path
-      id="sitia-path-bevel-mid"
-      d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
-      transform="translate(1.6, 3.2)"
-      fill="#200324"
-      opacity="0.95"
-    />
-
-    <!-- Layer 2: Mid Bevel Shadow -->
-    <path
-      id="sitia-path-bevel-mid"
-      d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
-      transform="translate(0.8, 1.6)"
-      fill="#3d0943"
-      opacity="0.9"
-    />
-
-    <!-- Layer 3: Crisp Pale-Lilac Face with Top Specular Rim & Depth Filter -->
-    <path
-      id="sitia-path-face"
-      d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
-      fill="url(#sitia-text-face)"
-      stroke="rgba(255, 255, 255, 0.7)"
-      stroke-width="0.5"
-      filter="url(#sitia-text-depth)"
-    />
-  </g>
-</svg>
-      </div>
-      <div class="stage-drag-handle" title="Drag to reposition">☩</div>
-    </div>
-
-    <!-- ================================================================= -->
-    <!-- STAGE 2: ADVISORY RATING & BANNER (Default: Top-Right)           -->
-    <!-- ================================================================= -->
-    <div id="advisory-stage" class="anchor-top-right canvas-draggable" data-drag="advisory" title="Advisory Banner (Drag to move | Hold Shift: Lock X | Hold Ctrl: Lock Y)">
-      <!-- Unified Rating Stencil Badge Container (Single Compositor Layer) -->
-      <div id="rating-badge-container" class="badge-wrapper">
-        <svg id="badge-svg" class="badge-svg" viewBox="0 0 52 52" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
-          <defs>
-            <mask id="badge-stencil-mask" maskUnits="userSpaceOnUse">
-              <circle id="badge-mask-shape" cx="26" cy="26" r="24.5" fill="#ffffff" shape-rendering="geometricPrecision" />
-              <text
-                id="stencil-text"
-                x="26"
-                y="26"
-                text-anchor="middle"
-                dominant-baseline="central"
-                alignment-baseline="central"
-                font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-                font-weight="900"
-                font-size="26"
-                fill="#000000"
-                shape-rendering="geometricPrecision"
-                text-rendering="geometricPrecision"
-              >16</text>
-            </mask>
-          </defs>
-
-          <!-- Main circular shape with negative stencil cutout -->
-          <circle
-            id="badge-main-shape"
-            cx="26"
-            cy="26"
-            r="24.5"
-            fill="var(--badge-fill)"
-            stroke="var(--badge-stroke)"
-            stroke-width="1.5"
-            mask="url(#badge-stencil-mask)"
-            shape-rendering="geometricPrecision"
-          />
-
-          <!-- Single Centered Hairline Stencil Contour -->
-          <text
-            id="stencil-outline-text"
-            x="26"
-            y="26"
-            text-anchor="middle"
-            dominant-baseline="central"
-            alignment-baseline="central"
-            font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-            font-weight="900"
-            font-size="26"
-            fill="none"
-            stroke="var(--stencil-outline-color)"
-            stroke-width="var(--stencil-outline-width)"
-            stroke-linejoin="round"
-            shape-rendering="geometricPrecision"
-            text-rendering="geometricPrecision"
-          >16</text>
-        </svg>
+    <!-- =================================================================== -->
+    <!-- LEFT COLUMN: STUDIO CONTROLS CARD                                   -->
+    <!-- =================================================================== -->
+    <aside id="studio-controls-panel" class="studio-controls-panel">
+      <!-- Header with Status Badge -->
+      <div class="studio-header">
+        <div class="studio-title-row">
+          <div class="studio-title">
+            <span class="studio-title-badge">BROADCAST</span>
+            <span>Studio Controls</span>
+          </div>
+          <button class="monitor-btn" style="padding: 2px 7px; font-size: 10px;" onclick="toggleWorkstationFullscreen()" title="Toggle Fullscreen On-Air View">⛶ Fullscreen</button>
+        </div>
+        <div class="studio-subtitle">Greek Compliance &amp; Vector Graphics Studio</div>
       </div>
 
-      <!-- Telemarketing TP / ΤΠ Badge -->
-      <div id="tp-badge" class="tp-badge">ΤΠ</div>
-
-      <!-- Floating Typography Container -->
-      <div id="text-container" class="text-container">
-        <div id="text-slot-mask" class="text-slot-mask"></div>
-        <div id="accent-line" class="accent-line"></div>
+      <!-- On-Air Display Mode Switcher -->
+      <div class="studio-mode-bar">
+        <button class="studio-mode-btn active" id="mode-btn-rating" onclick="setStudioDisplayMode('rating')">🏷️ Rating Only</button>
+        <button class="studio-mode-btn" id="mode-btn-logo" onclick="setStudioDisplayMode('logo')">📺 Station ID Only</button>
+        <button class="studio-mode-btn" id="mode-btn-combo" onclick="setStudioDisplayMode('combo')">🌟 Combo (Both)</button>
       </div>
-      <div class="stage-drag-handle" title="Drag to reposition">☩</div>
-    </div>
-  </div>
 
-  <!-- Standalone Browser Studio<!-- Standalone Browser Studio<!-- Standalone Browser Studio<!-- Standalone Browser Studio Drawer & Toggle -->
-  <button id="studio-toggle-btn" onclick="toggleStudioDrawer()">🎨 Studio Controls</button>
+      <!-- Segmented Navigation Tabs -->
+      <div class="studio-tab-bar">
+        <button class="studio-tab-btn" data-tab="content" onclick="switchStudioTab('content')">Content</button>
+        <button class="studio-tab-btn active" data-tab="vector" onclick="switchStudioTab('vector')">Vector Studio</button>
+        <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')">Theme</button>
+        <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')">Geometry</button>
+        <button class="studio-tab-btn" data-tab="timing" onclick="switchStudioTab('timing')">Motion</button>
+      </div>
 
-  <div id="studio-drawer">
-    <div class="studio-header">
-      <h2>🎨 Greek Advisory CG Studio</h2>
-      <button class="studio-close-btn" onclick="toggleStudioDrawer()">✕</button>
-    </div>
-
-    <!-- Segmented Navigation Tabs -->
-    <div class="studio-nav-tabs">
-      <button class="studio-tab-btn active" data-tab="content" onclick="switchStudioTab('content')">🏷️ Content</button>
-      <button class="studio-tab-btn" data-tab="vector" onclick="switchStudioTab('vector')">✨ Vector Studio</button>
-      <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')">🎨 Design &amp; Theme</button>
-      <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')">📐 Geometry</button>
-      <button class="studio-tab-btn" data-tab="timing" onclick="switchStudioTab('timing')">⏱️ Motion</button>
-    </div>
-
-    <div class="studio-scroll-body">
-      <!-- TAB: Interactive Vector & Brand Editor -->
+      <!-- Scrollable Tab Content Panels -->
+      <div class="studio-body">
+        <!-- TAB: Interactive Vector & Brand Editor -->
       <div id="tab-pane-vector" class="studio-tab-pane">
         <!-- Target Selector -->
         <div class="studio-group">
@@ -1748,14 +2096,248 @@
     </div>
 
     <!-- Studio Footer -->
-    <div class="studio-footer">
-      <div id="save-status-msg" class="save-status-msg"></div>
-      <button class="action-btn-primary" onclick="saveStationDefaults()">💾 Save Station Defaults</button>
-      <button class="action-btn-secondary" onclick="resetToNcrtvStandard()">↺ Reset to NCRTV Standards</button>
-    </div>
+      </div>
+
+      <!-- Footer Actions -->
+      <div class="studio-footer">
+        <button class="action-btn-primary" onclick="buildTimeline(); replayTimeline();">▶ Replay</button>
+        <button class="action-btn-secondary" onclick="saveBroadcastDefaults()">💾 Save Defaults</button>
+      </div>
+    </aside>
+
+    <!-- =================================================================== -->
+    <!-- RIGHT COLUMN: 16:9 PREVIEW MONITOR + ACTION CONSOLE                -->
+    <!-- =================================================================== -->
+    <main class="workstation-main-area">
+
+      <!-- TOP: 16:9 PREVIEW MONITOR CARD -->
+      <section id="preview-monitor-card" class="preview-monitor-card">
+        <div class="monitor-top-bar">
+          <div class="monitor-title-group">
+            <span class="live-rec-dot"></span>
+            <span class="monitor-title">16:9 PROGRAM ON-AIR PREVIEW</span>
+            <span class="monitor-badge">1080p • Rec.709 • Layer 32</span>
+          </div>
+
+          <div class="monitor-controls-group">
+            <span class="monitor-hint">Drag: Shift=Lock X | Ctrl=Lock Y</span>
+            <button class="monitor-btn" onclick="flipStagePositions()" title="Swap screen corners between Station ID and Rating">
+              ⇄ Flip Positions
+            </button>
+            <button class="monitor-btn" id="btn-toggle-safe-areas" onclick="toggleSafeAreas()">
+              🛡️ Safe Areas
+            </button>
+            <button class="monitor-btn" onclick="buildTimeline(); replayTimeline();" title="Replay animation sequence">
+              ▶ Replay
+            </button>
+          </div>
+        </div>
+
+        <!-- 16:9 Aspect Screen Viewport -->
+        <div id="preview-screen-viewport" class="preview-screen-viewport">
+          <!-- The 1920x1080 Broadcast Canvas (Scaled into 16:9 Viewport) -->
+          <div id="broadcast-canvas">
+            <!-- Safe Area Boundary Overlay -->
+            <div id="safe-area-overlay" class="safe-area-overlay">
+              <div class="safe-area-title"></div>
+              <div class="safe-area-action"></div>
+            </div>
+
+            <!-- ================================================================= -->
+            <!-- STAGE 1: INDEPENDENT STATION ID BUG (ALWAYS TOP-LEFT BY DEFAULT) -->
+            <!-- ================================================================= -->
+            <div id="station-logo-stage" class="station-stage anchor-top-left canvas-draggable" data-drag="logo" title="Station ID Logo (Top-Left | Hold Shift: Lock X | Hold Ctrl: Lock Y)">
+              <div id="station-logo-container" class="station-logo-wrapper" title="Station ID Branding Logo">
+                <svg id="station-logo-svg" class="station-logo-svg" viewBox="0 0 200 200" width="200" height="200" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <defs>
+    <!-- Broadcast-safe Neumorphic Dual-Shadow Filter (-135 deg light source) -->
+    <filter id="sitia-neumorphic-depth" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow id="sitia-shadow-ambient" dx="5" dy="7" stdDeviation="6" flood-color="#18031d" flood-opacity="0.85" />
+      <feDropShadow id="sitia-shadow-specular" dx="-3.5" dy="-3.5" stdDeviation="4.5" flood-color="#f0f5fc" flood-opacity="0.5" />
+    </filter>
+
+    <!-- Convex Surface Gradient (135 deg) -->
+    <linearGradient id="sitia-convex-surface" x1="10%" y1="10%" x2="90%" y2="90%">
+      <stop id="sitia-grad-stop1" offset="0%" stop-color="#8a2c94" />
+      <stop id="sitia-grad-stop2" offset="42%" stop-color="#702177" />
+      <stop id="sitia-grad-stop3" offset="100%" stop-color="#46104c" />
+    </linearGradient>
+
+    <!-- 1px High-Contrast Micro-Border Gradient (135 deg) -->
+    <linearGradient id="sitia-micro-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255, 255, 255, 0.7)" />
+      <stop offset="50%" stop-color="rgba(255, 255, 255, 0.3)" />
+      <stop offset="100%" stop-color="rgba(40, 5, 45, 0.5)" />
+    </linearGradient>
+
+    <!-- 3D Extruded Text Face Gradient -->
+    <linearGradient id="sitia-text-face" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="55%" stop-color="#f7edf9" />
+      <stop offset="100%" stop-color="#e6d2e9" />
+    </linearGradient>
+
+    <!-- Subtle Text Drop Shadow Filter -->
+    <filter id="sitia-text-depth" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="1" dy="2.2" stdDeviation="0.8" flood-color="#1f0224" flood-opacity="0.9" />
+    </filter>
+  </defs>
+
+  <!-- Base Squircle with Dual Neumorphic Shadows -->
+  <g id="sitia-squircle-group" filter="url(#sitia-neumorphic-depth)">
+    <rect
+      id="sitia-squircle-rect"
+      x="10"
+      y="10"
+      width="180"
+      height="180"
+      rx="52"
+      ry="52"
+      fill="url(#sitia-convex-surface)"
+      stroke="url(#sitia-micro-border)"
+      stroke-width="1.6"
+    />
+  </g>
+
+  <!-- Vectorized 3D Chiseled Wordmark Group -->
+  <g id="sitia-wordmark-group" transform="translate(0, 0)">
+    <!-- Layer 1: Deep Physical Bevel Extrusion -->
+    <path
+      id="sitia-path-bevel-deep"
+      d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
+      fill="url(#sitia-text-face)"
+      stroke="rgba(255, 255, 255, 0.7)"
+      stroke-width="0.5"
+      filter="url(#sitia-text-depth)"
+    />
+  </g>
+</svg>
+              </div>
+              <div class="stage-drag-handle" title="Drag to reposition">☩</div>
+            </div>
+
+            <!-- ================================================================= -->
+            <!-- STAGE 2: ADVISORY RATING & BANNER (ALWAYS TOP-RIGHT BY DEFAULT)  -->
+            <!-- ================================================================= -->
+            <div id="advisory-stage" class="anchor-top-right canvas-draggable" data-drag="advisory" title="Advisory Banner (Top-Right | Hold Shift: Lock X | Hold Ctrl: Lock Y)">
+              <!-- Unified Rating Stencil Badge Container -->
+              <div id="rating-badge-container" class="badge-wrapper">
+                <svg id="badge-svg" class="badge-svg" viewBox="0 0 52 52" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+                  <defs>
+                    <mask id="badge-stencil-mask" maskUnits="userSpaceOnUse">
+                      <circle id="badge-mask-shape" cx="26" cy="26" r="24.5" fill="#ffffff" shape-rendering="geometricPrecision" />
+                      <text
+                        id="stencil-text"
+                        x="26"
+                        y="26"
+                        text-anchor="middle"
+                        dominant-baseline="central"
+                        alignment-baseline="central"
+                        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+                        font-weight="900"
+                        font-size="26"
+                        fill="#000000"
+                        shape-rendering="geometricPrecision"
+                        text-rendering="geometricPrecision"
+                      >16</text>
+                    </mask>
+                  </defs>
+
+                  <!-- Main circular shape with negative stencil cutout -->
+                  <circle
+                    id="badge-main-shape"
+                    cx="26"
+                    cy="26"
+                    r="24.5"
+                    fill="var(--badge-fill)"
+                    stroke="var(--badge-stroke)"
+                    stroke-width="1.5"
+                    mask="url(#badge-stencil-mask)"
+                    shape-rendering="geometricPrecision"
+                  />
+
+                  <!-- Single Centered Hairline Stencil Contour -->
+                  <text
+                    id="stencil-outline-text"
+                    x="26"
+                    y="26"
+                    text-anchor="middle"
+                    dominant-baseline="central"
+                    alignment-baseline="central"
+                    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+                    font-weight="900"
+                    font-size="26"
+                    fill="none"
+                    stroke="var(--stencil-outline-color)"
+                    stroke-width="var(--stencil-outline-width)"
+                    stroke-linejoin="round"
+                    shape-rendering="geometricPrecision"
+                    text-rendering="geometricPrecision"
+                  >16</text>
+                </svg>
+              </div>
+
+              <!-- Telemarketing TP / ΤΠ Badge -->
+              <div id="tp-badge" class="tp-badge">ΤΠ</div>
+
+              <!-- Floating Typography Container -->
+              <div id="text-container" class="text-container">
+                <div id="text-slot-mask" class="text-slot-mask"></div>
+                <div id="accent-line" class="accent-line"></div>
+              </div>
+              <div class="stage-drag-handle" title="Drag to reposition">☩</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BOTTOM: LIVE SVG INSPECTOR & ACTION HISTORY CONSOLE CARD -->
+      <section id="studio-console-card" class="studio-console-card">
+        <div class="console-header">
+          <div class="console-title-group">
+            <span class="console-icon">📟</span>
+            <span class="console-title">Live SVG Inspector &amp; Action History</span>
+            <span id="console-action-count" class="console-badge">0 actions</span>
+          </div>
+
+          <div class="console-actions-group">
+            <button class="console-btn-primary" onclick="revertLastAction()" id="btn-revert-last" title="Undo the most recent change">
+              ↩️ Revert Last Action
+            </button>
+            <button class="console-btn" onclick="copyLiveSvgCode()" title="Copy live SVG markup to clipboard">
+              📋 Copy Live SVG
+            </button>
+            <button class="console-btn" onclick="clearConsoleHistory()" title="Clear action history">
+              🗑️ Clear Console
+            </button>
+          </div>
+        </div>
+
+        <div class="console-body">
+          <!-- Left Col: Live SVG Attributes Inspector -->
+          <div class="console-inspector-col">
+            <div class="console-col-title">Live SVG Attributes</div>
+            <div id="console-live-attributes" class="console-attrib-stream">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Right Col: History of Actions with Revert -->
+          <div class="console-history-col">
+            <div class="console-col-title">Action History (Click Revert to Undo)</div>
+            <div id="console-action-list" class="console-history-stream">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
   </div>
 
   <script>
+
+
     // -------------------------------------------------------------
     // HIGH-LEGIBILITY SOFTENED VECTOR STENCIL GLYPHS (28x28)
     // -------------------------------------------------------------
@@ -2801,7 +3383,8 @@
             if (sel) sel.value = cfg.badgeShape;
             updateBadgeShape();
           }
-          if (cfg.anchorPosition) setAnchorPosition(cfg.anchorPosition);
+          // Enforce broadcast default: Station ID Top-Left, Advisory Top-Right
+          setLayoutOrientation(cfg.anchorPosition === 'top-left' ? 'flipped' : 'default');
           if (cfg.ratingHoldSec) currentConfig.hold_time = cfg.ratingHoldSec;
           if (cfg.warningHoldSec) currentConfig.warning_hold_time = cfg.warningHoldSec;
         }
@@ -2811,10 +3394,25 @@
     // Auto-scale 1080p canvas for responsive browser view
     function resizeCanvas() {
       const canvas = document.getElementById('broadcast-canvas');
+      const viewport = document.getElementById('preview-screen-viewport');
       if (!canvas) return;
-      const scaleX = window.innerWidth / 1920;
-      const scaleY = window.innerHeight / 1080;
-      const scale = Math.min(scaleX, scaleY, 1);
+      if (document.body.classList.contains('on-air')) {
+        canvas.style.transform = 'none';
+        return;
+      }
+      if (!viewport) {
+        const scaleX = window.innerWidth / 1920;
+        const scaleY = window.innerHeight / 1080;
+        const scale = Math.min(scaleX, scaleY, 1);
+        canvas.style.transform = `scale(${scale})`;
+        return;
+      }
+      const vw = viewport.clientWidth;
+      const vh = viewport.clientHeight;
+      if (vw <= 0 || vh <= 0) return;
+      const scaleX = vw / 1920;
+      const scaleY = vh / 1080;
+      const scale = Math.min(scaleX, scaleY);
       canvas.style.transform = `scale(${scale})`;
     }
 
@@ -2839,6 +3437,8 @@
 
       initCanvasDragAndDrop();
       loadUserCustomThemes();
+      updateLiveInspector();
+      renderConsole();
     });
 
     // -------------------------------------------------------------
@@ -3484,6 +4084,115 @@
 
     buildTimeline();
     window.play();
+  
+    // =========================================================================
+    // Workstation Action History, Revert & Live SVG Inspector Engine
+    // =========================================================================
+    const actionHistory = [];
+
+    function recordAction(type, desc, revertFn, meta) {
+      const item = {
+        id: 'act_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        time: new Date().toLocaleTimeString(),
+        type: type, // 'LOGO' | 'RATING' | 'THEME' | 'LAYOUT'
+        desc: desc,
+        revertFn: revertFn,
+        meta: meta || null
+      };
+      actionHistory.unshift(item);
+      if (actionHistory.length > 50) actionHistory.pop();
+      renderConsole();
+      updateLiveInspector();
+    }
+
+    function revertAction(id) {
+      const idx = actionHistory.findIndex(a => a.id === id);
+      if (idx !== -1) {
+        const act = actionHistory[idx];
+        if (typeof act.revertFn === 'function') {
+          act.revertFn();
+        }
+        actionHistory.splice(idx, 1);
+        renderConsole();
+        updateLiveInspector();
+      }
+    }
+
+    function revertLastAction() {
+      if (actionHistory.length > 0) {
+        revertAction(actionHistory[0].id);
+      }
+    }
+
+    function clearConsoleHistory() {
+      actionHistory.length = 0;
+      renderConsole();
+      updateLiveInspector();
+    }
+
+    function renderConsole() {
+      const countEl = document.getElementById('console-action-count');
+      const listEl = document.getElementById('console-action-list');
+      const revertLastBtn = document.getElementById('btn-revert-last');
+      
+      if (countEl) countEl.textContent = `${actionHistory.length} actions`;
+      if (revertLastBtn) revertLastBtn.disabled = (actionHistory.length === 0);
+
+      if (!listEl) return;
+      if (actionHistory.length === 0) {
+        listEl.innerHTML = '<div style="font-size: 11px; color: #64748b; font-style: italic; padding: 6px;">No actions recorded yet. Adjust controls to see live change events.</div>';
+        return;
+      }
+
+      listEl.innerHTML = actionHistory.map(item => `
+        <div class="console-item">
+          <div class="console-item-left">
+            <span class="console-item-time">${item.time}</span>
+            <span class="console-item-badge ${item.type.toLowerCase()}">${item.type}</span>
+            <span class="console-item-desc" title="${item.desc}">${item.desc}</span>
+          </div>
+          <button class="console-item-revert-btn" onclick="revertAction('${item.id}')" title="Undo this action">↩️ Revert</button>
+        </div>
+      `).join('');
+    }
+
+    function updateLiveInspector() {
+      const stream = document.getElementById('console-live-attributes');
+      if (!stream) return;
+
+      const logoSize = document.getElementById('sld-logo-size')?.value || 76;
+      const logoRadius = document.getElementById('sld-logo-radius')?.value || 52;
+      const logoExtrusion = document.getElementById('sel-logo-extrusion')?.value || 'convex';
+      const logoBase = document.getElementById('col-logo-base')?.value || '#702177';
+      const logoGrad = document.getElementById('col-logo-grad')?.value || '#46104c';
+      const logoText = document.getElementById('txt-logo-content')?.value || 'SITIA';
+      const logoTextX = document.getElementById('sld-logo-text-x')?.value || 0;
+      const logoTextY = document.getElementById('sld-logo-text-y')?.value || 0;
+
+      const ratingSize = document.getElementById('sld-rating-size')?.value || 54;
+      const ratingTextX = document.getElementById('sld-rating-text-x')?.value || 0;
+      const ratingTextY = document.getElementById('sld-rating-text-y')?.value || 0;
+
+      stream.innerHTML = `
+        <div class="console-attrib-row"><span class="console-attrib-key">Target Focus</span><span class="console-attrib-val">${currentVectorTarget === 'logo' ? '📺 Station ID' : '🏷️ Rating Stencil'}</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Station Logo Size</span><span class="console-attrib-val">${logoSize}px</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Squircle Curvature</span><span class="console-attrib-val">rx=${logoRadius}px</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Extrusion Mode</span><span class="console-attrib-val">${logoExtrusion}</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Base / Gradient</span><span class="console-attrib-val">${logoBase} / ${logoGrad}</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Wordmark Text</span><span class="console-attrib-val">"${logoText}"</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Wordmark Offset</span><span class="console-attrib-val">(${logoTextX}px, ${logoTextY}px)</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Rating Badge Size</span><span class="console-attrib-val">${ratingSize}px</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Stencil Offset</span><span class="console-attrib-val">(${ratingTextX}px, ${ratingTextY}px)</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Layout Anchor</span><span class="console-attrib-val">${currentLayoutOrientation === 'default' ? 'Logo Left • Rating Right' : 'Rating Left • Logo Right'}</span></div>
+      `;
+    }
+
+    function toggleWorkstationFullscreen() {
+      document.body.classList.toggle('on-air');
+      resizeCanvas();
+    }
+
+  
   </script>
 </body>
 </html>
