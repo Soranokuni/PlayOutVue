@@ -2646,6 +2646,7 @@ dependencies = [
  "tauri-plugin-log",
  "tokio",
  "tracing",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

@@ -16,6 +16,14 @@ import { useIngestorStatusStore } from './stores/ingestorStatus';
 import { useMediaLibraryStore } from './stores/mediaLibrary';
 import { useOperatorShortcuts, activeModalName, closeCommandPalette, activeInspectorItem, openInspectorModal, closeInspectorModal } from './composables/useOperatorShortcuts';
 import { advanceNext, manualTakeFailure } from './services/caspar';
+import {
+  processStatus,
+  processState,
+  isPrimaryInstance,
+  isStarting,
+  startCasparServer,
+  initCasparProcessListener,
+} from './services/casparProcess';
 
 const settings = useSettingsStore();
 const rundown  = useRundownStore();
@@ -154,7 +162,11 @@ watch(
   () => ({
     debugEnabled: settings.debugMode,
     ffmpegBinPath: settings.ffmpegBinPath,
-    ingestorApiBaseUrl: settings.ingestorApiBaseUrl
+    ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
+    casparcgExecutablePath: settings.casparcgExecutablePath,
+    casparcgConfigFilename: settings.casparcgConfigFilename,
+    casparAutoStart: settings.casparAutoStart,
+    casparKeepAliveOnExit: settings.casparKeepAliveOnExit,
   }),
   (runtimeSettings) => {
     invoke('apply_runtime_settings', {
@@ -232,10 +244,80 @@ const onMouseUp = () => {
   }
 };
 
-const toggleConnection = async () => {
+const connectionTone = computed<'ready' | 'processing' | 'error' | 'warning' | 'offline' | 'idle'>(() => {
+  if (isPlayoutConnected.value) return 'ready';
+  switch (processState.value) {
+    case 'unconfigured': return 'error';
+    case 'stopped': return 'warning';
+    case 'starting': return 'processing';
+    case 'external_running': return 'idle';
+    case 'disconnected': return 'warning';
+    case 'crashed': return 'error';
+    case 'operational': return 'ready';
+    default: return 'offline';
+  }
+});
+
+const connectionLabel = computed(() => {
+  if (!isPrimaryInstance.value) {
+    return isPlayoutConnected.value ? 'MONITOR (CONNECTED)' : 'MONITOR (OFFLINE)';
+  }
+  if (isPlayoutConnected.value) return 'CONNECTED';
+  switch (processState.value) {
+    case 'unconfigured': return 'CasparCG not found';
+    case 'stopped': return 'CasparCG Stopped';
+    case 'starting': return 'Starting CasparCG...';
+    case 'external_running': return 'CasparCG External';
+    case 'crashed': return 'CasparCG Crashed';
+    case 'disconnected': return 'CasparCG offline';
+    case 'operational': return 'CasparCG Ready';
+    default: return 'OFFLINE';
+  }
+});
+
+const connectionBtnText = computed(() => {
+  if (isStarting.value || processState.value === 'starting') return 'Starting...';
+  if (isPlayoutConnected.value) return 'Disconnect';
+  switch (processState.value) {
+    case 'unconfigured': return 'Locate Server';
+    case 'stopped': return 'Start and Connect';
+    case 'crashed': return 'Relaunch & Resume';
+    case 'external_running':
+    case 'disconnected':
+    case 'operational':
+    default:
+      return 'Connect';
+  }
+});
+
+const handleConnectionAction = async () => {
   const service = getActivePlayoutService();
-  if (isPlayoutConnected.value) await service.disconnect();
-  else await service.connect();
+  if (isPlayoutConnected.value) {
+    await service.disconnect();
+    return;
+  }
+
+  if (processState.value === 'unconfigured') {
+    showSettings.value = true;
+    return;
+  }
+
+  if (processState.value === 'stopped' || processState.value === 'crashed') {
+    try {
+      await startCasparServer();
+      await service.connect();
+    } catch (e) {
+      console.warn('[ConnectionAction] Failed to start and connect:', e);
+    }
+    return;
+  }
+
+  // Connect TCP/AMCP
+  try {
+    await service.connect();
+  } catch (e) {
+    console.warn('[ConnectionAction] Connect failed:', e);
+  }
 };
 
 const playSelected = async () => {
@@ -341,12 +423,24 @@ onMounted(async () => {
     startJankMonitor();
   }
 
-  // Bug 3 Fix 3: Restore connection and playback state on F5 refresh
+  initCasparProcessListener().catch((err) => {
+    console.warn('[CasparProcess] Listener init failed:', err);
+  });
+
+  // Restore connection and playback state on F5 refresh / launch
   if (settings.playoutEngine === 'casparcg') {
     const service = getActivePlayoutService();
-    service.connect().catch((error) => {
-      console.warn('[Playout] Auto-connect to CasparCG failed:', error);
-    });
+    if (settings.casparAutoStart && processState.value === 'stopped') {
+      startCasparServer()
+        .then(() => service.connect())
+        .catch((error) => {
+          console.warn('[Playout] Auto-start CasparCG failed:', error);
+        });
+    } else {
+      service.connect().catch((error) => {
+        console.warn('[Playout] Auto-connect to CasparCG failed:', error);
+      });
+    }
   }
   rundown.restorePlaybackState();
 
@@ -396,10 +490,22 @@ onUnmounted(() => {
 
       <!-- Connection -->
       <div class="ctrl-section">
-        <div class="status-dot" :class="{ connected: isPlayoutConnected }"></div>
-        <span class="ctrl-label">{{ isPlayoutConnected ? activePlayoutLabel : 'OFFLINE' }}</span>
-        <button class="ctrl-btn" @click="toggleConnection" style="font-size:0.7rem;">
-          {{ isPlayoutConnected ? 'Disconnect' : 'Connect' }}
+        <div
+          class="status-dot"
+          :class="[
+            'tone-' + connectionTone,
+            { pulse: connectionTone === 'processing' || processState === 'unconfigured' || processState === 'crashed' }
+          ]"
+        ></div>
+        <span class="ctrl-label">{{ connectionLabel }}</span>
+        <span v-if="!isPrimaryInstance" class="monitor-badge" title="Running in secondary Monitor Mode (Read-Only)">MONITOR</span>
+        <button
+          class="ctrl-btn"
+          :disabled="isStarting || processState === 'starting'"
+          @click="handleConnectionAction"
+          style="font-size:0.7rem;"
+        >
+          {{ connectionBtnText }}
         </button>
       </div>
 
@@ -410,15 +516,16 @@ onUnmounted(() => {
         <button
           v-if="!isPlayoutPlaying"
           class="ctrl-btn btn-play"
-          :disabled="!isPlayoutConnected || !rundown.activeItems.length || rundown.isRundownLocked"
+          :disabled="!isPlayoutConnected || !rundown.activeItems.length || rundown.isRundownLocked || !isPrimaryInstance"
           @click="playSelected"
-          :title="rundown.isRundownLocked ? 'Rundown is Locked (Unlock to Play)' : 'Play playlist from selected item (or beginning)'"
+          :title="!isPrimaryInstance ? 'Disabled in Monitor Mode (Read-Only)' : (rundown.isRundownLocked ? 'Rundown is Locked (Unlock to Play)' : 'Play playlist from selected item (or beginning)')"
         >
           ▶ PLAY
         </button>
         <button
           v-else
           class="ctrl-btn btn-stop"
+          :disabled="!isPrimaryInstance"
           @click="stopPlayback"
           title="Stop playback"
         >
@@ -428,7 +535,7 @@ onUnmounted(() => {
         <button
           v-if="!isPlayoutLive"
           class="ctrl-btn btn-live-now"
-          :disabled="!isPlayoutConnected"
+          :disabled="!isPlayoutConnected || !isPrimaryInstance"
           @click="cutToLive"
           title="Cut to Live DeckLink/AMCP Source"
         >
@@ -437,6 +544,7 @@ onUnmounted(() => {
         <button
           v-else
           class="ctrl-btn btn-live-active"
+          :disabled="!isPrimaryInstance"
           @click="returnFromLive"
           title="Live Broadcast Active — Click to Return to Rundown Playlist"
         >
@@ -464,11 +572,11 @@ onUnmounted(() => {
       <div v-if="activePlayoutCapabilities.streaming" class="ctrl-section">
         <div class="status-dot" :class="{ connected: isStreaming }" style="--dot-color:#e63946;"></div>
         <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
-        <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected" @click="toggleStream" style="font-size:0.7rem;">
+        <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream" style="font-size:0.7rem;">
           {{ isStreaming ? '■ Stop' : '● Stream' }}
         </button>
 
-        <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected" @click="toggleSdi" style="font-size:0.7rem; margin-left:12px;">
+        <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleSdi" style="font-size:0.7rem; margin-left:12px;">
           {{ isSdiActive ? '■ SDI Stop' : '● SDI OUT' }}
         </button>
       </div>
@@ -714,8 +822,48 @@ onUnmounted(() => {
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--border-strong);
+  transition: all 0.2s ease;
 }
-.status-dot.connected { background: var(--accent-green); box-shadow: 0 0 8px color-mix(in srgb, var(--accent-green) 60%, transparent); }
+.status-dot.connected,
+.status-dot.tone-ready {
+  background: var(--accent-green);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-green) 60%, transparent);
+}
+.status-dot.tone-warning {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+}
+.status-dot.tone-error {
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
+}
+.status-dot.tone-processing {
+  background: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.7);
+}
+.status-dot.tone-idle {
+  background: #c084fc;
+  box-shadow: 0 0 8px rgba(192, 132, 252, 0.6);
+}
+.status-dot.pulse {
+  animation: status-dot-pulse 1.4s ease-in-out infinite;
+}
+@keyframes status-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
+}
+
+.monitor-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.5);
+  color: #c084fc;
+}
 
 .ctrl-meta-dock {
   margin-left: 8px;

@@ -14,9 +14,15 @@ mod caspar_config;
 mod filesystem;
 mod ingestor_api;
 mod transcoder_sidecar;
+mod caspar_process;
 
 use caspar::{caspar_send_command, configure_caspar_osc_listener, prepare_caspar_media_path, CasparOscListenerState, caspar_cg_add, caspar_cg_update, caspar_cg_play, caspar_cg_stop, caspar_play_image, caspar_clear_layer, caspar_register_playback, caspar_clear_playback, caspar_clear_playback_if_uuid, caspar_set_playback_paused, CasparPlaybackState};
 use amcp::AmcpClient;
+use caspar_process::{
+    caspar_process_check_port, caspar_process_get_status, caspar_process_restart,
+    caspar_process_start, caspar_process_stop, caspar_process_validate_path,
+    CasparProcessSupervisor, DEFAULT_AMCP_PORT,
+};
 use caspar_config::{apply_caspar_decklink_config, caspar_test_connection, deploy_caspar_templates, find_default_caspar_config, load_caspar_config, open_cg_studio_in_browser, save_caspar_config_raw, save_caspar_config_structured};
 use diagnostics::{clear_diagnostic_logs, export_diagnostic_logs, get_diagnostic_logs, push_diagnostic_log, redact_path_for_diagnostics, DiagnosticState, init_background_logger};
 use tauri::Manager;
@@ -87,6 +93,11 @@ pub fn run() {
     let debug_enabled = settings_state.snapshot().debug_enabled;
     let diagnostics = DiagnosticState::default();
     diagnostics.set_enabled(debug_enabled);
+    let supervisor = CasparProcessSupervisor::new(DEFAULT_AMCP_PORT);
+    let amcp_client = AmcpClient::new();
+    if !supervisor.is_primary() {
+        amcp_client.set_read_only(true);
+    }
 
     if let Err(error) = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -96,7 +107,8 @@ pub fn run() {
         .manage(MediaProbeState::default())
         .manage(CasparOscListenerState::default())
         .manage(CasparPlaybackState::default())
-        .manage(AmcpClient::new())
+        .manage(supervisor)
+        .manage(amcp_client)
         .invoke_handler(tauri::generate_handler![
             scan_media,
             scan_directory,
@@ -164,7 +176,13 @@ pub fn run() {
             purge_ingestor_recycle_bin,
             purge_ingestor_folder,
             auto_purge_ingestor_recycle_bin,
-            verify_playback_ready
+            verify_playback_ready,
+            caspar_process_get_status,
+            caspar_process_start,
+            caspar_process_stop,
+            caspar_process_restart,
+            caspar_process_validate_path,
+            caspar_process_check_port
         ])
         .setup(|app| {
             init_background_logger();

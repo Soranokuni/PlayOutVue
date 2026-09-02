@@ -80,6 +80,18 @@ pub fn init_background_logger() {
     });
 }
 
+pub fn push_caspar_process_log(level: &str, msg: &str) {
+    let log_line = format!(
+        "{} [{}] [CasparServer] {}\n",
+        format_timestamp(now_ms()),
+        level.to_uppercase(),
+        msg
+    );
+    if let Some(tx) = LOG_TX.get() {
+        let _ = tx.send(log_line);
+    }
+}
+
 const MAX_DIAGNOSTIC_ENTRIES: usize = 250;
 
 #[derive(Debug, Clone, Serialize)]
