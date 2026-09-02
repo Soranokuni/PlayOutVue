@@ -167,6 +167,7 @@ watch(
     casparcgConfigFilename: settings.casparcgConfigFilename,
     casparAutoStart: settings.casparAutoStart,
     casparKeepAliveOnExit: settings.casparKeepAliveOnExit,
+    casparAutoRelaunchOnCrash: settings.casparAutoRelaunchOnCrash,
   }),
   (runtimeSettings) => {
     invoke('apply_runtime_settings', {
@@ -263,6 +264,9 @@ const connectionLabel = computed(() => {
     return isPlayoutConnected.value ? 'MONITOR (CONNECTED)' : 'MONITOR (OFFLINE)';
   }
   if (isPlayoutConnected.value) return 'CONNECTED';
+  if (processStatus.value?.circuitBreakerTripped) {
+    return 'CRASH LOOP (PAUSED)';
+  }
   switch (processState.value) {
     case 'unconfigured': return 'CasparCG not found';
     case 'stopped': return 'CasparCG Stopped';
@@ -278,6 +282,9 @@ const connectionLabel = computed(() => {
 const connectionBtnText = computed(() => {
   if (isStarting.value || processState.value === 'starting') return 'Starting...';
   if (isPlayoutConnected.value) return 'Disconnect';
+  if (processStatus.value?.circuitBreakerTripped) {
+    return 'Relaunch & Reset';
+  }
   switch (processState.value) {
     case 'unconfigured': return 'Locate Server';
     case 'stopped': return 'Start and Connect';

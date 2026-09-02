@@ -26,6 +26,8 @@ export interface CasparProcessStatus {
   amcpPort: number;
   isPortOpen: boolean;
   keepAliveOnExit: boolean;
+  autoRelaunchOnCrash: boolean;
+  circuitBreakerTripped: boolean;
   canControl: boolean;
 }
 

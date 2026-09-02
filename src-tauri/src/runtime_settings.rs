@@ -17,6 +17,8 @@ pub struct RuntimeSettings {
     pub caspar_auto_start: bool,
     #[serde(default = "default_true")]
     pub caspar_keep_alive_on_exit: bool,
+    #[serde(default = "default_true")]
+    pub caspar_auto_relaunch_on_crash: bool,
 }
 
 fn default_casparcg_config_filename() -> String {
@@ -37,6 +39,7 @@ impl Default for RuntimeSettings {
             casparcg_config_filename: default_casparcg_config_filename(),
             caspar_auto_start: false,
             caspar_keep_alive_on_exit: true,
+            caspar_auto_relaunch_on_crash: true,
         }
     }
 }
