@@ -10,6 +10,7 @@ import {
   stopCasparServer,
   restartCasparServer,
   validateCasparExecutablePath,
+  onCasparProcessStateChange,
   type CasparProcessStatus,
   type CasparValidationInfo,
 } from '../casparProcess';
@@ -134,5 +135,38 @@ describe('casparProcess service', () => {
     await restartCasparServer();
     expect(invoke).toHaveBeenCalledWith('caspar_process_restart');
     expect(isStarting.value).toBe(false);
+  });
+
+  it('notifies onCasparProcessStateChange listeners when status updates', async () => {
+    const received: CasparProcessStatus[] = [];
+    const unsubscribe = onCasparProcessStateChange((status) => {
+      received.push(status);
+    });
+
+    const mockStatus: CasparProcessStatus = {
+      state: 'operational',
+      role: 'primary',
+      pid: 5678,
+      executablePath: 'C:/CasparCG/casparcg.exe',
+      resolvedExecutablePath: 'C:/CasparCG/casparcg.exe',
+      workingDir: 'C:/CasparCG',
+      configFilename: 'casparcg.config',
+      exitCode: null,
+      lastError: null,
+      amcpPort: 5250,
+      isPortOpen: true,
+      keepAliveOnExit: true,
+      autoRelaunchOnCrash: true,
+      circuitBreakerTripped: false,
+      canControl: true,
+    };
+
+    (invoke as any).mockResolvedValueOnce(mockStatus);
+    await refreshProcessStatus();
+
+    expect(received.length).toBeGreaterThan(0);
+    expect(received[received.length - 1].state).toBe('operational');
+
+    unsubscribe();
   });
 });
