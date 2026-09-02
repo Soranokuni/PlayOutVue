@@ -156,6 +156,31 @@
       flex-direction: row;
     }
 
+    /* Station Branding SVG Logo Container */
+    .station-logo-wrapper {
+      display: none;
+      position: relative;
+      width: var(--cg-badge-size, 54px);
+      height: var(--cg-badge-size, 54px);
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 10;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .station-logo-wrapper.visible {
+      display: flex;
+    }
+
+    .station-logo-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
+    }
+
     /* Unified Hardware-Accelerated Rating Badge Container */
     .badge-wrapper {
       position: relative;
@@ -740,6 +765,38 @@
   <!-- 1080p Broadcast Stage Canvas -->
   <div id="broadcast-canvas">
     <div id="advisory-stage" class="anchor-top-right">
+      <!-- ================================================================= -->
+      <!-- STATION BRANDING SVG LOGO (Edit here or via Playout Custom Theme) -->
+      <!-- ================================================================= -->
+      <div id="station-logo-container" class="station-logo-wrapper" title="Station ID Branding Logo">
+        <svg id="station-logo-svg" class="station-logo-svg" viewBox="0 0 200 200">
+          <defs>
+            <filter id="sitia-shadow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="3" dy="6" stdDeviation="5" flood-color="#140217" flood-opacity="0.75" />
+              <feDropShadow dx="-2" dy="-2" stdDeviation="4" flood-color="#c864d4" flood-opacity="0.4" />
+            </filter>
+            <linearGradient id="sitia-purple-grad" x1="15%" y1="10%" x2="85%" y2="90%">
+              <stop offset="0%" stop-color="#84288c" />
+              <stop offset="45%" stop-color="#702177" />
+              <stop offset="100%" stop-color="#47104b" />
+            </linearGradient>
+            <filter id="sitia-extrusion" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="1.2" dy="2.8" stdDeviation="1.0" flood-color="#2a052e" flood-opacity="0.95" />
+            </filter>
+            <linearGradient id="sitia-text-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff" />
+              <stop offset="60%" stop-color="#f5e8f8" />
+              <stop offset="100%" stop-color="#e8d5ec" />
+            </linearGradient>
+          </defs>
+          <g filter="url(#sitia-shadow)">
+            <rect x="10" y="10" width="180" height="180" rx="50" ry="50" fill="url(#sitia-purple-grad)" stroke="rgba(255, 255, 255, 0.45)" stroke-width="1.8" shape-rendering="geometricPrecision" />
+          </g>
+          <text x="101" y="116" text-anchor="middle" dominant-baseline="central" alignment-baseline="central" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Montserrat, Arial, sans-serif" font-weight="900" font-size="44" letter-spacing="2.5px" fill="#250428" opacity="0.95" shape-rendering="geometricPrecision">SITIA</text>
+          <text x="100" y="114" text-anchor="middle" dominant-baseline="central" alignment-baseline="central" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Montserrat, Arial, sans-serif" font-weight="900" font-size="44" letter-spacing="2.5px" fill="url(#sitia-text-grad)" stroke="rgba(255, 255, 255, 0.7)" stroke-width="0.6" filter="url(#sitia-extrusion)" shape-rendering="geometricPrecision">SITIA</text>
+        </svg>
+      </div>
+
       <!-- Unified Rating Stencil Badge Container (Single Compositor Layer) -->
       <div id="rating-badge-container" class="badge-wrapper">
         <svg id="badge-svg" class="badge-svg" viewBox="0 0 52 52" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
@@ -859,6 +916,9 @@
             <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
               <input type="checkbox" id="chk-tp" onchange="updateStudioPreview()"> ΤΠ
             </label>
+            <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="chk-station-logo" onchange="updateStudioPreview()"> Logo
+            </label>
           </div>
         </div>
 
@@ -905,6 +965,10 @@
             <div class="studio-theme-card" data-theme="dark-obsidian" onclick="applyThemePreset('dark-obsidian')">
               <div class="studio-theme-title">🌑 Option 5: Obsidian Dark MCR</div>
               <div class="studio-theme-desc">Master control dark slate with broadcast cyan accents</div>
+            </div>
+            <div class="studio-theme-card" data-theme="custom" onclick="applyThemePreset('custom')">
+              <div class="studio-theme-title">🎨 Option 6: Custom (Manual SVG Overrides)</div>
+              <div class="studio-theme-desc">Point to custom SVGs or swap the embedded vector markup</div>
             </div>
           </div>
         </div>
@@ -1231,6 +1295,25 @@
         tpBg: '#d1d5db',
         tpBorder: '1px solid rgba(0, 0, 0, 0.1)'
       },
+      'custom': {
+        name: 'Option 6: Custom (Manual SVG Overrides)',
+        badgeBg: 'rgba(255, 255, 255, 0.32)',
+        badgeFill: 'rgba(255, 255, 255, 0.35)',
+        badgeStroke: 'rgba(255, 255, 255, 0.85)',
+        badgeShadow: '0 4px 18px rgba(0, 0, 0, 0.42), -2px -2px 8px rgba(255, 255, 255, 0.35)',
+        badgeBackdrop: 'blur(16px) saturate(180%)',
+        stencilOutlineColor: 'rgba(0, 0, 0, 0.35)',
+        stencilOutlineWidth: '0.9px',
+        accentBg: 'linear-gradient(270deg, rgba(255, 255, 255, 0.95) 0%, rgba(132, 40, 140, 0.85) 50%, rgba(255, 255, 255, 0) 100%)',
+        textColor: '#ffffff',
+        textShadow: '0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85)',
+        textStroke: '0.35px rgba(0, 0, 0, 0.45)',
+        troughBg: 'transparent',
+        troughShadow: 'none',
+        troughBorder: 'none',
+        tpBg: 'rgba(255, 255, 255, 0.30)',
+        tpBorder: '1.5px solid rgba(255, 255, 255, 0.70)'
+      },
       'dark-obsidian': {
         name: 'Option 5: Obsidian Dark MCR',
         badgeBg: 'rgba(15, 23, 42, 0.88)',
@@ -1305,6 +1388,9 @@
       warning_hold_time: 26.0, // Default 26s for warning descriptors (total 30s)
       tp: false,
       theme: 'frosted',
+      show_station_logo: false,
+      customLogoSvg: null,
+      customLogos: null,
       shape: 'circle',
       anchor: 'top-right'
     };
@@ -1511,6 +1597,36 @@
         tpBadge.classList.add('visible');
       } else {
         tpBadge.classList.remove('visible');
+      }
+
+      // Update Station Logo container & visibility
+      const stationLogoContainer = document.getElementById('station-logo-container');
+      if (stationLogoContainer) {
+        if (ratingStr === 'NONE' || currentConfig.show_station_logo) {
+          stationLogoContainer.classList.add('visible');
+          if (ratingStr === 'NONE') {
+            badgeContainer.style.display = 'none';
+          } else {
+            badgeContainer.style.display = 'flex';
+          }
+        } else {
+          stationLogoContainer.classList.remove('visible');
+          badgeContainer.style.display = 'flex';
+        }
+      }
+
+      // Dynamic Custom SVG Injection (swappable without code changes)
+      if (currentConfig.customLogos && typeof currentConfig.customLogos === 'object') {
+        const customRatingSvg = currentConfig.customLogos[ratingStr];
+        if (customRatingSvg && badgeContainer) {
+          badgeContainer.innerHTML = customRatingSvg;
+        }
+        const customLogo = currentConfig.customLogos['logo'] || currentConfig.customLogoSvg;
+        if (customLogo && stationLogoContainer) {
+          stationLogoContainer.innerHTML = customLogo;
+        }
+      } else if (currentConfig.customLogoSvg && stationLogoContainer) {
+        stationLogoContainer.innerHTML = currentConfig.customLogoSvg;
       }
 
       const isLogoOnly = currentConfig.show_explanation === false ||
@@ -1876,6 +1992,7 @@
 
       currentConfig.warnings = warnings;
       currentConfig.tp = !!tp;
+      currentConfig.show_station_logo = !!sl;
 
       buildTimeline();
       replayTimeline();

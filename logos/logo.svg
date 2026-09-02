@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <!-- Outer Neumorphic Drop Shadows -->
+    <filter id="neumorphic-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <!-- Ambient Deep Playout Drop Shadow -->
+      <feDropShadow dx="4" dy="8" stdDeviation="7" flood-color="#140217" flood-opacity="0.75" />
+      <!-- Soft Upper-Left Specular Radiance -->
+      <feDropShadow dx="-3" dy="-3" stdDeviation="5" flood-color="#c864d4" flood-opacity="0.4" />
+    </filter>
+
+    <!-- Squircle Convex Base Gradient -->
+    <linearGradient id="sitia-purple-grad" x1="15%" y1="10%" x2="85%" y2="90%">
+      <stop offset="0%" stop-color="#84288c" />
+      <stop offset="45%" stop-color="#702177" />
+      <stop offset="100%" stop-color="#47104b" />
+    </linearGradient>
+
+    <!-- Soft Surface Specular Overlay -->
+    <linearGradient id="surface-highlight" x1="30%" y1="0%" x2="70%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.32" />
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.35" />
+    </linearGradient>
+
+    <!-- Beveled Extruded Text Shadow Filter -->
+    <filter id="text-extrusion" x="-20%" y="-20%" width="140%" height="140%">
+      <!-- Bottom-right deep chiseled bevel shadow matching SITIA reference -->
+      <feDropShadow dx="1.5" dy="3.2" stdDeviation="1.2" flood-color="#2a052e" flood-opacity="0.95" />
+      <feDropShadow dx="0.8" dy="1.6" stdDeviation="0.4" flood-color="#3b0942" flood-opacity="0.9" />
+    </filter>
+
+    <!-- Top-left subtle specular highlight on text -->
+    <linearGradient id="text-face-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="60%" stop-color="#f5e8f8" />
+      <stop offset="100%" stop-color="#e8d5ec" />
+    </linearGradient>
+  </defs>
+
+  <!-- Base Squircle Container with Neumorphic Filters -->
+  <g filter="url(#neumorphic-shadow)">
+    <!-- Main Squircle Body (rx="50" on 180x180 = ~28% continuous curve) -->
+    <rect
+      x="10"
+      y="10"
+      width="180"
+      height="180"
+      rx="50"
+      ry="50"
+      fill="url(#sitia-purple-grad)"
+      stroke="rgba(255, 255, 255, 0.45)"
+      stroke-width="1.8"
+      shape-rendering="geometricPrecision"
+    />
+
+    <!-- Convex Inner Lighting Sheen -->
+    <rect
+      x="11"
+      y="11"
+      width="178"
+      height="178"
+      rx="49"
+      ry="49"
+      fill="url(#surface-highlight)"
+      style="mix-blend-mode: overlay;"
+      shape-rendering="geometricPrecision"
+    />
+  </g>
+
+  <!-- 3D Extruded "SITIA" Wordmark -->
+  <!-- Underlying Chiseled Shadow Offset matching reference photo -->
+  <text
+    x="101"
+    y="116.5"
+    text-anchor="middle"
+    dominant-baseline="central"
+    alignment-baseline="central"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Montserrat, Arial, sans-serif"
+    font-weight="900"
+    font-size="44"
+    letter-spacing="2.5px"
+    fill="#250428"
+    opacity="0.9"
+    shape-rendering="geometricPrecision"
+    text-rendering="geometricPrecision"
+  >SITIA</text>
+
+  <text
+    x="100.5"
+    y="115.5"
+    text-anchor="middle"
+    dominant-baseline="central"
+    alignment-baseline="central"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Montserrat, Arial, sans-serif"
+    font-weight="900"
+    font-size="44"
+    letter-spacing="2.5px"
+    fill="#3d0943"
+    opacity="0.9"
+    shape-rendering="geometricPrecision"
+    text-rendering="geometricPrecision"
+  >SITIA</text>
+
+  <!-- Front Face of Extruded Text with Neumorphic Depth -->
+  <text
+    x="100"
+    y="114"
+    text-anchor="middle"
+    dominant-baseline="central"
+    alignment-baseline="central"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Montserrat, Arial, sans-serif"
+    font-weight="900"
+    font-size="44"
+    letter-spacing="2.5px"
+    fill="url(#text-face-grad)"
+    stroke="rgba(255, 255, 255, 0.7)"
+    stroke-width="0.6"
+    filter="url(#text-extrusion)"
+    shape-rendering="geometricPrecision"
+    text-rendering="geometricPrecision"
+  >SITIA</text>
+</svg>

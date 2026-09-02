@@ -428,7 +428,9 @@ pub async fn open_cg_studio_in_browser(
     
     let _ = std::fs::create_dir_all(&app_template_dir);
     let app_advisory_file = app_template_dir.join("advisory.html");
-    let _ = std::fs::write(&app_advisory_file, TEMPLATE_ADVISORY);
+    if !app_advisory_file.exists() {
+        let _ = std::fs::write(&app_advisory_file, TEMPLATE_ADVISORY);
+    }
 
     let app_vendor_dir = app_template_dir.join("vendor");
     let _ = std::fs::create_dir_all(&app_vendor_dir);
@@ -486,6 +488,116 @@ pub async fn open_cg_studio_in_browser(
     }
 
     Ok(formatted_url)
+}
+
+#[tauri::command]
+pub async fn open_advisory_in_editor(template_path: Option<String>) -> Result<String, String> {
+    let mut resolved_file = dirs_next::data_dir()
+        .map(|d| d.join("PlayOutVue").join("templates").join("playout").join("advisory.html"))
+        .unwrap_or_else(|| PathBuf::from("C:/CasparCG/template/playout/advisory.html"));
+
+    if let Some(ref p) = template_path {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            let p_buf = PathBuf::from(trimmed);
+            if p_buf.is_file() && p_buf.exists() {
+                resolved_file = p_buf;
+            } else if p_buf.is_dir() && p_buf.exists() {
+                let candidate = p_buf.join("playout").join("advisory.html");
+                if candidate.exists() {
+                    resolved_file = candidate;
+                } else {
+                    let direct_candidate = p_buf.join("advisory.html");
+                    if direct_candidate.exists() {
+                        resolved_file = direct_candidate;
+                    }
+                }
+            } else {
+                let caspar_candidate = PathBuf::from("C:/CasparCG/template/playout/advisory.html");
+                if caspar_candidate.exists() {
+                    resolved_file = caspar_candidate;
+                }
+            }
+        }
+    } else {
+        let caspar_candidate = PathBuf::from("C:/CasparCG/template/playout/advisory.html");
+        if caspar_candidate.exists() {
+            resolved_file = caspar_candidate;
+        }
+    }
+
+    if !resolved_file.exists() {
+        if let Some(parent) = resolved_file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&resolved_file, TEMPLATE_ADVISORY);
+    }
+
+    let absolute_path = std::fs::canonicalize(&resolved_file).unwrap_or(resolved_file);
+    let path_str = absolute_path.to_string_lossy().into_owned();
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", &path_str])
+            .spawn()
+            .map_err(|e| format!("Failed to launch editor for '{}': {}", path_str, e))?;
+    }
+
+    Ok(path_str)
+}
+
+#[tauri::command]
+pub async fn open_template_directory(template_path: Option<String>) -> Result<String, String> {
+    let mut resolved_dir = dirs_next::data_dir()
+        .map(|d| d.join("PlayOutVue").join("templates").join("playout"))
+        .unwrap_or_else(|| PathBuf::from("C:/CasparCG/template/playout"));
+
+    if let Some(ref p) = template_path {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            let p_buf = PathBuf::from(trimmed);
+            if p_buf.is_file() {
+                resolved_dir = p_buf.parent().unwrap_or(&p_buf).to_path_buf();
+            } else {
+                let sub = p_buf.join("playout");
+                if sub.exists() {
+                    resolved_dir = sub;
+                } else {
+                    resolved_dir = p_buf;
+                }
+            }
+        }
+    } else {
+        let caspar_dir = PathBuf::from("C:/CasparCG/template/playout");
+        if caspar_dir.exists() {
+            resolved_dir = caspar_dir;
+        }
+    }
+
+    let _ = std::fs::create_dir_all(&resolved_dir);
+    let path_str = resolved_dir.to_string_lossy().into_owned();
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&resolved_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open directory '{}': {}", path_str, e))?;
+    }
+
+    Ok(path_str)
+}
+
+#[tauri::command]
+pub async fn read_svg_file(path: String) -> Result<String, String> {
+    let p = Path::new(&path);
+    if !p.exists() || !p.is_file() {
+        return Err(format!("File does not exist: {}", path));
+    }
+    let content = std::fs::read_to_string(p)
+        .map_err(|e| format!("Failed to read SVG file '{}': {}", path, e))?;
+    Ok(content)
 }
 
 #[tauri::command]

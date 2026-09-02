@@ -2384,6 +2384,33 @@ export const casparPlayoutService: PlayoutService = {
                 const ratingHoldSec = settings.cgAdvisoryConfig?.ratingHoldSec ?? 30;
                 const warningHoldSec = settings.cgAdvisoryConfig?.warningHoldSec ?? 30;
 
+                // Load custom SVGs if specified in Settings (swappable without code changes)
+                let customLogoSvg: string | null = null;
+                const customLogos: Record<string, string> = {};
+
+                const logoSvgPath = settings.cgAdvisoryConfig?.customLogoSvgPath;
+                if (logoSvgPath) {
+                    try {
+                        customLogoSvg = await invoke<string>('read_svg_file', { path: logoSvgPath });
+                    } catch (err) {
+                        console.warn('[CasparCG] Failed to load custom logo SVG from:', logoSvgPath, err);
+                    }
+                }
+
+                const ratingSvgPaths = settings.cgAdvisoryConfig?.customRatingSvgPaths;
+                if (ratingSvgPaths && typeof ratingSvgPaths === 'object') {
+                    for (const [key, p] of Object.entries(ratingSvgPaths)) {
+                        if (p) {
+                            try {
+                                const svgContent = await invoke<string>('read_svg_file', { path: p });
+                                customLogos[key.toUpperCase()] = svgContent;
+                            } catch (err) {
+                                console.warn(`[CasparCG] Failed to load custom rating SVG for ${key} from:`, p, err);
+                            }
+                        }
+                    }
+                }
+
                 const cgData = {
                     rating: rating !== 'none' ? rating : 'none',
                     rating_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
@@ -2398,7 +2425,9 @@ export const casparPlayoutService: PlayoutService = {
                     warning_hold_time: warningHoldSec,
                     repeatIntervalSec: 600,
                     tp: tpFlag,
-                    styling: settings.cgAdvisoryConfig
+                    styling: settings.cgAdvisoryConfig,
+                    customLogoSvg: customLogoSvg || undefined,
+                    customLogos: Object.keys(customLogos).length > 0 ? customLogos : undefined
                 };
 
                 // Clear layer 32 first so previous instance is completely removed, then add fresh with full payload

@@ -2,7 +2,9 @@ import { defineStore } from 'pinia';
 import type { PlayoutEngine } from '../services/playout';
 
 export interface CgAdvisoryTemplateConfig {
-    themeName?: 'frosted' | 'matte-slate' | 'vibrant-accent' | 'inset-embossed' | 'dark-obsidian' | 'soft-slate' | 'periwinkle' | 'high-contrast';
+    themeName?: 'frosted' | 'matte-slate' | 'vibrant-accent' | 'inset-embossed' | 'dark-obsidian' | 'soft-slate' | 'periwinkle' | 'high-contrast' | 'custom';
+    customLogoSvgPath?: string;
+    customRatingSvgPaths?: Record<string, string>;
     badgeShape?: 'circle' | 'squircle' | 'pill';
     stencilStyle?: 'neumorphic' | 'frosted' | 'contrast';
     fontFamily: string;
@@ -47,6 +49,8 @@ export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
     accentColor: 'rgba(255, 255, 255, 0.95)',
     ratingHoldSec: 4,
     warningHoldSec: 26,
+    customLogoSvgPath: '',
+    customRatingSvgPaths: {},
 };
 
 export const useSettingsStore = defineStore('settings', {
