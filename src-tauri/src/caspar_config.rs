@@ -2,6 +2,7 @@ use quick_xml::{de::from_str, se::to_string};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "configuration")]
@@ -324,30 +325,57 @@ pub struct TemplateDeployResult {
 const TEMPLATE_ADVISORY: &str = include_str!("../../public/templates/playout/advisory.html");
 const TEMPLATE_CRAWL: &str = include_str!("../../public/templates/playout/crawl.html");
 const TEMPLATE_GSAP: &str = include_str!("../../public/templates/playout/vendor/gsap.min.js");
+const TEMPLATE_ESR_PRESETS: &str = include_str!("../../public/templates/playout/esr_presets.json");
 
-const LOGO_K: &[u8] = include_bytes!("../../logos/K.png");
-const LOGO_8: &[u8] = include_bytes!("../../logos/8.png");
-const LOGO_12: &[u8] = include_bytes!("../../logos/12.png");
-const LOGO_16: &[u8] = include_bytes!("../../logos/16.png");
-const LOGO_18: &[u8] = include_bytes!("../../logos/18.png");
-
-#[tauri::command]
-pub async fn deploy_caspar_templates(
-    template_path: Option<String>,
-    media_path: Option<String>,
-    overwrite: Option<bool>,
-) -> Result<TemplateDeployResult, String> {
-    let base_dir = if let Some(ref p) = template_path {
+fn resolve_caspar_template_dir<R: Runtime>(app: Option<&AppHandle<R>>, explicit: Option<&str>) -> PathBuf {
+    if let Some(p) = explicit {
         let trimmed = p.trim();
         if !trimmed.is_empty() {
-            PathBuf::from(trimmed)
-        } else {
-            PathBuf::from("C:/CasparCG/template")
+            let mut pb = PathBuf::from(trimmed);
+            if pb.file_name().and_then(|n| n.to_str()) == Some("advisory.html") {
+                if let Some(parent) = pb.parent() {
+                    pb = parent.to_path_buf();
+                }
+            }
+            if pb.file_name().and_then(|n| n.to_str()) == Some("playout") {
+                if let Some(parent) = pb.parent() {
+                    return parent.to_path_buf();
+                }
+            }
+            if pb.exists() {
+                return pb;
+            }
         }
-    } else {
-        PathBuf::from("C:/CasparCG/template")
-    };
+    }
 
+    if let Some(app_handle) = app {
+        if let Some(state) = app_handle.try_state::<crate::runtime_settings::RuntimeSettingsState>() {
+            let settings = state.snapshot();
+            if let Some(exe_path) = crate::caspar_process::resolve_caspar_executable(&settings.casparcg_executable_path) {
+                let cwd = crate::caspar_process::resolve_caspar_cwd(&exe_path);
+                let cand1 = cwd.join("template");
+                let cand2 = cwd.join("templates");
+                if cand2.exists() {
+                    return cand2;
+                }
+                return cand1;
+            }
+        }
+    }
+
+    dirs_next::data_dir()
+        .map(|d| d.join("PlayOutVue").join("templates"))
+        .unwrap_or_else(|| PathBuf::from("./templates"))
+}
+
+#[tauri::command]
+pub async fn deploy_caspar_templates<R: Runtime>(
+    app: AppHandle<R>,
+    template_path: Option<String>,
+    _media_path: Option<String>,
+    overwrite: Option<bool>,
+) -> Result<TemplateDeployResult, String> {
+    let base_dir = resolve_caspar_template_dir(Some(&app), template_path.as_deref());
     let target_dir = base_dir.join("playout");
     std::fs::create_dir_all(&target_dir)
         .map_err(|e| format!("Failed to create template directory '{}': {}", target_dir.display(), e))?;
@@ -359,11 +387,22 @@ pub async fn deploy_caspar_templates(
     let overwrite_files = overwrite.unwrap_or(false);
     let mut deployed = Vec::new();
     let mut skipped = Vec::new();
+    let mut advisory_content = TEMPLATE_ADVISORY.to_string();
 
-    let files = [
-        ("advisory.html", TEMPLATE_ADVISORY, target_dir.clone()),
-        ("explanation.html", TEMPLATE_ADVISORY, target_dir.clone()),
+    // Check if a saved custom default preset exists, and bake it directly into advisory.html
+    if let Some(preset_val) = crate::studio_server::load_saved_default_preset(&app) {
+        if let Ok(preset_json_str) = serde_json::to_string(&preset_val) {
+            let replacement = format!("let BAKED_DEFAULT_PRESET = {};", preset_json_str);
+            if advisory_content.contains("let BAKED_DEFAULT_PRESET = null;") {
+                advisory_content = advisory_content.replace("let BAKED_DEFAULT_PRESET = null;", &replacement);
+            }
+        }
+    }
+
+    let files: [(&str, &str, PathBuf); 4] = [
+        ("advisory.html", &advisory_content, target_dir.clone()),
         ("crawl.html", TEMPLATE_CRAWL, target_dir.clone()),
+        ("esr_presets.json", TEMPLATE_ESR_PRESETS, target_dir.clone()),
         ("vendor/gsap.min.js", TEMPLATE_GSAP, target_dir.clone()),
     ];
 
@@ -378,37 +417,17 @@ pub async fn deploy_caspar_templates(
         }
     }
 
-    // Deploy Logos if media_path is provided or if media/ folder is alongside template/
-    let logos_dir = if let Some(ref mp) = media_path {
-        let trimmed = mp.trim();
-        if !trimmed.is_empty() {
-            Some(PathBuf::from(trimmed).join("logos"))
-        } else {
-            None
-        }
-    } else {
-        base_dir.parent().map(|p| p.join("media").join("logos"))
-    };
-
-    if let Some(target_logos_dir) = logos_dir {
-        let _ = std::fs::create_dir_all(&target_logos_dir);
-        let logo_files: [(&str, &[u8]); 5] = [
-            ("K.png", LOGO_K),
-            ("8.png", LOGO_8),
-            ("12.png", LOGO_12),
-            ("16.png", LOGO_16),
-            ("18.png", LOGO_18),
-        ];
-
-        for (name, bytes) in logo_files {
-            let file_path = target_logos_dir.join(name);
-            if file_path.exists() && !overwrite_files {
-                skipped.push(format!("logos/{}", name));
-            } else if std::fs::write(&file_path, bytes).is_ok() {
-                deployed.push(format!("logos/{}", name));
+    // Also deploy the standalone advisory_default_preset.json for sidecar visibility
+    if let Some(preset_val) = crate::studio_server::load_saved_default_preset(&app) {
+        if let Ok(preset_json_pretty) = serde_json::to_string_pretty(&preset_val) {
+            let preset_path = target_dir.join("advisory_default_preset.json");
+            if std::fs::write(&preset_path, &preset_json_pretty).is_ok() {
+                deployed.push("playout/advisory_default_preset.json".into());
             }
         }
     }
+
+    let _ = app.emit("caspar://template-deployed", ());
 
     Ok(TemplateDeployResult {
         template_dir: target_dir.to_string_lossy().into_owned(),
@@ -418,66 +437,40 @@ pub async fn deploy_caspar_templates(
 }
 
 #[tauri::command]
-pub async fn open_cg_studio_in_browser(
+pub async fn open_cg_studio_in_browser<R: Runtime>(
+    app: AppHandle<R>,
     template_path: Option<String>,
 ) -> Result<String, String> {
-    // 1. Ensure template is always extracted into local application data directory
-    let app_template_dir = dirs_next::data_dir()
-        .map(|d| d.join("PlayOutVue").join("templates").join("playout"))
-        .unwrap_or_else(|| PathBuf::from("C:/CasparCG/template/playout"));
-    
-    let _ = std::fs::create_dir_all(&app_template_dir);
-    let app_advisory_file = app_template_dir.join("advisory.html");
-    if !app_advisory_file.exists() {
-        let _ = std::fs::write(&app_advisory_file, TEMPLATE_ADVISORY);
-    }
+    // 1. Ensure templates are deployed to the resolved template directory
+    let _ = deploy_caspar_templates(app.clone(), template_path.clone(), None, Some(true)).await;
 
-    let app_vendor_dir = app_template_dir.join("vendor");
-    let _ = std::fs::create_dir_all(&app_vendor_dir);
-    let _ = std::fs::write(app_vendor_dir.join("gsap.min.js"), TEMPLATE_GSAP);
+    // 2. Resolve template target path - opens advisory.html
+    let base_dir = resolve_caspar_template_dir(Some(&app), template_path.as_deref());
+    let advisory_file = base_dir.join("playout").join("advisory.html");
 
-    // 2. Also deploy to CasparCG directory if configured
-    let _ = deploy_caspar_templates(template_path.clone(), None, Some(true)).await;
-
-    // 3. Resolve absolute file path to open in browser
-    let mut resolved_file = app_advisory_file.clone();
-
-    if let Some(ref p) = template_path {
-        let trimmed = p.trim();
-        if !trimmed.is_empty() {
-            let p_buf = PathBuf::from(trimmed);
-            if p_buf.is_file() && p_buf.exists() {
-                resolved_file = p_buf;
-            } else if p_buf.is_dir() && p_buf.exists() {
-                let candidate = p_buf.join("playout").join("advisory.html");
-                if candidate.exists() {
-                    resolved_file = candidate;
-                } else {
-                    let direct_candidate = p_buf.join("advisory.html");
-                    if direct_candidate.exists() {
-                        resolved_file = direct_candidate;
-                    }
-                }
-            } else {
-                let caspar_candidate = PathBuf::from("C:/CasparCG/template/playout/advisory.html");
-                if caspar_candidate.exists() {
-                    resolved_file = caspar_candidate;
-                }
-            }
-        }
+    let resolved_file = if advisory_file.exists() {
+        advisory_file
     } else {
-        let caspar_candidate = PathBuf::from("C:/CasparCG/template/playout/advisory.html");
-        if caspar_candidate.exists() {
-            resolved_file = caspar_candidate;
+        // Fallback to app data directory
+        let fallback = dirs_next::data_dir()
+            .map(|d| d.join("PlayOutVue").join("templates").join("playout").join("advisory.html"))
+            .unwrap_or_else(|| PathBuf::from("./templates/playout/advisory.html"));
+        if !fallback.exists() {
+            if let Some(parent) = fallback.parent() {
+                let _ = std::fs::create_dir_all(parent);
+                let _ = std::fs::create_dir_all(parent.join("vendor"));
+                let _ = std::fs::write(parent.join("vendor").join("gsap.min.js"), TEMPLATE_GSAP);
+                let _ = std::fs::write(parent.join("esr_presets.json"), TEMPLATE_ESR_PRESETS);
+            }
+            let _ = std::fs::write(&fallback, TEMPLATE_ADVISORY);
         }
-    }
+        fallback
+    };
 
-    let absolute_path = std::fs::canonicalize(&resolved_file)
-        .unwrap_or(resolved_file);
-
+    let absolute_path = std::fs::canonicalize(&resolved_file).unwrap_or(resolved_file);
     let path_str = absolute_path.to_string_lossy().replace('\\', "/");
     let clean_path = path_str.trim_start_matches("//?/");
-    let formatted_url = format!("file:///{}", clean_path);
+    let formatted_url = format!("file:///{}?studio=1#studio=1", clean_path);
 
     #[cfg(target_os = "windows")]
     {
@@ -491,99 +484,61 @@ pub async fn open_cg_studio_in_browser(
 }
 
 #[tauri::command]
-pub async fn open_advisory_in_editor(template_path: Option<String>) -> Result<String, String> {
-    let mut resolved_file = dirs_next::data_dir()
-        .map(|d| d.join("PlayOutVue").join("templates").join("playout").join("advisory.html"))
-        .unwrap_or_else(|| PathBuf::from("C:/CasparCG/template/playout/advisory.html"));
-
-    if let Some(ref p) = template_path {
-        let trimmed = p.trim();
-        if !trimmed.is_empty() {
-            let p_buf = PathBuf::from(trimmed);
-            if p_buf.is_file() && p_buf.exists() {
-                resolved_file = p_buf;
-            } else if p_buf.is_dir() && p_buf.exists() {
-                let candidate = p_buf.join("playout").join("advisory.html");
-                if candidate.exists() {
-                    resolved_file = candidate;
-                } else {
-                    let direct_candidate = p_buf.join("advisory.html");
-                    if direct_candidate.exists() {
-                        resolved_file = direct_candidate;
-                    }
-                }
-            } else {
-                let caspar_candidate = PathBuf::from("C:/CasparCG/template/playout/advisory.html");
-                if caspar_candidate.exists() {
-                    resolved_file = caspar_candidate;
-                }
-            }
-        }
+pub async fn open_advisory_in_editor<R: Runtime>(
+    app: AppHandle<R>,
+    template_path: Option<String>,
+) -> Result<String, String> {
+    let base_dir = resolve_caspar_template_dir(Some(&app), template_path.as_deref());
+    let advisory_file = base_dir.join("playout").join("advisory.html");
+    let resolved_file = if advisory_file.exists() {
+        advisory_file
     } else {
-        let caspar_candidate = PathBuf::from("C:/CasparCG/template/playout/advisory.html");
-        if caspar_candidate.exists() {
-            resolved_file = caspar_candidate;
-        }
-    }
-
-    if !resolved_file.exists() {
-        if let Some(parent) = resolved_file.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&resolved_file, TEMPLATE_ADVISORY);
-    }
+        dirs_next::data_dir()
+            .map(|d| d.join("PlayOutVue").join("templates").join("playout").join("advisory.html"))
+            .unwrap_or_else(|| PathBuf::from("./templates/playout/advisory.html"))
+    };
 
     let absolute_path = std::fs::canonicalize(&resolved_file).unwrap_or(resolved_file);
-    let path_str = absolute_path.to_string_lossy().into_owned();
+    let path_str = absolute_path.to_string_lossy().to_string();
 
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
-            .args(["/c", "start", "", &path_str])
+            .args(["/c", "start", "notepad", &path_str])
             .spawn()
-            .map_err(|e| format!("Failed to launch editor for '{}': {}", path_str, e))?;
+            .map_err(|e| format!("Failed to open editor: {}", e))?;
     }
 
     Ok(path_str)
 }
 
 #[tauri::command]
-pub async fn open_template_directory(template_path: Option<String>) -> Result<String, String> {
-    let mut resolved_dir = dirs_next::data_dir()
-        .map(|d| d.join("PlayOutVue").join("templates").join("playout"))
-        .unwrap_or_else(|| PathBuf::from("C:/CasparCG/template/playout"));
-
-    if let Some(ref p) = template_path {
-        let trimmed = p.trim();
-        if !trimmed.is_empty() {
-            let p_buf = PathBuf::from(trimmed);
-            if p_buf.is_file() {
-                resolved_dir = p_buf.parent().unwrap_or(&p_buf).to_path_buf();
-            } else {
-                let sub = p_buf.join("playout");
-                if sub.exists() {
-                    resolved_dir = sub;
-                } else {
-                    resolved_dir = p_buf;
-                }
-            }
-        }
+pub async fn open_template_directory<R: Runtime>(
+    app: AppHandle<R>,
+    template_path: Option<String>,
+) -> Result<String, String> {
+    let base_dir = resolve_caspar_template_dir(Some(&app), template_path.as_deref());
+    let target_dir = base_dir.join("playout");
+    let dir_to_open = if target_dir.exists() {
+        target_dir
+    } else if base_dir.exists() {
+        base_dir
     } else {
-        let caspar_dir = PathBuf::from("C:/CasparCG/template/playout");
-        if caspar_dir.exists() {
-            resolved_dir = caspar_dir;
-        }
-    }
+        dirs_next::data_dir()
+            .map(|d| d.join("PlayOutVue").join("templates").join("playout"))
+            .unwrap_or_else(|| PathBuf::from("./templates/playout"))
+    };
 
-    let _ = std::fs::create_dir_all(&resolved_dir);
-    let path_str = resolved_dir.to_string_lossy().into_owned();
+    let _ = std::fs::create_dir_all(&dir_to_open);
+    let absolute_path = std::fs::canonicalize(&dir_to_open).unwrap_or(dir_to_open);
+    let path_str = absolute_path.to_string_lossy().to_string();
 
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .arg(&resolved_dir)
+            .arg(&path_str)
             .spawn()
-            .map_err(|e| format!("Failed to open directory '{}': {}", path_str, e))?;
+            .map_err(|e| format!("Failed to open directory: {}", e))?;
     }
 
     Ok(path_str)
@@ -651,7 +606,10 @@ pub async fn save_caspar_config_structured(path: String, config: CasparConfigura
 }
 
 #[tauri::command]
-pub async fn apply_caspar_decklink_config(payload: DeckLinkApplyPayload) -> Result<DeckLinkApplyResult, String> {
+pub async fn apply_caspar_decklink_config<R: Runtime>(
+    app: AppHandle<R>,
+    payload: DeckLinkApplyPayload,
+) -> Result<DeckLinkApplyResult, String> {
     let target_path = resolve_requested_path(Some(payload.path))?;
     let mut config = if target_path.exists() {
         let raw_xml = std::fs::read_to_string(&target_path)
@@ -712,7 +670,7 @@ pub async fn apply_caspar_decklink_config(payload: DeckLinkApplyPayload) -> Resu
             .unwrap_or_else(|| "C:/CasparCG/template/".to_string());
 
         let media_base = config.paths.media_path.clone();
-        if let Ok(res) = deploy_caspar_templates(Some(template_base), media_base, Some(false)).await {
+        if let Ok(res) = deploy_caspar_templates(app.clone(), Some(template_base), media_base, Some(true)).await {
             templates_deployed = Some(res);
         }
     }

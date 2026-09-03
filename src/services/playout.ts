@@ -36,7 +36,6 @@ export interface PlayoutService {
     getOutputs?(): Promise<any[]>;
     getInputs?(): Promise<any[]>;
     syncLiveInputScene?(preferredSourceName?: string): Promise<void>;
-    syncBrandingAssets?(): Promise<void>;
     startStream?(): Promise<void>;
     stopStream?(): Promise<void>;
     startDeckLink?(outputName: string): Promise<void>;
@@ -44,6 +43,7 @@ export interface PlayoutService {
     seekMedia?(inputName: string, timeCursor: number): Promise<void>;
     applyComplianceForItem?(item: PlayoutItem): Promise<void>;
     clearCompliance?(): Promise<void>;
+    reloadComplianceTemplate?(): Promise<void>;
     /// Clear the on-demand crawl layer (plan §3.2).
     clearOverlays?(): Promise<void>;
     /// Clear the station logo branding layer (plan §3.2).

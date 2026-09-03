@@ -138,6 +138,7 @@ interface PlaybackAdvancePayload {
 
 export const isCasparConnected = ref(false);
 export const isCasparPlaying = ref(false);
+let isAdvisoryTemplateLoaded = false;
 export const isLiveActive = ref(false);
 export const currentCasparTime = ref('00:00:00:00');
 export const currentCasparMs = ref(0);
@@ -227,6 +228,8 @@ let feedbackUnlisten: (() => void) | null = null;
 let tickUnlisten: (() => void) | null = null;
 let advanceUnlisten: (() => void) | null = null;
 let confirmUnlisten: (() => void) | null = null;
+let templateDeployedUnlisten: (() => void) | null = null;
+let lastAppliedComplianceItem: PlayoutItem | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
 let reconnectRequested = false;
@@ -980,6 +983,17 @@ const ensureFeedbackListener = async () => {
                 confirmWaiters = remaining;
             });
         }
+
+        if (!templateDeployedUnlisten) {
+            templateDeployedUnlisten = await listen('caspar://template-deployed', async () => {
+                console.info('[CasparCG] Template deployment detected, invalidating Layer 32 cache...');
+                isAdvisoryTemplateLoaded = false;
+                if (lastAppliedComplianceItem && isCasparPlaying.value) {
+                    console.info('[CasparCG] Auto-refreshing on-air Layer 32 with newly deployed template...');
+                    await casparPlayoutService.applyComplianceForItem?.(lastAppliedComplianceItem);
+                }
+            });
+        }
     })().catch((error) => {
         console.warn('[CasparCG] Failed to attach playback listeners', error);
         feedbackListenerPromise = null;
@@ -996,8 +1010,9 @@ const performHandshake = async () => {
     reconnectAttempt = 0;
     clearReconnectTimer();
     startHeartbeat();
-    await casparPlayoutService.syncBrandingAssets?.();
-    await casparPlayoutService.clearCompliance?.();
+    casparPlayoutService.clearCompliance?.().catch((e) => {
+        console.warn('[CasparCG] Non-fatal compliance clear failed during handshake:', e);
+    });
 
     // Clear in-flight preloads, guard, and duration states on reconnect
     invalidatePreloads();
@@ -1049,13 +1064,14 @@ const evaluateResume = async (isForcedServerRestart = false) => {
             return;
         }
 
-        const elapsed = state.positionMs && state.updatedAt
-            ? Math.min(state.durationMs, state.positionMs + Math.max(0, Date.now() - state.updatedAt))
-            : Date.now() - state.startTimestamp;
+        // Exact resume position: resume directly from the detected crash timestamp
+        const elapsed = (state.positionMs != null && !isNaN(state.positionMs))
+            ? Math.max(0, Math.min(state.durationMs, state.positionMs))
+            : Math.max(0, Date.now() - state.startTimestamp);
+
         if (elapsed >= state.durationMs) {
-            // The interrupted clip finished while CasparCG was down — behave
-            // as if it ended normally and start the next item.
-            console.warn('[CasparCG] Clip finished during downtime — auto-advancing to the next item.');
+            // The interrupted clip was already at the end when CasparCG crashed
+            console.warn('[CasparCG] Interrupted clip was at EOF when crashed — auto-advancing to the next item.');
             await advanceNext(true, currentKey);
             return;
         }
@@ -1077,7 +1093,6 @@ const evaluateResume = async (isForcedServerRestart = false) => {
         const label = state.path || queuedItems[index]?.filename || 'the interrupted item';
         console.warn(`[CasparCG] Auto-resuming "${label}" at ${(elapsed / 1000).toFixed(1)}s into its trimmed window.`);
         await casparPlayoutService.play([...queuedItems], index, elapsed);
-        await casparPlayoutService.syncBrandingAssets?.();
     } finally {
         resumeInFlight = false;
         wasPlayingOnDisconnect = false;
@@ -1277,9 +1292,6 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
             updatedAt: Date.now(),
             channelOutputRateHz: getSettingsSnapshot().playoutProfile === 'PAL_1080P25' ? 25 : 50,
         });
-
-        // Ensure station branding logo is running on Layer 30
-        casparPlayoutService.syncBrandingAssets?.().catch(() => {});
 
         const store = useRundownStore();
 
@@ -2209,65 +2221,9 @@ export const casparPlayoutService: PlayoutService = {
 
     /// Station logo (layer 30) — always-on persistent branding.
     /// Reads strictly from the CG configuration path for Layer 30 (settings.cg).
-    async syncBrandingAssets() {
-        if (!isCasparConnected.value) return;
-        const settings = getSettingsSnapshot();
-        const logoLayer = CASPAR_LAYERS.stationLogo;
-
-        const logoEnabled = settings.cg?.stationIdEnabled !== false;
-        const logoSourcePath = settings.cg?.stationIdPath || resolveLogoAsset('logo.png');
-        const logoPath = logoSourcePath ? await prepareCasparMediaPath(logoSourcePath) : '';
-
-        if (logoEnabled && logoPath) {
-            const cleanPath = logoPath.replace(/\\/g, '/').replace(/"/g, '');
-            const pathWithoutExt = cleanPath.replace(/\.[^/.]+$/, '');
-
-            let playSuccess = false;
-            for (let attempt = 1; attempt <= 3 && !playSuccess; attempt++) {
-                try {
-                    await invoke('caspar_play_image', {
-                        channel: PROGRAM_CHANNEL,
-                        layer: logoLayer,
-                        path: cleanPath
-                    });
-                    playSuccess = true;
-                } catch (err1) {
-                    try {
-                        await invoke('caspar_play_image', {
-                            channel: PROGRAM_CHANNEL,
-                            layer: logoLayer,
-                            path: pathWithoutExt
-                        });
-                        playSuccess = true;
-                    } catch (err2) {
-                        if (attempt < 3) {
-                            console.info(`[CasparCG] Station logo not ready in media scanner (attempt ${attempt}/3). Triggering CLS rescan...`);
-                            await sendRawCommandCore('CLS').catch(() => {});
-                            await wait(300 * attempt);
-                        } else {
-                            console.warn('[CasparCG] Failed to play station logo after retries and CLS rescan:', err2);
-                        }
-                    }
-                }
-            }
-
-            if (playSuccess) {
-                const opacity = 0.8; // Defaults strictly to 80% opacity
-                const lx = (settings.cgStationLogoPos?.left ?? 5) / 100;
-                const ly = (settings.cgStationLogoPos?.top ?? 5) / 100;
-                const lw = (settings.cgStationLogoPos?.width ?? 12) / 100;
-                const lh = (settings.cgStationLogoPos?.height ?? 12) / 100;
-
-                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${logoLayer} FILL ${lx.toFixed(4)} ${ly.toFixed(4)} ${lw.toFixed(4)} ${lh.toFixed(4)}`);
-                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${logoLayer} OPACITY ${opacity.toFixed(3)}`);
-            }
-        } else {
-            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: logoLayer }).catch(() => {});
-        }
-    },
 
     handleProcessStateEvent(status: CasparProcessStatus) {
-        if (status.state === 'crashed' || status.state === 'starting') {
+        if (status.state === 'crashed' || status.state === 'starting' || status.state === 'stopped') {
             if (isCasparPlaying.value && currentKey != null) {
                 wasPlayingOnDisconnect = true;
                 const item = findLiveItemById(currentKey);
@@ -2284,15 +2240,23 @@ export const casparPlayoutService: PlayoutService = {
                 }
             }
             lastOscTickAtMs = 0;
-            markDisconnected(`Process supervisor reported CasparCG ${status.state}`);
-        } else if (status.state === 'operational') {
-            console.info('[CasparCG] Process supervisor reported CasparCG is operational. Reconnecting...');
-            reconnectRequested = true;
-            runReconnectAttempt(true).then(() => {
-                scheduleResumeEvaluation(true);
-            }).catch((err) => {
-                console.warn('[CasparCG] Reconnect after process startup failed:', err);
-            });
+            if (status.state === 'stopped') {
+                isCasparConnected.value = false;
+                clearReconnectTimer();
+                stopHeartbeat();
+            } else {
+                markDisconnected(`Process supervisor reported CasparCG ${status.state}`);
+            }
+        } else if (status.state === 'operational' || status.state === 'external_running') {
+            if (!isCasparConnected.value || !reconnectRequested) {
+                console.info(`[CasparCG] Process supervisor reported CasparCG is ${status.state}. Connecting...`);
+                reconnectRequested = true;
+                runReconnectAttempt(true).then(() => {
+                    scheduleResumeEvaluation(true);
+                }).catch((err) => {
+                    console.warn('[CasparCG] Reconnect after process state change failed:', err);
+                });
+            }
         }
     },
 
@@ -2308,6 +2272,7 @@ export const casparPlayoutService: PlayoutService = {
 
         timelineTimers.forEach(clearTimeout);
         timelineTimers = [];
+        lastAppliedComplianceItem = item;
 
         const rating = (item.complianceRating || 'none') as ComplianceRating;
         const tpFlag = !!item.tp_flag;
@@ -2324,142 +2289,110 @@ export const casparPlayoutService: PlayoutService = {
             showTag = 'telemarketing';
         }
 
-        const renderMode = settings.complianceRenderMode || 'html5';
+        // Ensure legacy PNG layers (31 & 34) are cleared defensively
+        await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: ratingLayer }).catch(() => {});
+        await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: tpLayer }).catch(() => {});
 
-        if (renderMode === 'legacy_png') {
-            // Legacy Static PNG Image Mode (Layer 31 & Layer 34)
-            let ratingSourcePath = '';
-            if (rating === 'k') ratingSourcePath = settings.cgRatingKPath;
-            else if (rating === '8') ratingSourcePath = settings.cgRating8Path;
-            else if (rating === '12') ratingSourcePath = settings.cgRating12Path;
-            else if (rating === '16') ratingSourcePath = settings.cgRating16Path;
-            else if (rating === '18') ratingSourcePath = settings.cgRating18Path;
+        // SOTA HTML5 Vector Graphics Mode (Layer 32 advisory.html with permanent Station Logo & dynamic show tags)
+        let template = settings.cgExplanationTemplate || 'playout/advisory';
+        if (!template || template === 'testdada') {
+            template = 'playout/advisory';
+        }
+        const advisoryText = item.complianceText || '';
+        const isLogoOnly = advisoryText === '__LOGO_ONLY__' || advisoryText === 'LOGO_ONLY';
+        let descriptors = item.complianceDescriptors || [];
+        if ((!descriptors || descriptors.length === 0) && advisoryText && !isLogoOnly) {
+            descriptors = parseDescriptorsFromText(advisoryText);
+        }
 
-            if (!ratingSourcePath && rating !== 'none') {
-                ratingSourcePath = getRatingAssetPath(rating);
+        const ratingExplanationText = isLogoOnly ? '' : getGreekRatingDefaultText(rating as any);
+        const ratingHoldSec = settings.cgAdvisoryConfig?.ratingHoldSec ?? 30;
+        const warningHoldSec = settings.cgAdvisoryConfig?.warningHoldSec ?? 30;
+
+        // Load custom SVGs if specified in Settings (swappable without code changes)
+        let customLogoSvg: string | null = null;
+        const customLogos: Record<string, string> = {};
+
+        const logoSvgPath = settings.cgAdvisoryConfig?.customLogoSvgPath;
+        if (logoSvgPath) {
+            try {
+                customLogoSvg = await invoke<string>('read_svg_file', { path: logoSvgPath });
+            } catch (err) {
+                console.warn('[CasparCG] Failed to load custom logo SVG from:', logoSvgPath, err);
             }
+        }
 
-            if (ratingSourcePath) {
-                const path = await prepareCasparMediaPath(ratingSourcePath);
-                await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: ratingLayer, path }).catch((e: any) => {
-                    console.warn('[CasparCG] Failed to play rating badge', e);
-                });
-
-                const rx = (settings.cgRatingBadgePos?.left ?? 88) / 100;
-                const ry = (settings.cgRatingBadgePos?.top ?? 5) / 100;
-                const rw = (settings.cgRatingBadgePos?.width ?? 7) / 100;
-                const rh = (settings.cgRatingBadgePos?.height ?? 7) / 100;
-                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${ratingLayer} FILL ${rx.toFixed(4)} ${ry.toFixed(4)} ${rw.toFixed(4)} ${rh.toFixed(4)}`);
-            } else {
-                await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: ratingLayer }).catch(() => {});
-            }
-
-            // TP badge (image producer)
-            const tpSourcePath = settings.cgRatingTPPath || (tpFlag ? resolveLogoAsset('TP.png') : '');
-            if (tpFlag && tpSourcePath) {
-                const path = await prepareCasparMediaPath(tpSourcePath);
-                await invoke('caspar_play_image', { channel: PROGRAM_CHANNEL, layer: tpLayer, path }).catch((e: any) => {
-                    console.warn('[CasparCG] Failed to play TP badge', e);
-                });
-
-                const tpx = (settings.cgTPPos?.left ?? 88) / 100;
-                const tpy = (settings.cgTPPos?.top ?? 13) / 100;
-                const tpw = (settings.cgTPPos?.width ?? 7) / 100;
-                const tph = (settings.cgTPPos?.height ?? 7) / 100;
-                await sendRawCommand(`MIXER ${PROGRAM_CHANNEL}-${tpLayer} FILL ${tpx.toFixed(4)} ${tpy.toFixed(4)} ${tpw.toFixed(4)} ${tph.toFixed(4)}`);
-            } else {
-                await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: tpLayer }).catch(() => {});
-            }
-
-            // In legacy mode, Layer 32 HTML5 template is cleared
-            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
-        } else {
-            // SOTA HTML5 Vector Graphics Mode (Layer 32 advisory.html with 30s banner and continuous stencil badge)
-            // Ensure Layer 31 and Layer 34 PNG layers are completely cleared so no legacy PNGs ever display
-            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: ratingLayer }).catch(() => {});
-            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: tpLayer }).catch(() => {});
-
-            // Unified Greek NCRTV Rating Badge, Show Tags & 30s Advisory Banner (HTML5 CG Template, layer 32).
-            if (rating !== 'none' || tpFlag || isLive || (contentType && contentType !== 'none')) {
-                let template = settings.cgExplanationTemplate || 'playout/advisory';
-                if (!template || template === 'testdada') {
-                    template = 'playout/advisory';
-                }
-                const advisoryText = item.complianceText || '';
-                const isLogoOnly = advisoryText === '__LOGO_ONLY__' || advisoryText === 'LOGO_ONLY';
-                let descriptors = item.complianceDescriptors || [];
-                if ((!descriptors || descriptors.length === 0) && advisoryText && !isLogoOnly) {
-                    descriptors = parseDescriptorsFromText(advisoryText);
-                }
-
-                const ratingExplanationText = isLogoOnly ? '' : getGreekRatingDefaultText(rating as any);
-                const ratingHoldSec = settings.cgAdvisoryConfig?.ratingHoldSec ?? 30;
-                const warningHoldSec = settings.cgAdvisoryConfig?.warningHoldSec ?? 30;
-
-                // Load custom SVGs if specified in Settings (swappable without code changes)
-                let customLogoSvg: string | null = null;
-                const customLogos: Record<string, string> = {};
-
-                const logoSvgPath = settings.cgAdvisoryConfig?.customLogoSvgPath;
-                if (logoSvgPath) {
+        const ratingSvgPaths = settings.cgAdvisoryConfig?.customRatingSvgPaths;
+        if (ratingSvgPaths && typeof ratingSvgPaths === 'object') {
+            for (const [key, p] of Object.entries(ratingSvgPaths)) {
+                if (p) {
                     try {
-                        customLogoSvg = await invoke<string>('read_svg_file', { path: logoSvgPath });
+                        const svgContent = await invoke<string>('read_svg_file', { path: p });
+                        customLogos[key.toUpperCase()] = svgContent;
                     } catch (err) {
-                        console.warn('[CasparCG] Failed to load custom logo SVG from:', logoSvgPath, err);
+                        console.warn(`[CasparCG] Failed to load custom rating SVG for ${key} from:`, p, err);
                     }
                 }
-
-                const ratingSvgPaths = settings.cgAdvisoryConfig?.customRatingSvgPaths;
-                if (ratingSvgPaths && typeof ratingSvgPaths === 'object') {
-                    for (const [key, p] of Object.entries(ratingSvgPaths)) {
-                        if (p) {
-                            try {
-                                const svgContent = await invoke<string>('read_svg_file', { path: p });
-                                customLogos[key.toUpperCase()] = svgContent;
-                            } catch (err) {
-                                console.warn(`[CasparCG] Failed to load custom rating SVG for ${key} from:`, p, err);
-                            }
-                        }
-                    }
-                }
-
-                const cgData = {
-                    rating: rating !== 'none' ? rating : 'none',
-                    rating_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
-                    warning_text: isLogoOnly ? '' : advisoryText,
-                    text: isLogoOnly ? '' : ratingExplanationText,
-                    custom_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
-                    explanation: !isLogoOnly && rating !== 'none',
-                    show_explanation: !isLogoOnly && rating !== 'none',
-                    warnings: descriptors,
-                    durationSec: ratingHoldSec,
-                    hold_time: ratingHoldSec,
-                    warning_hold_time: warningHoldSec,
-                    repeatIntervalSec: 600,
-                    tp: tpFlag,
-                    content_type: contentType,
-                    is_live: isLive,
-                    show_tag: showTag,
-                    styling: settings.cgAdvisoryConfig,
-                    customLogoSvg: customLogoSvg || undefined,
-                    customLogos: Object.keys(customLogos).length > 0 ? customLogos : undefined
-                };
-
-                // Clear layer 32 first so previous instance is completely removed, then add fresh with full payload
-                await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
-
-                await invoke('caspar_cg_add', {
-                    channel: PROGRAM_CHANNEL,
-                    layer: CASPAR_LAYERS.explanation,
-                    template,
-                    play: true,
-                    data: cgData
-                }).catch((e: any) => {
-                    console.warn('[CasparCG] Failed to add unified advisory CG', e);
-                });
-            } else {
-                await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
             }
+        }
+
+        const hasAdvisoryContent = (rating !== 'none' || tpFlag || isLive || (contentType && contentType !== 'none'));
+
+        const cgData = {
+            on_air: true,
+            playout_mode: 'on_air',
+            is_on_air: true,
+            rating: rating !== 'none' ? rating : 'none',
+            rating_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
+            warning_text: isLogoOnly ? '' : advisoryText,
+            text: isLogoOnly ? '' : ratingExplanationText,
+            custom_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
+            explanation: hasAdvisoryContent && !isLogoOnly && rating !== 'none',
+            show_explanation: hasAdvisoryContent && !isLogoOnly && rating !== 'none',
+            show_station_logo: true, // Station logo is ALWAYS ON!
+            warnings: hasAdvisoryContent ? descriptors : [],
+            durationSec: ratingHoldSec,
+            hold_time: ratingHoldSec,
+            warning_hold_time: warningHoldSec,
+            repeatIntervalSec: 600,
+            tp: tpFlag,
+            content_type: contentType,
+            is_live: isLive,
+            show_tag: showTag || 'none',
+            styling: settings.cgAdvisoryConfig,
+            customLogoSvg: customLogoSvg || undefined,
+            customLogos: Object.keys(customLogos).length > 0 ? customLogos : undefined
+        };
+
+        if (isAdvisoryTemplateLoaded) {
+            // Template already running on layer 32: update in-place without reload,
+            // so station ID logo NEVER blinks, flashes, or respawns!
+            await invoke('caspar_cg_update', {
+                channel: PROGRAM_CHANNEL,
+                layer: CASPAR_LAYERS.explanation,
+                data: cgData
+            }).catch(async (e: any) => {
+                console.warn('[CasparCG] Failed to update CG on layer 32, attempting re-add:', e);
+                isAdvisoryTemplateLoaded = false;
+            });
+        }
+
+        if (!isAdvisoryTemplateLoaded) {
+            // First run, post-deployment refresh, or recovery:
+            // Ensure previous instance is cleanly cleared so CasparCG offscreen CEF loads the updated HTML from disk
+            await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
+
+            await invoke('caspar_cg_add', {
+                channel: PROGRAM_CHANNEL,
+                layer: CASPAR_LAYERS.explanation,
+                template,
+                play: true,
+                data: cgData
+            }).then(() => {
+                isAdvisoryTemplateLoaded = true;
+            }).catch((e: any) => {
+                console.warn('[CasparCG] Failed to add unified advisory CG', e);
+            });
         }
     },
 
@@ -2468,8 +2401,18 @@ export const casparPlayoutService: PlayoutService = {
         if (!isCasparConnected.value) return;
         timelineTimers.forEach(clearTimeout);
         timelineTimers = [];
+        isAdvisoryTemplateLoaded = false;
+        lastAppliedComplianceItem = null;
         for (const layer of [CASPAR_LAYERS.rating, CASPAR_LAYERS.explanation, CASPAR_LAYERS.tp]) {
             await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer }).catch(() => {});
+        }
+    },
+
+    /// Forces a refresh of Layer 32 (e.g. after template deployment)
+    async reloadComplianceTemplate() {
+        isAdvisoryTemplateLoaded = false;
+        if (lastAppliedComplianceItem && isCasparPlaying.value) {
+            await casparPlayoutService.applyComplianceForItem?.(lastAppliedComplianceItem);
         }
     },
 

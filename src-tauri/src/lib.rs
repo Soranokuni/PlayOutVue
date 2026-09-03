@@ -15,6 +15,9 @@ mod filesystem;
 mod ingestor_api;
 mod transcoder_sidecar;
 mod caspar_process;
+mod studio_server;
+
+use studio_server::{save_studio_default_preset, get_studio_default_preset};
 
 use caspar::{caspar_send_command, configure_caspar_osc_listener, prepare_caspar_media_path, CasparOscListenerState, caspar_cg_add, caspar_cg_update, caspar_cg_play, caspar_cg_stop, caspar_play_image, caspar_clear_layer, caspar_register_playback, caspar_clear_playback, caspar_clear_playback_if_uuid, caspar_set_playback_paused, CasparPlaybackState};
 use amcp::AmcpClient;
@@ -185,12 +188,15 @@ pub fn run() {
             caspar_process_stop,
             caspar_process_restart,
             caspar_process_validate_path,
-            caspar_process_check_port
+            caspar_process_check_port,
+            save_studio_default_preset,
+            get_studio_default_preset
         ])
         .setup(|app| {
             init_background_logger();
             let app_handle = app.handle().clone();
-            spawn_ingestor_heartbeat(app_handle);
+            spawn_ingestor_heartbeat(app_handle.clone());
+            studio_server::start_studio_server(app_handle);
 
             let tray_menu = MenuBuilder::new(app)
                 .text("tray_show", "Show Window")
