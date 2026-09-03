@@ -22,6 +22,7 @@ import {
   isPrimaryInstance,
   isStarting,
   startCasparServer,
+  restartCasparServer,
   initCasparProcessListener,
 } from './services/casparProcess';
 
@@ -301,6 +302,15 @@ const handleConnectionAction = async () => {
   const service = getActivePlayoutService();
   if (isPlayoutConnected.value) {
     await service.disconnect();
+    return;
+  }
+
+  if (processStatus.value?.circuitBreakerTripped) {
+    try {
+      await restartCasparServer();
+    } catch (e) {
+      console.warn('[ConnectionAction] Failed to reset circuit breaker and relaunch:', e);
+    }
     return;
   }
 

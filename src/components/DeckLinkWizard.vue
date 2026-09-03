@@ -207,7 +207,7 @@ const testConnection = async () => {
   }
 };
 
-const deployTemplates = async (overwrite: boolean = false) => {
+const deployTemplates = async (overwrite: boolean = true) => {
   deploying.value = true;
   errorMessage.value = '';
   try {

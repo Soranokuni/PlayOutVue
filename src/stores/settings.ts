@@ -61,7 +61,7 @@ export const useSettingsStore = defineStore('settings', {
         ingestorApiBaseUrl: 'http://127.0.0.1:4353',
 
         // Media Paths
-        localMediaPath: 'C:\\Users\\toutountzaki\\Desktop\\casparcg-server-v2.5.0-stable-windows\\media',
+        localMediaPath: '',
         ffmpegBinPath: '',
         debugMode: false,
 

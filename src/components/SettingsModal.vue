@@ -17,6 +17,7 @@ import {
     validateCasparExecutablePath,
     type CasparValidationInfo
 } from '../services/casparProcess';
+import { getActivePlayoutService } from '../services/playout';
 
 const props = defineProps({
   isOpen: Boolean
@@ -27,18 +28,51 @@ const settings = useSettingsStore();
 const showCasparConfigurator = ref(false);
 const showDecklinkWizard = ref(false);
 const activeTab = ref<'general' | 'playout' | 'cg'>('general');
-const selectedWizardLayer = ref<'logo' | 'rating' | 'tp' | 'explanation' | 'crawl'>('logo');
+const selectedWizardLayer = ref<'logo' | 'rating' | 'tp' | 'explanation' | 'crawl'>('explanation');
 const validationInfo = ref<CasparValidationInfo | null>(null);
 const isValidating = ref(false);
 
+const detectedCasparDir = computed(() => {
+    if (validationInfo.value?.parentDir) {
+        return validationInfo.value.parentDir.replace(/\\/g, '/');
+    }
+    const raw = localState.value.casparcgExecutablePath;
+    if (!raw) return '';
+    const norm = raw.replace(/\\/g, '/').trim();
+    if (!norm) return '';
+    if (norm.toLowerCase().endsWith('.exe')) {
+        return norm.substring(0, norm.lastIndexOf('/'));
+    }
+    return norm.replace(/\/$/, '');
+});
+
+const syncCasparDerivedPaths = (path: string) => {
+    if (!path || !path.trim()) return;
+    const norm = path.replace(/\\/g, '/').trim();
+    const dir = norm.toLowerCase().endsWith('.exe') ? norm.substring(0, norm.lastIndexOf('/')) : norm.replace(/\/$/, '');
+    if (dir) {
+        localState.value.casparConfigPath = `${dir}/${localState.value.casparcgConfigFilename || 'casparcg.config'}`;
+        localState.value.localMediaPath = `${dir}/media`;
+    }
+};
+
+const onConfigFilenameInput = (e: Event) => {
+    const filename = (e.target as HTMLInputElement).value.trim();
+    if (detectedCasparDir.value && filename) {
+        localState.value.casparConfigPath = `${detectedCasparDir.value}/${filename}`;
+    }
+};
+
 async function launchBrowserStudio() {
     try {
+        const baseDir = detectedCasparDir.value;
+        const templatePath = baseDir ? `${baseDir}/template` : null;
         await invoke('open_cg_studio_in_browser', {
-            templatePath: localState.value.cgExplanationTemplate || null
+            templatePath
         });
     } catch (e) {
         console.error('Failed to open browser studio via Tauri:', e);
-        window.open('/templates/playout/advisory.html', '_blank');
+        window.open('/templates/playout/advisory.html?studio=1#studio=1', '_blank');
     }
 }
 
@@ -198,70 +232,16 @@ const resetAllLayersToStandard = () => {
     localState.value.cgCrawlPos = { left: 0, top: 92, width: 100, height: 8 };
 };
 
-// Auto logo scanning
-const scanLogosFolder = async () => {
-    if (!localState.value.localMediaPath) {
-        alert('Please configure the Local Media Path first.');
-        return;
-    }
-    
-    const mediaPath = localState.value.localMediaPath.replace(/\\/g, '/').replace(/\/+$/, '');
-    const targetPath = `${mediaPath}/logos`;
-    
-    try {
-        const listing = await invoke<{ entries: Array<{ name: string, path: string, entry_type: string }> }>('browse_filesystem', {
-            path: targetPath,
-            showFiles: true,
-            allowedExtensions: ['png', 'jpg', 'jpeg', 'svg', 'webp']
-        });
-        
-        let foundCount = 0;
-        for (const entry of listing.entries) {
-            if (entry.entry_type !== 'file') continue;
-            const lowerName = entry.name.toLowerCase();
-            if (lowerName === 'logo.png') {
-                localState.value.cg.stationIdPath = entry.path;
-                foundCount++;
-            } else if (lowerName === 'k.png') {
-                localState.value.cgRatingKPath = entry.path;
-                foundCount++;
-            } else if (lowerName === '8.png') {
-                localState.value.cgRating8Path = entry.path;
-                foundCount++;
-            } else if (lowerName === '12.png') {
-                localState.value.cgRating12Path = entry.path;
-                foundCount++;
-            } else if (lowerName === '16.png') {
-                localState.value.cgRating16Path = entry.path;
-                foundCount++;
-            } else if (lowerName === '18.png') {
-                localState.value.cgRating18Path = entry.path;
-                foundCount++;
-            } else if (lowerName === 'tp.png') {
-                localState.value.cgRatingTPPath = entry.path;
-                foundCount++;
-            }
-        }
-        alert(`Scanning complete. Found and populated ${foundCount} logo assets inside ${targetPath}.`);
-    } catch (e) {
-        console.error('Scan failed:', e);
-        alert(`Scan failed. Could not find or access: ${targetPath}`);
-    }
-};
-
 const isDeployingTemplates = ref(false);
 const deployTemplatesFromSettings = async () => {
     isDeployingTemplates.value = true;
     try {
-        const configPath = localState.value.casparConfigPath || '';
-        const templatePath = configPath.trim()
-            ? configPath.replace(/[/\\][^/\\]+$/, '/template')
-            : (localState.value.localMediaPath ? `${localState.value.localMediaPath}/../template` : null);
-        const mediaPath = localState.value.localMediaPath || (configPath.trim() ? configPath.replace(/[/\\][^/\\]+$/, '/media') : null);
+        const baseDir = detectedCasparDir.value;
+        const templatePath = baseDir ? `${baseDir}/template` : null;
 
         const res = await invoke<{ template_dir: string; deployed: string[]; skipped: string[] }>('deploy_caspar_templates', {
             templatePath,
-            mediaPath,
+            mediaPath: null,
             overwrite: true
         });
 
@@ -270,7 +250,10 @@ const deployTemplatesFromSettings = async () => {
             localState.value.cgExplanationTemplate = 'playout/advisory';
         }
 
-        alert(`Broadcast CG Templates & Logos deployed successfully!\n\nTarget Directory:\n${res.template_dir}\n\nFiles Deployed:\n• ${res.deployed.join('\n• ')}`);
+        // Auto-refresh Layer 32 so changes take effect immediately without restarting CasparCG
+        await getActivePlayoutService().reloadComplianceTemplate?.();
+
+        alert(`Broadcast CG Templates deployed successfully!\n\nTarget Directory:\n${res.template_dir}\n\nFiles Deployed:\n• ${res.deployed.join('\n• ')}\n\n(On-air graphics have been refreshed automatically without server restart)`);
     } catch (e: any) {
         console.error('Failed to deploy templates:', e);
         alert(`Failed to deploy templates: ${e}`);
@@ -367,6 +350,7 @@ const onExecutableInput = (e: Event) => {
 const handleStartServerFromSettings = async () => {
     try {
         await startCasparServer();
+        await getActivePlayoutService().connect().catch(() => {});
     } catch (e) {
         alert(`Failed to start CasparCG server: ${e}`);
     }
@@ -376,7 +360,8 @@ const handleStopServerFromSettings = async () => {
     const confirmed = confirm("Are you sure you want to stop the CasparCG server? Any active on-air playback will be halted.");
     if (!confirmed) return;
     try {
-        await stopCasparServer();
+        await getActivePlayoutService().disconnect().catch(() => {});
+        await stopCasparServer(true);
     } catch (e) {
         alert(`Failed to stop CasparCG server: ${e}`);
     }
@@ -607,8 +592,10 @@ const removeCustomRating = (key: string) => {
 
 const openAdvisoryInEditor = async () => {
     try {
+        const baseDir = detectedCasparDir.value;
+        const templatePath = baseDir ? `${baseDir}/template/playout/advisory.html` : null;
         const path = await invoke<string>('open_advisory_in_editor', {
-            templatePath: localState.value.cgExplanationTemplate || null
+            templatePath
         });
         console.info('[Settings] Opened advisory template in editor:', path);
     } catch (e) {
@@ -618,8 +605,10 @@ const openAdvisoryInEditor = async () => {
 
 const openTemplateDir = async () => {
     try {
+        const baseDir = detectedCasparDir.value;
+        const templatePath = baseDir ? `${baseDir}/template` : null;
         const path = await invoke<string>('open_template_directory', {
-            templatePath: localState.value.cgExplanationTemplate || null
+            templatePath
         });
         console.info('[Settings] Opened template directory:', path);
     } catch (e) {
@@ -629,13 +618,16 @@ const openTemplateDir = async () => {
 
 const redeployTemplates = async () => {
     try {
+        const baseDir = detectedCasparDir.value;
+        const templatePath = baseDir ? `${baseDir}/template` : null;
         const res = await invoke<any>('deploy_caspar_templates', {
-            templatePath: localState.value.cgExplanationTemplate || null,
-            mediaPath: localState.value.localMediaPath || null,
+            templatePath,
+            mediaPath: null,
             overwrite: true
         });
         alert(`Templates successfully redeployed to CasparCG!
-Deployed files:
+Target Directory: ${res.template_dir}
+Deployed files (${res.deployed?.length || 0}):
 ${res.deployed?.join('\n') || 'None'}`);
     } catch (e) {
         alert(`Template deployment failed: ${e}`);
@@ -875,34 +867,16 @@ ${res.deployed?.join('\n') || 'None'}`);
                   </div>
               </section>
 
-              <!-- Media Storage & Directory Paths -->
+              <!-- FFmpeg Binary Location -->
               <section class="settings-section">
-                  <h3 class="text-secondary section-title">Storage & Media Directories</h3>
+                  <h3 class="text-secondary section-title">FFmpeg Binary Directory</h3>
                   <div class="form-group">
-                      <label>Local Video Root Directory (Fallback)</label>
-                      <div class="input-with-button">
-                          <input type="text" class="glass-input" v-model="localState.localMediaPath" placeholder="C:/CasparCG/media">
-                          <button class="glass-btn" style="flex-shrink: 0;" title="Browse folders" @click="pickPath('media')">📁</button>
-                      </div>
-                      <span class="hint-text">Absolute path to CasparCG media root. Used as fallback when Ingestor API is offline.</span>
-                  </div>
-
-                  <div class="form-group">
-                      <label>FFmpeg Bin Directory</label>
+                      <label>FFmpeg Bin Directory (Optional Override)</label>
                       <div class="input-with-button">
                           <input type="text" class="glass-input" v-model="localState.ffmpegBinPath" placeholder="Requirements/ffmpeg/bin">
-                          <button class="glass-btn" style="flex-shrink: 0;" title="Browse FFmpeg bin folder" @click="pickPath('ffmpeg-bin')">📁</button>
+                          <button class="glass-btn" style="flex-shrink: 0;" title="Browse FFmpeg bin folder" @click="pickPath('ffmpeg-bin')">📁 Browse</button>
                       </div>
-                      <span class="hint-text">Optional override. Leave blank to use Requirements/ffmpeg/bin next to installation.</span>
-                  </div>
-
-                  <div class="form-group">
-                      <label>Logos / Ratings Folder</label>
-                      <div class="input-with-button">
-                          <input type="text" class="glass-input" v-model="localState.logosPath" placeholder="C:/PlayOut/logos">
-                          <button class="glass-btn" style="flex-shrink: 0;" title="Browse logos folder" @click="pickPath('logos')">📁</button>
-                      </div>
-                      <span class="hint-text">Expected assets: logo.png, K.png, 8.png, 12.png, 16.png, 18.png, tp.png.</span>
+                      <span class="hint-text">Optional override. Leave blank to automatically use Requirements/ffmpeg/bin next to installation.</span>
                   </div>
               </section>
 
@@ -1011,7 +985,7 @@ ${res.deployed?.join('\n') || 'None'}`);
               <!-- CasparCG Process Lifecycle & Binary Management -->
               <section class="settings-section">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                      <h3 class="text-secondary section-title" style="margin: 0;">CasparCG Process & Lifecycle Supervision</h3>
+                      <h3 class="text-secondary section-title" style="margin: 0;">CasparCG Server Location &amp; Process Supervision</h3>
                       <div style="display: flex; gap: 8px; align-items: center;">
                           <span class="instance-role-badge" :class="isPrimaryInstance ? 'role-primary' : 'role-monitor'">
                               {{ isPrimaryInstance ? '🛡️ PRIMARY SUPERVISOR' : '👁️ MONITOR MODE (READ-ONLY)' }}
@@ -1022,29 +996,56 @@ ${res.deployed?.join('\n') || 'None'}`);
                       </div>
                   </div>
                   <p class="hint-text" style="margin: 0 0 12px 0;">
-                      Configure the host binary path for dynamic process lifecycle management. When Primary, PlayOutVue supervises server startup, monitors child health, and prevents split-brain command collisions.
+                      Point to your CasparCG installation folder or executable. Config, media, templates, and logs are automatically detected from this single root location.
                   </p>
 
                   <div class="form-grid">
                       <div class="form-group" style="grid-column: span 2;">
-                          <label>CasparCG Executable Path (casparcg.exe)</label>
+                          <label>CasparCG Server Location (Folder or casparcg.exe)</label>
                           <div class="input-with-button">
                               <input
                                   type="text"
                                   class="glass-input"
                                   v-model="localState.casparcgExecutablePath"
-                                  placeholder="e.g. C:/CasparCG/casparcg.exe"
+                                  placeholder="e.g. C:/CasparCG/casparcg.exe or D:/casparcg-server"
                                   @input="onExecutableInput"
                               >
-                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse CasparCG binary" @click="pickPath('caspar-exe')">📁 Browse</button>
+                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse CasparCG folder or executable" @click="pickPath('caspar-exe')">📁 Browse</button>
                           </div>
                           <div v-if="validationInfo" style="margin-top: 6px; font-size: 0.75rem; display: flex; align-items: center; gap: 6px;">
                               <span :style="{ color: validationInfo.isValid ? '#4ade80' : '#f87171' }">
                                   {{ validationInfo.isValid ? '✓' : '⚠️' }} {{ validationInfo.message }}
                               </span>
-                              <span v-if="validationInfo.parentDir" class="hint-text">
-                                  (Working Dir CWD: {{ validationInfo.parentDir }})
-                              </span>
+                          </div>
+                      </div>
+
+                      <!-- Auto-Derived CasparCG Environment Box -->
+                      <div v-if="detectedCasparDir" class="caspar-derived-env-box" style="grid-column: span 2;">
+                          <div class="env-header">
+                              <span class="env-title">⚡ Auto-Detected CasparCG Environment</span>
+                              <span class="env-badge">Active</span>
+                          </div>
+                          <div class="env-tree">
+                              <div class="env-row">
+                                  <span class="env-label">📁 Installation Root:</span>
+                                  <span class="env-value">{{ detectedCasparDir }}</span>
+                              </div>
+                              <div class="env-row">
+                                  <span class="env-label">📄 Config File:</span>
+                                  <span class="env-value">{{ localState.casparConfigPath || (detectedCasparDir + '/casparcg.config') }}</span>
+                              </div>
+                              <div class="env-row">
+                                  <span class="env-label">🎬 Media Directory:</span>
+                                  <span class="env-value">{{ localState.localMediaPath || (detectedCasparDir + '/media') }}</span>
+                              </div>
+                              <div class="env-row">
+                                  <span class="env-label">🎨 Templates Directory:</span>
+                                  <span class="env-value">{{ detectedCasparDir }}/template/playout</span>
+                              </div>
+                              <div class="env-row">
+                                  <span class="env-label">📝 Logs Directory:</span>
+                                  <span class="env-value">{{ detectedCasparDir }}/log</span>
+                              </div>
                           </div>
                       </div>
 
@@ -1055,6 +1056,7 @@ ${res.deployed?.join('\n') || 'None'}`);
                               class="glass-input"
                               v-model="localState.casparcgConfigFilename"
                               placeholder="casparcg.config (or custom like channel_2.config)"
+                              @input="onConfigFilenameInput"
                           >
                           <span class="hint-text">Allows multi-instance channel configurations in the same folder.</span>
                       </div>
@@ -1104,20 +1106,12 @@ ${res.deployed?.join('\n') || 'None'}`);
 
               <!-- CasparCG Server Configuration -->
               <section class="settings-section">
-                  <h3 class="text-secondary section-title">CasparCG Server Configuration</h3>
+                  <h3 class="text-secondary section-title">CasparCG Server Configuration &amp; Setup</h3>
                   <div class="form-grid">
                       <div class="form-group">
                           <label>OSC Feedback Port</label>
                           <input type="number" min="1" max="65535" class="glass-input" v-model.number="localState.casparOscPort" placeholder="6250">
                           <span class="hint-text">Must match the UDP port configured in CasparCG &lt;predefined-client&gt; (default: 6250).</span>
-                      </div>
-                      <div class="form-group">
-                          <label>casparcg.config Path</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.casparConfigPath" placeholder="C:/CasparCG/casparcg.config">
-                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse casparcg.config" @click="pickPath('caspar-config')">📁 Browse</button>
-                          </div>
-                          <span class="hint-text">Direct path to your CasparCG XML config file.</span>
                       </div>
                   </div>
 
@@ -1125,7 +1119,7 @@ ${res.deployed?.join('\n') || 'None'}`);
                        <button class="glass-btn btn-primary" @click="showDecklinkWizard = true">Open Setup Wizard</button>
                        <button class="glass-btn" @click="showCasparConfigurator = true">Advanced XML Configurator</button>
                        <button class="glass-btn" @click="deployTemplatesFromSettings" :disabled="isDeployingTemplates" style="background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
-                           {{ isDeployingTemplates ? '⏳ Deploying Templates...' : '🚀 Deploy CG Templates & Logos to CasparCG' }}
+                           {{ isDeployingTemplates ? '⏳ Deploying Templates...' : '🚀 Deploy CG Templates to CasparCG' }}
                        </button>
                   </div>
               </section>
@@ -1162,44 +1156,8 @@ ${res.deployed?.join('\n') || 'None'}`);
 
           <!-- CG & Layouts Tab -->
           <div v-if="activeTab === 'cg'">
-              <!-- Graphics Pipeline Selector -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">Age Rating Graphics Engine (Σήματα Καταλληλότητας)</h3>
-                  <div class="qc-radio-grid">
-                      <div
-                          class="qc-radio-card"
-                          :class="{ active: localState.complianceRenderMode === 'html5' }"
-                          @click="localState.complianceRenderMode = 'html5'"
-                      >
-                          <div class="qc-radio-header">
-                              <span class="qc-badge badge-prod">RECOMMENDED (SOTA)</span>
-                              <input type="radio" value="html5" v-model="localState.complianceRenderMode" />
-                          </div>
-                          <div class="qc-card-title">HTML5 Vector Graphics (Layer 32)</div>
-                          <p class="qc-desc">
-                              Dynamic frosted-glass stencils with 30s Greek ESR rating &amp; content warning banners, smooth elastic pop-in and fade-out. No PNG files required.
-                          </p>
-                      </div>
-
-                      <div
-                          class="qc-radio-card"
-                          :class="{ active: localState.complianceRenderMode === 'legacy_png' }"
-                          @click="localState.complianceRenderMode = 'legacy_png'"
-                      >
-                          <div class="qc-radio-header">
-                              <span class="qc-badge badge-lenient">LEGACY PIPELINE</span>
-                              <input type="radio" value="legacy_png" v-model="localState.complianceRenderMode" />
-                          </div>
-                          <div class="qc-card-title">Static PNG Images (Layer 31)</div>
-                          <p class="qc-desc">
-                              Plays classic static image badges (<code style="font-size:0.75rem;">16.png</code>, <code style="font-size:0.75rem;">K.png</code>) via CasparCG Image Producer.
-                          </p>
-                      </div>
-                  </div>
-              </section>
-
               <!-- HTML5 Advisory & Stencil Theme Architecture -->
-              <section v-if="localState.complianceRenderMode === 'html5'" class="settings-section">
+              <section class="settings-section">
                   <h3 class="text-secondary section-title" style="display:flex; justify-content:space-between; align-items:center;">
                       <span>🎨 HTML5 Advisory &amp; Neumorphic Stencil Studio</span>
                       <button class="glass-btn btn-primary" style="padding: 4px 12px; font-size: 0.76rem;" @click="launchBrowserStudio" title="Launch standalone interactive visual studio in default browser">
@@ -1330,74 +1288,6 @@ ${res.deployed?.join('\n') || 'None'}`);
                   </div>
               </section>
 
-              <!-- Logo Scanning and Paths -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title" style="display:flex; justify-content:space-between; align-items:center;">
-                      <span>CG Asset Paths</span>
-                      <button class="glass-btn btn-primary" style="padding: 4px 12px; font-size: 0.76rem;" @click="scanLogosFolder" title="Scan subfolder /logos inside local media path">
-                          ⚡ Auto-Scan /logos
-                      </button>
-                  </h3>
-                  
-                  <div class="form-grid">
-                      <div class="form-group">
-                          <label>Station Logo PNG</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cg.stationIdPath" placeholder="C:/PlayOut/logos/logo.png">
-                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('cg-logo')">📁</button>
-                          </div>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Rating K (Kids)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRatingKPath" placeholder="C:/PlayOut/logos/k.png">
-                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-k')">📁</button>
-                          </div>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Rating 8 (Ages 8+)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRating8Path" placeholder="C:/PlayOut/logos/8.png">
-                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-8')">📁</button>
-                          </div>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Rating 12 (Ages 12+)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRating12Path" placeholder="C:/PlayOut/logos/12.png">
-                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-12')">📁</button>
-                          </div>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Rating 16 (Ages 16+)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRating16Path" placeholder="C:/PlayOut/logos/16.png">
-                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-16')">📁</button>
-                          </div>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Rating 18 (Adults)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRating18Path" placeholder="C:/PlayOut/logos/18.png">
-                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-18')">📁</button>
-                          </div>
-                      </div>
-
-                      <div class="form-group">
-                          <label>TP Overlay (Telemarketing)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgRatingTPPath" placeholder="C:/PlayOut/logos/tp.png">
-                              <button class="glass-btn" style="flex-shrink: 0;" @click="pickPath('badge-tp')">📁</button>
-                          </div>
-                      </div>
-                  </div>
-              </section>
-
               <!-- CG HTML5 Templates -->
               <section class="settings-section">
                   <h3 class="text-secondary section-title">CG HTML5 Templates</h3>
@@ -1436,10 +1326,7 @@ ${res.deployed?.join('\n') || 'None'}`);
                       <div style="display:flex; align-items:center; gap:8px;">
                           <label style="font-size:0.8rem; color:var(--text-secondary);">Selected Layer:</label>
                           <select v-model="selectedWizardLayer" class="select-layer">
-                              <option value="logo">Station Logo (L30)</option>
-                              <option value="rating">Rating Badge (L31)</option>
-                              <option value="tp">Telemarketing TP (L34)</option>
-                              <option value="explanation">Advisory / Explanation (L32)</option>
+                              <option value="explanation">Greek Advisory &amp; Rating (L32)</option>
                               <option value="crawl">Emergency Crawl (L33)</option>
                           </select>
                       </div>
@@ -1453,58 +1340,13 @@ ${res.deployed?.join('\n') || 'None'}`);
                       <button type="button" class="preset-btn" @click="applyPositionPreset('bottom-right')">↘ Bottom-Right</button>
                       <button type="button" class="preset-btn" @click="applyPositionPreset('bottom-left')">↙ Bottom-Left</button>
                       <button type="button" class="preset-btn btn-highlight" @click="applyPositionPreset('unified-advisory')">🇬🇷 Greek Advisory Standard</button>
-                      <button type="button" class="preset-btn" @click="resetAllLayersToStandard">↺ Reset All Layers</button>
+                      <button type="button" class="preset-btn" @click="resetAllLayersToStandard">↺ Reset</button>
                   </div>
 
                   <div class="mock-screen">
                       <!-- Broadcast Safe Areas (EBU R95: 90% Action Safe, 80% Title Safe) -->
                       <div class="safe-area-action" title="90% Action Safe Area"></div>
                       <div class="safe-area-border" title="80% Title Safe Area"></div>
-
-                      <!-- Station Logo Box -->
-                      <div
-                          class="layer-box logo-box"
-                          :class="{ 'is-selected': selectedWizardLayer === 'logo' }"
-                          :style="{
-                              left: `${localState.cgStationLogoPos.left}%`,
-                              top: `${localState.cgStationLogoPos.top}%`,
-                              width: `${localState.cgStationLogoPos.width}%`,
-                              height: `${localState.cgStationLogoPos.height}%`
-                          }"
-                          @mousedown="onDragStart($event, 'logo')"
-                      >
-                          <span class="box-label">Logo</span>
-                      </div>
-
-                      <!-- Rating Box -->
-                      <div
-                          class="layer-box rating-box"
-                          :class="{ 'is-selected': selectedWizardLayer === 'rating' }"
-                          :style="{
-                              left: `${localState.cgRatingBadgePos.left}%`,
-                              top: `${localState.cgRatingBadgePos.top}%`,
-                              width: `${localState.cgRatingBadgePos.width}%`,
-                              height: `${localState.cgRatingBadgePos.height}%`
-                          }"
-                          @mousedown="onDragStart($event, 'rating')"
-                      >
-                          <span class="box-label">16</span>
-                      </div>
-
-                      <!-- TP Box -->
-                      <div
-                          class="layer-box tp-box"
-                          :class="{ 'is-selected': selectedWizardLayer === 'tp' }"
-                          :style="{
-                              left: `${localState.cgTPPos.left}%`,
-                              top: `${localState.cgTPPos.top}%`,
-                              width: `${localState.cgTPPos.width}%`,
-                              height: `${localState.cgTPPos.height}%`
-                          }"
-                          @mousedown="onDragStart($event, 'tp')"
-                      >
-                          <span class="box-label">TP</span>
-                      </div>
 
                       <!-- Explanation Banner Box -->
                       <div
@@ -2150,5 +1992,55 @@ ${res.deployed?.join('\n') || 'None'}`);
     background: rgba(168, 85, 247, 0.15);
     border: 1px solid rgba(168, 85, 247, 0.4);
     color: #c084fc;
+}
+
+.caspar-derived-env-box {
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-top: 4px;
+}
+.env-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.env-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #38bdf8;
+}
+.env-badge {
+    font-size: 0.7rem;
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+.env-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.env-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    font-family: monospace;
+}
+.env-label {
+    color: #94a3b8;
+    min-width: 155px;
+    font-weight: 500;
+}
+.env-value {
+    color: #f1f5f9;
+    word-break: break-all;
 }
 </style>

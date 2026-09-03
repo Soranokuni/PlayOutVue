@@ -295,7 +295,38 @@ pub fn resolve_caspar_executable(configured: &str) -> Option<PathBuf> {
         }
     }
 
-    // 3. Common broadcast drives
+    // 3. User Desktop & Downloads broadcast folders
+    if let Some(desktop) = dirs_next::desktop_dir() {
+        candidates.push(desktop.join("casparcg.exe"));
+        if let Ok(entries) = std::fs::read_dir(&desktop) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if file_name.to_lowercase().starts_with("casparcg") {
+                        candidates.push(p.join("casparcg.exe"));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(downloads) = dirs_next::download_dir() {
+        candidates.push(downloads.join("casparcg.exe"));
+        if let Ok(entries) = std::fs::read_dir(&downloads) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if file_name.to_lowercase().starts_with("casparcg") {
+                        candidates.push(p.join("casparcg.exe"));
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Common broadcast drives
     candidates.push(PathBuf::from("C:/CasparCG/casparcg.exe"));
     candidates.push(PathBuf::from("C:/CasparLauncher/casparcg.exe"));
     candidates.push(PathBuf::from("D:/CasparCG/casparcg.exe"));
@@ -312,7 +343,7 @@ pub fn resolve_caspar_cwd(exe_path: &Path) -> PathBuf {
 
 pub async fn is_port_listening(port: u16) -> bool {
     tokio::time::timeout(
-        Duration::from_millis(300),
+        Duration::from_millis(500),
         tokio::net::TcpStream::connect(("127.0.0.1", port)),
     )
     .await
@@ -448,13 +479,9 @@ impl CasparProcessSupervisor {
             inner.circuit_breaker_tripped = false;
         }
 
-        let exe_path = resolve_caspar_executable(&settings.casparcg_executable_path)
-            .ok_or_else(|| "CasparCG executable not found. Please configure path in Settings.".to_string())?;
-
-        let cwd = resolve_caspar_cwd(&exe_path);
         let port = self.amcp_port;
 
-        // Check if port is already listening
+        // Check if port is already listening before checking local executable
         if is_port_listening(port).await {
             {
                 let mut inner = self.inner.lock().await;
@@ -464,6 +491,11 @@ impl CasparProcessSupervisor {
             emit_state_change(app, self, settings).await;
             return Ok(());
         }
+
+        let exe_path = resolve_caspar_executable(&settings.casparcg_executable_path)
+            .ok_or_else(|| "CasparCG executable not found. Please configure path in Settings.".to_string())?;
+
+        let cwd = resolve_caspar_cwd(&exe_path);
 
         let mut cmd = tokio::process::Command::new(&exe_path);
         cmd.current_dir(&cwd);
@@ -595,6 +627,35 @@ impl CasparProcessSupervisor {
             }
         }
 
+        // If force is requested or if port is still listening, terminate CasparCG
+        let port = self.amcp_port;
+        if is_port_listening(port).await {
+            crate::diagnostics::push_caspar_process_log("INFO", "Terminating active CasparCG instance on port...");
+            if let Ok(Ok(mut stream)) = tokio::time::timeout(
+                Duration::from_millis(600),
+                tokio::net::TcpStream::connect(("127.0.0.1", port)),
+            ).await {
+                use tokio::io::AsyncWriteExt;
+                let _ = stream.write_all(b"KILL\r\n").await;
+                let _ = stream.flush().await;
+            }
+
+            #[cfg(windows)]
+            {
+                if force || is_port_listening(port).await {
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/IM", "casparcg.exe"])
+                        .output();
+                }
+            }
+        }
+
+        // Wait up to 3 seconds for port to actually close
+        let start_wait = Instant::now();
+        while is_port_listening(port).await && start_wait.elapsed() < Duration::from_secs(3) {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+
         {
             let mut inner = self.inner.lock().await;
             inner.state = CasparProcessState::Stopped;
@@ -614,7 +675,7 @@ impl CasparProcessSupervisor {
         settings: &RuntimeSettings,
     ) -> Result<(), String> {
         self.stop(app, settings, true).await?;
-        tokio::time::sleep(Duration::from_millis(800)).await;
+        tokio::time::sleep(Duration::from_millis(1500)).await;
         self.crash_history.lock().clear();
         self.start(app, settings).await
     }
@@ -652,7 +713,7 @@ async fn run_process_watchdog<R: Runtime>(
                         let mut inner = supervisor.inner.lock().await;
                         inner.state = CasparProcessState::Stopped;
                         drop(inner);
-                        let _ = app.emit("caspar://process-state-changed", ());
+                        emit_state_change(&app, &supervisor, &settings).await;
                     }
                     return;
                 }
@@ -666,7 +727,7 @@ async fn run_process_watchdog<R: Runtime>(
                             "CasparCG AMCP Port 5250 is open. Engine operational.",
                         );
                         drop(inner);
-                        let _ = app.emit("caspar://process-state-changed", ());
+                        emit_state_change(&app, &supervisor, &settings).await;
                         break;
                     }
                 }
@@ -686,7 +747,7 @@ async fn run_process_watchdog<R: Runtime>(
             inner.last_error = Some("Startup timeout: AMCP port not responding within 15s".to_string());
         }
         drop(inner);
-        let _ = app.emit("caspar://process-state-changed", ());
+        emit_state_change(&app, &supervisor, &settings).await;
         return;
     }
 
@@ -720,7 +781,7 @@ async fn run_process_watchdog<R: Runtime>(
                         let mut inner = supervisor.inner.lock().await;
                         inner.state = CasparProcessState::Stopped;
                         drop(inner);
-                        let _ = app.emit("caspar://process-state-changed", ());
+                        emit_state_change(&app, &supervisor, &settings).await;
                     }
                     return;
                 }
@@ -792,7 +853,7 @@ async fn handle_crash<R: Runtime>(
                 crash_count_in_window
             ),
         );
-        let _ = app.emit("caspar://process-state-changed", ());
+        emit_state_change(app, supervisor, &settings).await;
         return;
     }
 
@@ -801,7 +862,7 @@ async fn handle_crash<R: Runtime>(
         inner.state = CasparProcessState::Crashed;
         inner.last_error = Some(format!("Server crashed with exit code {}", exit_code));
         drop(inner);
-        let _ = app.emit("caspar://process-state-changed", ());
+        emit_state_change(app, supervisor, &settings).await;
         return;
     }
 
@@ -814,7 +875,7 @@ async fn handle_crash<R: Runtime>(
             exit_code, crash_count_in_window, max_crashes_before_trip
         ));
     }
-    let _ = app.emit("caspar://process-state-changed", ());
+    emit_state_change(app, supervisor, &settings).await;
 
     crate::diagnostics::push_caspar_process_log(
         "WARN",
@@ -844,7 +905,7 @@ async fn handle_crash<R: Runtime>(
             inner.state = CasparProcessState::Crashed;
             inner.last_error = Some(format!("Auto-relaunch failed: {}", e));
             drop(inner);
-            let _ = app_restart.emit("caspar://process-state-changed", ());
+            emit_state_change(&app_restart, &supervisor_restart, &settings_now).await;
         }
     });
 }

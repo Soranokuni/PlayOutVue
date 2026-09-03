@@ -3,13 +3,69 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Greek NCRTV Broadcast Advisory Template & Vector Studio</title>
+  <title>Greek NCRTV Broadcast Advisory Template & Vector Studio</title> 
+  <!-- Google Fonts: Roboto, Monospace, Outfit, Inter, Montserrat -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@700;800;900&family=Montserrat:wght@700;800;900&family=Outfit:wght@700;800;900&family=Roboto+Mono:wght@700&family=Roboto:wght@700;900&display=swap" rel="stylesheet">
   <!-- GSAP 3: Local vendor bundle with CDN fallback -->
   <script src="vendor/gsap.min.js"></script>
   <script>
     if (typeof gsap === 'undefined') {
       document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"><\/script>');
     }
+  </script>
+  <script>
+    // Immediate execution before DOM render to guarantee zero-latency transparency
+    (function() {
+      function detectMode() {
+        const params = new URLSearchParams(window.location.search);
+        const hash = window.location.hash || '';
+
+        // Explicit Studio Workstation Editor flags
+        if (
+          params.get('studio') === '1' ||
+          params.get('editor') === '1' ||
+          params.has('studio') ||
+          params.has('editor') ||
+          hash.toLowerCase().includes('studio') ||
+          hash.toLowerCase().includes('editor')
+        ) {
+          return 'studio';
+        }
+
+        // Explicit Broadcast / On-Air flags
+        if (
+          params.get('onair') === '1' ||
+          params.get('broadcast') === '1' ||
+          params.has('onair') ||
+          params.has('broadcast') ||
+          hash.toLowerCase().includes('onair') ||
+          hash.toLowerCase().includes('broadcast')
+        ) {
+          return 'on-air';
+        }
+
+        // CasparCG Server Environment Detection:
+        // CasparCG Server CEF offscreen renderer always injects window.caspar and window.casparcg
+        if (typeof window.caspar !== 'undefined' || typeof window.casparcg !== 'undefined') {
+          return 'on-air';
+        }
+
+        // Default for desktop browsers: when opened in a standard web browser (Chrome, Brave, Edge, etc.)
+        // without CasparCG, default to Studio Workstation Editor mode.
+        return 'studio';
+      }
+
+      const mode = detectMode();
+      if (mode === 'studio') {
+        document.documentElement.classList.add('studio-mode');
+        document.documentElement.classList.remove('on-air');
+      } else {
+        document.documentElement.classList.add('on-air');
+        document.documentElement.classList.remove('studio-mode');
+      }
+    })();
   </script>
   <style>
     /* =========================================================================
@@ -71,16 +127,30 @@
       padding: 0;
     }
 
+    /* =========================================================================
+       CORE TRANSPARENCY FOUNDATION (CASPARCG BROADCAST OVERLAY LAYER 32)
+       100% transparent root, transparent body, and transparent canvas by default
+       ========================================================================= */
     html, body {
       width: 100%;
       height: 100%;
-      overflow: hidden;
-      background: #060913;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: hidden !important;
+      background: transparent !important;
+      background-color: transparent !important;
       font-family: var(--cg-font-family);
       color: #e2e8f0;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       text-rendering: optimizeLegibility;
+    }
+
+    /* Studio Workstation Mode Background (only applied when ?studio=1 or ?editor=1) */
+    html.studio-mode,
+    body.studio-mode {
+      background: #060913 !important;
+      background-color: #060913 !important;
     }
 
     svg {
@@ -705,7 +775,7 @@
       flex-direction: row;
     }
 
-    /* Top-Left Order: [STATION ID] (order: 1) -> | (order: 1) -> HD (order: 2) */
+    /* Top-Left Order: [STATION ID] (order: 1) -> Dot/Line (order: 1) -> Text (order: 2) */
     #station-logo-stage.anchor-top-left #station-logo-container,
     #station-logo-stage.anchor-bottom-left #station-logo-container {
       order: 1;
@@ -717,17 +787,17 @@
       flex-direction: row;
     }
 
-    #station-logo-stage.anchor-top-left .station-subtitle-divider,
-    #station-logo-stage.anchor-bottom-left .station-subtitle-divider {
+    #station-logo-stage.anchor-top-left .station-subtitle-divider-wrap,
+    #station-logo-stage.anchor-bottom-left .station-subtitle-divider-wrap {
       order: 1;
     }
 
-    #station-logo-stage.anchor-top-left .station-subtitle-text,
-    #station-logo-stage.anchor-bottom-left .station-subtitle-text {
+    #station-logo-stage.anchor-top-left .station-subtitle-mask,
+    #station-logo-stage.anchor-bottom-left .station-subtitle-mask {
       order: 2;
     }
 
-    /* Top-Right (Flipped) Order: HD (order: 1) -> | (order: 2) -> [STATION ID] (order: 2) */
+    /* Top-Right (Flipped) Order: Text (order: 1) -> Dot/Line (order: 2) -> [STATION ID] (order: 2) */
     #station-logo-stage.anchor-top-right,
     #station-logo-stage.anchor-bottom-right {
       top: var(--cg-logo-top, 60px);
@@ -743,13 +813,13 @@
       flex-direction: row;
     }
 
-    #station-logo-stage.anchor-top-right .station-subtitle-text,
-    #station-logo-stage.anchor-bottom-right .station-subtitle-text {
+    #station-logo-stage.anchor-top-right .station-subtitle-mask,
+    #station-logo-stage.anchor-bottom-right .station-subtitle-mask {
       order: 1;
     }
 
-    #station-logo-stage.anchor-top-right .station-subtitle-divider,
-    #station-logo-stage.anchor-bottom-right .station-subtitle-divider {
+    #station-logo-stage.anchor-top-right .station-subtitle-divider-wrap,
+    #station-logo-stage.anchor-bottom-right .station-subtitle-divider-wrap {
       order: 2;
     }
 
@@ -758,9 +828,9 @@
       order: 2;
     }
 
-    /* Minimal Floating Subtitle Tag (WITHOUT A BOX - clean broadcast typography) */
+    /* Minimal Floating Subtitle Tag (Clean broadcast typography with dynamic dot-to-line animation) */
     .station-subtitle-tag {
-      display: none;
+      display: inline-flex;
       align-items: center;
       background: transparent !important;
       border: none !important;
@@ -773,22 +843,43 @@
       user-select: none;
       pointer-events: none;
       white-space: nowrap;
+      overflow: visible;
+      opacity: 0;
+      visibility: hidden;
     }
 
     .station-subtitle-tag.visible {
-      display: inline-flex;
+      opacity: 1;
+      visibility: visible;
     }
 
-    .station-subtitle-divider {
-      font-family: var(--cg-font-family);
-      font-size: 20px;
-      font-weight: 200;
-      color: rgba(255, 255, 255, 0.7);
-      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85);
-      user-select: none;
-      line-height: 1;
-      margin: 0 7px;
-      display: inline-block;
+    .station-subtitle-divider-wrap {
+      width: 14px;
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      overflow: visible;
+      margin: 0 3px;
+    }
+
+    .station-subtitle-dot {
+      width: 2.5px;
+      height: 18px;
+      background: linear-gradient(180deg, #ffffff 0%, #38bdf8 100%);
+      border-radius: 1.5px;
+      box-shadow: 0 0 7px rgba(56, 189, 248, 0.8), 0 1px 3px rgba(0, 0, 0, 0.9);
+      transform-origin: center center;
+      will-change: transform, opacity;
+    }
+
+    .station-subtitle-mask {
+      display: inline-flex;
+      align-items: center;
+      overflow: hidden;
+      padding: 2px 4px;
+      max-width: 400px;
     }
 
     .station-subtitle-text {
@@ -804,6 +895,30 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      will-change: transform, opacity;
+    }
+
+    .station-subtitle-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      margin-right: 3px;
+      overflow: visible;
+    }
+
+    .station-subtitle-icon:empty {
+      display: none;
+    }
+
+    .show-tag-svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+      flex-shrink: 0;
+      overflow: visible;
     }
 
     .station-live-dot {
@@ -1100,57 +1215,88 @@
     .warning-text-group {
       display: flex;
       flex-direction: column;
-      align-items: flex-start;
       justify-content: center;
-      gap: 1.5px;
+      line-height: 1.2;
+      max-width: 580px;
+      text-align: left;
     }
 
     .warning-lead {
-      font-size: var(--cg-warning-lead-font-size, 10.5px);
+      font-family: var(--cg-font-family);
+      font-size: 10.5px;
       font-weight: 800;
-      letter-spacing: 0.06em;
-      color: #e2e8f0;
+      color: #94a3b8;
+      letter-spacing: 0.8px;
       text-transform: uppercase;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
-      -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
       white-space: nowrap;
-      line-height: 1.15;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
     }
 
     .warning-body {
-      font-size: var(--cg-warning-body-font-size, 12px);
-      font-weight: 900;
-      letter-spacing: 0.05em;
-      color: var(--text-color, #ffffff);
+      font-family: var(--cg-font-family);
+      font-size: 12.5px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: 0.4px;
       text-transform: uppercase;
-      text-shadow: var(--text-shadow);
-      -webkit-text-stroke: var(--text-stroke);
       white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 6px rgba(0, 0, 0, 0.8);
+    }
+
+    .combo-group {
+      max-width: 620px;
+    }
+
+    .combo-group.has-3-lines {
+      gap: 1.5px;
+      padding-bottom: 6px; /* Guaranteed clearance so text never touches or covers accent line */
+    }
+
+    .combo-line-1 {
+      font-family: var(--cg-font-family);
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #94a3b8;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
       line-height: 1.15;
     }
 
-    /* Combo 2-Line High-Impact Typography */
-    .combo-group .combo-line-1 {
+    .combo-group.has-3-lines .combo-line-1 {
+      font-size: 9.5px;
+      letter-spacing: 0.7px;
+    }
+
+    .combo-line-2 {
+      font-family: var(--cg-font-family);
+      font-size: 12px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 6px rgba(0, 0, 0, 0.8);
+      line-height: 1.15;
+    }
+
+    .combo-group.has-3-lines .combo-line-2 {
+      font-size: 11px;
+      letter-spacing: 0.35px;
+    }
+
+    .combo-line-3 {
+      font-family: var(--cg-font-family);
       font-size: 11px;
       font-weight: 800;
-      letter-spacing: 0.05em;
-      color: #f1f5f9;
+      color: #ffffff;
+      letter-spacing: 0.35px;
       text-transform: uppercase;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
-      -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
       white-space: nowrap;
-      line-height: 1.15;
-    }
-
-    .combo-group .combo-line-2 {
-      font-size: 11.5px;
-      font-weight: 900;
-      letter-spacing: 0.05em;
-      color: var(--text-color, #ffffff);
-      text-transform: uppercase;
-      text-shadow: var(--text-shadow);
-      -webkit-text-stroke: var(--text-stroke);
-      white-space: nowrap;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 6px rgba(0, 0, 0, 0.8);
       line-height: 1.15;
     }
 
@@ -1189,7 +1335,7 @@
       bottom: 0;
       right: 0;
       width: 100%;
-      height: var(--cg-accent-line-height, 2px);
+      height: var(--accent-line-height, 2px);
       background: var(--accent-bg);
       border-radius: 1px;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
@@ -1431,14 +1577,24 @@
       color: #ffffff;
     }
 
-    /* CASPARCG BROADCAST LAYER 32 ON-AIR OVERRIDE */
+    /* =========================================================================
+       CASPARCG BROADCAST LAYER 32 ON-AIR OVERRIDE & TRANSPARENCY PIPELINE
+       Guaranteed 100% transparent root, transparent canvas, zero workstation UI
+       ========================================================================= */
+    html.on-air,
     body.on-air {
       margin: 0 !important;
       padding: 0 !important;
       background: transparent !important;
+      background-color: transparent !important;
       overflow: hidden !important;
     }
 
+    html.on-air .controls-card,
+    html.on-air .console-card,
+    html.on-air .preview-top-bar,
+    html.on-air #drag-hud,
+    html.on-air .safe-area-overlay,
     body.on-air .controls-card,
     body.on-air .console-card,
     body.on-air .preview-top-bar,
@@ -1447,6 +1603,10 @@
       display: none !important;
     }
 
+    html.on-air .studio-workstation-layout,
+    html.on-air .right-column-stack,
+    html.on-air .preview-card,
+    html.on-air .preview-viewport,
     body.on-air .studio-workstation-layout,
     body.on-air .right-column-stack,
     body.on-air .preview-card,
@@ -1458,12 +1618,14 @@
       border-radius: 0 !important;
       box-shadow: none !important;
       background: transparent !important;
+      background-color: transparent !important;
       width: 1920px !important;
       height: 1080px !important;
       position: absolute !important;
       inset: 0 !important;
     }
 
+    html.on-air #broadcast-canvas,
     body.on-air #broadcast-canvas {
       position: absolute !important;
       top: 0 !important;
@@ -1472,7 +1634,18 @@
       width: 1920px !important;
       height: 1080px !important;
       background: transparent !important;
+      background-color: transparent !important;
+      background-image: none !important;
       box-shadow: none !important;
+    }
+
+    /* Disable backdrop-filter in on-air broadcast mode to prevent software rasterizer artifacts in CEF */
+    html.on-air .badge-wrapper,
+    html.on-air .tp-badge,
+    body.on-air .badge-wrapper,
+    body.on-air .tp-badge {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
     }
 
     /* SOTA Show Tag Chips and Icon Badges */
@@ -1823,6 +1996,7 @@
         <div class="preset-quick-actions">
           <button type="button" class="preset-pill-btn" onclick="openSaveAsDialog()" title="Save all customizations as a new preset">⭐ Save As...</button>
           <button type="button" class="preset-pill-btn" id="btn-make-default" onclick="markActivePresetAsDefault()" title="Make this preset the startup default">★ Set Default</button>
+          <button type="button" class="preset-pill-btn deploy-pill-btn" id="btn-deploy-preset" onclick="deployFromStudio()" title="Deploy this preset and template directly to CasparCG" style="background: rgba(16, 185, 129, 0.22); border-color: rgba(16, 185, 129, 0.65); color: #34d399; font-weight: 700;">🚀 Deploy to CasparCG</button>
           <button type="button" class="preset-pill-btn" id="btn-delete-preset" style="display: none; color: #f87171;" onclick="deleteActiveMasterPreset()" title="Delete this custom preset">🗑️ Delete</button>
         </div>
       </div>
@@ -1898,6 +2072,48 @@
                 <span>Custom Greek Advisory Banner Text</span>
               </div>
               <input type="text" id="txt-custom-advisory" class="studio-select" placeholder="e.g. ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16 ΕΤΩΝ" style="margin-top: 4px;" oninput="onCustomTextTyped()">
+            </div>
+          </div>
+
+                    <!-- Greek NCRTV Advisory Warning Descriptors (Editable Phrasing) -->
+          <div class="studio-group" id="group-warning-descriptors">
+            <div class="studio-group-title">🛡️ Warning Descriptors &amp; Phrasing (Content Advisory)</div>
+            <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
+              Customize on-air phrasing for descriptors. Dynamically scales and animates next to rating badge.
+            </div>
+
+            <!-- Top Lead Text (Line 1) -->
+            <div class="vector-ctrl-row" style="margin-bottom: 6px;">
+              <span style="font-size: 10.5px; color: #cbd5e1; font-weight: 800; flex: 0 0 110px;">Header (Line 1):</span>
+              <input type="text" id="txt-warn-lead" class="studio-select" value="ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ" placeholder="ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ" oninput="onWarningTextEdited()" style="flex: 1; text-transform: uppercase; font-weight: 800; height: 26px; font-size: 11px;">
+            </div>
+
+            <!-- 1. Violence -->
+            <div class="show-tag-row" style="margin-bottom: 4px;">
+              <div class="tag-row-icon">⚔️</div>
+              <div class="tag-row-label" style="width: 82px;">Violence:</div>
+              <input type="text" id="txt-warn-violence" class="studio-select tag-row-input" value="ΣΚΗΝΕΣ ΒΙΑΣ" placeholder="ΣΚΗΝΕΣ ΒΙΑΣ" oninput="onWarningTextEdited()">
+            </div>
+
+            <!-- 2. Substances -->
+            <div class="show-tag-row" style="margin-bottom: 4px;">
+              <div class="tag-row-icon">💊</div>
+              <div class="tag-row-label" style="width: 82px;">Substances:</div>
+              <input type="text" id="txt-warn-drugs" class="studio-select tag-row-input" value="ΧΡΗΣΗ ΟΥΣΙΩΝ" placeholder="ΣΚΗΝΕΣ ΜΕ ΧΡΗΣΗ ΟΥΣΙΩΝ" oninput="onWarningTextEdited()">
+            </div>
+
+            <!-- 3. Sex -->
+            <div class="show-tag-row" style="margin-bottom: 4px;">
+              <div class="tag-row-icon">⚥</div>
+              <div class="tag-row-label" style="width: 82px;">Sex:</div>
+              <input type="text" id="txt-warn-sex" class="studio-select tag-row-input" value="ΣΕΞ" placeholder="ΣΚΗΝΕΣ ΣΕΞΟΥΑΛΙΚΟΥ ΠΕΡΙΕΧΟΜΕΝΟΥ" oninput="onWarningTextEdited()">
+            </div>
+
+            <!-- 4. Language -->
+            <div class="show-tag-row" style="margin-bottom: 4px;">
+              <div class="tag-row-icon">💬</div>
+              <div class="tag-row-label" style="width: 82px;">Language:</div>
+              <input type="text" id="txt-warn-language" class="studio-select tag-row-input" value="ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ" placeholder="ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ" oninput="onWarningTextEdited()">
             </div>
           </div>
 
@@ -2029,12 +2245,37 @@
             </div>
             <div class="vector-ctrl-row" style="margin-top: 4px;">
               <span style="font-size: 11.5px; color: #cbd5e1;">Wordmark Font</span>
-              <select class="studio-select" id="sel-logo-font" style="max-width: 140px;" onchange="updateLogoFromControls()">
-                <option value="system">System Sans Heavy</option>
+              <select class="studio-select" id="sel-logo-font" style="max-width: 150px;" onchange="updateLogoFromControls()">
+                <option value="system" selected>System / Bespoke (Default)</option>
+                <option value="roboto">Roboto Clean</option>
+                <option value="mono">Monospace Tech</option>
                 <option value="display">Display Expanded</option>
-                <option value="geometric">Geometric Bold</option>
-                <option value="serif">Classic Chiseled Serif</option>
+                <option value="geometric">Geometric Bold (Outfit)</option>
+                <option value="inter">Inter Neutral</option>
+                <option value="serif">Classic Serif</option>
               </select>
+            </div>
+          </div>
+
+                    <!-- Station Logo Positioning Sliders -->
+          <div class="studio-group" id="group-logo-positioning">
+            <div class="studio-group-title">📍 Station Logo Screen Offsets</div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Top Offset</span>
+                <span id="val-logo-top" class="studio-value-tag">60px</span>
+              </div>
+              <input type="range" id="sld-logo-top" min="10" max="400" step="2" value="60" class="studio-slider" oninput="onLogoPosSliderChanged()">
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Left Offset</span>
+                <span id="val-logo-left" class="studio-value-tag">60px</span>
+              </div>
+              <input type="range" id="sld-logo-left" min="10" max="600" step="2" value="60" class="studio-slider" oninput="onLogoPosSliderChanged()">
+            </div>
+            <div class="studio-btn-row" style="margin-top: 6px;">
+              <button type="button" class="studio-btn" style="font-size: 10px;" onclick="resetLogoPositionToDefault()">↺ Reset Logo Position (60px, 60px)</button>
             </div>
           </div>
 
@@ -2208,10 +2449,13 @@
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1;">Font Family</span>
               <select class="studio-select" id="sel-rating-font" style="max-width: 150px;" onchange="updateRatingFromControls()">
-                <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">Broadcast System Sans</option>
-                <option value="'Outfit', system-ui, sans-serif">Outfit</option>
-                <option value="'Inter', system-ui, sans-serif">Inter</option>
-                <option value="Arial, sans-serif">Arial Bold</option>
+                <option value="system" selected>System Sans (Default)</option>
+                <option value="roboto">Roboto Clean</option>
+                <option value="mono">Monospace Tech</option>
+                <option value="outfit">Outfit Geometric</option>
+                <option value="inter">Inter Neutral</option>
+                <option value="montserrat">Montserrat Display</option>
+                <option value="serif">Classic Serif</option>
               </select>
             </div>
             <div style="margin-top: 6px;">
@@ -2324,8 +2568,64 @@
             </div>
           </div>
 
+          
+          <!-- Banner Accent Line Gradient Controls -->
+          <div class="studio-group" id="group-accent-line-styling">
+            <div class="studio-group-title">✨ Banner Accent Line Gradient &amp; Colors</div>
+            <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
+              Customize the dynamic underline accent gradient color, height, and glow.
+            </div>
+
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11px; color: #cbd5e1;">Gradient Start (Badge edge):</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="color" id="col-accent-start" class="studio-color-picker" value="#ffffff" oninput="updateAccentLineStyles()">
+                <input type="text" id="txt-accent-start" class="studio-select" value="#ffffff" style="width: 76px; height: 26px; font-size: 11px;" oninput="onAccentHexInput('start', this.value)">
+              </div>
+            </div>
+
+            <div class="vector-ctrl-row" style="margin-top: 6px;">
+              <span style="font-size: 11px; color: #cbd5e1;">Gradient Mid-Glow (Accent color):</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="color" id="col-accent-mid" class="studio-color-picker" value="#38bdf8" oninput="updateAccentLineStyles()">
+                <input type="text" id="txt-accent-mid" class="studio-select" value="#38bdf8" style="width: 76px; height: 26px; font-size: 11px;" oninput="onAccentHexInput('mid', this.value)">
+              </div>
+            </div>
+
+            <!-- Quick Color Preset Palette Chips -->
+            <div style="display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap;">
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#38bdf8')" title="Broadcast Sky / Cyan (Default)">💎 Cyan/Sky</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#a855f7')" title="Regal Violet / Purple">💜 Purple</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#f59e0b')" title="Gold / Amber Glow">🌟 Amber/Gold</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#ef4444')" title="Vibrant Crimson / Red">🔴 Crimson</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#10b981')" title="Emerald Green">🟢 Emerald</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#e2e8f0')" title="Pure Neutral Monochromatic">⚪ White</button>
+            </div>
+
+            <!-- Line Thickness Slider -->
+            <div class="studio-slider-row" style="margin-top: 10px;">
+              <div class="studio-slider-header">
+                <span>Line Thickness</span>
+                <span id="val-accent-line-height" class="studio-value-tag">2px</span>
+              </div>
+              <input type="range" id="sld-accent-line-height" min="1" max="6" step="0.5" value="2" class="studio-slider" oninput="updateAccentLineStyles()">
+            </div>
+          </div>
+
           <div class="studio-group">
-            <div class="studio-group-title">🔤 Typography Hierarchy Sizing</div>
+            <div class="studio-group-title">🔤 Typography Hierarchy &amp; Fonts</div>
+            <div class="vector-ctrl-row" style="margin-bottom: 10px;">
+              <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 700;">Broadcast Font Family:</span>
+              <select class="studio-select" id="sel-broadcast-font" style="max-width: 165px;" onchange="updateBroadcastFont(this.value)">
+                <option value="system" selected>System Sans (Default)</option>
+                <option value="roboto">Roboto Clean</option>
+                <option value="mono">Monospace Tech</option>
+                <option value="outfit">Outfit Geometric</option>
+                <option value="inter">Inter Neutral</option>
+                <option value="montserrat">Montserrat Display</option>
+                <option value="serif">Classic Serif</option>
+              </select>
+            </div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
                 <span>Rating Explanation Font</span>
@@ -2391,6 +2691,7 @@
       <div class="studio-footer">
         <button class="action-btn-primary" onclick="buildTimeline(); replayTimeline();" title="Replay on-air animation sequence">▶ Replay</button>
         <button class="action-btn-secondary" onclick="saveCurrentActivePreset()" title="Save edits to current preset">💾 Save</button>
+        <button class="action-btn-secondary" onclick="deployFromStudio()" title="Deploy customizations directly to CasparCG" style="background: rgba(16, 185, 129, 0.25); border-color: rgba(16, 185, 129, 0.7); color: #34d399; font-weight: 700;">🚀 Deploy</button>
         <button class="action-btn-secondary" onclick="openSaveAsDialog()" title="Save as a new named preset" style="background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.6); color: #38bdf8;">⭐ Save As...</button>
       </div>
     </aside>
@@ -2428,7 +2729,7 @@
         <!-- 16:9 Inner Screen Viewport -->
         <div class="preview-viewport" id="preview-screen-viewport">
           <!-- The true 1920x1080 Broadcast Canvas (Scaled with exact center offsets) -->
-          <div id="broadcast-canvas" class="bg-dark">
+          <div id="broadcast-canvas">
             <!-- Safe Area Broadcast Boundary Guides -->
             <div id="safe-area-overlay" class="safe-area-overlay">
               <div class="safe-area-action"></div>
@@ -2522,13 +2823,17 @@
                 </svg>
               </div>
 
-              <!-- SOTA Neumorphic Subtitle Tag (e.g. [LOGO] | LIVE or [LOGO] | [MOVIE-ICON] MOVIE) -->
+              <!-- SOTA Dynamic Subtitle Tag (Dot slides -> vertically stretches to '|' -> Tag slides out elastically) -->
               <div id="station-subtitle-tag" class="station-subtitle-tag">
-                <span class="station-subtitle-divider">|</span>
-                <span id="station-subtitle-text" class="station-subtitle-text">
-                  <span id="station-subtitle-icon" class="station-subtitle-icon"></span>
-                  <span id="station-subtitle-label" class="station-subtitle-label">HD</span>
-                </span>
+                <div id="station-subtitle-divider-wrap" class="station-subtitle-divider-wrap">
+                  <div id="station-subtitle-dot" class="station-subtitle-dot"></div>
+                </div>
+                <div id="station-subtitle-mask" class="station-subtitle-mask">
+                  <span id="station-subtitle-text" class="station-subtitle-text">
+                    <span id="station-subtitle-icon" class="station-subtitle-icon"></span>
+                    <span id="station-subtitle-label" class="station-subtitle-label">HD</span>
+                  </span>
+                </div>
               </div>
 
               <div class="stage-drag-handle" title="Drag to reposition">☩</div>
@@ -2938,38 +3243,122 @@
       'NONE': ''
     };
 
+    
+    const FONT_MAP = {
+      system: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      roboto: "'Roboto', -apple-system, BlinkMacSystemFont, sans-serif",
+      mono: "'Roboto Mono', 'SF Mono', 'Cascadia Code', Consolas, 'Courier New', monospace",
+      outfit: "'Outfit', -apple-system, system-ui, sans-serif",
+      inter: "'Inter', -apple-system, system-ui, sans-serif",
+      montserrat: "'Montserrat', 'Arial Black', sans-serif",
+      display: '"Arial Black", Impact, sans-serif',
+      geometric: "'Outfit', 'Century Gothic', Futura, sans-serif",
+      serif: "Georgia, 'Times New Roman', serif"
+    };
+
+    function updateBroadcastFont(fontKey) {
+      const fontCss = FONT_MAP[fontKey] || FONT_MAP.system;
+      document.documentElement.style.setProperty('--cg-font-family', fontCss);
+      
+      const stText = document.getElementById('stencil-text');
+      const stOutline = document.getElementById('stencil-outline-text');
+      if (stText) stText.setAttribute('font-family', fontCss);
+      if (stOutline) stOutline.setAttribute('font-family', fontCss);
+      
+      const subLabel = document.getElementById('station-subtitle-label');
+      if (subLabel) subLabel.style.fontFamily = fontCss;
+
+      const rSel = document.getElementById('sel-rating-font');
+      if (rSel && Array.from(rSel.options).some(o => o.value === fontKey)) {
+        rSel.value = fontKey;
+      }
+
+      buildTimeline();
+      replayTimeline();
+      updateLiveInspector();
+      recordAction('THEME', 'Changed Broadcast Font: ' + fontKey);
+    }
+  
     const WARNING_TEXT_MAP = {
       violence: 'ΣΚΗΝΕΣ ΒΙΑΣ',
-      sex: 'ΣΚΗΝΕΣ ΣΕΞ',
+      sex: 'ΣΕΞ',
       drugs: 'ΧΡΗΣΗ ΟΥΣΙΩΝ',
       language: 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ'
     };
 
-    function formatComboLines(warnings) {
-      if (!warnings || warnings.length === 0) return { line1: '', line2: '' };
-      const labels = warnings.map(w => WARNING_TEXT_MAP[w] || w);
-      
-      if (labels.length === 2) {
-        return {
-          line1: `ΠΕΡΙΕΧΕΙ ${labels[0]}`,
-          line2: `ΚΑΙ ${labels[1]}`
-        };
-      }
-      if (labels.length === 3) {
-        return {
-          line1: `ΠΕΡΙΕΧΕΙ ${labels[0]} & ${labels[1]}`,
-          line2: `ΚΑΙ ${labels[2]}`
-        };
-      }
-      if (labels.length >= 4) {
-        return {
-          line1: `ΠΕΡΙΕΧΕΙ ${labels[0]}, ${labels[1]}`,
-          line2: `${labels[2]} & ${labels[3]}`
-        };
-      }
+    function getDescriptorTexts() {
       return {
-        line1: 'ΠΕΡΙΕΧΕΙ',
-        line2: labels[0] || ''
+        lead: (document.getElementById('txt-warn-lead')?.value || 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ').trim().toUpperCase(),
+        violence: (document.getElementById('txt-warn-violence')?.value || 'ΣΚΗΝΕΣ ΒΙΑΣ').trim().toUpperCase(),
+        drugs: (document.getElementById('txt-warn-drugs')?.value || 'ΧΡΗΣΗ ΟΥΣΙΩΝ').trim().toUpperCase(),
+        sex: (document.getElementById('txt-warn-sex')?.value || 'ΣΕΞ').trim().toUpperCase(),
+        language: (document.getElementById('txt-warn-language')?.value || 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ').trim().toUpperCase()
+      };
+    }
+
+    function formatComboLines(warnings) {
+      if (!warnings || warnings.length === 0) return { line1: '', line2: '', line3: '', is3Lines: false };
+      const dTexts = getDescriptorTexts();
+      const rawLabels = warnings.map(w => dTexts[w] || WARNING_TEXT_MAP[w] || w.toUpperCase());
+      
+      if (rawLabels.length === 1) {
+        return {
+          line1: dTexts.lead,
+          line2: rawLabels[0],
+          line3: '',
+          is3Lines: false
+        };
+      }
+
+      // Do not repeat "ΣΚΗΝΕΣ" across descriptors in combo:
+      // Strip redundant "ΣΚΗΝΕΣ", "ΣΚΗΝΕΣ ΜΕ" from items after the first
+      const cleanLabels = rawLabels.map((lbl, idx) => {
+        if (idx === 0) return lbl;
+        return lbl
+          .replace(/^ΣΚΗΝΕΣ\s+(ΜΕ\s+)?/i, '')
+          .replace(/^ΣΕΞΟΥΑΛΙΚΟΥ\s+ΠΕΡΙΕΧΟΜΕΝΟΥ/i, 'ΣΕΞ')
+          .trim();
+      });
+
+      // Build single-line combined text
+      let singleLine = '';
+      if (cleanLabels.length === 2) {
+        singleLine = `${cleanLabels[0]} & ${cleanLabels[1]}`;
+      } else if (cleanLabels.length === 3) {
+        singleLine = `${cleanLabels[0]}, ${cleanLabels[1]} & ${cleanLabels[2]}`;
+      } else {
+        singleLine = `${cleanLabels[0]}, ${cleanLabels[1]}, ${cleanLabels[2]} & ${cleanLabels[3]}`;
+      }
+
+      // Dynamic check: fits on 1 body line if length <= 46 chars
+      if (singleLine.length <= 46) {
+        return {
+          line1: dTexts.lead,
+          line2: singleLine,
+          line3: '',
+          is3Lines: false
+        };
+      }
+
+      // Does NOT fit on 1 body line -> dynamically split into 3 lines!
+      let l2 = '';
+      let l3 = '';
+      if (cleanLabels.length === 2) {
+        l2 = cleanLabels[0];
+        l3 = `& ${cleanLabels[1]}`;
+      } else if (cleanLabels.length === 3) {
+        l2 = `${cleanLabels[0]} & ${cleanLabels[1]}`;
+        l3 = `ΚΑΙ ${cleanLabels[2]}`;
+      } else {
+        l2 = `${cleanLabels[0]} & ${cleanLabels[1]}`;
+        l3 = `${cleanLabels[2]} & ${cleanLabels[3]}`;
+      }
+
+      return {
+        line1: dTexts.lead,
+        line2: l2,
+        line3: l3,
+        is3Lines: true
       };
     }
 
@@ -3154,15 +3543,16 @@
       }
 
       // Font Family Mapping
-      let fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-      if (fontChoice === 'display') fontFamily = '"Arial Black", Impact, sans-serif';
-      else if (fontChoice === 'geometric') fontFamily = '"Century Gothic", Futura, sans-serif';
-      else if (fontChoice === 'serif') fontFamily = 'Georgia, "Times New Roman", serif';
+      let fontFamily = FONT_MAP[fontChoice] || FONT_MAP.system;
+      
+      // Update Subtitle Font
+      const subLabelEl = document.getElementById('station-subtitle-label');
+      if (subLabelEl) subLabelEl.style.fontFamily = fontFamily;
 
-      // Update Wordmark Group (strictly the station mark, centered)
+      // Update Wordmark Group
       const wordmarkGroup = document.getElementById('sitia-wordmark-group');
       if (wordmarkGroup) {
-        if (wordmark === 'SITIA') {
+        if (wordmark === 'SITIA' && fontChoice === 'system') {
           wordmarkGroup.innerHTML = `
             <!-- Layer 1: Deep Physical Bevel Extrusion -->
             <path id="sitia-path-deep" d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z" transform="translate(${textX + 1.6}, ${textY + 3.2})" fill="${textShadowCol}" opacity="0.95" />
@@ -3261,7 +3651,8 @@
       const cutout = document.getElementById('sel-rating-cutout')?.value || 'frosted';
       const tint = document.getElementById('col-rating-tint')?.value || '#ffffff';
       const stroke = document.getElementById('col-rating-stroke')?.value || '#ffffff';
-      const fontFamily = document.getElementById('sel-rating-font')?.value || '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      const fontKey = document.getElementById('sel-rating-font')?.value || 'system';
+      const fontFamily = FONT_MAP[fontKey] || fontKey;
       const fontSize = document.getElementById('sld-rating-font-size')?.value || 27;
       const textX = parseFloat(document.getElementById('sld-rating-text-x')?.value || 0);
       const textY = parseFloat(document.getElementById('sld-rating-text-y')?.value || 0);
@@ -3552,6 +3943,85 @@
       replayTimeline();
     }
 
+    
+    function onLogoPosSliderChanged() {
+      const topV = parseInt(document.getElementById('sld-logo-top')?.value) || 60;
+      const leftV = parseInt(document.getElementById('sld-logo-left')?.value) || 60;
+      const valTop = document.getElementById('val-logo-top');
+      const valLeft = document.getElementById('val-logo-left');
+      if (valTop) valTop.textContent = topV + 'px';
+      if (valLeft) valLeft.textContent = leftV + 'px';
+
+      const logoStage = document.getElementById('station-logo-stage');
+      if (logoStage) {
+        logoStage.style.setProperty('left', leftV + 'px', 'important');
+        logoStage.style.setProperty('top', topV + 'px', 'important');
+        logoStage.style.setProperty('right', 'auto', 'important');
+        logoStage.style.setProperty('bottom', 'auto', 'important');
+      }
+      document.documentElement.style.setProperty('--cg-logo-left', leftV + 'px');
+      document.documentElement.style.setProperty('--cg-logo-top', topV + 'px');
+    }
+
+    function resetLogoPositionToDefault() {
+      const sldTop = document.getElementById('sld-logo-top');
+      const sldLeft = document.getElementById('sld-logo-left');
+      if (sldTop) sldTop.value = 60;
+      if (sldLeft) sldLeft.value = 60;
+      onLogoPosSliderChanged();
+      recordAction('LAYOUT', 'Reset Station Logo to Default (60px, 60px)');
+    }
+
+    function onWarningTextEdited() {
+      buildTimeline();
+      replayTimeline();
+    }
+
+    function updateAccentLineStyles() {
+      const colStart = document.getElementById('col-accent-start')?.value || '#ffffff';
+      const colMid = document.getElementById('col-accent-mid')?.value || '#38bdf8';
+      const height = document.getElementById('sld-accent-line-height')?.value || '2';
+
+      const txtStart = document.getElementById('txt-accent-start');
+      const txtMid = document.getElementById('txt-accent-mid');
+      const valH = document.getElementById('val-accent-line-height');
+      if (txtStart) txtStart.value = colStart;
+      if (txtMid) txtMid.value = colMid;
+      if (valH) valH.textContent = height + 'px';
+
+      const root = document.documentElement;
+      const gradient = `linear-gradient(270deg, ${colStart} 0%, ${colMid} 50%, rgba(255, 255, 255, 0) 100%)`;
+      root.style.setProperty('--accent-color-start', colStart);
+      root.style.setProperty('--accent-color-mid', colMid);
+      root.style.setProperty('--accent-bg', gradient);
+      root.style.setProperty('--accent-line-height', height + 'px');
+
+      buildTimeline();
+      replayTimeline();
+    }
+
+    function setAccentGradientPreset(startHex, midHex) {
+      const cStart = document.getElementById('col-accent-start');
+      const cMid = document.getElementById('col-accent-mid');
+      if (cStart) cStart.value = startHex;
+      if (cMid) cMid.value = midHex;
+      updateAccentLineStyles();
+      recordAction('THEME', 'Accent line set to: ' + midHex);
+    }
+
+    function onAccentHexInput(type, val) {
+      if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+        if (type === 'start') {
+          const c = document.getElementById('col-accent-start');
+          if (c) c.value = val;
+        } else {
+          const c = document.getElementById('col-accent-mid');
+          if (c) c.value = val;
+        }
+        updateAccentLineStyles();
+      }
+    }
+
     function updateStudioTimings() {
       const rHold = parseFloat(document.getElementById('sld-rating-hold')?.value || 30);
       const wHold = parseFloat(document.getElementById('sld-warning-hold')?.value || 30);
@@ -3672,6 +4142,7 @@
 
       const warningSlots = [];
       const warningWidths = [];
+      const warningHeights = [];
 
       if (parsedWarnings.length > 1) {
         const wSlotCombo = document.createElement('div');
@@ -3681,47 +4152,68 @@
         const comboLines = formatComboLines(parsedWarnings);
         wSlotCombo.innerHTML = `
           <div class="warning-icon-wrapper">${WARNING_GLYPHS.combo}</div>
-          <div class="warning-text-group combo-group">
+          <div class="warning-text-group combo-group ${comboLines.is3Lines ? 'has-3-lines' : ''}">
             <span class="combo-line-1">${comboLines.line1}</span>
             <span class="combo-line-2">${comboLines.line2}</span>
+            ${comboLines.is3Lines ? `<span class="combo-line-3">${comboLines.line3}</span>` : ''}
           </div>
         `;
         textSlotMask.appendChild(wSlotCombo);
         
         wSlotCombo.style.visibility = 'hidden';
         wSlotCombo.style.display = 'inline-flex';
-        const w = getUnscaledWidth(wSlotCombo);
+        const w = Math.min(650, getUnscaledWidth(wSlotCombo));
         wSlotCombo.style.visibility = '';
 
         warningSlots.push(wSlotCombo);
         warningWidths.push(w);
+        warningHeights.push(comboLines.is3Lines ? 56 : 44);
       } else if (parsedWarnings.length === 1) {
         const cat = parsedWarnings[0];
         const wSlot = document.createElement('div');
         wSlot.className = 'slot-content';
         wSlot.id = `slot-warning-${cat}`;
         
-        const label = WARNING_TEXT_MAP[cat] || cat.toUpperCase();
+        const dTexts = getDescriptorTexts();
+        const label = dTexts[cat] || WARNING_TEXT_MAP[cat] || cat.toUpperCase();
+        
+        let bodyHtml = '';
+        let is3L = false;
+        if (label.length > 44 && label.includes(' ')) {
+          const mid = Math.floor(label.length / 2);
+          const splitIdx = label.indexOf(' ', mid);
+          const part1 = splitIdx !== -1 ? label.slice(0, splitIdx) : label;
+          const part2 = splitIdx !== -1 ? label.slice(splitIdx + 1) : '';
+          bodyHtml = `
+            <span class="combo-line-2">${part1}</span>
+            <span class="combo-line-3">${part2}</span>
+          `;
+          is3L = true;
+        } else {
+          bodyHtml = `<span class="warning-body">${label}</span>`;
+        }
+
         wSlot.innerHTML = `
           <div class="warning-icon-wrapper">${WARNING_GLYPHS[cat] || WARNING_GLYPHS.combo}</div>
-          <div class="warning-text-group">
-            <span class="warning-lead">ΠΡΟΕΙΔΟΠΟΙΗΣΗ</span>
-            <span class="warning-body">${label}</span>
+          <div class="warning-text-group ${is3L ? 'has-3-lines' : ''}">
+            <span class="warning-lead">${dTexts.lead}</span>
+            ${bodyHtml}
           </div>
         `;
         textSlotMask.appendChild(wSlot);
 
         wSlot.style.visibility = 'hidden';
         wSlot.style.display = 'inline-flex';
-        const w = getUnscaledWidth(wSlot);
+        const w = Math.min(650, getUnscaledWidth(wSlot));
         wSlot.style.visibility = '';
 
         warningSlots.push(wSlot);
         warningWidths.push(w);
+        warningHeights.push(is3L ? 56 : 44);
       }
 
       gsap.set(badgeContainer, { scale: 1, opacity: 1 });
-      gsap.set(textSlotMask, { width: 0, opacity: 1 });
+      gsap.set(textSlotMask, { width: 0, height: 44, opacity: 1 });
       gsap.set(accentLine, { scaleX: 0 });
 
       if (slotPrimary) {
@@ -3738,21 +4230,25 @@
 
       masterTL = gsap.timeline({ paused: true });
 
-      const activeStages = [];
       const stLogoStage = document.getElementById('station-logo-stage');
       const stAdvStage = document.getElementById('advisory-stage');
-      if (stLogoStage && stLogoStage.style.display !== 'none') activeStages.push(stLogoStage);
-      if (stAdvStage && stAdvStage.style.display !== 'none') activeStages.push(stAdvStage);
-      
-      gsap.set(activeStages, { scale: 0.8, opacity: 0 });
 
-      masterTL.to(activeStages, {
-        scale: 1,
-        opacity: 1,
-        duration: 0.6,
-        ease: 'power3.out',
-        stagger: 0.08
-      });
+      // Station ID Logo Bug is ALWAYS permanent on-screen and NEVER resets, flickers, or respawns!
+      if (stLogoStage) {
+        stLogoStage.style.display = 'flex';
+        gsap.set(stLogoStage, { scale: 1, opacity: 1 });
+      }
+
+      // Only animate advisory rating stage into view if active
+      if (stAdvStage && stAdvStage.style.display !== 'none') {
+        gsap.set(stAdvStage, { scale: 0.85, opacity: 0 });
+        masterTL.to(stAdvStage, {
+          scale: 1,
+          opacity: 1,
+          duration: 0.55,
+          ease: 'power3.out'
+        });
+      }
 
       if (slotPrimary) {
         masterTL
@@ -3763,6 +4259,7 @@
           }, '-=0.25')
           .to(textSlotMask, {
             width: primaryWidth,
+            height: 44,
             duration: 0.5,
             ease: 'power3.out'
           }, '<')
@@ -3791,10 +4288,12 @@
             const iconEl = wSlot.querySelector('.warning-icon-wrapper');
             const textGroupEl = wSlot.querySelector('.warning-text-group');
 
+            const targetH = warningHeights[idx] || 44;
             masterTL
               .set(wSlot, { display: 'inline-flex', opacity: 1 })
               .to(textSlotMask, {
                 width: targetW,
+                height: targetH,
                 duration: 0.4,
                 ease: 'power3.out'
               })
@@ -3934,7 +4433,10 @@
     };
 
     window.update = function(data) {
+      document.documentElement.classList.add('on-air');
       document.body.classList.add('on-air');
+      document.documentElement.classList.remove('studio-mode');
+      document.body.classList.remove('studio-mode');
       let parsed = data;
       if (typeof data === 'string') {
         try { parsed = JSON.parse(data); } catch(e) { parsed = {}; }
@@ -3953,24 +4455,33 @@
         if (parsed.hold_time !== undefined) currentConfig.hold_time = parseFloat(parsed.hold_time) || 30.0;
         if (parsed.warning_hold_time !== undefined) currentConfig.warning_hold_time = parseFloat(parsed.warning_hold_time) || 30.0;
         if (parsed.show_explanation !== undefined) currentConfig.show_explanation = !!parsed.show_explanation;
+        if (parsed.show_station_logo !== undefined) currentConfig.show_station_logo = !!parsed.show_station_logo;
 
-        // Automatic Show Tag detection from PlayOut & PlayoutTranscode
-        if (parsed.show_tag || parsed.is_live || parsed.content_type || parsed.tp) {
-          let tagKey = null;
-          if (parsed.is_live || parsed.show_tag === 'live') tagKey = 'live';
-          else if (parsed.show_tag === 'movie' || parsed.content_type === 'movie') tagKey = 'movie';
-          else if (parsed.show_tag === 'documentary' || parsed.content_type === 'documentary') tagKey = 'documentary';
-          else if (parsed.show_tag === 'show' || parsed.content_type === 'show') tagKey = 'show';
-          else if (parsed.show_tag === 'news' || parsed.content_type === 'news') tagKey = 'news';
-          else if (parsed.show_tag === 'telemarketing' || (parsed.tp && !parsed.content_type)) tagKey = 'telemarketing';
-
-          if (tagKey && SHOW_TAG_PRESETS[tagKey]) {
-            applyShowTagPreset(tagKey, parsed.subtitle);
+        // Custom Station Logo SVG override
+        if (parsed.customLogoSvg) {
+          const logoContainer = document.getElementById('station-logo-container');
+          if (logoContainer) {
+            logoContainer.innerHTML = parsed.customLogoSvg;
           }
-        } else if (parsed.subtitle !== undefined) {
-          const subInput = document.getElementById('txt-logo-subtitle');
-          if (subInput) subInput.value = parsed.subtitle;
-          updateLogoFromControls();
+        }
+
+        // Broadcast Show Tag handling & dismissal
+        let tagKey = null;
+        if (parsed.is_live || parsed.show_tag === 'live') tagKey = 'live';
+        else if (parsed.show_tag === 'movie' || parsed.content_type === 'movie') tagKey = 'movie';
+        else if (parsed.show_tag === 'documentary' || parsed.content_type === 'documentary') tagKey = 'documentary';
+        else if (parsed.show_tag === 'show' || parsed.content_type === 'show') tagKey = 'show';
+        else if (parsed.show_tag === 'news' || parsed.content_type === 'news') tagKey = 'news';
+        else if (parsed.show_tag === 'telemarketing' || (parsed.tp && !parsed.content_type)) tagKey = 'telemarketing';
+        else if (parsed.show_tag && parsed.show_tag !== 'none' && SHOW_TAG_PRESETS[parsed.show_tag]) tagKey = parsed.show_tag;
+
+        if (tagKey && SHOW_TAG_PRESETS[tagKey]) {
+          applyShowTagPreset(tagKey, parsed.subtitle);
+        } else if (parsed.subtitle && parsed.subtitle.trim() && parsed.subtitle.toUpperCase() !== 'HD') {
+          renderStationSubtitle('none', parsed.subtitle);
+        } else {
+          // No tag for this clip: animate dismissal into "|" and disappear!
+          applyShowTagPreset('none', '');
         }
 
         if (parsed.styling) {
@@ -4009,11 +4520,13 @@
       const canvas = document.getElementById('broadcast-canvas');
       const viewport = document.getElementById('preview-screen-viewport');
       if (!canvas) return;
-      if (document.body.classList.contains('on-air')) {
+      if (document.documentElement.classList.contains('on-air') || document.body.classList.contains('on-air')) {
         canvas.style.top = '0px';
         canvas.style.left = '0px';
         canvas.style.transform = 'none';
         canvas.style.transformOrigin = '0 0';
+        canvas.style.width = '1920px';
+        canvas.style.height = '1080px';
         return;
       }
       if (!viewport) return;
@@ -4081,10 +4594,23 @@
         newX = Math.max(0, Math.min(1920 - activeDragTarget.offsetWidth, newX));
         newY = Math.max(0, Math.min(1080 - activeDragTarget.offsetHeight, newY));
 
-        activeDragTarget.style.left = `${newX}px`;
-        activeDragTarget.style.top = `${newY}px`;
-        activeDragTarget.style.right = 'auto';
-        activeDragTarget.style.bottom = 'auto';
+        activeDragTarget.style.setProperty('left', `${newX}px`, 'important');
+        activeDragTarget.style.setProperty('top', `${newY}px`, 'important');
+        activeDragTarget.style.setProperty('right', 'auto', 'important');
+        activeDragTarget.style.setProperty('bottom', 'auto', 'important');
+
+        if (activeDragTarget.id === 'station-logo-stage') {
+          document.documentElement.style.setProperty('--cg-logo-left', `${newX}px`);
+          document.documentElement.style.setProperty('--cg-logo-top', `${newY}px`);
+          const sldTop = document.getElementById('sld-logo-top');
+          const sldLeft = document.getElementById('sld-logo-left');
+          const valTop = document.getElementById('val-logo-top');
+          const valLeft = document.getElementById('val-logo-left');
+          if (sldTop) sldTop.value = newY;
+          if (sldLeft) sldLeft.value = newX;
+          if (valTop) valTop.textContent = `${newY}px`;
+          if (valLeft) valLeft.textContent = `${newX}px`;
+        }
 
         const hud = document.getElementById('drag-hud');
         if (hud) {
@@ -4190,7 +4716,8 @@
       const ratingSize = document.getElementById('sld-rating-size')?.value || 54;
       const ratingCutout = document.getElementById('sel-rating-cutout')?.value || 'frosted';
 
-      const subVal = document.getElementById('txt-logo-subtitle')?.value.trim().toUpperCase() || '(none)';
+      const subEl = document.getElementById('txt-logo-subtitle');
+      const subVal = (subEl && subEl.value) ? String(subEl.value).trim().toUpperCase() : '(none)';
       stream.innerHTML = `
         <div class="console-attrib-row"><span class="console-attrib-key">Station Wordmark</span><span class="console-attrib-val">"${logoWordmark}"</span></div>
         <div class="console-attrib-row"><span class="console-attrib-key">Station Subtitle Tag</span><span class="console-attrib-val">"${subVal}"</span></div>
@@ -4388,6 +4915,56 @@
 
     // Initialization Sequence
     window.addEventListener('DOMContentLoaded', () => {
+      function detectMode() {
+        const params = new URLSearchParams(window.location.search);
+        const hash = window.location.hash || '';
+
+        if (
+          params.get('studio') === '1' ||
+          params.get('editor') === '1' ||
+          params.has('studio') ||
+          params.has('editor') ||
+          hash.toLowerCase().includes('studio') ||
+          hash.toLowerCase().includes('editor')
+        ) {
+          return 'studio';
+        }
+
+        if (
+          params.get('onair') === '1' ||
+          params.get('broadcast') === '1' ||
+          params.has('onair') ||
+          params.has('broadcast') ||
+          hash.toLowerCase().includes('onair') ||
+          hash.toLowerCase().includes('broadcast')
+        ) {
+          return 'on-air';
+        }
+
+        if (typeof window.caspar !== 'undefined' || typeof window.casparcg !== 'undefined') {
+          return 'on-air';
+        }
+
+        return 'studio';
+      }
+
+      const mode = detectMode();
+      if (mode === 'studio') {
+        document.documentElement.classList.add('studio-mode');
+        document.body.classList.add('studio-mode');
+        document.documentElement.classList.remove('on-air');
+        document.body.classList.remove('on-air');
+        const canvas = document.getElementById('broadcast-canvas');
+        if (canvas && !canvas.classList.contains('bg-dark') && !canvas.classList.contains('bg-bright') && !canvas.classList.contains('bg-movie') && !canvas.classList.contains('bg-checker') && !canvas.classList.contains('bg-transparent')) {
+          canvas.classList.add('bg-dark');
+        }
+      } else {
+        document.documentElement.classList.add('on-air');
+        document.body.classList.add('on-air');
+        document.documentElement.classList.remove('studio-mode');
+        document.body.classList.remove('studio-mode');
+      }
+
       initCanvasDraggables();
 
       // Master Presets: Load default or operator active preset
@@ -4399,12 +4976,6 @@
       updateRatingFromControls();
       resizeCanvas();
       setTimeout(resizeCanvas, 100);
-
-      // On-Air Detection: window.caspar OR URL parameter ?onair=1 or ?broadcast=1
-      const params = new URLSearchParams(window.location.search);
-      if (window.caspar || params.get('onair') === '1' || params.get('broadcast') === '1') {
-        document.body.classList.add('on-air');
-      }
 
       buildTimeline();
       window.play();
@@ -4427,27 +4998,27 @@
       movie: {
         id: 'movie',
         label: 'MOVIE TIME',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wmov-body" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#334155" /><stop offset="100%" stop-color="#0f172a" /></linearGradient><filter id="wmov-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wmov-sh)"><rect x="2.5" y="8.5" width="17" height="10.5" rx="1.6" fill="url(#wmov-body)" stroke="#ffffff" stroke-width="0.9" /><line x1="5.5" y1="12.5" x2="16.5" y2="12.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><line x1="5.5" y1="15.5" x2="13.5" y2="15.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><path d="M2.8 7 L18.5 4.2 L18 7.5 L2.5 8.5 Z" fill="#ffffff" stroke="#0f172a" stroke-width="0.5" /><circle cx="3.5" cy="7.8" r="1" fill="#0f172a" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wmov-body" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#334155" /><stop offset="100%" stop-color="#0f172a" /></linearGradient><filter id="wmov-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wmov-sh)"><rect x="2.5" y="8.5" width="17" height="10.5" rx="1.6" fill="url(#wmov-body)" stroke="#ffffff" stroke-width="0.9" /><line x1="5.5" y1="12.5" x2="16.5" y2="12.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><line x1="5.5" y1="15.5" x2="13.5" y2="15.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><path d="M2.8 7 L18.5 4.2 L18 7.5 L2.5 8.5 Z" fill="#ffffff" stroke="#0f172a" stroke-width="0.5" /><circle cx="3.5" cy="7.8" r="1" fill="#0f172a" /></g></svg>`
       },
       documentary: {
         id: 'documentary',
         label: 'DOCUMENTARY',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wdoc-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wdoc-sh)"><circle cx="11" cy="11" r="8" fill="none" stroke="#ffffff" stroke-width="1.2" /><ellipse cx="11" cy="11" rx="8" ry="3.2" fill="none" stroke="#ffffff" stroke-width="0.8" /><ellipse cx="11" cy="11" rx="3.2" ry="8" fill="none" stroke="#ffffff" stroke-width="0.8" /><line x1="3" y1="11" x2="19" y2="11" stroke="#ffffff" stroke-width="0.9" /><circle cx="8" cy="7.5" r="1.2" fill="#ffffff" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wdoc-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wdoc-sh)"><circle cx="11" cy="11" r="8" fill="none" stroke="#ffffff" stroke-width="1.2" /><ellipse cx="11" cy="11" rx="8" ry="3.2" fill="none" stroke="#ffffff" stroke-width="0.8" /><ellipse cx="11" cy="11" rx="3.2" ry="8" fill="none" stroke="#ffffff" stroke-width="0.8" /><line x1="3" y1="11" x2="19" y2="11" stroke="#ffffff" stroke-width="0.9" /><circle cx="8" cy="7.5" r="1.2" fill="#ffffff" /></g></svg>`
       },
       telemarketing: {
         id: 'telemarketing',
         label: 'TELEMARKETING',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wtp-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc" /><stop offset="60%" stop-color="#e2e8f0" /><stop offset="100%" stop-color="#cbd5e1" /></linearGradient><filter id="wtp-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wtp-sh)"><path d="M18.5 11.5 L12.5 17.5 L3.5 8.5 V3.5 H8.5 L18.5 11.5 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="6.5" cy="6.5" r="1.3" fill="#ffffff" /><line x1="10.5" y1="10.5" x2="14.5" y2="14.5" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><circle cx="11.5" cy="13.5" r="0.8" fill="#ffffff" /><circle cx="13.5" cy="11.5" r="0.8" fill="#ffffff" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wtp-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc" /><stop offset="60%" stop-color="#e2e8f0" /><stop offset="100%" stop-color="#cbd5e1" /></linearGradient><filter id="wtp-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wtp-sh)"><path d="M18.5 11.5 L12.5 17.5 L3.5 8.5 V3.5 H8.5 L18.5 11.5 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="6.5" cy="6.5" r="1.3" fill="#ffffff" /><line x1="10.5" y1="10.5" x2="14.5" y2="14.5" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><circle cx="11.5" cy="13.5" r="0.8" fill="#ffffff" /><circle cx="13.5" cy="11.5" r="0.8" fill="#ffffff" /></g></svg>`
       },
       show: {
         id: 'show',
         label: 'SERIES',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wshow-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wshow-sh)"><rect x="5.5" y="3.5" width="12.5" height="9.5" rx="1.4" fill="none" stroke="#cbd5e1" stroke-width="0.8" opacity="0.8" /><rect x="2.5" y="7" width="13.5" height="10.5" rx="1.6" fill="none" stroke="#ffffff" stroke-width="1.2" /><polygon points="7,10 11.5,12.2 7,14.5" fill="#ffffff" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wshow-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wshow-sh)"><rect x="5.5" y="3.5" width="12.5" height="9.5" rx="1.4" fill="none" stroke="#cbd5e1" stroke-width="0.8" opacity="0.8" /><rect x="2.5" y="7" width="13.5" height="10.5" rx="1.6" fill="none" stroke="#ffffff" stroke-width="1.2" /><polygon points="7,10 11.5,12.2 7,14.5" fill="#ffffff" /></g></svg>`
       },
       news: {
         id: 'news',
         label: 'NEWS',
-        iconSvg: `<svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wnews-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wnews-sh)"><path d="M11 5.5 L6.5 18.5 H15.5 L11 5.5 Z" fill="none" stroke="#ffffff" stroke-width="1.1" /><line x1="8.5" y1="12" x2="13.5" y2="12" stroke="#ffffff" stroke-width="0.9" /><circle cx="11" cy="4.8" r="1.8" fill="#ffffff" /><path d="M7.5 3 A5 5 0 0 1 14.5 3" fill="none" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><path d="M5.5 1 A7.5 7.5 0 0 1 16.5 1" fill="none" stroke="#ffffff" stroke-width="0.9" stroke-linecap="round" opacity="0.75" /></g></svg>`
+        iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wnews-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wnews-sh)"><path d="M11 5.5 L6.5 18.5 H15.5 L11 5.5 Z" fill="none" stroke="#ffffff" stroke-width="1.1" /><line x1="8.5" y1="12" x2="13.5" y2="12" stroke="#ffffff" stroke-width="0.9" /><circle cx="11" cy="4.8" r="1.8" fill="#ffffff" /><path d="M7.5 3 A5 5 0 0 1 14.5 3" fill="none" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><path d="M5.5 1 A7.5 7.5 0 0 1 16.5 1" fill="none" stroke="#ffffff" stroke-width="0.9" stroke-linecap="round" opacity="0.75" /></g></svg>`
       }
     };
 
@@ -4455,6 +5026,8 @@
     let currentMasterPresetId = 'default';
     let currentLogoShape = 'squircle';
     let currentRatingShape = 'circle';
+
+    let BAKED_DEFAULT_PRESET = null;
 
     // Broadcast standard master preset packages
     const MASTER_STANDARD_PRESETS = {
@@ -4670,6 +5243,10 @@
       }
     };
 
+    if (BAKED_DEFAULT_PRESET && typeof BAKED_DEFAULT_PRESET === 'object') {
+      MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], BAKED_DEFAULT_PRESET);
+    }
+
     // Populate the Master Preset Chooser dropdown
     function refreshMasterPresetDropdown() {
       const optgroup = document.getElementById('optgroup-master-user-presets');
@@ -4813,16 +5390,45 @@
       replayTimeline();
     }
 
-    function markActivePresetAsDefault() {
+    function showStudioToast(msg) {
+      let toast = document.getElementById('studio-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'studio-toast';
+        toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 99999; background: #0f172a; border: 1px solid #38bdf8; color: #f0fdf4; padding: 12px 20px; border-radius: 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13.5px; font-weight: 600; box-shadow: 0 10px 25px rgba(0,0,0,0.8), 0 0 15px rgba(56,189,248,0.4); display: flex; align-items: center; gap: 8px; pointer-events: none; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform: translateY(20px); opacity: 0;';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.style.transform = 'translateY(0)';
+      toast.style.opacity = '1';
+      clearTimeout(toast._timeout);
+      toast._timeout = setTimeout(() => {
+        toast.style.transform = 'translateY(20px)';
+        toast.style.opacity = '0';
+      }, 4000);
+    }
+
+    async function markActivePresetAsDefault() {
       localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', currentMasterPresetId);
       refreshMasterPresetDropdown();
       recordAction('PRESET', `Marked "${currentMasterPresetId}" as startup default`);
-      alert(`✓ Preset will load automatically on startup!`);
+
+      const pkg = captureCurrentPresetPackage(null);
+      try {
+        await fetch('http://127.0.0.1:6258/api/save-default-preset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pkg)
+        });
+        showStudioToast('✓ Marked as default and synchronized with templates & CasparCG!');
+      } catch (e) {
+        showStudioToast('✓ Saved as default in local storage! (Click 🚀 Deploy to push to CasparCG)');
+      }
     }
 
-    function saveCurrentActivePreset() {
+    async function saveCurrentActivePreset() {
+      const pkg = captureCurrentPresetPackage(null);
       if (currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_')) {
-        const pkg = captureCurrentPresetPackage(null);
         let userPresets = getUserPresetsList();
         const idx = userPresets.findIndex(p => p.id === currentMasterPresetId);
         if (idx !== -1) {
@@ -4832,11 +5438,46 @@
           localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(userPresets));
           refreshMasterPresetDropdown();
           recordAction('PRESET', `Updated preset: "${pkg.name}"`);
-          alert(`✓ Saved changes to preset "${pkg.name}"!`);
-          return;
         }
       }
-      openSaveAsDialog();
+
+      try {
+        await fetch('http://127.0.0.1:6258/api/save-default-preset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pkg)
+        });
+        showStudioToast(`✓ Saved changes and synchronized with templates & CasparCG!`);
+        return;
+      } catch (e) {
+        showStudioToast(`✓ Saved to local storage!`);
+      }
+
+      if (!currentMasterPresetId || !String(currentMasterPresetId).startsWith('preset_')) {
+        openSaveAsDialog();
+      }
+    }
+
+    async function deployFromStudio() {
+      const pkg = captureCurrentPresetPackage(null);
+      localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', currentMasterPresetId);
+
+      try {
+        const res = await fetch('http://127.0.0.1:6258/api/deploy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pkg)
+        });
+        if (res.ok) {
+          recordAction('DEPLOY', `Deployed templates and preset "${pkg.name || currentMasterPresetId}" to CasparCG`);
+          showStudioToast('✓ Successfully deployed to CasparCG! Live graphics refreshed without server restart.');
+          return;
+        }
+      } catch (err) {
+        console.warn('Studio bridge deployment request failed:', err);
+      }
+
+      showStudioToast('✓ Preset captured! Open PlayOutVue Settings and click "Deploy CG Templates to CasparCG".');
     }
 
     function deleteActiveMasterPreset() {
@@ -4902,42 +5543,202 @@
     }
 
     // =========================================================================
-    // RELIABLE STATION SUBTITLE RENDERER (Never destroys child elements!)
+    // SOTA DYNAMIC SHOW TAG ANIMATION (Dot -> '|' Line Stretch -> Elastic Tag Reveal)
     // =========================================================================
+    let currentSubtitleTagText = '';
+    let currentSubtitleTagKey = 'none';
+    let subtitleAnimationTimeline = null;
+
     function renderStationSubtitle(tagKey, explicitText) {
       const tagEl = document.getElementById('station-subtitle-tag');
-      const subTextEl = document.getElementById('station-subtitle-text');
-      if (!tagEl || !subTextEl) return;
+      const dotEl = document.getElementById('station-subtitle-dot');
+      const textEl = document.getElementById('station-subtitle-text');
+      const subIconEl = document.getElementById('station-subtitle-icon');
+      const subLabelEl = document.getElementById('station-subtitle-label');
+      if (!tagEl || !dotEl || !textEl || !subIconEl || !subLabelEl) return;
 
       const text = (explicitText !== undefined && explicitText !== null && explicitText !== '')
         ? String(explicitText).trim().toUpperCase()
         : '';
 
-      if (!text) {
-        tagEl.style.display = 'none';
-        tagEl.classList.remove('visible');
-        subTextEl.innerHTML = '<span id="station-subtitle-icon" class="station-subtitle-icon"></span><span id="station-subtitle-label" class="station-subtitle-label"></span>';
+      const isFlipped = document.getElementById('station-logo-stage')?.classList.contains('anchor-top-right') ||
+                        document.getElementById('station-logo-stage')?.classList.contains('anchor-bottom-right');
+
+      if (subtitleAnimationTimeline) {
+        subtitleAnimationTimeline.kill();
+      }
+
+      // 1. Untagged Media / Dismissal (Slide to '|' then '|' disappears)
+      if (!text || tagKey === 'none') {
+        const isCurrentlyActive = tagEl.classList.contains('visible') ||
+                                  currentSubtitleTagText !== '' ||
+                                  (subLabelEl && subLabelEl.textContent && subLabelEl.textContent.trim() !== '');
+
+        if (isCurrentlyActive) {
+          subtitleAnimationTimeline = gsap.timeline({
+            onComplete: () => {
+              tagEl.classList.remove('visible');
+              tagEl.style.visibility = 'hidden';
+              currentSubtitleTagText = '';
+              currentSubtitleTagKey = 'none';
+              subIconEl.innerHTML = '';
+              subLabelEl.textContent = '';
+            }
+          });
+          subtitleAnimationTimeline
+            // Step 1: Tag text slides horizontally into the "|" line
+            .to(textEl, {
+              x: isFlipped ? 26 : -26,
+              opacity: 0,
+              duration: 0.28,
+              ease: 'power3.in'
+            })
+            // Step 2: The "|" line collapses into the compact dot
+            .to(dotEl, {
+              scaleY: 0.15,
+              scaleX: 1.8,
+              duration: 0.22,
+              ease: 'power2.in'
+            }, '-=0.08')
+            // Step 3: Dot shrinks and fades to disappear completely
+            .to(dotEl, {
+              scaleX: 0,
+              opacity: 0,
+              duration: 0.18,
+              ease: 'power2.in'
+            }, '-=0.05');
+        } else {
+          tagEl.classList.remove('visible');
+          tagEl.style.visibility = 'hidden';
+          currentSubtitleTagText = '';
+          currentSubtitleTagKey = 'none';
+          subIconEl.innerHTML = '';
+          subLabelEl.textContent = '';
+        }
         updateLivePreviewString();
         return;
       }
 
-      tagEl.style.display = 'inline-flex';
-      tagEl.classList.add('visible');
-
+      // Build icon HTML robustly
       let iconHtml = '';
-      if (tagKey === 'live' || text === 'LIVE' || text.includes('ΖΩΝΤΑΝΑ')) {
+      const normTag = (tagKey || '').toLowerCase();
+      const normText = (text || '').toLowerCase();
+      if (normTag === 'live' || normText === 'live' || normText.includes('ζωντανα') || normText.includes('live')) {
         iconHtml = '<span class="station-live-dot"></span>';
-      } else if (SHOW_TAG_PRESETS[tagKey]) {
-        iconHtml = SHOW_TAG_PRESETS[tagKey].iconSvg;
+      } else if (SHOW_TAG_PRESETS[normTag]) {
+        iconHtml = SHOW_TAG_PRESETS[normTag].iconSvg;
+      } else if (SHOW_TAG_PRESETS[normText]) {
+        iconHtml = SHOW_TAG_PRESETS[normText].iconSvg;
+      } else {
+        for (const [pk, pVal] of Object.entries(SHOW_TAG_PRESETS)) {
+          if (pVal.label && (normText.includes(pVal.label.toLowerCase()) || normTag.includes(pk))) {
+            iconHtml = pVal.iconSvg;
+            break;
+          }
+        }
       }
 
-      subTextEl.innerHTML = `<span id="station-subtitle-icon" class="station-subtitle-icon">${iconHtml}</span><span id="station-subtitle-label" class="station-subtitle-label">${text}</span>`;
+      tagEl.classList.add('visible');
+      tagEl.style.visibility = 'visible';
+
+      // 2. Tag Morphing (Smoothly pulse line and slide new tag text in)
+      if (currentSubtitleTagText && currentSubtitleTagText !== text) {
+        subtitleAnimationTimeline = gsap.timeline();
+        subtitleAnimationTimeline
+          .to(dotEl, {
+            scaleY: 0.6,
+            scaleX: 1.4,
+            duration: 0.18,
+            ease: 'power2.in'
+          })
+          .to(textEl, {
+            y: -10,
+            opacity: 0,
+            duration: 0.18,
+            ease: 'power2.in',
+            onComplete: () => {
+              subIconEl.innerHTML = iconHtml;
+              subLabelEl.textContent = text;
+              currentSubtitleTagText = text;
+              currentSubtitleTagKey = tagKey;
+            }
+          }, '<')
+          .to(dotEl, {
+            scaleY: 1,
+            scaleX: 1,
+            duration: 0.4,
+            ease: 'back.out(2.2)'
+          })
+          .fromTo(textEl,
+            { y: 10, x: 0, opacity: 0 },
+            { y: 0, opacity: 1, duration: 0.5, ease: 'back.out(1.7)' },
+            '-=0.25'
+          );
+        updateLivePreviewString();
+        return;
+      }
+
+      // 3. Already showing same text: just ensure state
+      if (currentSubtitleTagText === text) {
+        subIconEl.innerHTML = iconHtml;
+        subLabelEl.textContent = text;
+        gsap.set(dotEl, { scaleY: 1, scaleX: 1, opacity: 1, x: 0 });
+        gsap.set(textEl, { x: 0, y: 0, opacity: 1 });
+        updateLivePreviewString();
+        return;
+      }
+
+      // 4. Initial Tag Entry: Dot emerges, stretches into "|", and tag slides out elastically
+      subIconEl.innerHTML = iconHtml;
+      subLabelEl.textContent = text;
+      currentSubtitleTagText = text;
+      currentSubtitleTagKey = tagKey;
+
+      // Start as a glowing dot
+      gsap.set(dotEl, {
+        scaleY: 0.15,
+        scaleX: 1.8,
+        opacity: 0,
+        x: isFlipped ? 14 : -14
+      });
+      gsap.set(textEl, {
+        x: isFlipped ? 26 : -26,
+        y: 0,
+        opacity: 0
+      });
+
+      subtitleAnimationTimeline = gsap.timeline();
+      subtitleAnimationTimeline
+        // Step 1: Dot slides next to logo and illuminates
+        .to(dotEl, {
+          x: 0,
+          opacity: 1,
+          duration: 0.32,
+          ease: 'power3.out'
+        })
+        // Step 2: Dot vertically elongates into "|" line with elastic spring
+        .to(dotEl, {
+          scaleY: 1,
+          scaleX: 1,
+          duration: 0.42,
+          ease: 'back.out(2.2)'
+        }, '-=0.08')
+        // Step 3: Tag slides out next to the line with premium elastic physics
+        .to(textEl, {
+          x: 0,
+          opacity: 1,
+          duration: 0.55,
+          ease: 'back.out(1.7)'
+        }, '-=0.28');
+
       updateLivePreviewString();
     }
 
     // =========================================================================
     // SHOW TAG CONTENT ACTIVATION & REAL-TIME INPUT HANDLERS
     // =========================================================================
+    function applyShowTagPreset(tagKey, explicitText) { activateShowTag(tagKey, explicitText); }
+
     function activateShowTag(tagKey, explicitText) {
       currentShowTag = tagKey;
 
@@ -4959,10 +5760,14 @@
       }
 
       const preset = SHOW_TAG_PRESETS[tagKey];
-      let text = explicitText;
+      let text = (explicitText !== undefined && explicitText !== null && explicitText !== '')
+        ? String(explicitText).trim().toUpperCase()
+        : '';
       if (!text) {
         const input = document.getElementById('txt-tag-' + tagKey);
-        text = input ? input.value.trim().toUpperCase() : (preset ? preset.label : '');
+        text = (input && typeof input.value === 'string' && input.value.trim())
+          ? input.value.trim().toUpperCase()
+          : (preset ? preset.label : tagKey.toUpperCase());
       }
 
       if (selIcon) selIcon.value = tagKey;
