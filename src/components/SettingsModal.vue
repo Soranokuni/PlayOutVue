@@ -253,6 +253,17 @@ const deployTemplatesFromSettings = async () => {
         // Auto-refresh Layer 32 so changes take effect immediately without restarting CasparCG
         await getActivePlayoutService().reloadComplianceTemplate?.();
 
+        try {
+            const preset = await invoke<any>('get_studio_default_preset');
+            if (preset) {
+                settings.updateCgAdvisoryFromDeployedPreset(preset);
+                localState.value.cgAdvisoryConfig = {
+                    ...DEFAULT_CG_ADVISORY_CONFIG,
+                    ...(settings.cgAdvisoryConfig || {}),
+                };
+            }
+        } catch (_) {}
+
         alert(`Broadcast CG Templates deployed successfully!\n\nTarget Directory:\n${res.template_dir}\n\nFiles Deployed:\n• ${res.deployed.join('\n• ')}\n\n(On-air graphics have been refreshed automatically without server restart)`);
     } catch (e: any) {
         console.error('Failed to deploy templates:', e);
@@ -377,8 +388,21 @@ const handleRestartServerFromSettings = async () => {
     }
 };
 
-onMounted(() => {
+onMounted(async () => {
     mapLocalState();
+
+    try {
+        const defaultPreset = await invoke<any>('get_studio_default_preset');
+        if (defaultPreset) {
+            settings.updateCgAdvisoryFromDeployedPreset(defaultPreset);
+            localState.value.cgAdvisoryConfig = {
+                ...DEFAULT_CG_ADVISORY_CONFIG,
+                ...(settings.cgAdvisoryConfig || {}),
+            };
+        }
+    } catch (err) {
+        console.warn('[Settings] Failed to fetch studio default preset:', err);
+    }
 
     if (localState.value.casparcgExecutablePath) {
         validateCasparExe(localState.value.casparcgExecutablePath);
@@ -511,98 +535,6 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     else if (target === 'badge-tp') localState.value.cgRatingTPPath = selection;
 };
 
-const showCustomSvgOverrides = ref(false);
-const newCustomRatingKey = ref('');
-const newCustomRatingPath = ref('');
-
-const extraCustomRatings = computed(() => {
-    const paths = localState.value.cgAdvisoryConfig?.customRatingSvgPaths || {};
-    return Object.keys(paths).filter(k => !['K', '8', '12', '16', '18'].includes(k));
-});
-
-const setCustomRatingSvg = (rating: string, path: string) => {
-    if (!localState.value.cgAdvisoryConfig.customRatingSvgPaths) {
-        localState.value.cgAdvisoryConfig.customRatingSvgPaths = {};
-    }
-    localState.value.cgAdvisoryConfig.customRatingSvgPaths[rating] = path;
-};
-
-const pickCustomLogoSvg = async () => {
-    const selection = await open({
-        title: 'Choose Station Logo SVG',
-        multiple: false,
-        directory: false,
-        filters: [
-            { name: 'SVG / Vector Images', extensions: ['svg', 'png'] },
-            { name: 'All Files', extensions: ['*'] }
-        ]
-    });
-    if (selection && !Array.isArray(selection)) {
-        localState.value.cgAdvisoryConfig.customLogoSvgPath = selection;
-    }
-};
-
-const pickCustomRatingSvg = async (rating: string) => {
-    const selection = await open({
-        title: `Choose SVG for Rating ${rating}`,
-        multiple: false,
-        directory: false,
-        filters: [
-            { name: 'SVG / Vector Images', extensions: ['svg', 'png'] },
-            { name: 'All Files', extensions: ['*'] }
-        ]
-    });
-    if (selection && !Array.isArray(selection)) {
-        setCustomRatingSvg(rating, selection);
-    }
-};
-
-const pickNewCustomRatingPath = async () => {
-    const selection = await open({
-        title: 'Choose SVG for New Rating',
-        multiple: false,
-        directory: false,
-        filters: [
-            { name: 'SVG / Vector Images', extensions: ['svg', 'png'] },
-            { name: 'All Files', extensions: ['*'] }
-        ]
-    });
-    if (selection && !Array.isArray(selection)) {
-        newCustomRatingPath.value = selection;
-    }
-};
-
-const addNewCustomRating = () => {
-    const k = newCustomRatingKey.value.trim().toUpperCase();
-    const p = newCustomRatingPath.value.trim();
-    if (!k || !p) {
-        alert('Please specify both a rating tag (e.g. PG) and an SVG file path.');
-        return;
-    }
-    setCustomRatingSvg(k, p);
-    newCustomRatingKey.value = '';
-    newCustomRatingPath.value = '';
-};
-
-const removeCustomRating = (key: string) => {
-    if (localState.value.cgAdvisoryConfig?.customRatingSvgPaths) {
-        delete localState.value.cgAdvisoryConfig.customRatingSvgPaths[key];
-    }
-};
-
-const openAdvisoryInEditor = async () => {
-    try {
-        const baseDir = detectedCasparDir.value;
-        const templatePath = baseDir ? `${baseDir}/template/playout/advisory.html` : null;
-        const path = await invoke<string>('open_advisory_in_editor', {
-            templatePath
-        });
-        console.info('[Settings] Opened advisory template in editor:', path);
-    } catch (e) {
-        alert(`Failed to open template in editor: ${e}`);
-    }
-};
-
 const openTemplateDir = async () => {
     try {
         const baseDir = detectedCasparDir.value;
@@ -613,24 +545,6 @@ const openTemplateDir = async () => {
         console.info('[Settings] Opened template directory:', path);
     } catch (e) {
         alert(`Failed to open directory: ${e}`);
-    }
-};
-
-const redeployTemplates = async () => {
-    try {
-        const baseDir = detectedCasparDir.value;
-        const templatePath = baseDir ? `${baseDir}/template` : null;
-        const res = await invoke<any>('deploy_caspar_templates', {
-            templatePath,
-            mediaPath: null,
-            overwrite: true
-        });
-        alert(`Templates successfully redeployed to CasparCG!
-Target Directory: ${res.template_dir}
-Deployed files (${res.deployed?.length || 0}):
-${res.deployed?.join('\n') || 'None'}`);
-    } catch (e) {
-        alert(`Template deployment failed: ${e}`);
     }
 };
 </script>
@@ -1118,9 +1032,6 @@ ${res.deployed?.join('\n') || 'None'}`);
                   <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;">
                        <button class="glass-btn btn-primary" @click="showDecklinkWizard = true">Open Setup Wizard</button>
                        <button class="glass-btn" @click="showCasparConfigurator = true">Advanced XML Configurator</button>
-                       <button class="glass-btn" @click="deployTemplatesFromSettings" :disabled="isDeployingTemplates" style="background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
-                           {{ isDeployingTemplates ? '⏳ Deploying Templates...' : '🚀 Deploy CG Templates to CasparCG' }}
-                       </button>
                   </div>
               </section>
 
@@ -1156,141 +1067,68 @@ ${res.deployed?.join('\n') || 'None'}`);
 
           <!-- CG & Layouts Tab -->
           <div v-if="activeTab === 'cg'">
-              <!-- HTML5 Advisory & Stencil Theme Architecture -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title" style="display:flex; justify-content:space-between; align-items:center;">
-                      <span>🎨 HTML5 Advisory &amp; Neumorphic Stencil Studio</span>
-                      <button class="glass-btn btn-primary" style="padding: 4px 12px; font-size: 0.76rem;" @click="launchBrowserStudio" title="Launch standalone interactive visual studio in default browser">
-                          ✨ Launch Full Interactive CG Studio
-                      </button>
-                  </h3>
-                  <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
-                      <div class="form-group">
-                          <label>Design Language Preset</label>
-                          <select class="glass-input" v-model="localState.cgAdvisoryConfig.themeName">
-                              <option value="frosted">Hybrid Frosted Glass (Default SOTA)</option>
-                              <option value="matte-slate">Option 1: Matte Extruded Slate</option>
-                              <option value="vibrant-accent">Option 2: Vibrant Accent Extrusion</option>
-                              <option value="inset-embossed">Option 3: Inset Embossed Slate</option>
-                              <option value="dark-obsidian">Option 5: Obsidian Dark MCR</option>
-                              <option value="custom">Option 6: Custom (Manual SVG Overrides)</option>
-                          </select>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Badge Stencil Cutout Style</label>
-                          <select class="glass-input" v-model="localState.cgAdvisoryConfig.stencilStyle">
-                              <option value="neumorphic">Soft Deboss (Low Contrast Neumorphic)</option>
-                              <option value="frosted">Frosted Glass Specular</option>
-                              <option value="contrast">High Contrast Outline</option>
-                          </select>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Badge Geometric Shape</label>
-                          <select class="glass-input" v-model="localState.cgAdvisoryConfig.badgeShape">
-                              <option value="circle">Circular (Standard NCRTV)</option>
-                              <option value="squircle">Squircle (Modern Soft Neumorphic)</option>
-                              <option value="pill">Pill Tag</option>
-                          </select>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Screen Anchor Position</label>
-                          <select class="glass-input" v-model="localState.cgAdvisoryConfig.anchorPosition">
-                              <option value="top-right">Top-Right (Standard NCRTV)</option>
-                              <option value="top-left">Top-Left</option>
-                              <option value="bottom-right">Bottom-Right</option>
-                              <option value="bottom-left">Bottom-Left</option>
-                          </select>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Text &amp; Bar Vertical Offset (px)</label>
-                          <input type="number" min="-40" max="40" class="glass-input" v-model.number="localState.cgAdvisoryConfig.textOffsetYPx" placeholder="0">
-                      </div>
-
-                      <div class="form-group">
-                          <label>Rating Explanation Hold (Seconds)</label>
-                          <input type="number" min="2" max="120" class="glass-input" v-model.number="localState.cgAdvisoryConfig.ratingHoldSec" placeholder="4">
-                      </div>
-
-                      <div class="form-group">
-                          <label>Warning Descriptors Hold (Seconds)</label>
-                          <input type="number" min="4" max="120" class="glass-input" v-model.number="localState.cgAdvisoryConfig.warningHoldSec" placeholder="30">
+              <!-- Broadcast CG Graphics & Template Studio Hero Card -->
+              <section class="settings-section cg-studio-hero-section">
+                  <div class="cg-hero-header">
+                      <div>
+                          <h3 class="text-secondary section-title" style="margin-bottom: 4px;">
+                              🎨 Broadcast CG Graphics &amp; Template Studio
+                          </h3>
+                          <p class="cg-hero-desc">
+                              Interactive WYSIWYG studio for Greek compliance advisories (Layer 32), station ID logo bugs, show tags, and emergency crawlers (Layer 33). All styling, geometries, and typography are authored live in CG Studio and synchronized with broadcast playout.
+                          </p>
                       </div>
                   </div>
 
-                  <!-- Manual SVG Overrides (Custom Logos & Ratings) -->
-                  <div class="custom-overrides-card" style="margin-top: 16px; border: 1px solid var(--color-border-subtle); border-radius: 8px; padding: 12px; background: rgba(0, 0, 0, 0.25);">
-                      <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" @click="showCustomSvgOverrides = !showCustomSvgOverrides">
-                          <span style="font-weight: 600; font-size: 0.88rem; display: inline-flex; align-items: center; gap: 8px;">
-                              🛠️ Manual SVG Overrides (Custom Logos &amp; Ratings)
-                          </span>
-                          <button type="button" class="glass-btn btn-secondary" style="padding: 2px 8px; font-size: 0.72rem;">
-                              {{ showCustomSvgOverrides ? '▲ Collapse' : '▼ Expand' }}
-                          </button>
+                  <!-- Quick Status Pill Bar -->
+                  <div class="cg-status-pills">
+                      <div class="cg-status-pill">
+                          <span class="cg-pill-dot active"></span>
+                          <span>Badge &amp; Chassis: <strong>{{ localState.cgAdvisoryConfig.badgeShape || 'Squircle' }}</strong></span>
                       </div>
-
-                      <div v-if="showCustomSvgOverrides || localState.cgAdvisoryConfig.themeName === 'custom'" style="margin-top: 12px; display: flex; flex-direction: column; gap: 12px;">
-                          <div class="form-group">
-                              <label>Custom Station Logo SVG Path</label>
-                              <div class="input-with-button">
-                                  <input type="text" class="glass-input" v-model="localState.cgAdvisoryConfig.customLogoSvgPath" placeholder="C:/PlayOut/logos/logo.svg">
-                                  <button class="glass-btn" style="flex-shrink: 0;" @click="pickCustomLogoSvg" title="Browse SVG file">📁</button>
-                              </div>
-                              <span class="hint-text">Leave blank to use default embedded SITIA neumorphic SVG logo.</span>
-                          </div>
-
-                          <div class="form-group">
-                              <label>Custom Age Rating SVGs (Optional Overrides)</label>
-                              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
-                                  <div v-for="r in ['K', '8', '12', '16', '18']" :key="r">
-                                      <span style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-secondary);">Rating {{ r }} SVG:</span>
-                                      <div class="input-with-button" style="margin-top: 4px;">
-                                          <input type="text" class="glass-input" :value="localState.cgAdvisoryConfig.customRatingSvgPaths?.[r] || ''" @input="setCustomRatingSvg(r, ($event.target as HTMLInputElement).value)" :placeholder="`Custom ${r}.svg`">
-                                          <button class="glass-btn" style="flex-shrink: 0;" @click="pickCustomRatingSvg(r)">📁</button>
-                                      </div>
-                                  </div>
-                              </div>
-                          </div>
-
-                          <!-- Add New Custom Rating Logo -->
-                          <div class="form-group" style="border-top: 1px dashed rgba(255, 255, 255, 0.15); padding-top: 10px;">
-                              <label>Add New Custom Rating (e.g. PG, NR, 15)</label>
-                              <div style="display: flex; gap: 8px;">
-                                  <input type="text" class="glass-input" style="max-width: 100px;" v-model="newCustomRatingKey" placeholder="PG / NR">
-                                  <input type="text" class="glass-input" style="flex: 1;" v-model="newCustomRatingPath" placeholder="C:/path/to/custom_rating.svg">
-                                  <button type="button" class="glass-btn" @click="pickNewCustomRatingPath">📁</button>
-                                  <button type="button" class="glass-btn btn-primary" @click="addNewCustomRating">➕ Add</button>
-                              </div>
-                              <div v-if="extraCustomRatings.length > 0" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px;">
-                                  <span v-for="key in extraCustomRatings" :key="key" class="tag" style="background: rgba(132, 40, 140, 0.3); border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 4px; padding: 2px 6px; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 4px;">
-                                      {{ key }}: {{ localState.cgAdvisoryConfig.customRatingSvgPaths?.[key] }}
-                                      <button type="button" style="background:none; border:none; color:#f87171; cursor:pointer;" @click="removeCustomRating(key)">✕</button>
-                                  </span>
-                              </div>
-                          </div>
-
-                          <!-- Quick Action Buttons for Graphics Leads -->
-                          <div style="display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--color-border-subtle); padding-top: 10px;">
-                              <button type="button" class="glass-btn" @click="openAdvisoryInEditor" title="Open advisory.html in system text editor">
-                                  📝 Open advisory.html in Editor
-                              </button>
-                              <button type="button" class="glass-btn" @click="openTemplateDir" title="Open CasparCG template folder in Explorer">
-                                  📂 Open Template Folder
-                              </button>
-                              <button type="button" class="glass-btn btn-primary" @click="redeployTemplates" title="Redeploy templates to CasparCG">
-                                  🚀 Redeploy Templates
-                              </button>
-                          </div>
+                      <div class="cg-status-pill">
+                          <span class="cg-pill-dot active"></span>
+                          <span>Layer 32: <strong>Greek ESR Advisory</strong></span>
                       </div>
+                      <div class="cg-status-pill">
+                          <span class="cg-pill-dot active"></span>
+                          <span>Station ID Bug: <strong>Permanent Vector Bug</strong></span>
+                      </div>
+                  </div>
+
+                  <!-- Unified Action Center: Open CG Studio + Deploy + Open Folder in the SAME Section -->
+                  <div class="cg-studio-actions-bar">
+                      <button
+                          type="button"
+                          class="glass-btn btn-primary cg-launch-btn"
+                          @click="launchBrowserStudio"
+                          title="Launch full interactive visual CG Studio in browser"
+                      >
+                          ✨ Open CG Studio (Visual Editor)
+                      </button>
+                      <button
+                          type="button"
+                          class="glass-btn cg-deploy-btn"
+                          :disabled="isDeployingTemplates"
+                          @click="deployTemplatesFromSettings"
+                          title="Deploy HTML5 templates and active presets directly to CasparCG"
+                      >
+                          {{ isDeployingTemplates ? '⏳ Deploying Templates...' : '🚀 Deploy CG Templates to CasparCG' }}
+                      </button>
+                      <button
+                          type="button"
+                          class="glass-btn cg-folder-btn"
+                          @click="openTemplateDir"
+                          title="Open CasparCG template directory in Explorer"
+                      >
+                          📂 Open Templates Folder
+                      </button>
                   </div>
               </section>
 
-              <!-- CG HTML5 Templates -->
+              <!-- CG HTML5 Template Identifiers -->
               <section class="settings-section">
-                  <h3 class="text-secondary section-title">CG HTML5 Templates</h3>
+                  <h3 class="text-secondary section-title">CG HTML5 Template Identifiers</h3>
                   <div class="form-grid">
                       <div class="form-group">
                           <label>Greek ESR Advisory Template (Layer 32)</label>
@@ -1308,13 +1146,6 @@ ${res.deployed?.join('\n') || 'None'}`);
                               <button class="glass-btn" style="flex-shrink: 0;" title="Browse crawl template file" @click="pickPath('cg-crawl-template')">📁</button>
                           </div>
                           <span class="hint-text">Default: <code>playout/crawl</code> (50fps Broadcast Ticker).</span>
-                      </div>
-
-                      <div class="form-group" style="grid-column: 1 / -1; margin-top: 4px;">
-                          <button type="button" class="glass-btn studio-launch-btn" @click="launchBrowserStudio">
-                              🌐 Open Greek Advisory Template Studio in Browser
-                          </button>
-                          <span class="hint-text" style="margin-top: 4px;">Opens the interactive WYSIWYG studio in your default browser to customize fonts, sizes, margins, and icons with universal station default persistence.</span>
                       </div>
                   </div>
               </section>
@@ -2042,5 +1873,102 @@ ${res.deployed?.join('\n') || 'None'}`);
 .env-value {
     color: #f1f5f9;
     word-break: break-all;
+}
+
+/* Broadcast CG Graphics & Template Studio Hero Card */
+.cg-studio-hero-section {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.6) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.cg-hero-desc {
+    font-size: 0.82rem;
+    color: #94a3b8;
+    line-height: 1.45;
+    margin: 4px 0 12px 0;
+}
+
+.cg-status-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.cg-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(11, 17, 32, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 0.76rem;
+    color: #cbd5e1;
+}
+
+.cg-pill-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #64748b;
+}
+
+.cg-pill-dot.active {
+    background: #38bdf8;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
+.cg-studio-actions-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.cg-launch-btn {
+    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+    border: 1px solid #38bdf8;
+    color: #ffffff;
+    font-weight: 700;
+    padding: 8px 18px;
+    box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+}
+
+.cg-launch-btn:hover {
+    background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.5);
+    transform: translateY(-1px);
+}
+
+.cg-deploy-btn {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.45);
+    color: #34d399;
+    font-weight: 700;
+    padding: 8px 16px;
+}
+
+.cg-deploy-btn:hover:not(:disabled) {
+    background: rgba(16, 185, 129, 0.28);
+    border-color: #34d399;
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(52, 211, 153, 0.4);
+}
+
+.cg-folder-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #cbd5e1;
+    font-weight: 600;
+    padding: 8px 14px;
+}
+
+.cg-folder-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
 }
 </style>

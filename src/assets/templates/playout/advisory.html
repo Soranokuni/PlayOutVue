@@ -672,7 +672,7 @@
     }
 
     #broadcast-canvas.bg-movie {
-      background: linear-gradient(rgba(0,0,0,0.3), rgba(0,0,0,0.5)), url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="%231a365d"/><stop offset="50%" stop-color="%23702459"/><stop offset="100%" stop-color="%231a202c"/></linearGradient></defs><rect width="1920" height="1080" fill="url(%23g)"/><circle cx="960" cy="540" r="380" fill="%23e2e8f0" opacity="0.12"/></svg>');
+      background: linear-gradient(rgba(0,0,0,0.3), rgba(0,0,0,0.5)), url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221920%22%20height%3D%221080%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%231a365d%22%2F%3E%3Cstop%20offset%3D%2250%25%22%20stop-color%3D%22%23702459%22%2F%3E%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%231a202c%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%221920%22%20height%3D%221080%22%20fill%3D%22url(%23g)%22%2F%3E%3Ccircle%20cx%3D%22960%22%20cy%3D%22540%22%20r%3D%22380%22%20fill%3D%22%23e2e8f0%22%20opacity%3D%220.12%22%2F%3E%3C%2Fsvg%3E');
       background-size: cover;
     }
 
@@ -1994,9 +1994,7 @@
           </select>
         </div>
         <div class="preset-quick-actions">
-          <button type="button" class="preset-pill-btn" onclick="openSaveAsDialog()" title="Save all customizations as a new preset">⭐ Save As...</button>
           <button type="button" class="preset-pill-btn" id="btn-make-default" onclick="markActivePresetAsDefault()" title="Make this preset the startup default">★ Set Default</button>
-          <button type="button" class="preset-pill-btn deploy-pill-btn" id="btn-deploy-preset" onclick="deployFromStudio()" title="Deploy this preset and template directly to CasparCG" style="background: rgba(16, 185, 129, 0.22); border-color: rgba(16, 185, 129, 0.65); color: #34d399; font-weight: 700;">🚀 Deploy to CasparCG</button>
           <button type="button" class="preset-pill-btn" id="btn-delete-preset" style="display: none; color: #f87171;" onclick="deleteActiveMasterPreset()" title="Delete this custom preset">🗑️ Delete</button>
         </div>
       </div>
@@ -2410,8 +2408,8 @@
               </select>
             </div>
             <div class="studio-btn-row" style="margin-top: 8px;">
-              <button class="studio-btn active" id="btn-rating-shape-circle" onclick="setRatingShape('circle')">Circle (NCRTV)</button>
-              <button class="studio-btn" id="btn-rating-shape-squircle" onclick="setRatingShape('squircle')">Squircle</button>
+              <button class="studio-btn" id="btn-rating-shape-circle" onclick="setRatingShape('circle')">Circle (NCRTV)</button>
+              <button class="studio-btn active" id="btn-rating-shape-squircle" onclick="setRatingShape('squircle')">Squircle</button>
               <button class="studio-btn" id="btn-rating-shape-pill" onclick="setRatingShape('pill')">Pill Tag</button>
             </div>
           </div>
@@ -2690,9 +2688,9 @@
       <!-- Footer Action Buttons (Bottom Left) -->
       <div class="studio-footer">
         <button class="action-btn-primary" onclick="buildTimeline(); replayTimeline();" title="Replay on-air animation sequence">▶ Replay</button>
-        <button class="action-btn-secondary" onclick="saveCurrentActivePreset()" title="Save edits to current preset">💾 Save</button>
-        <button class="action-btn-secondary" onclick="deployFromStudio()" title="Deploy customizations directly to CasparCG" style="background: rgba(16, 185, 129, 0.25); border-color: rgba(16, 185, 129, 0.7); color: #34d399; font-weight: 700;">🚀 Deploy</button>
+        <button class="action-btn-secondary" onclick="saveCurrentActivePreset()" title="Save edits and overwrite active preset">💾 Save</button>
         <button class="action-btn-secondary" onclick="openSaveAsDialog()" title="Save as a new named preset" style="background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.6); color: #38bdf8;">⭐ Save As...</button>
+        <button class="action-btn-secondary deploy-pill-btn" id="btn-deploy-preset" onclick="deployFromStudio()" title="Deploy customizations directly to CasparCG" style="background: rgba(16, 185, 129, 0.25); border-color: rgba(16, 185, 129, 0.7); color: #34d399; font-weight: 700;">🚀 Deploy to CasparCG</button>
       </div>
     </aside>
 
@@ -2776,10 +2774,10 @@
                     </filter>
                   </defs>
 
-                  <!-- Base Squircle with Dual Neumorphic Shadows -->
+                  <!-- Base Chassis with Dual Neumorphic Shadows -->
                   <g id="sitia-squircle-group" filter="url(#sitia-neumorphic-depth)">
                     <rect
-                      id="sitia-squircle-rect"
+                      id="sitia-logo-chassis"
                       x="10"
                       y="10"
                       width="180"
@@ -2844,11 +2842,11 @@
             <!-- ================================================================= -->
             <div id="advisory-stage" class="anchor-top-right canvas-draggable" data-drag="advisory" title="Advisory Banner (Top-Right | Hold Shift: Lock X | Hold Ctrl: Lock Y)">
               <!-- Unified Rating Stencil Badge Container -->
-              <div id="rating-badge-container" class="badge-wrapper">
+              <div id="rating-badge-container" class="badge-wrapper shape-squircle">
                 <svg id="badge-svg" class="badge-svg" viewBox="0 0 52 52" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
                   <defs>
                     <mask id="badge-stencil-mask" maskUnits="userSpaceOnUse">
-                      <circle id="badge-mask-shape" cx="26" cy="26" r="24.5" fill="#ffffff" shape-rendering="geometricPrecision" />
+                      <rect id="badge-mask-shape" x="1.5" y="1.5" width="49" height="49" rx="16" ry="16" fill="#ffffff" shape-rendering="geometricPrecision" />
                       <text
                         id="stencil-text"
                         x="26"
@@ -2866,12 +2864,15 @@
                     </mask>
                   </defs>
 
-                  <!-- Main circular shape with negative stencil cutout -->
-                  <circle
+                  <!-- Main squircle shape with negative stencil cutout -->
+                  <rect
                     id="badge-main-shape"
-                    cx="26"
-                    cy="26"
-                    r="24.5"
+                    x="1.5"
+                    y="1.5"
+                    width="49"
+                    height="49"
+                    rx="16"
+                    ry="16"
                     fill="var(--badge-fill)"
                     stroke="var(--badge-stroke)"
                     stroke-width="1.5"
@@ -3234,6 +3235,51 @@
       }
     };
 
+    const ESR_RATING_MAP = {
+      'K': 'Κ',
+      'Κ': 'Κ',
+      '8': '8',
+      '12': '12',
+      '16': '16',
+      '18': '18',
+      'NONE': '',
+      '': ''
+    };
+
+    function toGreekUpper(str) {
+      if (str === undefined || str === null) return '';
+      let upper = String(str).trim().toLocaleUpperCase('el-GR');
+      upper = upper
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .normalize('NFC')
+        .replace(/[Ά]/g, 'Α')
+        .replace(/[Έ]/g, 'Ε')
+        .replace(/[Ή]/g, 'Η')
+        .replace(/[ΊΪΐ]/g, 'Ι')
+        .replace(/[Ό]/g, 'Ο')
+        .replace(/[ΎΫΰ]/g, 'Υ')
+        .replace(/[Ώ]/g, 'Ω');
+      return upper;
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function normalizeRating(r) {
+      if (r === undefined || r === null) return '';
+      const key = String(r).trim().toUpperCase();
+      if (key in ESR_RATING_MAP) return ESR_RATING_MAP[key];
+      return key;
+    }
+
     const DEFAULT_RATING_TEXTS = {
       'K': 'ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ',
       '8': 'ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8 ΕΤΩΝ',
@@ -3286,61 +3332,99 @@
       language: 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ'
     };
 
+    function getDescriptorValue(id, defaultVal) {
+      const el = document.getElementById(id);
+      if (!el) return toGreekUpper(defaultVal);
+      // Operator intentionally blanked the input
+      if (el.value.trim() === '') return '';
+      return toGreekUpper(el.value);
+    }
+
     function getDescriptorTexts() {
       return {
-        lead: (document.getElementById('txt-warn-lead')?.value || 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ').trim().toUpperCase(),
-        violence: (document.getElementById('txt-warn-violence')?.value || 'ΣΚΗΝΕΣ ΒΙΑΣ').trim().toUpperCase(),
-        drugs: (document.getElementById('txt-warn-drugs')?.value || 'ΧΡΗΣΗ ΟΥΣΙΩΝ').trim().toUpperCase(),
-        sex: (document.getElementById('txt-warn-sex')?.value || 'ΣΕΞ').trim().toUpperCase(),
-        language: (document.getElementById('txt-warn-language')?.value || 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ').trim().toUpperCase()
+        lead: getDescriptorValue('txt-warn-lead', 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ'),
+        violence: getDescriptorValue('txt-warn-violence', 'ΣΚΗΝΕΣ ΒΙΑΣ'),
+        drugs: getDescriptorValue('txt-warn-drugs', 'ΧΡΗΣΗ ΟΥΣΙΩΝ'),
+        sex: getDescriptorValue('txt-warn-sex', 'ΣΕΞ'),
+        language: getDescriptorValue('txt-warn-language', 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ')
       };
     }
 
     function formatComboLines(warnings) {
-      if (!warnings || warnings.length === 0) return { line1: '', line2: '', line3: '', is3Lines: false };
+      if (!warnings || warnings.length === 0) return { line1: '', line2: '', line3: '', is3Lines: false, count: 0 };
       const dTexts = getDescriptorTexts();
-      const rawLabels = warnings.map(w => dTexts[w] || WARNING_TEXT_MAP[w] || w.toUpperCase());
       
+      const rawLabels = [];
+      for (const w of warnings) {
+        let label = '';
+        if (dTexts[w] !== undefined) {
+          label = dTexts[w];
+        } else if (WARNING_TEXT_MAP[w]) {
+          label = toGreekUpper(WARNING_TEXT_MAP[w]);
+        } else if (typeof w === 'string') {
+          label = toGreekUpper(w);
+        }
+        if (label && label.trim().length > 0) {
+          rawLabels.push(label.trim());
+        }
+      }
+
+      if (rawLabels.length === 0) {
+        return { line1: '', line2: '', line3: '', is3Lines: false, count: 0 };
+      }
+
+      const lead = dTexts.lead !== undefined ? dTexts.lead : 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ';
+
       if (rawLabels.length === 1) {
         return {
-          line1: dTexts.lead,
+          line1: lead,
           line2: rawLabels[0],
           line3: '',
-          is3Lines: false
+          is3Lines: false,
+          count: 1
         };
       }
 
       // Do not repeat "ΣΚΗΝΕΣ" across descriptors in combo:
-      // Strip redundant "ΣΚΗΝΕΣ", "ΣΚΗΝΕΣ ΜΕ" from items after the first
       const cleanLabels = rawLabels.map((lbl, idx) => {
         if (idx === 0) return lbl;
         return lbl
           .replace(/^ΣΚΗΝΕΣ\s+(ΜΕ\s+)?/i, '')
           .replace(/^ΣΕΞΟΥΑΛΙΚΟΥ\s+ΠΕΡΙΕΧΟΜΕΝΟΥ/i, 'ΣΕΞ')
           .trim();
-      });
+      }).filter(lbl => lbl.length > 0);
 
-      // Build single-line combined text
+      if (cleanLabels.length === 0) {
+        return { line1: '', line2: '', line3: '', is3Lines: false, count: 0 };
+      }
+      if (cleanLabels.length === 1) {
+        return { line1: lead, line2: cleanLabels[0], line3: '', is3Lines: false, count: 1 };
+      }
+
+      // Build single-line combined text cleanly
       let singleLine = '';
       if (cleanLabels.length === 2) {
         singleLine = `${cleanLabels[0]} & ${cleanLabels[1]}`;
       } else if (cleanLabels.length === 3) {
         singleLine = `${cleanLabels[0]}, ${cleanLabels[1]} & ${cleanLabels[2]}`;
       } else {
-        singleLine = `${cleanLabels[0]}, ${cleanLabels[1]}, ${cleanLabels[2]} & ${cleanLabels[3]}`;
+        const last = cleanLabels[cleanLabels.length - 1];
+        const initial = cleanLabels.slice(0, -1).join(', ');
+        singleLine = `${initial} & ${last}`;
       }
 
       // Dynamic check: fits on 1 body line if length <= 46 chars
       if (singleLine.length <= 46) {
         return {
-          line1: dTexts.lead,
+          line1: lead,
           line2: singleLine,
           line3: '',
-          is3Lines: false
+          is3Lines: false,
+          count: cleanLabels.length
         };
       }
 
-      // Does NOT fit on 1 body line -> dynamically split into 3 lines!
+      // Multi-line split
       let l2 = '';
       let l3 = '';
       if (cleanLabels.length === 2) {
@@ -3355,10 +3439,11 @@
       }
 
       return {
-        line1: dTexts.lead,
+        line1: lead,
         line2: l2,
         line3: l3,
-        is3Lines: true
+        is3Lines: true,
+        count: cleanLabels.length
       };
     }
 
@@ -3422,6 +3507,25 @@
       return null;
     }
 
+    function fitWordmarkSvgText(textSize) {
+      const faceText = document.getElementById('sitia-path-face');
+      if (!faceText || faceText.tagName.toLowerCase() !== 'text') return;
+      const maxChassisWidth = 150;
+      try {
+        const bbox = faceText.getBBox();
+        if (bbox && bbox.width > maxChassisWidth) {
+          const scale = maxChassisWidth / bbox.width;
+          const adjustedSize = Math.max(14, Math.floor(textSize * scale));
+          ['sitia-path-deep', 'sitia-path-mid', 'sitia-path-face'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.tagName.toLowerCase() === 'text') {
+              el.setAttribute('font-size', adjustedSize);
+            }
+          });
+        }
+      } catch (_) {}
+    }
+
     // Dynamic Station Logo Generator
     function setLogoShape(shape) {
       currentLogoShape = shape;
@@ -3437,23 +3541,23 @@
 
       if (shape === 'circle') {
         squircleGroup.innerHTML = `
-          <circle id="sitia-squircle-rect" cx="100" cy="100" r="88" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
+          <circle id="sitia-logo-chassis" cx="100" cy="100" r="88" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
         `;
       } else if (shape === 'pill') {
         squircleGroup.innerHTML = `
-          <rect id="sitia-squircle-rect" x="10" y="25" width="180" height="150" rx="42" ry="42" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
+          <rect id="sitia-logo-chassis" x="10" y="25" width="180" height="150" rx="42" ry="42" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
         `;
       } else if (shape === 'shield') {
         squircleGroup.innerHTML = `
-          <path id="sitia-squircle-rect" d="M100 12 L185 36 V96 C185 145 145 180 100 192 C55 180 15 145 15 96 V36 Z" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
+          <path id="sitia-logo-chassis" d="M100 12 L185 36 V96 C185 145 145 180 100 192 C55 180 15 145 15 96 V36 Z" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
         `;
       } else if (shape === 'diamond') {
         squircleGroup.innerHTML = `
-          <polygon id="sitia-squircle-rect" points="100,12 188,100 100,188 12,100" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
+          <polygon id="sitia-logo-chassis" points="100,12 188,100 100,188 12,100" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
         `;
       } else {
         squircleGroup.innerHTML = `
-          <rect id="sitia-squircle-rect" x="10" y="10" width="180" height="180" rx="${baseRadius}" ry="${baseRadius}" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
+          <rect id="sitia-logo-chassis" x="10" y="10" width="180" height="180" rx="${baseRadius}" ry="${baseRadius}" fill="url(#sitia-convex-surface)" stroke="url(#sitia-micro-border)" stroke-width="1.6" />
         `;
       }
       updateLogoFromControls();
@@ -3471,9 +3575,10 @@
       const blur = document.getElementById('sld-logo-blur')?.value || 6;
       const microBorder = document.getElementById('chk-logo-microborder')?.checked ?? true;
 
-      const wordmark = document.getElementById('txt-logo-content')?.value.trim().toUpperCase() || 'SITIA';
+      const rawWordmark = document.getElementById('txt-logo-content')?.value || 'SITIA';
+      const wordmark = toGreekUpper(rawWordmark) || 'SITIA';
       const subInput = document.getElementById('txt-logo-subtitle');
-      const subtitle = subInput ? subInput.value.trim().toUpperCase() : '';
+      const subtitle = subInput ? toGreekUpper(subInput.value) : '';
       const fontChoice = document.getElementById('sel-logo-font')?.value || 'system';
       const textX = parseFloat(document.getElementById('sld-logo-text-x')?.value || 0);
       const textY = parseFloat(document.getElementById('sld-logo-text-y')?.value || 0);
@@ -3497,13 +3602,13 @@
       document.documentElement.style.setProperty('--cg-logo-size', size + 'px');
 
       // Update Chassis Geometry Attributes
-      const squircleRect = document.getElementById('sitia-squircle-rect');
-      if (squircleRect && squircleRect.tagName.toLowerCase() === 'rect') {
-        squircleRect.setAttribute('rx', radius);
-        squircleRect.setAttribute('ry', radius);
-      }
-      if (squircleRect) {
-        squircleRect.setAttribute('stroke', microBorder ? 'url(#sitia-micro-border)' : 'none');
+      const chassisEl = document.getElementById('sitia-logo-chassis');
+      if (chassisEl) {
+        if (chassisEl.tagName && chassisEl.tagName.toLowerCase() === 'rect' && (currentLogoShape === 'squircle' || !currentLogoShape)) {
+          chassisEl.setAttribute('rx', radius);
+          chassisEl.setAttribute('ry', radius);
+        }
+        chassisEl.setAttribute('stroke', microBorder ? 'url(#sitia-micro-border)' : 'none');
       }
 
       // Update Gradient Stops
@@ -3564,18 +3669,42 @@
         } else {
           wordmarkGroup.innerHTML = `
             <!-- Layer 1: Deep Physical Bevel Extrusion -->
-            <text id="sitia-path-deep" x="${100 + textX + 1.6}" y="${102 + textY + 2.8}" text-anchor="middle" dominant-baseline="central" font-family="${fontFamily}" font-weight="900" font-size="${textSize}" fill="${textShadowCol}" opacity="0.95" letter-spacing="1.5px">${wordmark}</text>
+            <text id="sitia-path-deep" x="${100 + textX + 1.6}" y="${102 + textY + 2.8}" text-anchor="middle" dominant-baseline="central" font-family="${fontFamily}" font-weight="900" font-size="${textSize}" fill="${textShadowCol}" opacity="0.95" letter-spacing="1.5px"></text>
             <!-- Layer 2: Mid Bevel Shadow -->
-            <text id="sitia-path-mid" x="${100 + textX + 0.8}" y="${102 + textY + 1.4}" text-anchor="middle" dominant-baseline="central" font-family="${fontFamily}" font-weight="900" font-size="${textSize}" fill="${lightenHex(textShadowCol, 15)}" opacity="0.9" letter-spacing="1.5px">${wordmark}</text>
+            <text id="sitia-path-mid" x="${100 + textX + 0.8}" y="${102 + textY + 1.4}" text-anchor="middle" dominant-baseline="central" font-family="${fontFamily}" font-weight="900" font-size="${textSize}" fill="${lightenHex(textShadowCol, 15)}" opacity="0.9" letter-spacing="1.5px"></text>
             <!-- Layer 3: Main Physical Face -->
-            <text id="sitia-path-face" x="${100 + textX}" y="${102 + textY}" text-anchor="middle" dominant-baseline="central" font-family="${fontFamily}" font-weight="900" font-size="${textSize}" fill="${textCol}" stroke="rgba(255,255,255,0.75)" stroke-width="0.5" filter="url(#sitia-text-depth)" letter-spacing="1.5px">${wordmark}</text>
+            <text id="sitia-path-face" x="${100 + textX}" y="${102 + textY}" text-anchor="middle" dominant-baseline="central" font-family="${fontFamily}" font-weight="900" font-size="${textSize}" fill="${textCol}" stroke="rgba(255,255,255,0.75)" stroke-width="0.5" filter="url(#sitia-text-depth)" letter-spacing="1.5px"></text>
           `;
+          const deepEl = document.getElementById('sitia-path-deep');
+          const midEl = document.getElementById('sitia-path-mid');
+          const faceEl = document.getElementById('sitia-path-face');
+          if (deepEl) deepEl.textContent = wordmark;
+          if (midEl) midEl.textContent = wordmark;
+          if (faceEl) faceEl.textContent = wordmark;
+          fitWordmarkSvgText(textSize);
         }
       }
       updateLiveInspector();
     }
 
-    function setRatingShape(shape) {
+    function fitRatingStencilText() {
+      const stText = document.getElementById('stencil-text');
+      const stOutline = document.getElementById('stencil-outline-text');
+      if (!stText) return;
+      const maxBadgeWidth = 38;
+      try {
+        const bbox = stText.getBBox();
+        if (bbox && bbox.width > maxBadgeWidth) {
+          const currentSize = parseFloat(stText.getAttribute('font-size')) || 27;
+          const scale = maxBadgeWidth / bbox.width;
+          const adjustedSize = Math.max(12, Math.floor(currentSize * scale));
+          stText.setAttribute('font-size', adjustedSize);
+          if (stOutline) stOutline.setAttribute('font-size', adjustedSize);
+        }
+      } catch (_) {}
+    }
+
+    function setRatingShape(shape, skipRebuild = false) {
       currentRatingShape = shape;
       ['circle', 'squircle', 'pill'].forEach(s => {
         const btn = document.getElementById(`btn-rating-shape-${s}`);
@@ -3642,8 +3771,11 @@
         if (shape === 'pill') badgeWrap.classList.add('shape-pill');
       }
 
-      buildTimeline();
-      replayTimeline();
+      fitRatingStencilText();
+      if (!skipRebuild) {
+        buildTimeline();
+        replayTimeline();
+      }
     }
 
     function updateRatingFromControls() {
@@ -3687,6 +3819,7 @@
           el.setAttribute('font-family', fontFamily);
         }
       });
+      fitRatingStencilText();
       updateLiveInspector();
     }
 
@@ -3753,6 +3886,9 @@
         advStage.className = 'anchor-top-right canvas-draggable';
         logoStage.className = 'station-stage anchor-top-left canvas-draggable';
       }
+      const subInput = document.getElementById('txt-logo-subtitle');
+      const subText = (subInput && subInput.value) ? subInput.value : currentSubtitleTagText;
+      renderStationSubtitle(currentShowTag, subText);
       recordAction('LAYOUT', `Flipped stage positions (${currentLayoutOrientation})`, () => {
         flipStagePositions();
       });
@@ -4085,10 +4221,11 @@
 
       textSlotMask.innerHTML = '';
 
-      const ratingStr = String(currentConfig.rating || '16').toUpperCase();
-      const displayRating = (ratingStr === 'NONE' || ratingStr === '') ? '' : (ratingStr === 'K' ? 'Κ' : ratingStr);
+      const ratingStr = String(currentConfig.rating || '16');
+      const displayRating = normalizeRating(ratingStr);
       if (stencilText) stencilText.textContent = displayRating;
       if (stencilOutline) stencilOutline.textContent = displayRating;
+      fitRatingStencilText();
 
       if (currentConfig.tp) {
         tpBadge.classList.add('visible');
@@ -4099,7 +4236,7 @@
       const stationLogoStage = document.getElementById('station-logo-stage');
       const advisoryStage = document.getElementById('advisory-stage');
 
-      if (ratingStr === 'NONE') {
+      if (ratingStr.toUpperCase() === 'NONE') {
         if (advisoryStage) advisoryStage.style.display = 'none';
         if (stationLogoStage) stationLogoStage.style.display = 'flex';
       } else if (currentConfig.show_station_logo) {
@@ -4111,7 +4248,7 @@
       }
 
       const isLogoOnly = currentConfig.show_explanation === false ||
-                         ratingStr === 'NONE' ||
+                         ratingStr.toUpperCase() === 'NONE' ||
                          currentConfig.custom_text === '__LOGO_ONLY__' ||
                          currentConfig.custom_text === 'LOGO_ONLY';
 
@@ -4119,11 +4256,14 @@
       let primaryWidth = 0;
 
       if (!isLogoOnly) {
-        const primaryText = currentConfig.custom_text || DEFAULT_RATING_TEXTS[ratingStr] || `ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ ${ratingStr}`;
+        const primaryText = currentConfig.custom_text || DEFAULT_RATING_TEXTS[ratingStr.toUpperCase()] || `ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ ${ratingStr}`;
         slotPrimary = document.createElement('div');
         slotPrimary.className = 'slot-content';
         slotPrimary.id = 'slot-primary';
-        slotPrimary.innerHTML = `<span class="advisory-text">${primaryText}</span>`;
+        const advSpan = document.createElement('span');
+        advSpan.className = 'advisory-text';
+        advSpan.textContent = primaryText;
+        slotPrimary.appendChild(advSpan);
         textSlotMask.appendChild(slotPrimary);
         
         slotPrimary.style.visibility = 'hidden';
@@ -4132,13 +4272,14 @@
         slotPrimary.style.visibility = '';
       }
 
+      const dTexts = getDescriptorTexts();
       const rawWarnings = Array.isArray(currentConfig.warnings)
         ? currentConfig.warnings
         : (currentConfig.warnings ? [currentConfig.warnings] : []);
       
       const parsedWarnings = rawWarnings
         .map(normalizeWarning)
-        .filter((w, idx, self) => w && self.indexOf(w) === idx);
+        .filter((w, idx, self) => w && self.indexOf(w) === idx && dTexts[w] !== '');
 
       const warningSlots = [];
       const warningWidths = [];
@@ -4153,15 +4294,23 @@
         wSlotCombo.innerHTML = `
           <div class="warning-icon-wrapper">${WARNING_GLYPHS.combo}</div>
           <div class="warning-text-group combo-group ${comboLines.is3Lines ? 'has-3-lines' : ''}">
-            <span class="combo-line-1">${comboLines.line1}</span>
-            <span class="combo-line-2">${comboLines.line2}</span>
-            ${comboLines.is3Lines ? `<span class="combo-line-3">${comboLines.line3}</span>` : ''}
+            <span class="combo-line-1">${escapeHtml(comboLines.line1)}</span>
+            <span class="combo-line-2">${escapeHtml(comboLines.line2)}</span>
+            ${comboLines.is3Lines ? `<span class="combo-line-3">${escapeHtml(comboLines.line3)}</span>` : ''}
           </div>
         `;
         textSlotMask.appendChild(wSlotCombo);
         
         wSlotCombo.style.visibility = 'hidden';
         wSlotCombo.style.display = 'inline-flex';
+        const unscaledW = getUnscaledWidth(wSlotCombo);
+        if (unscaledW > 650) {
+          const ratio = Math.max(0.70, 650 / unscaledW);
+          wSlotCombo.querySelectorAll('.combo-line-1, .combo-line-2, .combo-line-3').forEach(el => {
+            const curSize = parseFloat(window.getComputedStyle(el).fontSize) || 12;
+            el.style.fontSize = (curSize * ratio).toFixed(1) + 'px';
+          });
+        }
         const w = Math.min(650, getUnscaledWidth(wSlotCombo));
         wSlotCombo.style.visibility = '';
 
@@ -4174,7 +4323,6 @@
         wSlot.className = 'slot-content';
         wSlot.id = `slot-warning-${cat}`;
         
-        const dTexts = getDescriptorTexts();
         const label = dTexts[cat] || WARNING_TEXT_MAP[cat] || cat.toUpperCase();
         
         let bodyHtml = '';
@@ -4185,18 +4333,18 @@
           const part1 = splitIdx !== -1 ? label.slice(0, splitIdx) : label;
           const part2 = splitIdx !== -1 ? label.slice(splitIdx + 1) : '';
           bodyHtml = `
-            <span class="combo-line-2">${part1}</span>
-            <span class="combo-line-3">${part2}</span>
+            <span class="combo-line-2">${escapeHtml(part1)}</span>
+            <span class="combo-line-3">${escapeHtml(part2)}</span>
           `;
           is3L = true;
         } else {
-          bodyHtml = `<span class="warning-body">${label}</span>`;
+          bodyHtml = `<span class="warning-body">${escapeHtml(label)}</span>`;
         }
 
         wSlot.innerHTML = `
           <div class="warning-icon-wrapper">${WARNING_GLYPHS[cat] || WARNING_GLYPHS.combo}</div>
           <div class="warning-text-group ${is3L ? 'has-3-lines' : ''}">
-            <span class="warning-lead">${dTexts.lead}</span>
+            <span class="warning-lead">${escapeHtml(dTexts.lead)}</span>
             ${bodyHtml}
           </div>
         `;
@@ -4204,6 +4352,14 @@
 
         wSlot.style.visibility = 'hidden';
         wSlot.style.display = 'inline-flex';
+        const unscaledW = getUnscaledWidth(wSlot);
+        if (unscaledW > 650) {
+          const ratio = Math.max(0.70, 650 / unscaledW);
+          wSlot.querySelectorAll('.warning-lead, .warning-body, .combo-line-2, .combo-line-3').forEach(el => {
+            const curSize = parseFloat(window.getComputedStyle(el).fontSize) || 12;
+            el.style.fontSize = (curSize * ratio).toFixed(1) + 'px';
+          });
+        }
         const w = Math.min(650, getUnscaledWidth(wSlot));
         wSlot.style.visibility = '';
 
@@ -4495,22 +4651,90 @@
     function applyStylingVariables(style) {
       if (!style) return;
       const root = document.documentElement;
-      if (style.themeName && THEME_PRESETS[style.themeName]) {
-        applyThemePreset(style.themeName);
+      const themeKey = style.themeName || style.theme;
+      if (themeKey && THEME_PRESETS[themeKey]) {
+        applyThemePreset(themeKey);
       }
       if (style.fontFamily) root.style.setProperty('--cg-font-family', style.fontFamily);
       if (style.topOffsetPx !== undefined) root.style.setProperty('--cg-top', style.topOffsetPx + 'px');
       if (style.rightOffsetPx !== undefined) root.style.setProperty('--cg-right', style.rightOffsetPx + 'px');
       if (style.textOffsetYPx !== undefined) root.style.setProperty('--cg-text-offset-y', style.textOffsetYPx + 'px');
       if (style.anchorPosition) setAnchorPosition(style.anchorPosition);
-      if (style.badgeSizePx !== undefined) root.style.setProperty('--cg-badge-size', style.badgeSizePx + 'px');
-      if (style.badgeFontSizePx !== undefined) {
-        root.style.setProperty('--cg-badge-font-size', style.badgeFontSizePx + 'px');
+
+      // Station Logo Bug Styling
+      if (style.logoShape) {
+        setLogoShape(style.logoShape);
+      }
+      if (style.logoSize !== undefined) {
+        root.style.setProperty('--cg-logo-size', style.logoSize + 'px');
+        const sld = document.getElementById('sld-logo-size');
+        if (sld) sld.value = style.logoSize;
+      }
+      if (style.logoRadius !== undefined) {
+        const sld = document.getElementById('sld-logo-radius');
+        if (sld) sld.value = style.logoRadius;
+      }
+      if (style.logoExtrusion) {
+        const sel = document.getElementById('sel-logo-extrusion');
+        if (sel) sel.value = style.logoExtrusion;
+      }
+      if (style.logoBase) {
+        const col = document.getElementById('col-logo-base');
+        if (col) col.value = style.logoBase;
+      }
+      if (style.logoGrad) {
+        const col = document.getElementById('col-logo-grad');
+        if (col) col.value = style.logoGrad;
+      }
+      if (style.logoSpecular) {
+        const col = document.getElementById('col-logo-specular');
+        if (col) col.value = style.logoSpecular;
+      }
+      if (style.logoShadow) {
+        const col = document.getElementById('col-logo-shadow');
+        if (col) col.value = style.logoShadow;
+      }
+      if (style.logoFont) {
+        const sel = document.getElementById('sel-logo-font');
+        if (sel) sel.value = style.logoFont;
+      }
+      if (style.accentColor || style.accentMid) {
+        const accCol = style.accentColor || style.accentMid;
+        root.style.setProperty('--cg-accent-color', accCol);
+        root.style.setProperty('--accent-color', accCol);
+        const col = document.getElementById('col-accent-mid');
+        if (col) col.value = accCol;
+      }
+      if (style.accentLineHeightPx !== undefined) {
+        root.style.setProperty('--cg-accent-line-height', style.accentLineHeightPx + 'px');
+        const sld = document.getElementById('sld-accent-line-height');
+        if (sld) sld.value = style.accentLineHeightPx;
+      }
+
+      // Rating Badge Styling
+      const ratingShape = style.badgeShape || style.ratingShape;
+      if (ratingShape) {
+        setRatingShape(ratingShape, true);
+      }
+      if (style.badgeSizePx !== undefined || style.ratingSize !== undefined) {
+        const bSize = style.badgeSizePx ?? style.ratingSize;
+        root.style.setProperty('--cg-badge-size', bSize + 'px');
+        const sld = document.getElementById('sld-rating-size');
+        if (sld) sld.value = bSize;
+      }
+      if (style.badgeFontSizePx !== undefined || style.ratingFontSize !== undefined) {
+        const bFont = style.badgeFontSizePx ?? style.ratingFontSize;
+        root.style.setProperty('--cg-badge-font-size', bFont + 'px');
         const stText = document.getElementById('stencil-text');
         const stOutline = document.getElementById('stencil-outline-text');
-        if (stText) stText.setAttribute('font-size', style.badgeFontSizePx);
-        if (stOutline) stOutline.setAttribute('font-size', style.badgeFontSizePx);
+        if (stText) stText.setAttribute('font-size', bFont);
+        if (stOutline) stOutline.setAttribute('font-size', bFont);
+        const sld = document.getElementById('sld-rating-font-size');
+        if (sld) sld.value = bFont;
       }
+
+      updateLogoFromControls();
+      updateRatingFromControls();
     }
 
     // =========================================================================
@@ -4695,11 +4919,11 @@
       listEl.innerHTML = actionHistory.map(item => `
         <div class="console-item">
           <div class="console-item-left">
-            <span class="console-item-time">${item.time}</span>
-            <span class="console-item-badge ${item.type.toLowerCase()}">${item.type}</span>
-            <span class="console-item-desc" title="${item.desc}">${item.desc}</span>
+            <span class="console-item-time">${escapeHtml(item.time)}</span>
+            <span class="console-item-badge ${escapeHtml(item.type.toLowerCase())}">${escapeHtml(item.type)}</span>
+            <span class="console-item-desc" title="${escapeHtml(item.desc)}">${escapeHtml(item.desc)}</span>
           </div>
-          <button class="console-item-revert-btn" onclick="revertAction('${item.id}')" title="Undo this change">↩️ Revert</button>
+          <button class="console-item-revert-btn" onclick="revertAction('${escapeHtml(item.id)}')" title="Undo this change">↩️ Revert</button>
         </div>
       `).join('');
     }
@@ -4719,15 +4943,15 @@
       const subEl = document.getElementById('txt-logo-subtitle');
       const subVal = (subEl && subEl.value) ? String(subEl.value).trim().toUpperCase() : '(none)';
       stream.innerHTML = `
-        <div class="console-attrib-row"><span class="console-attrib-key">Station Wordmark</span><span class="console-attrib-val">"${logoWordmark}"</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Station Subtitle Tag</span><span class="console-attrib-val">"${subVal}"</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Logo Dimensions</span><span class="console-attrib-val">${logoSize}px (G2: rx=${logoRadius})</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Neumorphic Extrusion</span><span class="console-attrib-val">${logoExtrusion}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Base Palette</span><span class="console-attrib-val">${logoBase}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Rating Badge Size</span><span class="console-attrib-val">${ratingSize}px</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Cutout Stencil Mode</span><span class="console-attrib-val">${ratingCutout}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Hold Durations</span><span class="console-attrib-val">Exp: ${currentConfig.hold_time}s | Adv: ${currentConfig.warning_hold_time}s</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Active Theme</span><span class="console-attrib-val">${currentConfig.theme}</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Station Wordmark</span><span class="console-attrib-val">"${escapeHtml(logoWordmark)}"</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Station Subtitle Tag</span><span class="console-attrib-val">"${escapeHtml(subVal)}"</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Logo Dimensions</span><span class="console-attrib-val">${escapeHtml(logoSize)}px (G2: rx=${escapeHtml(logoRadius)})</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Neumorphic Extrusion</span><span class="console-attrib-val">${escapeHtml(logoExtrusion)}</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Base Palette</span><span class="console-attrib-val">${escapeHtml(logoBase)}</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Rating Badge Size</span><span class="console-attrib-val">${escapeHtml(ratingSize)}px</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Cutout Stencil Mode</span><span class="console-attrib-val">${escapeHtml(ratingCutout)}</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Hold Durations</span><span class="console-attrib-val">Exp: ${escapeHtml(currentConfig.hold_time)}s | Adv: ${escapeHtml(currentConfig.warning_hold_time)}s</span></div>
+        <div class="console-attrib-row"><span class="console-attrib-key">Active Theme</span><span class="console-attrib-val">${escapeHtml(currentConfig.theme)}</span></div>
         <div class="console-attrib-row"><span class="console-attrib-key">Screen Anchor</span><span class="console-attrib-val">${currentLayoutOrientation === 'default' ? 'Logo Left • Rating Right' : 'Rating Left • Logo Right'}</span></div>
       `;
     }
@@ -4828,7 +5052,7 @@
         }
         list.innerHTML = stored.map((t, idx) => `
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;">
-            <span style="font-size: 11.5px; font-weight: 600; color: #f1f5f9;">${t.name}</span>
+            <span style="font-size: 11.5px; font-weight: 600; color: #f1f5f9;">${escapeHtml(t.name)}</span>
             <div style="display: flex; gap: 4px;">
               <button class="studio-btn" style="padding: 2px 7px; font-size: 10px;" onclick="applyUserCustomTheme(${idx})">Apply</button>
               <button class="studio-btn" style="padding: 2px 6px; font-size: 10px; color: #f87171;" onclick="deleteUserCustomTheme(${idx})">✕</button>
@@ -4972,14 +5196,96 @@
       refreshMasterPresetDropdown();
       onSelectMasterPreset(startupPresetId);
 
-      updateLogoFromControls();
-      updateRatingFromControls();
-      resizeCanvas();
-      setTimeout(resizeCanvas, 100);
-
-      buildTimeline();
-      window.play();
+      hydrateDefaultPreset().finally(() => {
+        updateLogoFromControls();
+        updateRatingFromControls();
+        resizeCanvas();
+        setTimeout(resizeCanvas, 100);
+        buildTimeline();
+        window.play();
+      });
     });
+
+    async function postToBridge(endpoint, body) {
+      const ports = [6258, 6259];
+      for (const port of ports) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: typeof body === 'string' ? body : JSON.stringify(body)
+          });
+          if (res.ok) return await res.json();
+        } catch (_) {}
+      }
+      throw new Error('Studio bridge unreachable');
+    }
+
+    async function getFromBridge(endpoint) {
+      const ports = [6258, 6259];
+      for (const port of ports) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}${endpoint}`, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+          });
+          if (res.ok) return await res.json();
+        } catch (_) {}
+      }
+      throw new Error('Studio bridge unreachable');
+    }
+
+    async function hydrateDefaultPreset() {
+      // 1. Check compile-time baked preset
+      if (typeof BAKED_DEFAULT_PRESET === 'object' && BAKED_DEFAULT_PRESET !== null) {
+        MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], BAKED_DEFAULT_PRESET);
+      }
+
+      // 2. Check localStorage saved standard presets & default preset package
+      try {
+        Object.keys(MASTER_STANDARD_PRESETS).forEach(pid => {
+          const overrideRaw = localStorage.getItem('PLAYOUT_STANDARD_PRESET_' + pid);
+          if (overrideRaw) {
+            const overridePkg = JSON.parse(overrideRaw);
+            if (overridePkg && typeof overridePkg === 'object') {
+              MASTER_STANDARD_PRESETS[pid] = Object.assign({}, MASTER_STANDARD_PRESETS[pid], overridePkg);
+            }
+          }
+        });
+        const savedPkgRaw = localStorage.getItem('PLAYOUT_DEFAULT_PRESET_PACKAGE');
+        if (savedPkgRaw) {
+          const savedPkg = JSON.parse(savedPkgRaw);
+          if (savedPkg && typeof savedPkg === 'object') {
+            MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], savedPkg);
+          }
+        }
+      } catch (_) {}
+
+      // 3. Query Studio Bridge for authoritative saved preset
+      try {
+        const data = await getFromBridge('/api/default-preset');
+        if (data && data.preset && typeof data.preset === 'object') {
+          MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], data.preset);
+        }
+      } catch (_) {}
+
+      // 4. Try fetching sidecar file if served via HTTP
+      try {
+        const res = await fetch('advisory_default_preset.json?t=' + Date.now());
+        if (res.ok) {
+          const sidecar = await res.json();
+          if (sidecar && typeof sidecar === 'object') {
+            MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], sidecar);
+          }
+        }
+      } catch (_) {}
+
+      // Re-apply the default preset if active
+      const savedDefId = localStorage.getItem('PLAYOUT_DEFAULT_PRESET_ID');
+      if (!savedDefId || savedDefId === 'default' || currentMasterPresetId === 'default') {
+        applyPresetPackage(MASTER_STANDARD_PRESETS['default']);
+      }
+    }
 
     document.addEventListener('fullscreenchange', () => {
       setTimeout(resizeCanvas, 100);
@@ -5025,7 +5331,7 @@
     let currentShowTag = 'none';
     let currentMasterPresetId = 'default';
     let currentLogoShape = 'squircle';
-    let currentRatingShape = 'circle';
+    let currentRatingShape = 'squircle';
 
     let BAKED_DEFAULT_PRESET = null;
 
@@ -5048,7 +5354,8 @@
         logoFont: 'system',
         logoShape: 'squircle',
         ratingCutout: 'stencil',
-        ratingShape: 'circle',
+        ratingShape: 'squircle',
+        badgeShape: 'squircle',
         ratingSize: 48,
         ratingFontSize: 24,
         ratingFont: 'system',
@@ -5078,7 +5385,8 @@
         logoFont: 'system',
         logoShape: 'squircle',
         ratingCutout: 'stencil',
-        ratingShape: 'circle',
+        ratingShape: 'squircle',
+        badgeShape: 'squircle',
         ratingSize: 48,
         ratingFontSize: 24,
         ratingFont: 'system',
@@ -5108,7 +5416,8 @@
         logoFont: 'display',
         logoShape: 'squircle',
         ratingCutout: 'stencil',
-        ratingShape: 'circle',
+        ratingShape: 'squircle',
+        badgeShape: 'squircle',
         ratingSize: 48,
         ratingFontSize: 24,
         ratingFont: 'system',
@@ -5138,7 +5447,8 @@
         logoFont: 'geometric',
         logoShape: 'squircle',
         ratingCutout: 'stencil',
-        ratingShape: 'circle',
+        ratingShape: 'squircle',
+        badgeShape: 'squircle',
         ratingSize: 48,
         ratingFontSize: 24,
         ratingFont: 'system',
@@ -5168,7 +5478,8 @@
         logoFont: 'system',
         logoShape: 'squircle',
         ratingCutout: 'stencil',
-        ratingShape: 'circle',
+        ratingShape: 'squircle',
+        badgeShape: 'squircle',
         ratingSize: 46,
         ratingFontSize: 24,
         ratingFont: 'system',
@@ -5198,7 +5509,8 @@
         logoFont: 'system',
         logoShape: 'squircle',
         ratingCutout: 'stencil',
-        ratingShape: 'circle',
+        ratingShape: 'squircle',
+        badgeShape: 'squircle',
         ratingSize: 48,
         ratingFontSize: 24,
         ratingFont: 'system',
@@ -5228,7 +5540,8 @@
         logoFont: 'system',
         logoShape: 'squircle',
         ratingCutout: 'stencil',
-        ratingShape: 'circle',
+        ratingShape: 'squircle',
+        badgeShape: 'squircle',
         ratingSize: 48,
         ratingFontSize: 24,
         ratingFont: 'system',
@@ -5257,7 +5570,7 @@
         optgroup.innerHTML = '<option disabled>No custom presets saved</option>';
       } else {
         optgroup.innerHTML = userPresets.map(p => `
-          <option value="${p.id}">${p.name}</option>
+          <option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>
         `).join('');
       }
 
@@ -5368,7 +5681,8 @@
         const selCut = document.getElementById('sel-rating-cutout');
         if (selCut) selCut.value = p.ratingCutout;
       }
-      if (p.ratingShape) setRatingShape(p.ratingShape);
+      const rShape = p.ratingShape || p.badgeShape;
+      if (rShape) setRatingShape(rShape, true);
       if (p.rating) setStudioRating(p.rating);
 
       // 6. Theme & Motion
@@ -5410,16 +5724,16 @@
 
     async function markActivePresetAsDefault() {
       localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', currentMasterPresetId);
+      const pkg = captureCurrentPresetPackage(null);
+      pkg.id = 'default';
+      MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], pkg);
+      localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
+
       refreshMasterPresetDropdown();
       recordAction('PRESET', `Marked "${currentMasterPresetId}" as startup default`);
 
-      const pkg = captureCurrentPresetPackage(null);
       try {
-        await fetch('http://127.0.0.1:6258/api/save-default-preset', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pkg)
-        });
+        await postToBridge('/api/save-default-preset', pkg);
         showStudioToast('✓ Marked as default and synchronized with templates & CasparCG!');
       } catch (e) {
         showStudioToast('✓ Saved as default in local storage! (Click 🚀 Deploy to push to CasparCG)');
@@ -5428,7 +5742,9 @@
 
     async function saveCurrentActivePreset() {
       const pkg = captureCurrentPresetPackage(null);
-      if (currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_')) {
+      const isUserPreset = currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_');
+
+      if (isUserPreset) {
         let userPresets = getUserPresetsList();
         const idx = userPresets.findIndex(p => p.id === currentMasterPresetId);
         if (idx !== -1) {
@@ -5439,36 +5755,35 @@
           refreshMasterPresetDropdown();
           recordAction('PRESET', `Updated preset: "${pkg.name}"`);
         }
+      } else if (currentMasterPresetId === 'default') {
+        pkg.id = 'default';
+        MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], pkg);
+        localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
+        recordAction('PRESET', `Updated Sitia HD Standard (Default) preset`);
+      } else if (currentMasterPresetId && MASTER_STANDARD_PRESETS[currentMasterPresetId]) {
+        pkg.id = currentMasterPresetId;
+        MASTER_STANDARD_PRESETS[currentMasterPresetId] = Object.assign({}, MASTER_STANDARD_PRESETS[currentMasterPresetId], pkg);
+        localStorage.setItem('PLAYOUT_STANDARD_PRESET_' + currentMasterPresetId, JSON.stringify(pkg));
+        recordAction('PRESET', `Updated broadcast preset: "${pkg.name}"`);
       }
 
+      // Automatically sync active preset with Playout backend and CasparCG
       try {
-        await fetch('http://127.0.0.1:6258/api/save-default-preset', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pkg)
-        });
-        showStudioToast(`✓ Saved changes and synchronized with templates & CasparCG!`);
-        return;
+        await postToBridge('/api/save-default-preset', pkg);
+        showStudioToast(`✓ Saved "${pkg.name}" and synchronized with templates & CasparCG!`);
       } catch (e) {
-        showStudioToast(`✓ Saved to local storage!`);
-      }
-
-      if (!currentMasterPresetId || !String(currentMasterPresetId).startsWith('preset_')) {
-        openSaveAsDialog();
+        showStudioToast(`✓ Saved "${pkg.name}" to local storage!`);
       }
     }
 
     async function deployFromStudio() {
       const pkg = captureCurrentPresetPackage(null);
       localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', currentMasterPresetId);
+      localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
 
       try {
-        const res = await fetch('http://127.0.0.1:6258/api/deploy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pkg)
-        });
-        if (res.ok) {
+        const res = await postToBridge('/api/deploy', pkg);
+        if (res && res.success) {
           recordAction('DEPLOY', `Deployed templates and preset "${pkg.name || currentMasterPresetId}" to CasparCG`);
           showStudioToast('✓ Successfully deployed to CasparCG! Live graphics refreshed without server restart.');
           return;
@@ -5502,9 +5817,13 @@
         news: document.getElementById('txt-tag-news')?.value.trim() || 'NEWS'
       };
 
+      const isUserPreset = currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_');
+      const presetId = name ? ('preset_' + Date.now()) : (isUserPreset ? currentMasterPresetId : (currentMasterPresetId || 'default'));
+      const presetName = name || (isUserPreset ? (getUserPresetsList().find(p => p.id === currentMasterPresetId)?.name || 'Custom Preset') : (MASTER_STANDARD_PRESETS[currentMasterPresetId]?.name || 'Sitia HD Standard (Default)'));
+
       return {
-        id: 'preset_' + Date.now(),
-        name: name || 'Custom Preset ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        id: presetId,
+        name: presetName,
         wordmark: document.getElementById('txt-logo-content')?.value || 'SITIA',
         subtitle: document.getElementById('txt-logo-subtitle')?.value || 'HD',
         showTag: currentShowTag || 'none',
@@ -5519,16 +5838,30 @@
         logoFont: document.getElementById('sel-logo-font')?.value || 'system',
         logoShape: currentLogoShape || 'squircle',
         ratingCutout: document.getElementById('sel-rating-cutout')?.value || 'frosted',
-        ratingShape: currentRatingShape || 'circle',
+        ratingShape: currentRatingShape || 'squircle',
+        badgeShape: currentRatingShape || 'squircle',
         ratingSize: parseInt(document.getElementById('sld-rating-size')?.value) || 48,
+        badgeSizePx: parseInt(document.getElementById('sld-rating-size')?.value) || 48,
         ratingFontSize: parseInt(document.getElementById('sld-rating-font-size')?.value) || 24,
+        badgeFontSizePx: parseInt(document.getElementById('sld-rating-font-size')?.value) || 24,
         ratingFont: document.getElementById('sel-rating-font')?.value || 'system',
+        fontFamily: document.getElementById('sel-rating-font')?.value || 'system',
         rating: currentConfig.rating || '16',
         warnings: currentConfig.warnings || [],
         tp: !!currentConfig.tp,
         theme: currentConfig.theme || 'frosted',
+        themeName: currentConfig.theme || 'frosted',
+        topOffsetPx: parseInt(document.getElementById('sld-top-margin')?.value) || 60,
+        rightOffsetPx: parseInt(document.getElementById('sld-right-margin')?.value) || 60,
+        textOffsetYPx: parseInt(document.getElementById('sld-text-offset-y')?.value) || 0,
+        anchorPosition: currentConfig.anchor || 'top-right',
+        accentMid: document.getElementById('col-accent-mid')?.value || '#38bdf8',
+        accentColor: document.getElementById('col-accent-mid')?.value || '#38bdf8',
+        accentLineHeightPx: parseInt(document.getElementById('sld-accent-line-height')?.value) || 2,
         hold_time: currentConfig.hold_time || 30.0,
+        ratingHoldSec: currentConfig.hold_time || 30.0,
         warning_hold_time: currentConfig.warning_hold_time || 30.0,
+        warningHoldSec: currentConfig.warning_hold_time || 30.0,
         orientation: currentLayoutOrientation || 'default',
         displayMode: currentStudioDisplayMode || 'combo'
       };
@@ -5549,6 +5882,36 @@
     let currentSubtitleTagKey = 'none';
     let subtitleAnimationTimeline = null;
 
+    function fitStationSubtitleText() {
+      const labelEl = document.getElementById('station-subtitle-label');
+      if (!labelEl) return;
+      const maxW = 260;
+      labelEl.style.fontSize = '14.5px';
+      labelEl.style.overflow = 'visible';
+      labelEl.style.textOverflow = 'clip';
+      labelEl.style.whiteSpace = 'nowrap';
+      labelEl.style.display = 'inline';
+
+      if (labelEl.scrollWidth > maxW) {
+        let currentPx = 14.5;
+        while (labelEl.scrollWidth > maxW && currentPx > 9.5) {
+          currentPx -= 0.5;
+          labelEl.style.fontSize = currentPx + 'px';
+        }
+        if (labelEl.scrollWidth > maxW) {
+          labelEl.style.maxWidth = maxW + 'px';
+          labelEl.style.overflow = 'hidden';
+          labelEl.style.textOverflow = 'ellipsis';
+          labelEl.style.display = 'inline-block';
+        }
+      } else {
+        labelEl.style.maxWidth = '';
+        labelEl.style.overflow = 'visible';
+        labelEl.style.textOverflow = 'clip';
+        labelEl.style.display = 'inline';
+      }
+    }
+
     function renderStationSubtitle(tagKey, explicitText) {
       const tagEl = document.getElementById('station-subtitle-tag');
       const dotEl = document.getElementById('station-subtitle-dot');
@@ -5558,7 +5921,7 @@
       if (!tagEl || !dotEl || !textEl || !subIconEl || !subLabelEl) return;
 
       const text = (explicitText !== undefined && explicitText !== null && explicitText !== '')
-        ? String(explicitText).trim().toUpperCase()
+        ? toGreekUpper(explicitText)
         : '';
 
       const isFlipped = document.getElementById('station-logo-stage')?.classList.contains('anchor-top-right') ||
@@ -5583,6 +5946,8 @@
               currentSubtitleTagKey = 'none';
               subIconEl.innerHTML = '';
               subLabelEl.textContent = '';
+              subLabelEl.style.maxWidth = '';
+              subLabelEl.style.fontSize = '14.5px';
             }
           });
           subtitleAnimationTimeline
@@ -5614,6 +5979,8 @@
           currentSubtitleTagKey = 'none';
           subIconEl.innerHTML = '';
           subLabelEl.textContent = '';
+          subLabelEl.style.maxWidth = '';
+          subLabelEl.style.fontSize = '14.5px';
         }
         updateLivePreviewString();
         return;
@@ -5659,6 +6026,7 @@
             onComplete: () => {
               subIconEl.innerHTML = iconHtml;
               subLabelEl.textContent = text;
+              fitStationSubtitleText();
               currentSubtitleTagText = text;
               currentSubtitleTagKey = tagKey;
             }
@@ -5682,6 +6050,7 @@
       if (currentSubtitleTagText === text) {
         subIconEl.innerHTML = iconHtml;
         subLabelEl.textContent = text;
+        fitStationSubtitleText();
         gsap.set(dotEl, { scaleY: 1, scaleX: 1, opacity: 1, x: 0 });
         gsap.set(textEl, { x: 0, y: 0, opacity: 1 });
         updateLivePreviewString();
@@ -5691,6 +6060,7 @@
       // 4. Initial Tag Entry: Dot emerges, stretches into "|", and tag slides out elastically
       subIconEl.innerHTML = iconHtml;
       subLabelEl.textContent = text;
+      fitStationSubtitleText();
       currentSubtitleTagText = text;
       currentSubtitleTagKey = tagKey;
 
@@ -5761,13 +6131,13 @@
 
       const preset = SHOW_TAG_PRESETS[tagKey];
       let text = (explicitText !== undefined && explicitText !== null && explicitText !== '')
-        ? String(explicitText).trim().toUpperCase()
+        ? toGreekUpper(explicitText)
         : '';
       if (!text) {
         const input = document.getElementById('txt-tag-' + tagKey);
         text = (input && typeof input.value === 'string' && input.value.trim())
-          ? input.value.trim().toUpperCase()
-          : (preset ? preset.label : tagKey.toUpperCase());
+          ? toGreekUpper(input.value)
+          : (preset ? toGreekUpper(preset.label) : toGreekUpper(tagKey));
       }
 
       if (selIcon) selIcon.value = tagKey;
@@ -5780,7 +6150,7 @@
 
     function onTagInputChanged(tagKey) {
       const input = document.getElementById('txt-tag-' + tagKey);
-      const text = input ? input.value.trim().toUpperCase() : '';
+      const text = input ? toGreekUpper(input.value) : '';
       if (currentShowTag === tagKey) {
         const txtActive = document.getElementById('txt-active-tagline');
         const txtLogoSub = document.getElementById('txt-logo-subtitle');
@@ -5791,7 +6161,7 @@
     }
 
     function onActiveTaglineInput(text) {
-      const upper = (text || '').trim().toUpperCase();
+      const upper = toGreekUpper(text);
       const txtLogoSub = document.getElementById('txt-logo-subtitle');
       if (txtLogoSub) txtLogoSub.value = upper;
 
@@ -5805,7 +6175,7 @@
         r.classList.toggle('active', r.id === ('row-tag-' + iconKey));
       });
       const txtActive = document.getElementById('txt-active-tagline');
-      const text = txtActive ? txtActive.value.trim().toUpperCase() : '';
+      const text = txtActive ? toGreekUpper(txtActive.value) : '';
       renderStationSubtitle(iconKey, text);
     }
 
@@ -5869,7 +6239,7 @@
         refreshMasterPresetDropdown();
         closeSaveAsDialog();
         recordAction('PRESET', `Saved new custom preset: "${name}"`);
-        alert(`✓ Successfully saved custom preset: "${name}"!`);
+        showStudioToast(`✓ Successfully saved custom preset: "${name}"!`);
       } catch (err) {
         alert('Failed to save preset: ' + err.message);
       }

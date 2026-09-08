@@ -985,12 +985,38 @@ const ensureFeedbackListener = async () => {
         }
 
         if (!templateDeployedUnlisten) {
-            templateDeployedUnlisten = await listen('caspar://template-deployed', async () => {
-                console.info('[CasparCG] Template deployment detected, invalidating Layer 32 cache...');
+            templateDeployedUnlisten = await listen<any>('caspar://template-deployed', async (event) => {
+                console.info('[CasparCG] Template deployment detected, invalidating Layer 32 cache...', event?.payload);
                 isAdvisoryTemplateLoaded = false;
-                if (lastAppliedComplianceItem && isCasparPlaying.value) {
-                    console.info('[CasparCG] Auto-refreshing on-air Layer 32 with newly deployed template...');
-                    await casparPlayoutService.applyComplianceForItem?.(lastAppliedComplianceItem);
+
+                // 1. Synchronize Pinia settings store with deployed preset payload if present
+                if (event?.payload && typeof event.payload === 'object') {
+                    try {
+                        const settingsStore = useSettingsStore();
+                        settingsStore.updateCgAdvisoryFromDeployedPreset(event.payload);
+                    } catch (err) {
+                        console.warn('[CasparCG] Failed to update settings store from deployed preset:', err);
+                    }
+                }
+
+                // 2. Defensively clear Layer 32 and re-mount on-air with updated settings even if idle
+                if (isCasparConnected.value) {
+                    await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
+                    if (lastAppliedComplianceItem && isCasparPlaying.value) {
+                        console.info('[CasparCG] Auto-refreshing on-air Layer 32 with newly deployed template (playing)...');
+                        await casparPlayoutService.applyComplianceForItem?.(lastAppliedComplianceItem);
+                    } else {
+                        console.info('[CasparCG] Auto-mounting on-air Layer 32 station logo bug (idle/paused)...');
+                        await casparPlayoutService.applyComplianceForItem?.({
+                            id: 'idle_station_logo',
+                            title: 'Station ID',
+                            path: '',
+                            duration: 0,
+                            complianceRating: 'none',
+                            complianceText: '__LOGO_ONLY__',
+                            complianceDescriptors: [],
+                        } as any);
+                    }
                 }
             });
         }
