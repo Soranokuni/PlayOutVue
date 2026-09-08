@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Greek NCRTV Broadcast Advisory Template & Vector Studio</title> 
-  <!-- Google Fonts: Roboto, Monospace, Outfit, Inter, Montserrat -->
+  <!-- Google Fonts: Inter, Montserrat, Roboto, Roboto Mono with Greek subset -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@700;800;900&family=Montserrat:wght@700;800;900&family=Outfit:wght@700;800;900&family=Roboto+Mono:wght@700&family=Roboto:wght@700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Montserrat:wght@500;600;700;800;900&family=Roboto+Mono:wght@500;700&family=Roboto:wght@400;500;700;900&display=swap&subset=greek,greek-ext,latin" rel="stylesheet">
   <!-- GSAP 3: Local vendor bundle with CDN fallback -->
   <script src="vendor/gsap.min.js"></script>
   <script>
@@ -100,7 +100,7 @@
       --cg-accent-line-height: 2px;
       --cg-line-gap: 8px;
       --cg-text-offset-y: 0px;
-      --cg-font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --cg-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
       /* Theme Variables (Default: SOTA Frosted Glass & Neumorphic Hybrid) */
       --badge-bg: rgba(255, 255, 255, 0.32);
@@ -2248,7 +2248,7 @@
                 <option value="roboto">Roboto Clean</option>
                 <option value="mono">Monospace Tech</option>
                 <option value="display">Display Expanded</option>
-                <option value="geometric">Geometric Bold (Outfit)</option>
+                <option value="geometric">Geometric Bold (Inter)</option>
                 <option value="inter">Inter Neutral</option>
                 <option value="serif">Classic Serif</option>
               </select>
@@ -3296,14 +3296,14 @@
 
     
     const FONT_MAP = {
-      system: "'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+      system: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
       roboto: "'Roboto', -apple-system, BlinkMacSystemFont, sans-serif",
       mono: "'Roboto Mono', 'SF Mono', 'Cascadia Code', Consolas, 'Courier New', monospace",
-      outfit: "'Outfit', -apple-system, system-ui, sans-serif",
+      outfit: "'Inter', -apple-system, system-ui, sans-serif",
       inter: "'Inter', -apple-system, system-ui, sans-serif",
       montserrat: "'Montserrat', 'Arial Black', sans-serif",
       display: '"Arial Black", Impact, sans-serif',
-      geometric: "'Outfit', 'Century Gothic', Futura, sans-serif",
+      geometric: "'Inter', 'Century Gothic', Futura, sans-serif",
       serif: "Georgia, 'Times New Roman', serif"
     };
 
@@ -3739,60 +3739,50 @@
       const badgeWrap = document.getElementById('rating-badge-container');
       if (!maskShape || !mainShape || !badgeWrap) return;
 
-      const parentMask = maskShape.parentNode;
-      const parentMain = mainShape.parentNode;
-
       badgeWrap.classList.remove('shape-squircle', 'shape-pill');
 
-      if (shape === 'circle') {
-        const newCircleMask = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        newCircleMask.id = 'badge-mask-shape';
-        newCircleMask.setAttribute('cx', '26');
-        newCircleMask.setAttribute('cy', '26');
-        newCircleMask.setAttribute('r', '24.5');
-        newCircleMask.setAttribute('fill', '#ffffff');
-        parentMask.replaceChild(newCircleMask, maskShape);
+      const radius = (shape === 'squircle') ? 16 : 24.5;
 
-        const newCircleMain = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        newCircleMain.id = 'badge-main-shape';
-        newCircleMain.setAttribute('cx', '26');
-        newCircleMain.setAttribute('cy', '26');
-        newCircleMain.setAttribute('r', '24.5');
-        newCircleMain.setAttribute('fill', 'var(--badge-fill)');
-        newCircleMain.setAttribute('stroke', 'var(--badge-stroke)');
-        newCircleMain.setAttribute('stroke-width', '1.5');
-        newCircleMain.setAttribute('mask', 'url(#badge-stencil-mask)');
-        parentMain.replaceChild(newCircleMain, mainShape);
+      // Keep rect elements to prevent SVG mask detachment & Chromium mask cache invalidation bugs
+      if (maskShape.tagName && maskShape.tagName.toLowerCase() !== 'rect') {
+        const newRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        newRect.id = 'badge-mask-shape';
+        newRect.setAttribute('x', '1.5');
+        newRect.setAttribute('y', '1.5');
+        newRect.setAttribute('width', '49');
+        newRect.setAttribute('height', '49');
+        newRect.setAttribute('rx', radius);
+        newRect.setAttribute('ry', radius);
+        newRect.setAttribute('fill', '#ffffff');
+        newRect.setAttribute('shape-rendering', 'geometricPrecision');
+        if (maskShape.parentNode) maskShape.parentNode.replaceChild(newRect, maskShape);
       } else {
-        const radius = shape === 'squircle' ? 16 : 24.5;
-        const newRectMask = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        newRectMask.id = 'badge-mask-shape';
-        newRectMask.setAttribute('x', '1.5');
-        newRectMask.setAttribute('y', '1.5');
-        newRectMask.setAttribute('width', '49');
-        newRectMask.setAttribute('height', '49');
-        newRectMask.setAttribute('rx', radius);
-        newRectMask.setAttribute('ry', radius);
-        newRectMask.setAttribute('fill', '#ffffff');
-        parentMask.replaceChild(newRectMask, maskShape);
-
-        const newRectMain = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        newRectMain.id = 'badge-main-shape';
-        newRectMain.setAttribute('x', '1.5');
-        newRectMain.setAttribute('y', '1.5');
-        newRectMain.setAttribute('width', '49');
-        newRectMain.setAttribute('height', '49');
-        newRectMain.setAttribute('rx', radius);
-        newRectMain.setAttribute('ry', radius);
-        newRectMain.setAttribute('fill', 'var(--badge-fill)');
-        newRectMain.setAttribute('stroke', 'var(--badge-stroke)');
-        newRectMain.setAttribute('stroke-width', '1.5');
-        newRectMain.setAttribute('mask', 'url(#badge-stencil-mask)');
-        parentMain.replaceChild(newRectMain, mainShape);
-
-        if (shape === 'squircle') badgeWrap.classList.add('shape-squircle');
-        if (shape === 'pill') badgeWrap.classList.add('shape-pill');
+        maskShape.setAttribute('rx', radius);
+        maskShape.setAttribute('ry', radius);
       }
+
+      if (mainShape.tagName && mainShape.tagName.toLowerCase() !== 'rect') {
+        const newRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        newRect.id = 'badge-main-shape';
+        newRect.setAttribute('x', '1.5');
+        newRect.setAttribute('y', '1.5');
+        newRect.setAttribute('width', '49');
+        newRect.setAttribute('height', '49');
+        newRect.setAttribute('rx', radius);
+        newRect.setAttribute('ry', radius);
+        newRect.setAttribute('fill', 'var(--badge-fill)');
+        newRect.setAttribute('stroke', 'var(--badge-stroke)');
+        newRect.setAttribute('stroke-width', '1.5');
+        newRect.setAttribute('mask', 'url(#badge-stencil-mask)');
+        newRect.setAttribute('shape-rendering', 'geometricPrecision');
+        if (mainShape.parentNode) mainShape.parentNode.replaceChild(newRect, mainShape);
+      } else {
+        mainShape.setAttribute('rx', radius);
+        mainShape.setAttribute('ry', radius);
+      }
+
+      if (shape === 'squircle') badgeWrap.classList.add('shape-squircle');
+      if (shape === 'pill') badgeWrap.classList.add('shape-pill');
 
       fitRatingStencilText();
       if (!skipRebuild) {
@@ -4700,29 +4690,7 @@
       if (style.textOffsetYPx !== undefined) root.style.setProperty('--cg-text-offset-y', style.textOffsetYPx + 'px');
       if (style.anchorPosition) setAnchorPosition(style.anchorPosition);
 
-      // Station Logo Bug Styling
-      if (style.logoShape) setLogoShape(style.logoShape);
-      if (style.logoSize !== undefined) root.style.setProperty('--cg-logo-size', style.logoSize + 'px');
-      const accCol = style.accentColor || style.accentMid;
-      if (accCol) {
-        root.style.setProperty('--cg-accent-color', accCol);
-        root.style.setProperty('--accent-color', accCol);
-      }
-      if (style.accentLineHeightPx !== undefined) root.style.setProperty('--cg-accent-line-height', style.accentLineHeightPx + 'px');
-
-      // Rating Badge Styling
-      const ratingShape = style.badgeShape || style.ratingShape;
-      if (ratingShape) setRatingShape(ratingShape, true);
-      const bSize = style.badgeSizePx ?? style.ratingSize;
-      if (bSize !== undefined) root.style.setProperty('--cg-badge-size', bSize + 'px');
-      const bFont = style.badgeFontSizePx ?? style.ratingFontSize;
-      if (bFont !== undefined) {
-        root.style.setProperty('--cg-badge-font-size', bFont + 'px');
-        if (stText) stText.setAttribute('font-size', bFont);
-        if (stOutline) stOutline.setAttribute('font-size', bFont);
-      }
-
-      // Synchronize control inputs
+      // Synchronize control inputs first so shape constructors and updates read the new values
       const setCtrl = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
       setCtrl('txt-logo-content', style.wordmark);
       setCtrl('txt-logo-subtitle', style.subtitle);
@@ -4739,6 +4707,20 @@
       setCtrl('sel-rating-cutout', style.ratingCutout);
       setCtrl('sld-rating-size', bSize);
       setCtrl('sld-rating-font-size', bFont);
+
+      // Station Logo Bug Styling
+      if (style.logoShape) setLogoShape(style.logoShape);
+      if (style.logoSize !== undefined) root.style.setProperty('--cg-logo-size', style.logoSize + 'px');
+
+      // Rating Badge Styling
+      const ratingShape = style.badgeShape || style.ratingShape;
+      if (ratingShape) setRatingShape(ratingShape, true);
+      if (bSize !== undefined) root.style.setProperty('--cg-badge-size', bSize + 'px');
+      if (bFont !== undefined) {
+        root.style.setProperty('--cg-badge-font-size', bFont + 'px');
+        if (stText) stText.setAttribute('font-size', bFont);
+        if (stOutline) stOutline.setAttribute('font-size', bFont);
+      }
 
       updateLogoFromControls();
       updateRatingFromControls();
@@ -5349,11 +5331,6 @@
       }
     };
 
-    let currentShowTag = 'none';
-    let currentMasterPresetId = 'default';
-    let currentLogoShape = 'squircle';
-    let currentRatingShape = 'squircle';
-
     let BAKED_DEFAULT_PRESET = null;
 
     // Broadcast standard master preset packages
@@ -5380,7 +5357,7 @@
         ratingSize: 48,
         ratingFontSize: 24,
         ratingFont: 'system',
-        fontFamily: "'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
         rating: '16',
         warnings: ['violence', 'drugs'],
         tp: false,

@@ -43,7 +43,7 @@ export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
     badgeShape: 'squircle',
     logoShape: 'squircle',
     stencilStyle: 'neumorphic',
-    fontFamily: 'Outfit, system-ui, -apple-system, sans-serif',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     topOffsetPx: 60,
     rightOffsetPx: 60,
     textOffsetYPx: 0,
@@ -197,7 +197,7 @@ export const useSettingsStore = defineStore('settings', {
             const rawFont = preset.fontFamily || preset.ratingFont;
             if (rawFont) {
                 updated.fontFamily = (!rawFont || rawFont.toLowerCase() === 'system' || rawFont.toLowerCase() === 'default')
-                    ? 'Outfit, system-ui, -apple-system, sans-serif'
+                    ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
                     : rawFont;
                 updated.ratingFont = updated.fontFamily;
             }

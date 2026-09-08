@@ -154,9 +154,6 @@ const deployTemplatesFromSettings = async () => {
             localState.value.cgExplanationTemplate = 'playout/advisory';
         }
 
-        // Auto-refresh Layer 32 so changes take effect immediately without restarting CasparCG
-        await getActivePlayoutService().reloadComplianceTemplate?.();
-
         try {
             const preset = await invoke<any>('get_studio_default_preset');
             if (preset) {
@@ -167,6 +164,9 @@ const deployTemplatesFromSettings = async () => {
                 };
             }
         } catch (_) {}
+
+        // Auto-refresh Layer 32 so changes take effect immediately with latest preset styling
+        await getActivePlayoutService().reloadComplianceTemplate?.();
 
         alert(`Broadcast CG Templates deployed successfully!\n\nTarget Directory:\n${res.template_dir}\n\nFiles Deployed:\n• ${res.deployed.join('\n• ')}\n\n(On-air graphics have been refreshed automatically without server restart)`);
     } catch (e: any) {
@@ -359,6 +359,17 @@ onUnmounted(() => {
 });
 
 const saveSettings = async () => {
+    try {
+        const latestPreset = await invoke<any>('get_studio_default_preset');
+        if (latestPreset) {
+            settings.updateCgAdvisoryFromDeployedPreset(latestPreset);
+            localState.value.cgAdvisoryConfig = {
+                ...DEFAULT_CG_ADVISORY_CONFIG,
+                ...(settings.cgAdvisoryConfig || {}),
+            };
+        }
+    } catch (_) {}
+
     settings.updateSettings(localState.value);
     try {
         await invoke('save_studio_default_preset', { preset: localState.value.cgAdvisoryConfig });

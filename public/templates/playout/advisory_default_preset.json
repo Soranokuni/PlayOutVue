@@ -29,7 +29,7 @@
   "ratingFontSize": 24,
   "badgeFontSizePx": 24,
   "ratingFont": "system",
-  "fontFamily": "Outfit, system-ui, -apple-system, sans-serif",
+  "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
   "rating": "16",
   "warnings": [
     "violence",
