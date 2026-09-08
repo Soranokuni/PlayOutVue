@@ -387,16 +387,15 @@ pub async fn deploy_caspar_templates<R: Runtime>(
     let overwrite_files = overwrite.unwrap_or(false);
     let mut deployed = Vec::new();
     let mut skipped = Vec::new();
-    let mut advisory_content = TEMPLATE_ADVISORY.to_string();
+    let mut advisory_content = if let Ok(disk_content) = std::fs::read_to_string("public/templates/playout/advisory.html") {
+        disk_content
+    } else {
+        TEMPLATE_ADVISORY.to_string()
+    };
 
     // Check if a saved custom default preset exists, and bake it directly into advisory.html
     if let Some(preset_val) = crate::studio_server::load_saved_default_preset(&app) {
-        if let Ok(preset_json_str) = serde_json::to_string(&preset_val) {
-            let replacement = format!("let BAKED_DEFAULT_PRESET = {};", preset_json_str);
-            if advisory_content.contains("let BAKED_DEFAULT_PRESET = null;") {
-                advisory_content = advisory_content.replace("let BAKED_DEFAULT_PRESET = null;", &replacement);
-            }
-        }
+        advisory_content = crate::studio_server::bake_preset_into_template_content(&advisory_content, &preset_val);
     }
 
     let files: [(&str, &str, PathBuf); 4] = [
@@ -427,7 +426,8 @@ pub async fn deploy_caspar_templates<R: Runtime>(
         }
     }
 
-    let _ = app.emit("caspar://template-deployed", ());
+    let deployed_preset = crate::studio_server::load_saved_default_preset(&app);
+    let _ = app.emit("caspar://template-deployed", deployed_preset.as_ref());
 
     Ok(TemplateDeployResult {
         template_dir: target_dir.to_string_lossy().into_owned(),

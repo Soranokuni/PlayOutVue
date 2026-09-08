@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, Ordering};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -115,17 +115,24 @@ Content-Length: 0\r\n\r\n";
         }
         ("POST", "/api/deploy") => {
             // Deploy templates directly to CasparCG
+            let mut deployed_preset = None;
             if !body.trim().is_empty() {
                 if let Ok(preset) = serde_json::from_str::<serde_json::Value>(&body) {
                     let _ = save_default_preset_and_sync(&app, &preset).await;
+                    deployed_preset = Some(preset);
                 }
+            }
+            if deployed_preset.is_none() {
+                deployed_preset = load_saved_default_preset(&app);
             }
             match crate::caspar_config::deploy_caspar_templates(app.clone(), None, None, Some(true)).await {
                 Ok(deploy_res) => {
+                    let _ = app.emit("caspar://template-deployed", deployed_preset.as_ref());
                     send_json_response(&mut stream, 200, &serde_json::json!({
                         "success": true,
                         "template_dir": deploy_res.template_dir,
-                        "deployed": deploy_res.deployed
+                        "deployed": deploy_res.deployed,
+                        "preset": deployed_preset
                     })).await;
                 }
                 Err(err) => {
@@ -173,6 +180,37 @@ pub fn get_preset_storage_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("./advisory_default_preset.json"))
 }
 
+pub fn bake_preset_into_template_content(content: &str, preset: &serde_json::Value) -> String {
+    if let Ok(preset_json_str) = serde_json::to_string(preset) {
+        let replacement = format!("let BAKED_DEFAULT_PRESET = {};", preset_json_str);
+        if let Ok(re) = regex::Regex::new(r"(?s)let\s+BAKED_DEFAULT_PRESET\s*=\s*.*?;(?=\s*(?://|/\*|const\s+MASTER_STANDARD_PRESETS|let\s+|function\s+))") {
+            if re.is_match(content) {
+                return re.replace(content, replacement.as_str()).to_string();
+            }
+        }
+        if content.contains("let BAKED_DEFAULT_PRESET = null;") {
+            return content.replace("let BAKED_DEFAULT_PRESET = null;", &replacement);
+        }
+    }
+    content.to_string()
+}
+
+pub fn bake_preset_into_template_files(preset: &serde_json::Value) {
+    let targets = [
+        PathBuf::from("public/templates/playout/advisory.html"),
+        PathBuf::from("src/assets/templates/playout/advisory.html"),
+    ];
+
+    for target in &targets {
+        if target.exists() {
+            if let Ok(content) = std::fs::read_to_string(target) {
+                let baked = bake_preset_into_template_content(&content, preset);
+                let _ = std::fs::write(target, baked);
+            }
+        }
+    }
+}
+
 pub fn load_saved_default_preset<R: Runtime>(app: &AppHandle<R>) -> Option<serde_json::Value> {
     let path = get_preset_storage_path(app);
     if path.exists() {
@@ -187,6 +225,15 @@ pub fn load_saved_default_preset<R: Runtime>(app: &AppHandle<R>) -> Option<serde
     let alt = PathBuf::from("public/templates/playout/advisory_default_preset.json");
     if alt.exists() {
         if let Ok(content) = std::fs::read_to_string(&alt) {
+            if let Ok(val) = serde_json::from_str(&content) {
+                return Some(val);
+            }
+        }
+    }
+
+    let alt2 = PathBuf::from("src/assets/templates/playout/advisory_default_preset.json");
+    if alt2.exists() {
+        if let Ok(content) = std::fs::read_to_string(&alt2) {
             if let Ok(val) = serde_json::from_str(&content) {
                 return Some(val);
             }
@@ -223,8 +270,12 @@ pub async fn save_default_preset_and_sync<R: Runtime>(
     }
     let _ = std::fs::write(&assets_preset, &preset_json);
 
-    // 3. Automatically deploy updated templates to CasparCG
+    // 3. Bake preset directly into source template files so dev server and git stay in sync
+    bake_preset_into_template_files(preset);
+
+    // 4. Automatically deploy updated templates to CasparCG
     let _ = crate::caspar_config::deploy_caspar_templates(app.clone(), None, None, Some(true)).await;
+    let _ = app.emit("caspar://template-deployed", preset);
 
     Ok("Default broadcast preset saved and deployed to CasparCG templates".into())
 }

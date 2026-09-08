@@ -1,5 +1,13 @@
 # AGENTS.md — PlayOutVue
 
+## Active Skills & Workflow
+
+Coordinate all implementations through `.agents/skills/`:
+- **`broadcast-rules`**: Review before modifying rundown state, timecodes, operator interfaces, compliance graphics, or IPC channels.
+- **`verify-build`**: Dual-stack compilation, type-check, and test suite. Must pass with zero errors across both frontend and backend before completing a task.
+
+---
+
 ## Core Architectural Invariants
 
 ### 1. Playout & Transition Pipeline (CasparCG AMCP + OSC)
@@ -33,10 +41,28 @@
 - **Explanation Box**: Slides out with the advisory text and high-contrast SVG warning glyphs (violence, substances, sex, language, shield combo), remains visible for 30 seconds, and then smoothly animates out.
 - **Deterministic Refresh**: Always clear layer 32 before adding the new template payload (`CLEAR 1-32` followed by `CG 1-32 ADD 1 ...`).
 
+---
+
 ## Development & Verification Checklist
 
-Before committing any changes to the playout engine:
-1. `npm run type-check` (Must pass with 0 errors)
-2. `npm test -- --run` (Must pass all test suites)
-3. `cargo check --manifest-path src-tauri/Cargo.toml` (Must compile cleanly)
-4. `cargo test --test contract_boundary` in `d:\PlayoutTranscode` (Must verify cross-repo contract integrity)
+Before declaring any task complete or staging git commits, execute the full `.agents/skills/verify-build` pipeline:
+1. `npm test -- --run` (Must pass all 207+ frontend unit and integration tests)
+2. `npm run type-check` (Must pass with 0 TypeScript errors via `vue-tsc --build`)
+3. `npm run build` (Must produce clean production client bundle in `dist/`)
+4. `cargo check --manifest-path src-tauri/Cargo.toml` (Must compile cleanly with 0 errors)
+5. `cargo test --manifest-path src-tauri/Cargo.toml` (Must pass all 63 backend unit and integration tests)
+6. `cargo test --manifest-path ../PlayoutTranscode/Cargo.toml --test contract_boundary` (Must verify cross-repo contract integrity whenever touching asset, trim, or metadata schemas)
+
+---
+
+## Git Hygiene & Task Completion
+
+- **Zero-Tolerance Commit Gate**: Never commit or declare a task complete while `verify-build` has failing tests, build issues, or type errors.
+- **Atomic Staging**: Stage only modified files within explicit task scope. Never stage temporary debug artifacts, crash dumps, or local log files.
+- **Conventional Commits**: Format commit messages strictly with Conventional Commits syntax:
+  - `feat(...)`: New user-facing or broadcast capabilities.
+  - `fix(...)`: Bug fixes or timing gate corrections.
+  - `refactor(...)`: Code adjustments that do not alter public behavior.
+  - `test(...)`: Adding or updating test suites.
+  - `chore(...)`: Maintenance, dependencies, or agent skill updates.
+- **Origin Push**: Push to origin tracking branch upon task sign-off.

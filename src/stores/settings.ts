@@ -2,16 +2,25 @@ import { defineStore } from 'pinia';
 import type { PlayoutEngine } from '../services/playout';
 
 export interface CgAdvisoryTemplateConfig {
-    themeName?: 'frosted' | 'matte-slate' | 'vibrant-accent' | 'inset-embossed' | 'dark-obsidian' | 'soft-slate' | 'periwinkle' | 'high-contrast' | 'custom';
+    themeName?: string;
     customLogoSvgPath?: string;
     customRatingSvgPaths?: Record<string, string>;
-    badgeShape?: 'circle' | 'squircle' | 'pill';
-    stencilStyle?: 'neumorphic' | 'frosted' | 'contrast';
+    badgeShape?: string;
+    logoShape?: string;
+    logoBase?: string;
+    logoGrad?: string;
+    logoSize?: number;
+    logoRadius?: number;
+    logoExtrusion?: string;
+    logoSpecular?: string;
+    logoShadow?: string;
+    logoFont?: string;
+    stencilStyle?: 'neumorphic' | 'frosted' | 'contrast' | string;
     fontFamily: string;
     topOffsetPx: number;
     rightOffsetPx: number;
     textOffsetYPx?: number;
-    anchorPosition?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
+    anchorPosition?: string;
     badgeSizePx: number;
     badgeFontSizePx: number;
     badgeBorderRadiusPx: number;
@@ -21,15 +30,17 @@ export interface CgAdvisoryTemplateConfig {
     warningBodyFontSizePx: number;
     warningIconSizePx: number;
     accentLineHeightPx: number;
-    accentStyle?: 'gradient' | 'solid' | 'bevel' | 'none';
+    accentStyle?: 'gradient' | 'solid' | 'bevel' | 'none' | string;
     accentColor: string;
     ratingHoldSec: number;
     warningHoldSec: number;
+    [key: string]: any;
 }
 
 export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
     themeName: 'frosted',
-    badgeShape: 'circle',
+    badgeShape: 'squircle',
+    logoShape: 'squircle',
     stencilStyle: 'neumorphic',
     fontFamily: 'Outfit, system-ui, -apple-system, sans-serif',
     topOffsetPx: 60,
@@ -47,8 +58,8 @@ export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
     accentLineHeightPx: 2,
     accentStyle: 'gradient',
     accentColor: 'rgba(255, 255, 255, 0.95)',
-    ratingHoldSec: 4,
-    warningHoldSec: 26,
+    ratingHoldSec: 30,
+    warningHoldSec: 30,
     customLogoSvgPath: '',
     customRatingSvgPaths: {},
 };
@@ -140,26 +151,65 @@ export const useSettingsStore = defineStore('settings', {
 
         // Universal CG Advisory Template Customizer Configuration
         cgAdvisoryConfig: {
-            fontFamily: 'Outfit, system-ui, -apple-system, sans-serif',
-            topOffsetPx: 60,
-            rightOffsetPx: 60,
-            badgeSizePx: 54,
-            badgeFontSizePx: 27,
-            badgeBorderRadiusPx: 12,
-            explanationFontSizePx: 13,
-            warningLeadFontSizePx: 10.5,
-            warningBodyFontSizePx: 12,
-            warningIconSizePx: 28,
-            accentLineHeightPx: 2,
-            accentColor: 'rgba(255, 255, 255, 0.95)',
-            ratingHoldSec: 30,
-            warningHoldSec: 30,
+            ...DEFAULT_CG_ADVISORY_CONFIG
         } as CgAdvisoryTemplateConfig,
     }),
 
     actions: {
         updateSettings(payload: Partial<typeof this.$state>) {
             Object.assign(this.$state, payload);
+        },
+        updateCgAdvisoryFromDeployedPreset(preset: Record<string, any>) {
+            if (!preset || typeof preset !== 'object') return;
+            const current = this.cgAdvisoryConfig || {} as CgAdvisoryTemplateConfig;
+            
+            const updated: CgAdvisoryTemplateConfig = {
+                ...current,
+            };
+
+            if (preset.theme || preset.themeName) {
+                updated.themeName = preset.theme || preset.themeName;
+            }
+            if (preset.logoShape) updated.logoShape = preset.logoShape;
+            if (preset.logoBase) updated.logoBase = preset.logoBase;
+            if (preset.logoGrad) updated.logoGrad = preset.logoGrad;
+            if (preset.logoSize !== undefined) updated.logoSize = Number(preset.logoSize);
+            if (preset.logoRadius !== undefined) updated.logoRadius = Number(preset.logoRadius);
+            if (preset.logoExtrusion) updated.logoExtrusion = preset.logoExtrusion;
+            if (preset.logoSpecular) updated.logoSpecular = preset.logoSpecular;
+            if (preset.logoShadow) updated.logoShadow = preset.logoShadow;
+            if (preset.logoFont) updated.logoFont = preset.logoFont;
+
+            if (preset.ratingShape || preset.badgeShape) {
+                updated.badgeShape = preset.ratingShape || preset.badgeShape;
+            }
+            if (preset.ratingSize !== undefined || preset.badgeSizePx !== undefined) {
+                updated.badgeSizePx = Number(preset.ratingSize ?? preset.badgeSizePx);
+            }
+            if (preset.ratingFontSize !== undefined || preset.badgeFontSizePx !== undefined) {
+                updated.badgeFontSizePx = Number(preset.ratingFontSize ?? preset.badgeFontSizePx);
+            }
+            if (preset.fontFamily) updated.fontFamily = preset.fontFamily;
+            if (preset.topOffsetPx !== undefined) updated.topOffsetPx = Number(preset.topOffsetPx);
+            if (preset.rightOffsetPx !== undefined) updated.rightOffsetPx = Number(preset.rightOffsetPx);
+            if (preset.textOffsetYPx !== undefined) updated.textOffsetYPx = Number(preset.textOffsetYPx);
+            if (preset.anchorPosition || preset.anchor) {
+                updated.anchorPosition = preset.anchorPosition || preset.anchor;
+            }
+            if (preset.hold_time !== undefined || preset.ratingHoldSec !== undefined) {
+                updated.ratingHoldSec = Number(preset.hold_time ?? preset.ratingHoldSec);
+            }
+            if (preset.warning_hold_time !== undefined || preset.warningHoldSec !== undefined) {
+                updated.warningHoldSec = Number(preset.warning_hold_time ?? preset.warningHoldSec);
+            }
+            if (preset.accentColor || preset.accentMid) {
+                updated.accentColor = preset.accentColor || preset.accentMid;
+            }
+            if (preset.accentLineHeightPx !== undefined) {
+                updated.accentLineHeightPx = Number(preset.accentLineHeightPx);
+            }
+
+            this.cgAdvisoryConfig = updated;
         }
     },
 
