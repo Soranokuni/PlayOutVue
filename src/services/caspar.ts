@@ -985,11 +985,11 @@ const ensureFeedbackListener = async () => {
         }
 
         if (!templateDeployedUnlisten) {
-            templateDeployedUnlisten = await listen<any>('caspar://template-deployed', async (event) => {
-                console.info('[CasparCG] Template deployment detected, invalidating Layer 32 cache...', event?.payload);
-                isAdvisoryTemplateLoaded = false;
+            let debounceTimer: any = null;
+            templateDeployedUnlisten = await listen<any>('caspar://template-deployed', (event) => {
+                console.info('[CasparCG] Template deployment detected, synchronizing preset payload...', event?.payload);
 
-                // 1. Synchronize Pinia settings store with deployed preset payload if present
+                // 1. Synchronize Pinia settings store immediately
                 if (event?.payload && typeof event.payload === 'object') {
                     try {
                         const settingsStore = useSettingsStore();
@@ -999,25 +999,47 @@ const ensureFeedbackListener = async () => {
                     }
                 }
 
-                // 2. Defensively clear Layer 32 and re-mount on-air with updated settings even if idle
-                if (isCasparConnected.value) {
-                    await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
-                    if (lastAppliedComplianceItem && isCasparPlaying.value) {
-                        console.info('[CasparCG] Auto-refreshing on-air Layer 32 with newly deployed template (playing)...');
-                        await casparPlayoutService.applyComplianceForItem?.(lastAppliedComplianceItem);
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(async () => {
+                    debounceTimer = null;
+                    if (!isCasparConnected.value) return;
+
+                    // 2. Refresh on-air Layer 32:
+                    // If template is already running, prefer in-place update (via CG UPDATE)
+                    // so CasparCG updates shapes/fonts dynamically without destroying the CEF instance or blinking!
+                    if (isAdvisoryTemplateLoaded) {
+                        const itemToUpdate = (lastAppliedComplianceItem && isCasparPlaying.value)
+                            ? lastAppliedComplianceItem
+                            : {
+                                id: 'idle_station_logo',
+                                title: 'Station ID',
+                                path: '',
+                                duration: 0,
+                                complianceRating: 'none',
+                                complianceText: '__LOGO_ONLY__',
+                                complianceDescriptors: [],
+                            } as any;
+                        console.info('[CasparCG] Live in-place update of on-air Layer 32 template with new preset styling...');
+                        await casparPlayoutService.applyComplianceForItem?.(itemToUpdate);
                     } else {
-                        console.info('[CasparCG] Auto-mounting on-air Layer 32 station logo bug (idle/paused)...');
-                        await casparPlayoutService.applyComplianceForItem?.({
-                            id: 'idle_station_logo',
-                            title: 'Station ID',
-                            path: '',
-                            duration: 0,
-                            complianceRating: 'none',
-                            complianceText: '__LOGO_ONLY__',
-                            complianceDescriptors: [],
-                        } as any);
+                        // First run / unloaded: clear, wait 100ms, and add
+                        isAdvisoryTemplateLoaded = false;
+                        await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
+                        await new Promise(r => setTimeout(r, 100));
+                        const itemToAdd = (lastAppliedComplianceItem && isCasparPlaying.value)
+                            ? lastAppliedComplianceItem
+                            : {
+                                id: 'idle_station_logo',
+                                title: 'Station ID',
+                                path: '',
+                                duration: 0,
+                                complianceRating: 'none',
+                                complianceText: '__LOGO_ONLY__',
+                                complianceDescriptors: [],
+                            } as any;
+                        await casparPlayoutService.applyComplianceForItem?.(itemToAdd);
                     }
-                }
+                }, 120);
             });
         }
     })().catch((error) => {
@@ -2436,10 +2458,22 @@ export const casparPlayoutService: PlayoutService = {
 
     /// Forces a refresh of Layer 32 (e.g. after template deployment)
     async reloadComplianceTemplate() {
+        if (!isCasparConnected.value) return;
         isAdvisoryTemplateLoaded = false;
-        if (lastAppliedComplianceItem && isCasparPlaying.value) {
-            await casparPlayoutService.applyComplianceForItem?.(lastAppliedComplianceItem);
-        }
+        await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
+        await new Promise(r => setTimeout(r, 100));
+        const item = (lastAppliedComplianceItem && isCasparPlaying.value)
+            ? lastAppliedComplianceItem
+            : {
+                id: 'idle_station_logo',
+                title: 'Station ID',
+                path: '',
+                duration: 0,
+                complianceRating: 'none',
+                complianceText: '__LOGO_ONLY__',
+                complianceDescriptors: [],
+            } as any;
+        await casparPlayoutService.applyComplianceForItem?.(item);
     },
 
     /// Clears the on-demand crawl layer (33). (plan §B / §3.2)

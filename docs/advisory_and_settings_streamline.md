@@ -61,9 +61,20 @@ This document details the architectural fixes and UI/UX consolidation for the **
   - Features the identical unified action center alongside CG HTML5 Template Identifiers (`playout/advisory` for Layer 32, `playout/crawl` for Layer 33).
   - **Eliminated Obsolete Mini-Editor**: Completely removed the mock screen canvas, safe-area overlay boxes, coordinate dragging scripts (`onDragStart`, `onDragMove`, `onDragEnd`), preset position buttons (`applyPositionPreset`, `resetAllLayersToStandard`), and ~180 lines of unused CSS.
 
-### D. Automated Parity & Cross-Repo Protection
-- `src/lib/__tests__/templatesParity.test.ts` enforces 100% byte-for-byte identity between `public/templates/playout/advisory.html` and `src/assets/templates/playout/advisory.html`.
-- `tests/contract_boundary.rs` in `PlayoutTranscode` ensures no regressions to upstream/downstream hydration contracts.
+### E. Studio Bridge PNA & Same-Origin HTTP Serving
+- **Private Network Access (PNA) Support**: Added `Access-Control-Allow-Private-Network: true` to both `OPTIONS` preflight and standard HTTP responses in `src-tauri/src/studio_server.rs`, allowing browsers accessing via `file:///` to communicate with the local bridge on `127.0.0.1:6258/6259`.
+- **Content-Type text/plain**: Updated `postToBridge()` in `advisory.html` to send `Content-Type: text/plain` payload strings parsed cleanly by `serde_json`, avoiding browser CORS preflight restrictions on simple POST requests.
+- **Same-Origin Studio HTTP Serving**: Enhanced `src-tauri/src/studio_server.rs` to natively serve `GET /studio`, `/playout/advisory.html`, `/vendor/gsap.min.js`, and sidecar JSON files. `open_cg_studio_in_browser` opens `http://127.0.0.1:{port}/studio` directly, granting the editor 100% same-origin HTTP access and eliminating all browser file-origin sandbox restrictions.
+
+### F. Playout In-Place Live Updates & CEF Stability
+- **Layer 32 In-Place CG Updates**: In `src/services/caspar.ts`, when `caspar://template-deployed` is received and Layer 32 is already loaded, updates are issued via `caspar_cg_update` (`window.update(cgData)`) rather than destructive `CLEAR` + `CG ADD` cycles. This avoids tearing down CEF instances and DirectX shared textures, preventing texture deadlocks and layer freeze-ups.
+- **Event Debounce**: Added 120ms debounce on template deployment events to prevent concurrent AMCP commands when backend operations synchronize settings.
+- **Synchronous Frame 0 On-Air Execution**: In `advisory.html`, `DOMContentLoaded` differentiates between `studio` and `on-air` modes. In `on-air` mode, the baked preset is applied synchronously at frame 0 and asynchronous HTTP bridge polling (`hydrateDefaultPreset`) is bypassed, ensuring CasparCG runtime updates are never overwritten by delayed background network fetches.
+
+### G. Greek Broadcast Font Family Resolution
+- **Elimination of Invalid CSS `"system"`**: CSS does not recognize bare `"system"` as a generic font family name, causing Chromium/CEF to fall back to Times New Roman serif fonts.
+- **`resolveFontFamily()`**: Implemented canonical font resolution across `advisory.html` and `src/stores/settings.ts`, mapping `"system"`, `"default"`, or empty selections to `'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`.
+- **Sidecar Preset Standardization**: Updated `advisory_default_preset.json` to define canonical sans font stacks instead of `"system"`.
 
 ---
 
@@ -71,7 +82,7 @@ This document details the architectural fixes and UI/UX consolidation for the **
 
 - **Frontend Unit & Integration Tests**:
   - Command: `npm test -- --run`
-  - Result: **212 passed across 30 test files** (100% passing).
+  - Result: **212 passed across 30 test files** (100% passing, including `templatesParity.test.ts`).
 - **TypeScript Strict Compilation**:
   - Command: `npm run type-check` (`vue-tsc --build`)
   - Result: **0 errors**.
@@ -82,7 +93,7 @@ This document details the architectural fixes and UI/UX consolidation for the **
   - Command: `cargo check --manifest-path src-tauri/Cargo.toml`
   - Result: Compiled cleanly with **0 errors**.
   - Command: `cargo test --manifest-path src-tauri/Cargo.toml`
-  - Result: **66 passed; 0 failed** (including new template baker tests with semicolon tolerance).
+  - Result: **66 passed; 0 failed** (including template baking and HTTP serving tests).
 - **Cross-Repo Boundary Contract**:
   - Command: `cargo test --manifest-path ../PlayoutTranscode/Cargo.toml --test contract_boundary`
   - Result: **10 passed; 0 failed**.

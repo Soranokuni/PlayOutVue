@@ -322,10 +322,10 @@ pub struct TemplateDeployResult {
     pub skipped: Vec<String>,
 }
 
-const TEMPLATE_ADVISORY: &str = include_str!("../../public/templates/playout/advisory.html");
-const TEMPLATE_CRAWL: &str = include_str!("../../public/templates/playout/crawl.html");
-const TEMPLATE_GSAP: &str = include_str!("../../public/templates/playout/vendor/gsap.min.js");
-const TEMPLATE_ESR_PRESETS: &str = include_str!("../../public/templates/playout/esr_presets.json");
+pub const TEMPLATE_ADVISORY: &str = include_str!("../../public/templates/playout/advisory.html");
+pub const TEMPLATE_CRAWL: &str = include_str!("../../public/templates/playout/crawl.html");
+pub const TEMPLATE_GSAP: &str = include_str!("../../public/templates/playout/vendor/gsap.min.js");
+pub const TEMPLATE_ESR_PRESETS: &str = include_str!("../../public/templates/playout/esr_presets.json");
 
 fn resolve_caspar_template_dir<R: Runtime>(app: Option<&AppHandle<R>>, explicit: Option<&str>) -> PathBuf {
     if let Some(p) = explicit {
@@ -474,20 +474,25 @@ pub async fn open_cg_studio_in_browser<R: Runtime>(
         fallback
     };
 
-    let absolute_path = std::fs::canonicalize(&resolved_file).unwrap_or(resolved_file);
-    let path_str = absolute_path.to_string_lossy().replace('\\', "/");
-    let clean_path = path_str.trim_start_matches("//?/");
-    let formatted_url = format!("file:///{}?studio=1#studio=1", clean_path);
+    let port = crate::studio_server::STUDIO_SERVER_PORT.load(std::sync::atomic::Ordering::Relaxed);
+    let target_url = if port > 0 {
+        format!("http://127.0.0.1:{}/studio", port)
+    } else {
+        let absolute_path = std::fs::canonicalize(&resolved_file).unwrap_or(resolved_file);
+        let path_str = absolute_path.to_string_lossy().replace('\\', "/");
+        let clean_path = path_str.trim_start_matches("//?/");
+        format!("file:///{}?studio=1#studio=1", clean_path)
+    };
 
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
-            .args(["/c", "start", "", &formatted_url])
+            .args(["/c", "start", "", &target_url])
             .spawn()
             .map_err(|e| format!("Failed to open browser: {}", e))?;
     }
 
-    Ok(formatted_url)
+    Ok(target_url)
 }
 
 #[tauri::command]

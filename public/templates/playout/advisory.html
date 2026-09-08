@@ -100,7 +100,7 @@
       --cg-accent-line-height: 2px;
       --cg-line-gap: 8px;
       --cg-text-offset-y: 0px;
-      --cg-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --cg-font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
       /* Theme Variables (Default: SOTA Frosted Glass & Neumorphic Hybrid) */
       --badge-bg: rgba(255, 255, 255, 0.32);
@@ -2968,6 +2968,12 @@
   </div>
 
   <script>
+    // Hoisted globals to ensure zero TDZ (Temporal Dead Zone) across on-air update calls
+    var currentLogoShape = 'squircle';
+    var currentRatingShape = 'squircle';
+    var currentShowTag = 'none';
+    var currentMasterPresetId = 'default';
+
     // =========================================================================
     // SOTA BROADCAST NEUMORPHIC WARNING GLYPHS (32x32)
     // Conforms strictly to Rec. 709 legal luma (16 to 235) and -135° light source
@@ -3290,7 +3296,7 @@
 
     
     const FONT_MAP = {
-      system: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      system: "'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
       roboto: "'Roboto', -apple-system, BlinkMacSystemFont, sans-serif",
       mono: "'Roboto Mono', 'SF Mono', 'Cascadia Code', Consolas, 'Courier New', monospace",
       outfit: "'Outfit', -apple-system, system-ui, sans-serif",
@@ -3301,8 +3307,22 @@
       serif: "Georgia, 'Times New Roman', serif"
     };
 
+    function resolveFontFamily(fontKeyOrCss) {
+      if (!fontKeyOrCss) return FONT_MAP.system;
+      const str = String(fontKeyOrCss).trim();
+      if (!str || str.toLowerCase() === 'system' || str.toLowerCase() === 'default') {
+        return FONT_MAP.system;
+      }
+      const lower = str.toLowerCase();
+      if (FONT_MAP[lower]) return FONT_MAP[lower];
+      if (str.includes(',') || str.includes("'") || str.includes('"')) {
+        return str;
+      }
+      return `${str}, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+    }
+
     function updateBroadcastFont(fontKey) {
-      const fontCss = FONT_MAP[fontKey] || FONT_MAP.system;
+      const fontCss = resolveFontFamily(fontKey);
       document.documentElement.style.setProperty('--cg-font-family', fontCss);
       
       const stText = document.getElementById('stencil-text');
@@ -3316,6 +3336,10 @@
       const rSel = document.getElementById('sel-rating-font');
       if (rSel && Array.from(rSel.options).some(o => o.value === fontKey)) {
         rSel.value = fontKey;
+      }
+      const bSel = document.getElementById('sel-broadcast-font');
+      if (bSel && Array.from(bSel.options).some(o => o.value === fontKey)) {
+        bSel.value = fontKey;
       }
 
       buildTimeline();
@@ -3783,7 +3807,8 @@
       const tint = document.getElementById('col-rating-tint')?.value || '#ffffff';
       const stroke = document.getElementById('col-rating-stroke')?.value || '#ffffff';
       const fontKey = document.getElementById('sel-rating-font')?.value || 'system';
-      const fontFamily = FONT_MAP[fontKey] || fontKey;
+      const fontFamily = resolveFontFamily(fontKey);
+      document.documentElement.style.setProperty('--cg-font-family', fontFamily);
       const fontSize = document.getElementById('sld-rating-font-size')?.value || 27;
       const textX = parseFloat(document.getElementById('sld-rating-text-x')?.value || 0);
       const textY = parseFloat(document.getElementById('sld-rating-text-y')?.value || 0);
@@ -4651,86 +4676,69 @@
       if (!style) return;
       const root = document.documentElement;
       const themeKey = style.themeName || style.theme;
-      if (themeKey && THEME_PRESETS[themeKey]) {
-        applyThemePreset(themeKey);
+      if (themeKey && THEME_PRESETS[themeKey]) applyThemePreset(themeKey);
+
+      const resolvedFont = resolveFontFamily(style.fontFamily || style.ratingFont || 'system');
+      root.style.setProperty('--cg-font-family', resolvedFont);
+      const stText = document.getElementById('stencil-text');
+      const stOutline = document.getElementById('stencil-outline-text');
+      if (stText) stText.setAttribute('font-family', resolvedFont);
+      if (stOutline) stOutline.setAttribute('font-family', resolvedFont);
+      const subLabel = document.getElementById('station-subtitle-label');
+      if (subLabel) subLabel.style.fontFamily = resolvedFont;
+
+      const rawF = style.ratingFont || style.fontFamily;
+      if (rawF) {
+        const rSel = document.getElementById('sel-rating-font');
+        if (rSel && Array.from(rSel.options).some(o => o.value === rawF)) rSel.value = rawF;
+        const bSel = document.getElementById('sel-broadcast-font');
+        if (bSel && Array.from(bSel.options).some(o => o.value === rawF)) bSel.value = rawF;
       }
-      if (style.fontFamily) root.style.setProperty('--cg-font-family', style.fontFamily);
+
       if (style.topOffsetPx !== undefined) root.style.setProperty('--cg-top', style.topOffsetPx + 'px');
       if (style.rightOffsetPx !== undefined) root.style.setProperty('--cg-right', style.rightOffsetPx + 'px');
       if (style.textOffsetYPx !== undefined) root.style.setProperty('--cg-text-offset-y', style.textOffsetYPx + 'px');
       if (style.anchorPosition) setAnchorPosition(style.anchorPosition);
 
       // Station Logo Bug Styling
-      if (style.logoShape) {
-        setLogoShape(style.logoShape);
-      }
-      if (style.logoSize !== undefined) {
-        root.style.setProperty('--cg-logo-size', style.logoSize + 'px');
-        const sld = document.getElementById('sld-logo-size');
-        if (sld) sld.value = style.logoSize;
-      }
-      if (style.logoRadius !== undefined) {
-        const sld = document.getElementById('sld-logo-radius');
-        if (sld) sld.value = style.logoRadius;
-      }
-      if (style.logoExtrusion) {
-        const sel = document.getElementById('sel-logo-extrusion');
-        if (sel) sel.value = style.logoExtrusion;
-      }
-      if (style.logoBase) {
-        const col = document.getElementById('col-logo-base');
-        if (col) col.value = style.logoBase;
-      }
-      if (style.logoGrad) {
-        const col = document.getElementById('col-logo-grad');
-        if (col) col.value = style.logoGrad;
-      }
-      if (style.logoSpecular) {
-        const col = document.getElementById('col-logo-specular');
-        if (col) col.value = style.logoSpecular;
-      }
-      if (style.logoShadow) {
-        const col = document.getElementById('col-logo-shadow');
-        if (col) col.value = style.logoShadow;
-      }
-      if (style.logoFont) {
-        const sel = document.getElementById('sel-logo-font');
-        if (sel) sel.value = style.logoFont;
-      }
-      if (style.accentColor || style.accentMid) {
-        const accCol = style.accentColor || style.accentMid;
+      if (style.logoShape) setLogoShape(style.logoShape);
+      if (style.logoSize !== undefined) root.style.setProperty('--cg-logo-size', style.logoSize + 'px');
+      const accCol = style.accentColor || style.accentMid;
+      if (accCol) {
         root.style.setProperty('--cg-accent-color', accCol);
         root.style.setProperty('--accent-color', accCol);
-        const col = document.getElementById('col-accent-mid');
-        if (col) col.value = accCol;
       }
-      if (style.accentLineHeightPx !== undefined) {
-        root.style.setProperty('--cg-accent-line-height', style.accentLineHeightPx + 'px');
-        const sld = document.getElementById('sld-accent-line-height');
-        if (sld) sld.value = style.accentLineHeightPx;
-      }
+      if (style.accentLineHeightPx !== undefined) root.style.setProperty('--cg-accent-line-height', style.accentLineHeightPx + 'px');
 
       // Rating Badge Styling
       const ratingShape = style.badgeShape || style.ratingShape;
-      if (ratingShape) {
-        setRatingShape(ratingShape, true);
-      }
-      if (style.badgeSizePx !== undefined || style.ratingSize !== undefined) {
-        const bSize = style.badgeSizePx ?? style.ratingSize;
-        root.style.setProperty('--cg-badge-size', bSize + 'px');
-        const sld = document.getElementById('sld-rating-size');
-        if (sld) sld.value = bSize;
-      }
-      if (style.badgeFontSizePx !== undefined || style.ratingFontSize !== undefined) {
-        const bFont = style.badgeFontSizePx ?? style.ratingFontSize;
+      if (ratingShape) setRatingShape(ratingShape, true);
+      const bSize = style.badgeSizePx ?? style.ratingSize;
+      if (bSize !== undefined) root.style.setProperty('--cg-badge-size', bSize + 'px');
+      const bFont = style.badgeFontSizePx ?? style.ratingFontSize;
+      if (bFont !== undefined) {
         root.style.setProperty('--cg-badge-font-size', bFont + 'px');
-        const stText = document.getElementById('stencil-text');
-        const stOutline = document.getElementById('stencil-outline-text');
         if (stText) stText.setAttribute('font-size', bFont);
         if (stOutline) stOutline.setAttribute('font-size', bFont);
-        const sld = document.getElementById('sld-rating-font-size');
-        if (sld) sld.value = bFont;
       }
+
+      // Synchronize control inputs
+      const setCtrl = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
+      setCtrl('txt-logo-content', style.wordmark);
+      setCtrl('txt-logo-subtitle', style.subtitle);
+      setCtrl('sld-logo-size', style.logoSize);
+      setCtrl('sld-logo-radius', style.logoRadius);
+      setCtrl('sel-logo-extrusion', style.logoExtrusion);
+      setCtrl('col-logo-base', style.logoBase);
+      setCtrl('col-logo-grad', style.logoGrad);
+      setCtrl('col-logo-specular', style.logoSpecular);
+      setCtrl('col-logo-shadow', style.logoShadow);
+      setCtrl('sel-logo-font', style.logoFont);
+      setCtrl('col-accent-mid', accCol);
+      setCtrl('sld-accent-line-height', style.accentLineHeightPx);
+      setCtrl('sel-rating-cutout', style.ratingCutout);
+      setCtrl('sld-rating-size', bSize);
+      setCtrl('sld-rating-font-size', bFont);
 
       updateLogoFromControls();
       updateRatingFromControls();
@@ -5188,6 +5196,20 @@
         document.body.classList.remove('studio-mode');
       }
 
+      if (mode === 'on-air') {
+        // Frame 0 initialization: synchronously apply baked default preset or master standard preset
+        if (typeof BAKED_DEFAULT_PRESET === 'object' && BAKED_DEFAULT_PRESET !== null) {
+          applyPresetPackage(BAKED_DEFAULT_PRESET);
+        } else if (typeof MASTER_STANDARD_PRESETS === 'object' && MASTER_STANDARD_PRESETS['default']) {
+          applyPresetPackage(MASTER_STANDARD_PRESETS['default']);
+        }
+        updateLogoFromControls();
+        updateRatingFromControls();
+        resizeCanvas();
+        buildTimeline();
+        return;
+      }
+
       initCanvasDraggables();
 
       // Master Presets: Load default or operator active preset
@@ -5211,7 +5233,7 @@
         try {
           const res = await fetch(`http://127.0.0.1:${port}${endpoint}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain' },
             body: typeof body === 'string' ? body : JSON.stringify(body)
           });
           if (res.ok) return await res.json();
@@ -5358,6 +5380,7 @@
         ratingSize: 48,
         ratingFontSize: 24,
         ratingFont: 'system',
+        fontFamily: "'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
         rating: '16',
         warnings: ['violence', 'drugs'],
         tp: false,
@@ -5684,6 +5707,15 @@
       if (rShape) setRatingShape(rShape, true);
       if (p.rating) setStudioRating(p.rating);
 
+      if (p.fontFamily || p.ratingFont) {
+        const fontVal = p.ratingFont || p.fontFamily;
+        const selRatingFont = document.getElementById('sel-rating-font');
+        if (selRatingFont) selRatingFont.value = fontVal;
+        const selBroadcastFont = document.getElementById('sel-broadcast-font');
+        if (selBroadcastFont) selBroadcastFont.value = fontVal;
+        updateBroadcastFont(fontVal);
+      }
+
       // 6. Theme & Motion
       if (p.theme) applyThemePreset(p.theme);
       if (p.hold_time) currentConfig.hold_time = p.hold_time;
@@ -5749,7 +5781,7 @@
           return;
         } catch (_) {}
       }
-      showStudioToast('✓ Saved as default in local storage!');
+      showStudioToast('⚠ Saved to browser storage only (Studio bridge offline at port 6258)');
     }
 
     async function saveCurrentActivePreset() {
@@ -5797,7 +5829,7 @@
           return;
         } catch (_) {}
       }
-      showStudioToast(`✓ Saved "${pkg.name || 'Default'}" to local storage!`);
+      showStudioToast(`⚠ Saved "${pkg.name || 'Default'}" to browser storage only (Studio bridge offline at port 6258)`);
     }
 
     const deployFromStudio = saveCurrentActivePreset;
@@ -5828,6 +5860,8 @@
       const presetId = name ? ('preset_' + Date.now()) : (isUserPreset ? currentMasterPresetId : (currentMasterPresetId || 'default'));
       const presetName = name || (isUserPreset ? (getUserPresetsList().find(p => p.id === currentMasterPresetId)?.name || 'Custom Preset') : (MASTER_STANDARD_PRESETS[currentMasterPresetId]?.name || 'Sitia HD Standard (Default)'));
 
+      const rawRatingFont = document.getElementById('sel-rating-font')?.value || document.getElementById('sel-broadcast-font')?.value || 'system';
+
       return {
         id: presetId,
         name: presetName,
@@ -5851,8 +5885,8 @@
         badgeSizePx: parseInt(document.getElementById('sld-rating-size')?.value) || 48,
         ratingFontSize: parseInt(document.getElementById('sld-rating-font-size')?.value) || 24,
         badgeFontSizePx: parseInt(document.getElementById('sld-rating-font-size')?.value) || 24,
-        ratingFont: document.getElementById('sel-rating-font')?.value || 'system',
-        fontFamily: document.getElementById('sel-rating-font')?.value || 'system',
+        ratingFont: rawRatingFont,
+        fontFamily: resolveFontFamily(rawRatingFont),
         rating: currentConfig.rating || '16',
         warnings: currentConfig.warnings || [],
         tp: !!currentConfig.tp,

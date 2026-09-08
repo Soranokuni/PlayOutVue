@@ -6,6 +6,7 @@ export interface CgAdvisoryTemplateConfig {
     customLogoSvgPath?: string;
     customRatingSvgPaths?: Record<string, string>;
     badgeShape?: string;
+    ratingShape?: string;
     logoShape?: string;
     logoBase?: string;
     logoGrad?: string;
@@ -180,16 +181,30 @@ export const useSettingsStore = defineStore('settings', {
             if (preset.logoShadow) updated.logoShadow = preset.logoShadow;
             if (preset.logoFont) updated.logoFont = preset.logoFont;
 
-            if (preset.ratingShape || preset.badgeShape) {
-                updated.badgeShape = preset.ratingShape || preset.badgeShape;
+            const rShape = preset.ratingShape || preset.badgeShape;
+            if (rShape) {
+                updated.badgeShape = rShape;
+                updated.ratingShape = rShape;
             }
             if (preset.ratingSize !== undefined || preset.badgeSizePx !== undefined) {
                 updated.badgeSizePx = Number(preset.ratingSize ?? preset.badgeSizePx);
+                updated.ratingSize = updated.badgeSizePx;
             }
             if (preset.ratingFontSize !== undefined || preset.badgeFontSizePx !== undefined) {
                 updated.badgeFontSizePx = Number(preset.ratingFontSize ?? preset.badgeFontSizePx);
+                updated.ratingFontSize = updated.badgeFontSizePx;
             }
-            if (preset.fontFamily) updated.fontFamily = preset.fontFamily;
+            const rawFont = preset.fontFamily || preset.ratingFont;
+            if (rawFont) {
+                updated.fontFamily = (!rawFont || rawFont.toLowerCase() === 'system' || rawFont.toLowerCase() === 'default')
+                    ? 'Outfit, system-ui, -apple-system, sans-serif'
+                    : rawFont;
+                updated.ratingFont = updated.fontFamily;
+            }
+            if (preset.ratingCutout) updated.ratingCutout = preset.ratingCutout;
+            if (preset.wordmark) updated.wordmark = preset.wordmark;
+            if (preset.subtitle !== undefined) updated.subtitle = preset.subtitle;
+            if (preset.showTag) updated.showTag = preset.showTag;
             if (preset.topOffsetPx !== undefined) updated.topOffsetPx = Number(preset.topOffsetPx);
             if (preset.rightOffsetPx !== undefined) updated.rightOffsetPx = Number(preset.rightOffsetPx);
             if (preset.textOffsetYPx !== undefined) updated.textOffsetYPx = Number(preset.textOffsetYPx);
