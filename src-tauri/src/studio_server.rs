@@ -170,6 +170,22 @@ Content-Length: {}\r\n\r\n",
     let _ = stream.write_all(&json_bytes).await;
 }
 
+pub fn resolve_all_workspace_targets(rel: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let p1 = PathBuf::from(rel);
+    candidates.push(p1);
+    let p2 = PathBuf::from("..").join(rel);
+    candidates.push(p2);
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join(rel));
+            candidates.push(parent.join("..").join(rel));
+            candidates.push(parent.join("..").join("..").join(rel));
+        }
+    }
+    candidates
+}
+
 pub fn get_preset_storage_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
     if let Ok(app_dir) = app.path().app_data_dir() {
         let _ = std::fs::create_dir_all(&app_dir);
@@ -183,6 +199,33 @@ pub fn get_preset_storage_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
 pub fn bake_preset_into_template_content(content: &str, preset: &serde_json::Value) -> String {
     if let Ok(preset_json_str) = serde_json::to_string(preset) {
         let replacement = format!("let BAKED_DEFAULT_PRESET = {};", preset_json_str);
+
+        // Robust statement search that handles semicolons inside JSON strings safely
+        if let Some(start_idx) = content.find("let BAKED_DEFAULT_PRESET =") {
+            let slice = &content[start_idx..];
+            let end_offset = if let Some(idx) = slice.find("const MASTER_STANDARD_PRESETS") {
+                idx
+            } else if let Some(idx) = slice.find("// Broadcast standard master preset packages") {
+                idx
+            } else if let Some(idx) = slice.find(";\r\n") {
+                idx + 1
+            } else if let Some(idx) = slice.find(";\n") {
+                idx + 1
+            } else {
+                0
+            };
+
+            if end_offset > 0 {
+                let mut out = String::with_capacity(content.len() + preset_json_str.len() + 32);
+                out.push_str(&content[..start_idx]);
+                out.push_str(&replacement);
+                out.push_str("\n\n    ");
+                out.push_str(slice[end_offset..].trim_start());
+                return out;
+            }
+        }
+
+        // Regex fallback
         if let Ok(re) = regex::Regex::new(r"(?s)let\s+BAKED_DEFAULT_PRESET\s*=\s*.*?;(?=\s*(?://|/\*|const\s+MASTER_STANDARD_PRESETS|let\s+|function\s+))") {
             if re.is_match(content) {
                 return re.replace(content, replacement.as_str()).to_string();
@@ -196,16 +239,18 @@ pub fn bake_preset_into_template_content(content: &str, preset: &serde_json::Val
 }
 
 pub fn bake_preset_into_template_files(preset: &serde_json::Value) {
-    let targets = [
-        PathBuf::from("public/templates/playout/advisory.html"),
-        PathBuf::from("src/assets/templates/playout/advisory.html"),
+    let rel_targets = [
+        "public/templates/playout/advisory.html",
+        "src/assets/templates/playout/advisory.html",
     ];
 
-    for target in &targets {
-        if target.exists() {
-            if let Ok(content) = std::fs::read_to_string(target) {
-                let baked = bake_preset_into_template_content(&content, preset);
-                let _ = std::fs::write(target, baked);
+    for rel in &rel_targets {
+        for candidate in resolve_all_workspace_targets(rel) {
+            if candidate.exists() && candidate.is_file() {
+                if let Ok(content) = std::fs::read_to_string(&candidate) {
+                    let baked = bake_preset_into_template_content(&content, preset);
+                    let _ = std::fs::write(&candidate, baked);
+                }
             }
         }
     }
@@ -221,21 +266,19 @@ pub fn load_saved_default_preset<R: Runtime>(app: &AppHandle<R>) -> Option<serde
         }
     }
 
-    // Check adjacent template folder
-    let alt = PathBuf::from("public/templates/playout/advisory_default_preset.json");
-    if alt.exists() {
-        if let Ok(content) = std::fs::read_to_string(&alt) {
-            if let Ok(val) = serde_json::from_str(&content) {
-                return Some(val);
-            }
-        }
-    }
+    let rel_targets = [
+        "public/templates/playout/advisory_default_preset.json",
+        "src/assets/templates/playout/advisory_default_preset.json",
+    ];
 
-    let alt2 = PathBuf::from("src/assets/templates/playout/advisory_default_preset.json");
-    if alt2.exists() {
-        if let Ok(content) = std::fs::read_to_string(&alt2) {
-            if let Ok(val) = serde_json::from_str(&content) {
-                return Some(val);
+    for rel in &rel_targets {
+        for candidate in resolve_all_workspace_targets(rel) {
+            if candidate.exists() && candidate.is_file() {
+                if let Ok(content) = std::fs::read_to_string(&candidate) {
+                    if let Ok(val) = serde_json::from_str(&content) {
+                        return Some(val);
+                    }
+                }
             }
         }
     }
@@ -257,18 +300,21 @@ pub async fn save_default_preset_and_sync<R: Runtime>(
     std::fs::write(&storage_path, &preset_json)
         .map_err(|e| format!("Failed to write preset storage: {}", e))?;
 
-    // 2. Also save to public & assets directories if available
-    let public_preset = PathBuf::from("public/templates/playout/advisory_default_preset.json");
-    if let Some(parent) = public_preset.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&public_preset, &preset_json);
+    // 2. Also save to public & assets directories if available across workspace paths
+    let rel_targets = [
+        "public/templates/playout/advisory_default_preset.json",
+        "src/assets/templates/playout/advisory_default_preset.json",
+    ];
 
-    let assets_preset = PathBuf::from("src/assets/templates/playout/advisory_default_preset.json");
-    if let Some(parent) = assets_preset.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    for rel in &rel_targets {
+        for candidate in resolve_all_workspace_targets(rel) {
+            if let Some(parent) = candidate.parent() {
+                if parent.exists() {
+                    let _ = std::fs::write(&candidate, &preset_json);
+                }
+            }
+        }
     }
-    let _ = std::fs::write(&assets_preset, &preset_json);
 
     // 3. Bake preset directly into source template files so dev server and git stay in sync
     bake_preset_into_template_files(preset);
@@ -294,4 +340,79 @@ pub async fn get_studio_default_preset<R: Runtime>(
 ) -> Result<Option<serde_json::Value>, String> {
     Ok(load_saved_default_preset(&app))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_bake_preset_into_template_content_initial() {
+        let sample = r#"
+    let currentLogoShape = 'squircle';
+    let currentRatingShape = 'squircle';
+
+    let BAKED_DEFAULT_PRESET = null;
+
+    // Broadcast standard master preset packages
+    const MASTER_STANDARD_PRESETS = {
+"#;
+        let preset = json!({
+            "id": "default",
+            "logoShape": "squircle",
+            "badgeShape": "squircle",
+            "fontFamily": "Outfit; -apple-system; sans-serif"
+        });
+
+        let baked = bake_preset_into_template_content(sample, &preset);
+        assert!(baked.contains("let BAKED_DEFAULT_PRESET = {\"badgeShape\":\"squircle\",\"fontFamily\":\"Outfit; -apple-system; sans-serif\",\"id\":\"default\",\"logoShape\":\"squircle\"};"));
+        assert!(baked.contains("const MASTER_STANDARD_PRESETS = {"));
+        assert!(!baked.contains("BAKED_DEFAULT_PRESET = null;"));
+    }
+
+    #[test]
+    fn test_bake_preset_into_template_content_overwrite_existing() {
+        let sample = r#"
+    let currentLogoShape = 'circle';
+    let currentRatingShape = 'circle';
+
+    let BAKED_DEFAULT_PRESET = {"id":"default","badgeShape":"circle","logoShape":"circle"};
+
+    // Broadcast standard master preset packages
+    const MASTER_STANDARD_PRESETS = {
+"#;
+        let preset = json!({
+            "id": "default",
+            "logoShape": "squircle",
+            "badgeShape": "squircle"
+        });
+
+        let baked = bake_preset_into_template_content(sample, &preset);
+        assert!(baked.contains("let BAKED_DEFAULT_PRESET = {\"badgeShape\":\"squircle\",\"id\":\"default\",\"logoShape\":\"squircle\"};"));
+        assert!(baked.contains("const MASTER_STANDARD_PRESETS = {"));
+        assert!(!baked.contains("\"badgeShape\":\"circle\""));
+    }
+
+    #[test]
+    fn test_bake_preset_into_template_content_tolerates_semicolons_in_json_values() {
+        let sample = r#"
+    let currentLogoShape = 'squircle';
+
+    let BAKED_DEFAULT_PRESET = null;
+
+    const MASTER_STANDARD_PRESETS = {
+"#;
+        let preset = json!({
+            "id": "default",
+            "fontFamily": "font-family: 'Outfit'; font-size: 14px;",
+            "dataUri": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http..."
+        });
+
+        let baked = bake_preset_into_template_content(sample, &preset);
+        assert!(baked.contains("let BAKED_DEFAULT_PRESET = {"));
+        assert!(baked.contains("data:image/svg+xml;charset=utf-8"));
+        assert!(baked.contains("const MASTER_STANDARD_PRESETS = {"));
+    }
+}
+
 

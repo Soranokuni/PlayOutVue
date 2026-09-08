@@ -47,35 +47,42 @@ This document details the architectural fixes and UI/UX consolidation for the **
 - **Static SVG Stencils**: Updated static SVG elements (`#badge-mask-shape` and `#badge-main-shape`) in both `public/templates/playout/advisory.html` and `src/assets/templates/playout/advisory.html` to render squircle rectangles (`rx="16" ry="16"`).
 - **Store & Pinia Defaults**: Updated `DEFAULT_CG_ADVISORY_CONFIG` in `src/stores/settings.ts` to `badgeShape: 'squircle'` and `logoShape: 'squircle'`.
 - **Rust Template Baker**: Enhanced `src-tauri/src/studio_server.rs` with `bake_preset_into_template_content` and `bake_preset_into_template_files` to ensure both `public/` and `src/assets/` copies of `advisory.html` have the latest preset baked into `let BAKED_DEFAULT_PRESET = ...;`.
-- **Live Event Synchronization**: Emits `caspar://template-deployed` carrying the active preset payload; `src/services/caspar.ts` listens and invokes `settingsStore.updateCgAdvisoryFromDeployedPreset(preset)`.
-- **Settings Modal Hydration**: On `onMounted` in `SettingsModal.vue`, queries `get_studio_default_preset` from the Rust backend to ensure local shadow state stays in sync with CG Studio.
+- **Live Event & Focus Synchronization**:
+  - `SettingsModal.vue` listens to `caspar://template-deployed` via Tauri event listener, updating `localState.value.cgAdvisoryConfig` in real time.
+  - `SettingsModal.vue` listens to window `focus`, querying `get_studio_default_preset` whenever the operator returns from an external browser window.
+  - `saveSettings()` invokes `save_studio_default_preset` with `localState.value.cgAdvisoryConfig`, keeping disk and memory in lockstep.
 
-### C. UI/UX Consolidation in `SettingsModal.vue`
-- **Playout Tab**: Removed the redundant "Deploy CG Templates" button from the CasparCG Server Configuration section, keeping that section focused on core server process management and OSC port configuration.
+### C. Unified Playout & CG Action Center in `SettingsModal.vue`
+- **Playout & Hardware Tab**:
+  - Added the **Broadcast CG Graphics & Template Studio** action center directly under CasparCG Server Configuration.
+  - Placed **✨ Open CG Studio (Visual Editor)**, **🚀 Deploy CG Templates to CasparCG**, and **📂 Open Templates Folder** together in the same section on the Playout path.
+  - Added live status pills showing active badge shape (`Squircle`), Layer 32 template identifier, and Station ID bug status.
 - **CG & Layouts Tab**:
-  - Replaced the fragmented layout and redundant mini-editor with a consolidated **Broadcast CG Graphics & Template Studio** hero section.
-  - Placed **✨ Open CG Studio (Visual Editor)** and **🚀 Deploy CG Templates to CasparCG** side-by-side in the same section, alongside **📂 Open Templates Folder**.
-  - Added visual status badges showing active shape (Squircle), Layer 32 (Greek ESR Advisory), and Station ID bug status.
-  - Preserved clean template identifier inputs (`playout/advisory` for Layer 32, `playout/crawl` for Layer 33) and the On-Screen Graphic Positioning Studio with broadcast safe-area overlay guides.
-  - Removed ~115 lines of dead mini-editor code and manual SVG overrides that caused state desynchronization.
+  - Features the identical unified action center alongside CG HTML5 Template Identifiers (`playout/advisory` for Layer 32, `playout/crawl` for Layer 33).
+  - **Eliminated Obsolete Mini-Editor**: Completely removed the mock screen canvas, safe-area overlay boxes, coordinate dragging scripts (`onDragStart`, `onDragMove`, `onDragEnd`), preset position buttons (`applyPositionPreset`, `resetAllLayersToStandard`), and ~180 lines of unused CSS.
 
-### D. Automated Template Parity Enforcement
-- Added `src/lib/__tests__/templatesParity.test.ts` to ensure `public/templates/playout/advisory.html` and `src/assets/templates/playout/advisory.html` remain 100% byte-identical on every commit and build.
+### D. Automated Parity & Cross-Repo Protection
+- `src/lib/__tests__/templatesParity.test.ts` enforces 100% byte-for-byte identity between `public/templates/playout/advisory.html` and `src/assets/templates/playout/advisory.html`.
+- `tests/contract_boundary.rs` in `PlayoutTranscode` ensures no regressions to upstream/downstream hydration contracts.
 
 ---
 
-## 3. Verification & Test Evidence
+## 3. Verification Record
 
-All automated verification pipelines passed with zero errors:
-
-1. **Frontend Unit & Integration Tests**:
-   - `npm test -- --run`: **212 passed across 30 test files** (including template parity and compliance tests).
-2. **TypeScript Compilation**:
-   - `npm run type-check` (`vue-tsc --build`): **0 errors**.
-3. **Production Client Bundle**:
-   - `npm run build`: Clean production build in `dist/`.
-4. **Rust Backend Check & Tests**:
-   - `cargo check --manifest-path src-tauri/Cargo.toml`: **0 errors**.
-   - `cargo test --manifest-path src-tauri/Cargo.toml`: **63 passed; 0 failed**.
-5. **Cross-Repo Boundary Contract**:
-   - `cargo test --manifest-path ../PlayoutTranscode/Cargo.toml --test contract_boundary`: **10 passed; 0 failed**.
+- **Frontend Unit & Integration Tests**:
+  - Command: `npm test -- --run`
+  - Result: **212 passed across 30 test files** (100% passing).
+- **TypeScript Strict Compilation**:
+  - Command: `npm run type-check` (`vue-tsc --build`)
+  - Result: **0 errors**.
+- **Client Production Build**:
+  - Command: `npm run build`
+  - Result: Clean production bundle compiled into `dist/` with 0 errors.
+- **Rust Backend Compilation & Tests**:
+  - Command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: Compiled cleanly with **0 errors**.
+  - Command: `cargo test --manifest-path src-tauri/Cargo.toml`
+  - Result: **66 passed; 0 failed** (including new template baker tests with semicolon tolerance).
+- **Cross-Repo Boundary Contract**:
+  - Command: `cargo test --manifest-path ../PlayoutTranscode/Cargo.toml --test contract_boundary`
+  - Result: **10 passed; 0 failed**.

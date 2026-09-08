@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore, DEFAULT_CG_ADVISORY_CONFIG, type CgAdvisoryTemplateConfig } from '../stores/settings';
 import CasparConfigModal from './CasparConfigModal.vue';
@@ -28,7 +29,6 @@ const settings = useSettingsStore();
 const showCasparConfigurator = ref(false);
 const showDecklinkWizard = ref(false);
 const activeTab = ref<'general' | 'playout' | 'cg'>('general');
-const selectedWizardLayer = ref<'logo' | 'rating' | 'tp' | 'explanation' | 'crawl'>('explanation');
 const validationInfo = ref<CasparValidationInfo | null>(null);
 const isValidating = ref(false);
 
@@ -135,102 +135,6 @@ const localState = ref({
     cgAdvisoryConfig: { ...DEFAULT_CG_ADVISORY_CONFIG } as CgAdvisoryTemplateConfig
 });
 
-const currentActivePos = computed({
-    get: () => {
-        if (selectedWizardLayer.value === 'logo') return localState.value.cgStationLogoPos;
-        if (selectedWizardLayer.value === 'rating') return localState.value.cgRatingBadgePos;
-        if (selectedWizardLayer.value === 'tp') return localState.value.cgTPPos;
-        if (selectedWizardLayer.value === 'explanation') return localState.value.cgExplanationBannerPos;
-        return localState.value.cgCrawlPos;
-    },
-    set: (val) => {
-        if (selectedWizardLayer.value === 'logo') localState.value.cgStationLogoPos = val;
-        else if (selectedWizardLayer.value === 'rating') localState.value.cgRatingBadgePos = val;
-        else if (selectedWizardLayer.value === 'tp') localState.value.cgTPPos = val;
-        else if (selectedWizardLayer.value === 'explanation') localState.value.cgExplanationBannerPos = val;
-        else localState.value.cgCrawlPos = val;
-    }
-});
-
-// Dragging states
-const isDragging = ref(false);
-let startX = 0;
-let startY = 0;
-let startLeft = 0;
-let startTop = 0;
-
-const onDragStart = (e: MouseEvent, layer: 'logo' | 'rating' | 'tp' | 'explanation' | 'crawl') => {
-    e.preventDefault();
-    selectedWizardLayer.value = layer;
-    isDragging.value = true;
-    startX = e.clientX;
-    startY = e.clientY;
-    
-    const pos = currentActivePos.value;
-    startLeft = pos.left;
-    startTop = pos.top;
-    
-    window.addEventListener('mousemove', onDragMove);
-    window.addEventListener('mouseup', onDragEnd);
-};
-
-const onDragMove = (e: MouseEvent) => {
-    if (!isDragging.value) return;
-    const mockScreenEl = document.querySelector('.mock-screen');
-    if (!mockScreenEl) return;
-    
-    const rect = mockScreenEl.getBoundingClientRect();
-    const deltaX = ((e.clientX - startX) / rect.width) * 100;
-    const deltaY = ((e.clientY - startY) / rect.height) * 100;
-    
-    const pos = currentActivePos.value;
-    pos.left = Math.min(100 - pos.width, Math.max(0, Math.round(startLeft + deltaX)));
-    pos.top = Math.min(100 - pos.height, Math.max(0, Math.round(startTop + deltaY)));
-};
-
-const onDragEnd = () => {
-    isDragging.value = false;
-    window.removeEventListener('mousemove', onDragMove);
-    window.removeEventListener('mouseup', onDragEnd);
-};
-
-const applyPositionPreset = (preset: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'unified-advisory') => {
-    const layer = selectedWizardLayer.value;
-    if (preset === 'top-right') {
-        if (layer === 'logo') localState.value.cgStationLogoPos = { left: 88, top: 5, width: 8, height: 8 };
-        else if (layer === 'rating') localState.value.cgRatingBadgePos = { left: 88, top: 5, width: 7, height: 7 };
-        else if (layer === 'tp') localState.value.cgTPPos = { left: 88, top: 13, width: 7, height: 7 };
-        else if (layer === 'explanation') localState.value.cgExplanationBannerPos = { left: 56, top: 5, width: 31, height: 7 };
-    } else if (preset === 'top-left') {
-        if (layer === 'logo') localState.value.cgStationLogoPos = { left: 5, top: 5, width: 8, height: 8 };
-        else if (layer === 'rating') localState.value.cgRatingBadgePos = { left: 5, top: 5, width: 7, height: 7 };
-        else if (layer === 'tp') localState.value.cgTPPos = { left: 5, top: 13, width: 7, height: 7 };
-        else if (layer === 'explanation') localState.value.cgExplanationBannerPos = { left: 13, top: 5, width: 31, height: 7 };
-    } else if (preset === 'bottom-right') {
-        if (layer === 'logo') localState.value.cgStationLogoPos = { left: 88, top: 87, width: 8, height: 8 };
-        else if (layer === 'rating') localState.value.cgRatingBadgePos = { left: 88, top: 87, width: 7, height: 7 };
-        else if (layer === 'tp') localState.value.cgTPPos = { left: 88, top: 79, width: 7, height: 7 };
-        else if (layer === 'explanation') localState.value.cgExplanationBannerPos = { left: 56, top: 87, width: 31, height: 7 };
-    } else if (preset === 'bottom-left') {
-        if (layer === 'logo') localState.value.cgStationLogoPos = { left: 5, top: 87, width: 8, height: 8 };
-        else if (layer === 'rating') localState.value.cgRatingBadgePos = { left: 5, top: 87, width: 7, height: 7 };
-        else if (layer === 'tp') localState.value.cgTPPos = { left: 5, top: 79, width: 7, height: 7 };
-        else if (layer === 'explanation') localState.value.cgExplanationBannerPos = { left: 13, top: 87, width: 31, height: 7 };
-    } else if (preset === 'unified-advisory') {
-        // Greek NCRTV Standard Top-Right Stencil Advisory Combo
-        localState.value.cgRatingBadgePos = { left: 89, top: 5.5, width: 6.5, height: 6.5 };
-        localState.value.cgTPPos = { left: 89, top: 12.5, width: 6.5, height: 6.5 };
-        localState.value.cgExplanationBannerPos = { left: 58, top: 5.5, width: 30, height: 6.5 };
-    }
-};
-
-const resetAllLayersToStandard = () => {
-    localState.value.cgStationLogoPos = { left: 5, top: 5, width: 10, height: 10 };
-    localState.value.cgRatingBadgePos = { left: 88, top: 5, width: 7, height: 7 };
-    localState.value.cgTPPos = { left: 88, top: 13, width: 7, height: 7 };
-    localState.value.cgExplanationBannerPos = { left: 58, top: 5, width: 29, height: 7 };
-    localState.value.cgCrawlPos = { left: 0, top: 92, width: 100, height: 8 };
-};
 
 const isDeployingTemplates = ref(false);
 const deployTemplatesFromSettings = async () => {
@@ -388,9 +292,9 @@ const handleRestartServerFromSettings = async () => {
     }
 };
 
-onMounted(async () => {
-    mapLocalState();
+let templateDeployedUnlisten: UnlistenFn | null = null;
 
+const refreshStudioPresetState = async () => {
     try {
         const defaultPreset = await invoke<any>('get_studio_default_preset');
         if (defaultPreset) {
@@ -403,6 +307,33 @@ onMounted(async () => {
     } catch (err) {
         console.warn('[Settings] Failed to fetch studio default preset:', err);
     }
+};
+
+const onWindowFocus = () => {
+    refreshStudioPresetState();
+};
+
+onMounted(async () => {
+    mapLocalState();
+    await refreshStudioPresetState();
+
+    try {
+        templateDeployedUnlisten = await listen<any>('caspar://template-deployed', (event) => {
+            if (event?.payload) {
+                settings.updateCgAdvisoryFromDeployedPreset(event.payload);
+                localState.value.cgAdvisoryConfig = {
+                    ...DEFAULT_CG_ADVISORY_CONFIG,
+                    ...(settings.cgAdvisoryConfig || {}),
+                };
+            } else {
+                refreshStudioPresetState();
+            }
+        });
+    } catch (err) {
+        console.warn('[Settings] Failed to register template-deployed listener:', err);
+    }
+
+    window.addEventListener('focus', onWindowFocus);
 
     if (localState.value.casparcgExecutablePath) {
         validateCasparExe(localState.value.casparcgExecutablePath);
@@ -419,8 +350,21 @@ onMounted(async () => {
     }
 });
 
+onUnmounted(() => {
+    if (templateDeployedUnlisten) {
+        templateDeployedUnlisten();
+        templateDeployedUnlisten = null;
+    }
+    window.removeEventListener('focus', onWindowFocus);
+});
+
 const saveSettings = async () => {
     settings.updateSettings(localState.value);
+    try {
+        await invoke('save_studio_default_preset', { preset: localState.value.cgAdvisoryConfig });
+    } catch (err) {
+        console.warn('[Settings] Failed to persist studio default preset on save:', err);
+    }
     try {
         await invoke('configure_caspar_osc_listener', { port: localState.value.casparOscPort });
     } catch {}
@@ -1035,6 +979,65 @@ const openTemplateDir = async () => {
                   </div>
               </section>
 
+               <!-- Broadcast CG Graphics & Template Studio (Unified Playout CG Action Center) -->
+               <section class="settings-section cg-studio-hero-section">
+                   <div class="cg-hero-header">
+                       <div>
+                           <h3 class="text-secondary section-title" style="margin-bottom: 4px;">
+                               🎨 Broadcast CG Graphics &amp; Template Studio
+                           </h3>
+                           <p class="cg-hero-desc">
+                               Visual WYSIWYG authoring for Greek compliance graphics (Layer 32), station ID logo bug, and emergency crawlers (Layer 33). Styling, shapes, and geometries are authored live in CG Studio and deployed directly to CasparCG.
+                           </p>
+                       </div>
+                   </div>
+
+                   <!-- Quick Status Pill Bar -->
+                   <div class="cg-status-pills">
+                       <div class="cg-status-pill">
+                           <span class="cg-pill-dot active"></span>
+                           <span>Badge &amp; Chassis: <strong>{{ localState.cgAdvisoryConfig.badgeShape || 'Squircle' }}</strong></span>
+                       </div>
+                       <div class="cg-status-pill">
+                           <span class="cg-pill-dot active"></span>
+                           <span>Layer 32: <strong>{{ localState.cgExplanationTemplate || 'playout/advisory' }}</strong></span>
+                       </div>
+                       <div class="cg-status-pill">
+                           <span class="cg-pill-dot active"></span>
+                           <span>Station ID Bug: <strong>Permanent Vector Bug</strong></span>
+                       </div>
+                   </div>
+
+                   <!-- Unified Action Center: Open CG Studio + Deploy + Open Folder in the SAME Section -->
+                   <div class="cg-studio-actions-bar">
+                       <button
+                           type="button"
+                           class="glass-btn btn-primary cg-launch-btn"
+                           @click="launchBrowserStudio"
+                           title="Launch full interactive visual CG Studio in browser"
+                       >
+                           ✨ Open CG Studio (Visual Editor)
+                       </button>
+                       <button
+                           type="button"
+                           class="glass-btn cg-deploy-btn"
+                           :disabled="isDeployingTemplates"
+                           @click="deployTemplatesFromSettings"
+                           title="Deploy HTML5 templates and active presets directly to CasparCG"
+                       >
+                           {{ isDeployingTemplates ? '⏳ Deploying Templates...' : '🚀 Deploy CG Templates to CasparCG' }}
+                       </button>
+                       <button
+                           type="button"
+                           class="glass-btn cg-folder-btn"
+                           @click="openTemplateDir"
+                           title="Open CasparCG template directory in Explorer"
+                       >
+                           📂 Open Templates Folder
+                       </button>
+                   </div>
+               </section>
+
               <!-- PAL / SOTA Playout Timing -->
               <section class="settings-section">
                   <h3 class="text-secondary section-title">PAL / SOTA Playout Timing</h3>
@@ -1146,103 +1149,6 @@ const openTemplateDir = async () => {
                               <button class="glass-btn" style="flex-shrink: 0;" title="Browse crawl template file" @click="pickPath('cg-crawl-template')">📁</button>
                           </div>
                           <span class="hint-text">Default: <code>playout/crawl</code> (50fps Broadcast Ticker).</span>
-                      </div>
-                  </div>
-              </section>
-
-              <!-- Interactive Layout Positioning Studio -->
-              <section class="settings-section">
-                  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                      <h3 class="text-secondary section-title" style="margin-bottom:0;">On-Screen Graphic Positioning Studio (Σήματα)</h3>
-                      <div style="display:flex; align-items:center; gap:8px;">
-                          <label style="font-size:0.8rem; color:var(--text-secondary);">Selected Layer:</label>
-                          <select v-model="selectedWizardLayer" class="select-layer">
-                              <option value="explanation">Greek Advisory &amp; Rating (L32)</option>
-                              <option value="crawl">Emergency Crawl (L33)</option>
-                          </select>
-                      </div>
-                  </div>
-
-                  <!-- Quick Position Presets Toolbar -->
-                  <div class="position-presets-bar" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:0.75rem;">
-                      <span style="font-size:0.75rem; font-weight:700; color:#94a3b8; align-self:center; margin-right:4px;">Presets:</span>
-                      <button type="button" class="preset-btn" @click="applyPositionPreset('top-right')">↗ Top-Right</button>
-                      <button type="button" class="preset-btn" @click="applyPositionPreset('top-left')">↖ Top-Left</button>
-                      <button type="button" class="preset-btn" @click="applyPositionPreset('bottom-right')">↘ Bottom-Right</button>
-                      <button type="button" class="preset-btn" @click="applyPositionPreset('bottom-left')">↙ Bottom-Left</button>
-                      <button type="button" class="preset-btn btn-highlight" @click="applyPositionPreset('unified-advisory')">🇬🇷 Greek Advisory Standard</button>
-                      <button type="button" class="preset-btn" @click="resetAllLayersToStandard">↺ Reset</button>
-                  </div>
-
-                  <div class="mock-screen">
-                      <!-- Broadcast Safe Areas (EBU R95: 90% Action Safe, 80% Title Safe) -->
-                      <div class="safe-area-action" title="90% Action Safe Area"></div>
-                      <div class="safe-area-border" title="80% Title Safe Area"></div>
-
-                      <!-- Explanation Banner Box -->
-                      <div
-                          class="layer-box explanation-box"
-                          :class="{ 'is-selected': selectedWizardLayer === 'explanation' }"
-                          :style="{
-                              left: `${localState.cgExplanationBannerPos.left}%`,
-                              top: `${localState.cgExplanationBannerPos.top}%`,
-                              width: `${localState.cgExplanationBannerPos.width}%`,
-                              height: `${localState.cgExplanationBannerPos.height}%`
-                          }"
-                          @mousedown="onDragStart($event, 'explanation')"
-                      >
-                          <span class="box-label">⚠️ Advisory Banner</span>
-                      </div>
-
-                      <!-- Crawl Box -->
-                      <div
-                          class="layer-box crawl-box"
-                          :class="{ 'is-selected': selectedWizardLayer === 'crawl' }"
-                          :style="{
-                              left: `${localState.cgCrawlPos.left}%`,
-                              top: `${localState.cgCrawlPos.top}%`,
-                              width: `${localState.cgCrawlPos.width}%`,
-                              height: `${localState.cgCrawlPos.height}%`
-                          }"
-                          @mousedown="onDragStart($event, 'crawl')"
-                      >
-                          <span class="box-label">Emergency Crawl Ticker</span>
-                      </div>
-                  </div>
-
-                  <!-- Precision Coordinate Sliders with Exact Numeric Inputs -->
-                  <div class="wizard-sliders" style="margin-top: 1.25rem;">
-                      <div class="slider-row">
-                          <span class="slider-label">Left X (%)</span>
-                          <input type="range" min="0" :max="100 - currentActivePos.width" step="0.5" v-model.number="currentActivePos.left">
-                          <div class="input-coord-wrap">
-                              <input type="number" min="0" :max="100 - currentActivePos.width" step="0.5" class="coord-number-input" v-model.number="currentActivePos.left">
-                              <span class="coord-unit">%</span>
-                          </div>
-                      </div>
-                      <div class="slider-row">
-                          <span class="slider-label">Top Y (%)</span>
-                          <input type="range" min="0" :max="100 - currentActivePos.height" step="0.5" v-model.number="currentActivePos.top">
-                          <div class="input-coord-wrap">
-                              <input type="number" min="0" :max="100 - currentActivePos.height" step="0.5" class="coord-number-input" v-model.number="currentActivePos.top">
-                              <span class="coord-unit">%</span>
-                          </div>
-                      </div>
-                      <div class="slider-row">
-                          <span class="slider-label">Width (%)</span>
-                          <input type="range" min="2" max="100" step="0.5" v-model.number="currentActivePos.width">
-                          <div class="input-coord-wrap">
-                              <input type="number" min="2" max="100" step="0.5" class="coord-number-input" v-model.number="currentActivePos.width">
-                              <span class="coord-unit">%</span>
-                          </div>
-                      </div>
-                      <div class="slider-row">
-                          <span class="slider-label">Height (%)</span>
-                          <input type="range" min="2" max="100" step="0.5" v-model.number="currentActivePos.height">
-                          <div class="input-coord-wrap">
-                              <input type="number" min="2" max="100" step="0.5" class="coord-number-input" v-model.number="currentActivePos.height">
-                              <span class="coord-unit">%</span>
-                          </div>
                       </div>
                   </div>
               </section>
@@ -1558,187 +1464,6 @@ const openTemplateDir = async () => {
     color: var(--accent-blue);
     border-bottom-color: var(--accent-blue);
     font-weight: 700;
-}
-
-/* Visual layout wizard styles */
-.mock-screen {
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    background: #06090e;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 8px;
-    position: relative;
-    overflow: hidden;
-    margin-top: 0.75rem;
-    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.9);
-}
-
-.safe-area-action {
-    position: absolute;
-    top: 5%;
-    left: 5%;
-    width: 90%;
-    height: 90%;
-    border: 1px dashed rgba(34, 197, 94, 0.35);
-    pointer-events: none;
-}
-
-.safe-area-border {
-    position: absolute;
-    top: 10%;
-    left: 10%;
-    width: 80%;
-    height: 80%;
-    border: 1px dashed rgba(234, 179, 8, 0.4);
-    pointer-events: none;
-}
-
-.layer-box {
-    position: absolute;
-    cursor: move;
-    border: 1.5px solid rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(8px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
-    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
-    user-select: none;
-    border-radius: 4px;
-}
-
-.layer-box:hover {
-    border-color: #38bdf8;
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
-}
-
-.layer-box.is-selected {
-    border-color: #38bdf8;
-    border-width: 2px;
-    box-shadow: 0 0 14px rgba(56, 189, 248, 0.7);
-    z-index: 10;
-}
-
-.box-label {
-    font-size: 0.68rem;
-    font-weight: 800;
-    color: #fff;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-    text-transform: uppercase;
-    text-align: center;
-    padding: 2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.logo-box { background: rgba(56, 189, 248, 0.3); border-radius: 6px; }
-.rating-box { background: rgba(255, 255, 255, 0.28); border-radius: 50%; border-color: rgba(255, 255, 255, 0.8); }
-.tp-box { background: rgba(255, 255, 255, 0.25); border-radius: 4px; }
-.explanation-box { background: rgba(255, 255, 255, 0.22); border-radius: 16px; }
-.crawl-box { background: rgba(15, 23, 42, 0.75); border-radius: 0; border-top-color: #38bdf8; }
-
-.position-presets-bar {
-    margin-bottom: 0.5rem;
-}
-
-.preset-btn {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: #cbd5e1;
-    font-size: 0.75rem;
-    font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.preset-btn:hover {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.35);
-    color: #fff;
-}
-
-.preset-btn.btn-highlight {
-    background: rgba(56, 189, 248, 0.18);
-    border-color: rgba(56, 189, 248, 0.45);
-    color: #38bdf8;
-}
-
-.preset-btn.btn-highlight:hover {
-    background: rgba(56, 189, 248, 0.3);
-    border-color: #38bdf8;
-    color: #fff;
-}
-
-.wizard-sliders {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.slider-row {
-    display: grid;
-    grid-template-columns: 90px 1fr 90px;
-    align-items: center;
-    gap: 1rem;
-}
-
-.slider-label {
-    font-size: 0.78rem;
-    color: #94a3b8;
-    font-weight: 600;
-}
-
-.input-coord-wrap {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    background: #0b0f17;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 5px;
-    padding: 3px 6px;
-}
-
-.coord-number-input {
-    width: 50px;
-    background: transparent;
-    border: none;
-    color: #f1f5f9;
-    font-size: 0.8rem;
-    font-weight: 700;
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
-    text-align: right;
-    outline: none;
-    -moz-appearance: textfield;
-}
-.coord-number-input::-webkit-outer-spin-button,
-.coord-number-input::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-
-.coord-unit {
-    font-size: 0.75rem;
-    color: #64748b;
-    font-weight: 600;
-}
-
-.wizard-sliders input[type="range"] {
-    accent-color: #38bdf8;
-    cursor: pointer;
-}
-
-.select-layer {
-    background: #0b0f17;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: #f1f5f9;
-    border-radius: 6px;
-    padding: 5px 10px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    outline: none;
 }
 
 @media (max-width: 768px) {
