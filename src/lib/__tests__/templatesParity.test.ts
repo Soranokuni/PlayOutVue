@@ -72,4 +72,18 @@ describe('Broadcast Templates Parity Verification', () => {
         expect(fnSnippet).toContain('updateLogoFromControls()');
         expect(fnSnippet).toContain('updateRatingFromControls()');
     });
+
+    it('ensures all embedded script blocks in advisory.html have zero syntax errors', () => {
+        const content = fs.readFileSync(publicPath, 'utf-8');
+        const scriptMatches = content.match(/<script[\s\S]*?<\/script>/gi) || [];
+        expect(scriptMatches.length).toBeGreaterThan(0);
+
+        for (let i = 0; i < scriptMatches.length; i++) {
+            const rawScript = scriptMatches[i];
+            const code = rawScript.replace(/^<script.*?>/i, '').replace(/<\/script>$/i, '');
+            expect(() => {
+                new Function(code);
+            }, `Syntax error detected in advisory.html script block #${i}`).not.toThrow();
+        }
+    });
 });

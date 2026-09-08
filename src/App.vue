@@ -465,6 +465,14 @@ onMounted(async () => {
     const mediaLib = useMediaLibraryStore();
     mediaLib.checkAndTriggerAutoPurge(settings.recycleBinAutoPurge);
   }
+
+  // Hydrate deployed Studio preset into Pinia on application boot
+  try {
+    const defaultPreset = await invoke<any>('get_studio_default_preset');
+    if (defaultPreset) {
+      settings.updateCgAdvisoryFromDeployedPreset(defaultPreset);
+    }
+  } catch (_) {}
 });
 
 onUnmounted(() => {

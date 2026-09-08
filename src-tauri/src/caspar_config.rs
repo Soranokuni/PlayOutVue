@@ -351,7 +351,9 @@ fn resolve_caspar_template_dir<R: Runtime>(app: Option<&AppHandle<R>>, explicit:
     if let Some(app_handle) = app {
         if let Some(state) = app_handle.try_state::<crate::runtime_settings::RuntimeSettingsState>() {
             let settings = state.snapshot();
-            if let Some(exe_path) = crate::caspar_process::resolve_caspar_executable(&settings.casparcg_executable_path) {
+            let exe_opt = crate::caspar_process::resolve_caspar_executable(&settings.casparcg_executable_path)
+                .or_else(|| crate::caspar_process::resolve_caspar_executable(""));
+            if let Some(exe_path) = exe_opt {
                 let cwd = crate::caspar_process::resolve_caspar_cwd(&exe_path);
                 let cand1 = cwd.join("template");
                 let cand2 = cwd.join("templates");
@@ -361,6 +363,16 @@ fn resolve_caspar_template_dir<R: Runtime>(app: Option<&AppHandle<R>>, explicit:
                 return cand1;
             }
         }
+    }
+
+    if let Some(exe_path) = crate::caspar_process::resolve_caspar_executable("") {
+        let cwd = crate::caspar_process::resolve_caspar_cwd(&exe_path);
+        let cand1 = cwd.join("template");
+        let cand2 = cwd.join("templates");
+        if cand2.exists() {
+            return cand2;
+        }
+        return cand1;
     }
 
     dirs_next::data_dir()

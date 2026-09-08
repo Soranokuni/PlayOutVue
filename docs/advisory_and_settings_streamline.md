@@ -71,10 +71,20 @@ This document details the architectural fixes and UI/UX consolidation for the **
 - **Event Debounce**: Added 120ms debounce on template deployment events to prevent concurrent AMCP commands when backend operations synchronize settings.
 - **Synchronous Frame 0 On-Air Execution**: In `advisory.html`, `DOMContentLoaded` differentiates between `studio` and `on-air` modes. In `on-air` mode, the baked preset is applied synchronously at frame 0 and asynchronous HTTP bridge polling (`hydrateDefaultPreset`) is bypassed, ensuring CasparCG runtime updates are never overwritten by delayed background network fetches.
 
-### G. Greek Broadcast Font Family Resolution
-- **Elimination of Invalid CSS `"system"`**: CSS does not recognize bare `"system"` as a generic font family name, causing Chromium/CEF to fall back to Times New Roman serif fonts.
-- **`resolveFontFamily()`**: Implemented canonical font resolution across `advisory.html` and `src/stores/settings.ts`, mapping `"system"`, `"default"`, or empty selections to `'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`.
-- **Sidecar Preset Standardization**: Updated `advisory_default_preset.json` to define canonical sans font stacks instead of `"system"`.
+### G. Greek Broadcast Font Family Resolution & Elimination of Latin-Only Fonts
+- **Elimination of Non-Greek Fonts**: Google Fonts `Outfit` lacks Greek character set support (`greek`/`greek-ext`), causing Greek compliance strings (e.g. "ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ", "ΣΚΗΝΕΣ ΒΙΑΣ", Greek rating badges) to fall back to broken serif typefaces in Chromium/CEF.
+- **`resolveFontFamily()` & Native System Stack**: Implemented canonical Greek-safe typography across `advisory.html` and `src/stores/settings.ts`, mapping `"system"`, `"default"`, or empty selections to `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`.
+- **Google Fonts Greek Subsets**: Updated Google Fonts stylesheet `<link>` in `advisory.html` to load Inter, Montserrat, Roboto, and Roboto Mono with explicit `&subset=greek,greek-ext,latin`.
+- **Sidecar Preset Standardization**: Updated `advisory_default_preset.json` to define canonical `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif` instead of `Outfit`.
+
+### H. Raw TCP Socket Segmentation & Full Request Buffering
+- **Content-Length Loop Buffering**: In `src-tauri/src/studio_server.rs`, replaced single `stream.read(&mut buf)` with `read_http_request` which parses `Content-Length` and continuously accumulates TCP segments until the full HTTP body is buffered.
+- **Elimination of Incomplete Body Fallback**: Fixed the race condition where split TCP segments caused `POST /api/deploy` to see an empty or truncated body, falsely falling back to loading the old preset from disk and locking graphics onto previous shapes (e.g. Shield).
+
+### I. Script Syntax & SVG Mask DOM Stability
+- **Eliminated Duplicate Script Declarations**: Removed duplicate `let currentShowTag`, `let currentMasterPresetId`, `let currentLogoShape`, `let currentRatingShape` which triggered a fatal `SyntaxError` in `advisory.html` under modern ECMAScript engines.
+- **Direct Geometry Rect Mutation**: Updated `setRatingShape` to update `rx`/`ry` attributes directly on `<rect>` elements without detaching or replacing SVG mask DOM nodes, eliminating Chromium GPU mask cache invalidation glitches.
+- **Hydration Ordering & Settings Synchronization**: In `SettingsModal.vue`, synchronized studio presets prior to invoking `reloadComplianceTemplate`, refreshed presets before saving to avoid stale shadow state overwrites, and hydrated active presets into Pinia on `App.vue` startup.
 
 ---
 
@@ -82,7 +92,7 @@ This document details the architectural fixes and UI/UX consolidation for the **
 
 - **Frontend Unit & Integration Tests**:
   - Command: `npm test -- --run`
-  - Result: **212 passed across 30 test files** (100% passing, including `templatesParity.test.ts`).
+  - Result: **213 passed across 30 test files** (100% passing, including `templatesParity.test.ts` with script syntax validation).
 - **TypeScript Strict Compilation**:
   - Command: `npm run type-check` (`vue-tsc --build`)
   - Result: **0 errors**.
@@ -93,7 +103,7 @@ This document details the architectural fixes and UI/UX consolidation for the **
   - Command: `cargo check --manifest-path src-tauri/Cargo.toml`
   - Result: Compiled cleanly with **0 errors**.
   - Command: `cargo test --manifest-path src-tauri/Cargo.toml`
-  - Result: **66 passed; 0 failed** (including template baking and HTTP serving tests).
+  - Result: **67 passed; 0 failed** (including chunked/split TCP body streaming tests).
 - **Cross-Repo Boundary Contract**:
   - Command: `cargo test --manifest-path ../PlayoutTranscode/Cargo.toml --test contract_boundary`
   - Result: **10 passed; 0 failed**.

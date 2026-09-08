@@ -48,19 +48,118 @@ pub fn start_studio_server<R: Runtime>(app: AppHandle<R>) {
     });
 }
 
-async fn handle_connection<R: Runtime>(mut stream: tokio::net::TcpStream, app: AppHandle<R>) {
-    let mut buf = vec![0u8; 16384];
-    let n = match stream.read(&mut buf).await {
-        Ok(n) if n > 0 => n,
-        _ => return,
+struct HttpRequest {
+    method: String,
+    path: String,
+    body: String,
+}
+
+async fn read_http_request(stream: &mut tokio::net::TcpStream) -> Result<HttpRequest, String> {
+    let mut buffer = Vec::with_capacity(8192);
+    let mut chunk = [0u8; 4096];
+    let mut header_end = None;
+    let mut content_length = 0usize;
+
+    // Phase 1: Read until headers are fully received (\r\n\r\n)
+    loop {
+        let n = tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut chunk))
+            .await
+            .map_err(|_| "Timeout reading HTTP headers".to_string())?
+            .map_err(|e| format!("IO error reading HTTP headers: {}", e))?;
+
+        if n == 0 {
+            if buffer.is_empty() {
+                return Err("Client closed connection immediately".to_string());
+            }
+            break;
+        }
+
+        buffer.extend_from_slice(&chunk[..n]);
+
+        if let Some(pos) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+            header_end = Some(pos);
+            break;
+        }
+
+        if buffer.len() > 65536 {
+            return Err("HTTP headers too large".to_string());
+        }
+    }
+
+    let header_pos = match header_end {
+        Some(pos) => pos,
+        None => return Err("Incomplete HTTP headers".to_string()),
     };
 
-    let req_str = String::from_utf8_lossy(&buf[..n]);
-    let mut lines = req_str.lines();
+    let header_str = String::from_utf8_lossy(&buffer[..header_pos]);
+    let mut lines = header_str.lines();
     let request_line = lines.next().unwrap_or("");
     let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("");
-    let path = parts.next().unwrap_or("");
+    let method = parts.next().unwrap_or("").to_string();
+    let path = parts.next().unwrap_or("").to_string();
+
+    // Parse Content-Length header
+    for line in lines {
+        let lower = line.to_ascii_lowercase();
+        if lower.starts_with("content-length:") {
+            if let Some(val_str) = line.split(':').nth(1) {
+                if let Ok(len) = val_str.trim().parse::<usize>() {
+                    content_length = len;
+                }
+            }
+        }
+    }
+
+    // Phase 2: Read remaining body if Content-Length > 0
+    let body_start = header_pos + 4;
+    let current_body_len = buffer.len().saturating_sub(body_start);
+    let needed = content_length.saturating_sub(current_body_len);
+
+    if needed > 0 {
+        let mut remaining = needed;
+        while remaining > 0 {
+            let to_read = remaining.min(chunk.len());
+            let n = tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut chunk[..to_read]))
+                .await
+                .map_err(|_| "Timeout reading HTTP body".to_string())?
+                .map_err(|e| format!("IO error reading HTTP body: {}", e))?;
+
+            if n == 0 {
+                break; // EOF
+            }
+
+            buffer.extend_from_slice(&chunk[..n]);
+            remaining = remaining.saturating_sub(n);
+        }
+    }
+
+    let body_bytes = if content_length > 0 {
+        let actual_end = (body_start + content_length).min(buffer.len());
+        &buffer[body_start..actual_end]
+    } else if buffer.len() > body_start {
+        &buffer[body_start..]
+    } else {
+        &[]
+    };
+
+    let body = String::from_utf8_lossy(body_bytes).to_string();
+
+    Ok(HttpRequest {
+        method,
+        path,
+        body,
+    })
+}
+
+async fn handle_connection<R: Runtime>(mut stream: tokio::net::TcpStream, app: AppHandle<R>) {
+    let req = match read_http_request(&mut stream).await {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+
+    let method = req.method.as_str();
+    let path = req.path.as_str();
+    let body = req.body;
 
     // Handle CORS Preflight
     if method == "OPTIONS" {
@@ -74,18 +173,6 @@ Content-Length: 0\r\n\r\n";
         let _ = stream.write_all(response.as_bytes()).await;
         return;
     }
-
-    // Extract Body if POST
-    let body = if method == "POST" {
-        if let Some(pos) = req_str.find("\r\n\r\n") {
-            let body_part = &req_str[pos + 4..];
-            body_part.to_string()
-        } else {
-            String::new()
-        }
-    } else {
-        String::new()
-    };
 
     let clean_path = path.split('?').next().unwrap_or(path);
 
@@ -470,6 +557,31 @@ mod tests {
         assert!(baked.contains("let BAKED_DEFAULT_PRESET = {"));
         assert!(baked.contains("data:image/svg+xml;charset=utf-8"));
         assert!(baked.contains("const MASTER_STANDARD_PRESETS = {"));
+    }
+
+    #[tokio::test]
+    async fn test_read_http_request_chunked_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client_task = tokio::spawn(async move {
+            let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+            // Send headers first
+            let headers = "POST /api/deploy HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 18\r\n\r\n";
+            stream.write_all(headers.as_bytes()).await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            // Send body in separate TCP write
+            let body = "{\"shape\":\"circle\"}";
+            stream.write_all(body.as_bytes()).await.unwrap();
+        });
+
+        let (mut server_stream, _) = listener.accept().await.unwrap();
+        let req = read_http_request(&mut server_stream).await.unwrap();
+        assert_eq!(req.method, "POST");
+        assert_eq!(req.path, "/api/deploy");
+        assert_eq!(req.body, "{\"shape\":\"circle\"}");
+
+        client_task.await.unwrap();
     }
 }
 
