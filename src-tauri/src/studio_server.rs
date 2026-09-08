@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, Ordering};
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-static STUDIO_SERVER_PORT: AtomicU16 = AtomicU16::new(6258);
+pub static STUDIO_SERVER_PORT: AtomicU16 = AtomicU16::new(6258);
 
 #[allow(dead_code)]
 pub fn get_studio_server_port() -> u16 {
@@ -67,7 +67,8 @@ async fn handle_connection<R: Runtime>(mut stream: tokio::net::TcpStream, app: A
         let response = "HTTP/1.1 204 No Content\r\n\
 Access-Control-Allow-Origin: *\r\n\
 Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
-Access-Control-Allow-Headers: Content-Type, *\r\n\
+Access-Control-Allow-Headers: Content-Type, Accept, Authorization, X-Requested-With, *\r\n\
+Access-Control-Allow-Private-Network: true\r\n\
 Access-Control-Max-Age: 86400\r\n\
 Content-Length: 0\r\n\r\n";
         let _ = stream.write_all(response.as_bytes()).await;
@@ -86,7 +87,44 @@ Content-Length: 0\r\n\r\n";
         String::new()
     };
 
-    match (method, path) {
+    let clean_path = path.split('?').next().unwrap_or(path);
+
+    match (method, clean_path) {
+        ("GET", "/studio") | ("GET", "/playout/advisory.html") => {
+            let content = {
+                let mut found = None;
+                for cand in resolve_all_workspace_targets("public/templates/playout/advisory.html") {
+                    if cand.exists() && cand.is_file() {
+                        if let Ok(c) = std::fs::read_to_string(&cand) {
+                            found = Some(c);
+                            break;
+                        }
+                    }
+                }
+                found.unwrap_or_else(|| crate::caspar_config::TEMPLATE_ADVISORY.to_string())
+            };
+            let content_with_baked = if let Some(preset) = load_saved_default_preset(&app) {
+                bake_preset_into_template_content(&content, &preset)
+            } else {
+                content
+            };
+            send_raw_response(&mut stream, 200, "text/html; charset=utf-8", content_with_baked.as_bytes()).await;
+        }
+        ("GET", "/vendor/gsap.min.js") | ("GET", "/playout/vendor/gsap.min.js") => {
+            send_raw_response(&mut stream, 200, "application/javascript", crate::caspar_config::TEMPLATE_GSAP.as_bytes()).await;
+        }
+        ("GET", "/esr_presets.json") | ("GET", "/playout/esr_presets.json") => {
+            send_raw_response(&mut stream, 200, "application/json", crate::caspar_config::TEMPLATE_ESR_PRESETS.as_bytes()).await;
+        }
+        ("GET", "/advisory_default_preset.json") | ("GET", "/playout/advisory_default_preset.json") => {
+            if let Some(preset) = load_saved_default_preset(&app) {
+                if let Ok(json_str) = serde_json::to_string_pretty(&preset) {
+                    send_raw_response(&mut stream, 200, "application/json", json_str.as_bytes()).await;
+                    return;
+                }
+            }
+            send_raw_response(&mut stream, 200, "application/json", b"{}").await;
+        }
         ("GET", "/api/ping") => {
             let res_body = serde_json::json!({ "ok": true, "server": "PlayOutVue Studio Bridge" });
             send_json_response(&mut stream, 200, &res_body).await;
@@ -123,27 +161,47 @@ Content-Length: 0\r\n\r\n";
                 }
             }
             if deployed_preset.is_none() {
-                deployed_preset = load_saved_default_preset(&app);
-            }
-            match crate::caspar_config::deploy_caspar_templates(app.clone(), None, None, Some(true)).await {
-                Ok(deploy_res) => {
-                    let _ = app.emit("caspar://template-deployed", deployed_preset.as_ref());
-                    send_json_response(&mut stream, 200, &serde_json::json!({
-                        "success": true,
-                        "template_dir": deploy_res.template_dir,
-                        "deployed": deploy_res.deployed,
-                        "preset": deployed_preset
-                    })).await;
-                }
-                Err(err) => {
-                    send_json_response(&mut stream, 500, &serde_json::json!({ "success": false, "error": err })).await;
+                if let Some(preset) = load_saved_default_preset(&app) {
+                    let _ = save_default_preset_and_sync(&app, &preset).await;
+                    deployed_preset = Some(preset);
+                } else {
+                    let _ = crate::caspar_config::deploy_caspar_templates(app.clone(), None, None, Some(true)).await;
                 }
             }
+            send_json_response(&mut stream, 200, &serde_json::json!({
+                "success": true,
+                "preset": deployed_preset
+            })).await;
         }
         _ => {
             send_json_response(&mut stream, 404, &serde_json::json!({ "error": "Not Found" })).await;
         }
     }
+}
+
+async fn send_raw_response(stream: &mut tokio::net::TcpStream, status: u16, content_type: &str, body_bytes: &[u8]) {
+    let status_text = match status {
+        200 => "OK",
+        204 => "No Content",
+        400 => "Bad Request",
+        404 => "Not Found",
+        _ => "Internal Server Error",
+    };
+    let header = format!(
+        "HTTP/1.1 {} {}\r\n\
+Content-Type: {}\r\n\
+Access-Control-Allow-Origin: *\r\n\
+Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
+Access-Control-Allow-Headers: Content-Type, Accept, Authorization, X-Requested-With, *\r\n\
+Access-Control-Allow-Private-Network: true\r\n\
+Content-Length: {}\r\n\r\n",
+        status,
+        status_text,
+        content_type,
+        body_bytes.len()
+    );
+    let _ = stream.write_all(header.as_bytes()).await;
+    let _ = stream.write_all(body_bytes).await;
 }
 
 async fn send_json_response(stream: &mut tokio::net::TcpStream, status: u16, body: &serde_json::Value) {
@@ -160,7 +218,8 @@ async fn send_json_response(stream: &mut tokio::net::TcpStream, status: u16, bod
 Content-Type: application/json\r\n\
 Access-Control-Allow-Origin: *\r\n\
 Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
-Access-Control-Allow-Headers: Content-Type, *\r\n\
+Access-Control-Allow-Headers: Content-Type, Accept, Authorization, X-Requested-With, *\r\n\
+Access-Control-Allow-Private-Network: true\r\n\
 Content-Length: {}\r\n\r\n",
         status,
         status_text,
@@ -319,9 +378,8 @@ pub async fn save_default_preset_and_sync<R: Runtime>(
     // 3. Bake preset directly into source template files so dev server and git stay in sync
     bake_preset_into_template_files(preset);
 
-    // 4. Automatically deploy updated templates to CasparCG
+    // 4. Automatically deploy updated templates to CasparCG (which emits caspar://template-deployed)
     let _ = crate::caspar_config::deploy_caspar_templates(app.clone(), None, None, Some(true)).await;
-    let _ = app.emit("caspar://template-deployed", preset);
 
     Ok("Default broadcast preset saved and deployed to CasparCG templates".into())
 }

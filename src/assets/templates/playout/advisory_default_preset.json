@@ -29,7 +29,7 @@
   "ratingFontSize": 24,
   "badgeFontSizePx": 24,
   "ratingFont": "system",
-  "fontFamily": "system",
+  "fontFamily": "Outfit, system-ui, -apple-system, sans-serif",
   "rating": "16",
   "warnings": [
     "violence",
