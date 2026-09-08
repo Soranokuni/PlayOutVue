@@ -387,10 +387,17 @@ pub async fn deploy_caspar_templates<R: Runtime>(
     let overwrite_files = overwrite.unwrap_or(false);
     let mut deployed = Vec::new();
     let mut skipped = Vec::new();
-    let mut advisory_content = if let Ok(disk_content) = std::fs::read_to_string("public/templates/playout/advisory.html") {
-        disk_content
-    } else {
-        TEMPLATE_ADVISORY.to_string()
+    let mut advisory_content = {
+        let mut found = None;
+        for cand in crate::studio_server::resolve_all_workspace_targets("public/templates/playout/advisory.html") {
+            if cand.exists() && cand.is_file() {
+                if let Ok(disk_content) = std::fs::read_to_string(&cand) {
+                    found = Some(disk_content);
+                    break;
+                }
+            }
+        }
+        found.unwrap_or_else(|| TEMPLATE_ADVISORY.to_string())
     };
 
     // Check if a saved custom default preset exists, and bake it directly into advisory.html

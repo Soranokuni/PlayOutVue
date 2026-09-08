@@ -2516,7 +2516,7 @@
             <div class="studio-group-title">⭐ User Custom Presets</div>
             <div style="display: flex; gap: 6px;">
               <input type="text" id="txt-preset-name" placeholder="Preset Name (e.g. Primetime Look)" class="studio-select" style="flex: 1;">
-              <button class="action-btn-primary" style="width: auto; padding: 6px 12px;" onclick="saveCustomThemePreset()">Save</button>
+              <button class="action-btn-primary" style="width: auto; padding: 6px 12px;" onclick="saveCustomThemePreset()">+ Save Theme</button>
             </div>
             <div id="custom-themes-list" style="margin-top: 6px; display: flex; flex-direction: column; gap: 4px;">
               <!-- Populated dynamically -->
@@ -2688,9 +2688,8 @@
       <!-- Footer Action Buttons (Bottom Left) -->
       <div class="studio-footer">
         <button class="action-btn-primary" onclick="buildTimeline(); replayTimeline();" title="Replay on-air animation sequence">▶ Replay</button>
-        <button class="action-btn-secondary" onclick="saveCurrentActivePreset()" title="Save edits and overwrite active preset">💾 Save</button>
+        <button class="action-btn-secondary" id="btn-save-preset" onclick="saveCurrentActivePreset()" title="Overwrite active preset, update defaults, and deploy directly to CasparCG" style="background: rgba(16, 185, 129, 0.25); border-color: rgba(16, 185, 129, 0.7); color: #34d399; font-weight: 700;">💾 Save &amp; Deploy</button>
         <button class="action-btn-secondary" onclick="openSaveAsDialog()" title="Save as a new named preset" style="background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.6); color: #38bdf8;">⭐ Save As...</button>
-        <button class="action-btn-secondary deploy-pill-btn" id="btn-deploy-preset" onclick="deployFromStudio()" title="Deploy customizations directly to CasparCG" style="background: rgba(16, 185, 129, 0.25); border-color: rgba(16, 185, 129, 0.7); color: #34d399; font-weight: 700;">🚀 Deploy to CasparCG</button>
       </div>
     </aside>
 
@@ -5105,7 +5104,7 @@
 
       applyThemePreset('frosted');
       setLogoShape('squircle');
-      setRatingShape('circle');
+      setRatingShape('squircle');
       updateLogoFromControls();
       updateRatingFromControls();
     }
@@ -5723,21 +5722,34 @@
     }
 
     async function markActivePresetAsDefault() {
-      localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', currentMasterPresetId);
+      currentMasterPresetId = 'default';
+      window.currentMasterPresetId = 'default';
+      localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', 'default');
       const pkg = captureCurrentPresetPackage(null);
       pkg.id = 'default';
+      pkg.name = '🌟 Sitia HD Standard (Default)';
       MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], pkg);
       localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
 
       refreshMasterPresetDropdown();
-      recordAction('PRESET', `Marked "${currentMasterPresetId}" as startup default`);
+      const sel = document.getElementById('sel-master-preset');
+      if (sel) sel.value = 'default';
+      recordAction('PRESET', `Marked active customizations as startup default`);
 
       try {
-        await postToBridge('/api/save-default-preset', pkg);
-        showStudioToast('✓ Marked as default and synchronized with templates & CasparCG!');
+        const res = await postToBridge('/api/deploy', pkg);
+        if (res && res.success) {
+          showStudioToast('✓ Set as startup default and deployed to CasparCG!');
+          return;
+        }
       } catch (e) {
-        showStudioToast('✓ Saved as default in local storage! (Click 🚀 Deploy to push to CasparCG)');
+        try {
+          await postToBridge('/api/save-default-preset', pkg);
+          showStudioToast('✓ Marked as default and synchronized with templates!');
+          return;
+        } catch (_) {}
       }
+      showStudioToast('✓ Saved as default in local storage!');
     }
 
     async function saveCurrentActivePreset() {
@@ -5755,45 +5767,40 @@
           refreshMasterPresetDropdown();
           recordAction('PRESET', `Updated preset: "${pkg.name}"`);
         }
-      } else if (currentMasterPresetId === 'default') {
-        pkg.id = 'default';
+      } else {
+        const pid = currentMasterPresetId || 'default';
+        pkg.id = pid;
+        if (MASTER_STANDARD_PRESETS[pid]) {
+          pkg.name = MASTER_STANDARD_PRESETS[pid].name;
+          MASTER_STANDARD_PRESETS[pid] = Object.assign({}, MASTER_STANDARD_PRESETS[pid], pkg);
+          if (pid !== 'default') {
+            localStorage.setItem('PLAYOUT_STANDARD_PRESET_' + pid, JSON.stringify(pkg));
+          }
+        }
         MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], pkg);
         localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
-        recordAction('PRESET', `Updated Sitia HD Standard (Default) preset`);
-      } else if (currentMasterPresetId && MASTER_STANDARD_PRESETS[currentMasterPresetId]) {
-        pkg.id = currentMasterPresetId;
-        MASTER_STANDARD_PRESETS[currentMasterPresetId] = Object.assign({}, MASTER_STANDARD_PRESETS[currentMasterPresetId], pkg);
-        localStorage.setItem('PLAYOUT_STANDARD_PRESET_' + currentMasterPresetId, JSON.stringify(pkg));
-        recordAction('PRESET', `Updated broadcast preset: "${pkg.name}"`);
+        localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', pid);
+        recordAction('PRESET', `Updated "${pkg.name || 'Default'}" and saved as active default`);
       }
 
       // Automatically sync active preset with Playout backend and CasparCG
       try {
-        await postToBridge('/api/save-default-preset', pkg);
-        showStudioToast(`✓ Saved "${pkg.name}" and synchronized with templates & CasparCG!`);
-      } catch (e) {
-        showStudioToast(`✓ Saved "${pkg.name}" to local storage!`);
-      }
-    }
-
-    async function deployFromStudio() {
-      const pkg = captureCurrentPresetPackage(null);
-      localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', currentMasterPresetId);
-      localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
-
-      try {
         const res = await postToBridge('/api/deploy', pkg);
         if (res && res.success) {
-          recordAction('DEPLOY', `Deployed templates and preset "${pkg.name || currentMasterPresetId}" to CasparCG`);
-          showStudioToast('✓ Successfully deployed to CasparCG! Live graphics refreshed without server restart.');
+          showStudioToast(`✓ Overwrote settings and deployed to CasparCG!`);
           return;
         }
-      } catch (err) {
-        console.warn('Studio bridge deployment request failed:', err);
+      } catch (e) {
+        try {
+          await postToBridge('/api/save-default-preset', pkg);
+          showStudioToast(`✓ Overwrote settings and synchronized with templates!`);
+          return;
+        } catch (_) {}
       }
-
-      showStudioToast('✓ Preset captured! Open PlayOutVue Settings and click "Deploy CG Templates to CasparCG".');
+      showStudioToast(`✓ Saved "${pkg.name || 'Default'}" to local storage!`);
     }
+
+    const deployFromStudio = saveCurrentActivePreset;
 
     function deleteActiveMasterPreset() {
       if (!currentMasterPresetId || !String(currentMasterPresetId).startsWith('preset_')) return;
