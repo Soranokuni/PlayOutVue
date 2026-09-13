@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { ask, message, open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore, DEFAULT_CG_ADVISORY_CONFIG, type CgAdvisoryTemplateConfig } from '../stores/settings';
 import CasparConfigModal from './CasparConfigModal.vue';
 import DeckLinkWizard from './DeckLinkWizard.vue';
@@ -46,13 +46,53 @@ const detectedCasparDir = computed(() => {
     return norm.replace(/\/$/, '');
 });
 
+const effectiveCasparConfigPath = computed(() => {
+    if (localState.value.casparConfigPath?.trim()) {
+        return localState.value.casparConfigPath.trim();
+    }
+    if (settings.casparConfigPath?.trim()) {
+        return settings.casparConfigPath.trim();
+    }
+    if (detectedCasparDir.value) {
+        return `${detectedCasparDir.value}/${localState.value.casparcgConfigFilename || 'casparcg.config'}`;
+    }
+    return '';
+});
+
 const syncCasparDerivedPaths = (path: string) => {
     if (!path || !path.trim()) return;
     const norm = path.replace(/\\/g, '/').trim();
     const dir = norm.toLowerCase().endsWith('.exe') ? norm.substring(0, norm.lastIndexOf('/')) : norm.replace(/\/$/, '');
     if (dir) {
-        localState.value.casparConfigPath = `${dir}/${localState.value.casparcgConfigFilename || 'casparcg.config'}`;
-        localState.value.localMediaPath = `${dir}/media`;
+        if (!localState.value.casparConfigPath || localState.value.casparConfigPath.includes('casparcg.config')) {
+            localState.value.casparConfigPath = `${dir}/${localState.value.casparcgConfigFilename || 'casparcg.config'}`;
+        }
+        if (!localState.value.localMediaPath) {
+            localState.value.localMediaPath = `${dir}/media`;
+        }
+    }
+};
+
+const onCasparConfigPathUpdate = (newPath: string) => {
+    if (newPath) {
+        localState.value.casparConfigPath = newPath;
+        settings.updateSettings({ casparConfigPath: newPath });
+    }
+};
+
+const onDecklinkWizardClose = () => {
+    showDecklinkWizard.value = false;
+    if (settings.casparConfigPath) {
+        localState.value.casparConfigPath = settings.casparConfigPath;
+    }
+    if (settings.localMediaPath) {
+        localState.value.localMediaPath = settings.localMediaPath;
+    }
+    if (settings.casparcgExecutablePath && !localState.value.casparcgExecutablePath) {
+        localState.value.casparcgExecutablePath = settings.casparcgExecutablePath;
+    }
+    if (settings.playoutProfile) {
+        localState.value.playoutProfile = settings.playoutProfile;
     }
 };
 
@@ -168,10 +208,16 @@ const deployTemplatesFromSettings = async () => {
         // Auto-refresh Layer 32 so changes take effect immediately with latest preset styling
         await getActivePlayoutService().reloadComplianceTemplate?.();
 
-        alert(`Broadcast CG Templates deployed successfully!\n\nTarget Directory:\n${res.template_dir}\n\nFiles Deployed:\n• ${res.deployed.join('\n• ')}\n\n(On-air graphics have been refreshed automatically without server restart)`);
+        await message(`Broadcast CG Templates deployed successfully!\n\nTarget Directory:\n${res.template_dir}\n\nFiles Deployed:\n• ${res.deployed.join('\n• ')}\n\n(On-air graphics have been refreshed automatically without server restart)`, {
+            title: 'Broadcast CG Studio',
+            kind: 'info'
+        });
     } catch (e: any) {
         console.error('Failed to deploy templates:', e);
-        alert(`Failed to deploy templates: ${e}`);
+        await message(`Failed to deploy templates: ${e}`, {
+            title: 'Template Deployment Error',
+            kind: 'error'
+        });
     } finally {
         isDeployingTemplates.value = false;
     }
@@ -240,6 +286,14 @@ const mapLocalState = () => {
             ...(settings.cgAdvisoryConfig || {})
         }
     };
+
+    if (!localState.value.casparConfigPath) {
+        if (settings.casparConfigPath) {
+            localState.value.casparConfigPath = settings.casparConfigPath;
+        } else if (localState.value.casparcgExecutablePath) {
+            syncCasparDerivedPaths(localState.value.casparcgExecutablePath);
+        }
+    }
 };
 
 const validateCasparExe = async (path: string) => {
@@ -260,6 +314,7 @@ const validateCasparExe = async (path: string) => {
 const onExecutableInput = (e: Event) => {
     const val = (e.target as HTMLInputElement).value;
     validateCasparExe(val);
+    syncCasparDerivedPaths(val);
 };
 
 const handleStartServerFromSettings = async () => {
@@ -267,30 +322,45 @@ const handleStartServerFromSettings = async () => {
         await startCasparServer();
         await getActivePlayoutService().connect().catch(() => {});
     } catch (e) {
-        alert(`Failed to start CasparCG server: ${e}`);
+        await message(`Failed to start CasparCG server: ${e}`, {
+            title: 'CasparCG Server Error',
+            kind: 'error'
+        });
     }
 };
 
 const handleStopServerFromSettings = async () => {
-    const confirmed = confirm("Are you sure you want to stop the CasparCG server? Any active on-air playback will be halted.");
+    const confirmed = await ask("Are you sure you want to stop the CasparCG server? Any active on-air playback will be halted.", {
+        title: 'Stop CasparCG Server',
+        kind: 'warning'
+    });
     if (!confirmed) return;
     try {
         await getActivePlayoutService().disconnect().catch(() => {});
         await stopCasparServer(true);
     } catch (e) {
-        alert(`Failed to stop CasparCG server: ${e}`);
+        await message(`Failed to stop CasparCG server: ${e}`, {
+            title: 'CasparCG Server Error',
+            kind: 'error'
+        });
     }
 };
 
 const handleRestartServerFromSettings = async () => {
-    const confirmed = confirm("Restart CasparCG server? On-air playback will momentarily restart.");
+    const confirmed = await ask("Restart CasparCG server? On-air playback will momentarily restart.", {
+        title: 'Restart CasparCG Server',
+        kind: 'warning'
+    });
     if (!confirmed) return;
     try {
         await restartCasparServer();
         const service = getActivePlayoutService();
         await service.connect().catch((err) => console.warn('[Settings] Connect after restart:', err));
     } catch (e) {
-        alert(`Failed to restart CasparCG server: ${e}`);
+        await message(`Failed to restart CasparCG server: ${e}`, {
+            title: 'CasparCG Server Error',
+            kind: 'error'
+        });
     }
 };
 
@@ -390,13 +460,22 @@ const discardAndClose = () => {
 };
 
 const emptyBinFromSettings = async () => {
-    const confirmed = confirm("Are you sure you want to permanently purge all items from the Recycle Bin? This will delete all physical mezzanine files on disk and all database records for soft-deleted assets.");
+    const confirmed = await ask("Are you sure you want to permanently purge all items from the Recycle Bin? This will delete all physical mezzanine files on disk and all database records for soft-deleted assets.", {
+        title: 'Empty Recycle Bin',
+        kind: 'warning'
+    });
     if (!confirmed) return;
     try {
         await invoke('purge_ingestor_recycle_bin', { apiBaseUrlOverride: null });
-        alert("Recycle Bin successfully emptied.");
+        await message("Recycle Bin successfully emptied.", {
+            title: 'Recycle Bin',
+            kind: 'info'
+        });
     } catch (e) {
-        alert(`Failed to empty Recycle Bin: ${e}`);
+        await message(`Failed to empty Recycle Bin: ${e}`, {
+            title: 'Recycle Bin Error',
+            kind: 'error'
+        });
     }
 };
 
@@ -471,6 +550,7 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     else if (target === 'caspar-exe') {
         localState.value.casparcgExecutablePath = selection;
         validateCasparExe(selection);
+        syncCasparDerivedPaths(selection);
     }
     else if (target === 'cg-advisory-template') {
         // If file is selected, simplify relative path if inside a template directory
@@ -501,7 +581,10 @@ const openTemplateDir = async () => {
         });
         console.info('[Settings] Opened template directory:', path);
     } catch (e) {
-        alert(`Failed to open directory: ${e}`);
+        await message(`Failed to open directory: ${e}`, {
+            title: 'Open Directory Error',
+            kind: 'error'
+        });
     }
 };
 </script>
@@ -1179,15 +1262,16 @@ const openTemplateDir = async () => {
     <CasparConfigModal
       v-if="showCasparConfigurator"
       :is-open="showCasparConfigurator"
-      :initial-path="localState.casparConfigPath"
+      :initial-path="effectiveCasparConfigPath"
+      @update:path="onCasparConfigPathUpdate"
       @close="showCasparConfigurator = false"
     />
 
     <DeckLinkWizard
       v-if="showDecklinkWizard"
       :is-open="showDecklinkWizard"
-      :initial-path="localState.casparConfigPath"
-      @close="showDecklinkWizard = false"
+      :initial-path="effectiveCasparConfigPath"
+      @close="onDecklinkWizardClose"
     />
   </Teleport>
 </template>

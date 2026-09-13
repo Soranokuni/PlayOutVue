@@ -104,7 +104,7 @@ watch(() => props.isOpen, (openState) => {
   initialize().catch((error) => {
     errorMessage.value = formatError(error, 'Failed to load CasparCG configuration');
   });
-});
+}, { immediate: true });
 
 function createDefaultScreen(): ScreenConsumer {
   return {
@@ -154,14 +154,32 @@ function createDefaultChannel(): ChannelConfig {
   };
 }
 
+function getField(obj: any, ...keys: string[]) {
+  if (!obj || typeof obj !== 'object') return undefined;
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+  }
+  return undefined;
+}
+
+function ensureArray<T = any>(val: any): T[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  return [val];
+}
+
 function createDefaultConfig(): StructuredConfig {
+  const defaultDir = configPath.value
+    ? configPath.value.replace(/\\/g, '/').replace(/\/[^/]+$/, '')
+    : 'C:/CasparCG';
+
   return {
     logLevel: 'info',
     logAlignColumns: true,
     lockClearPhrase: 'secret',
-    mediaPath: 'C:/CasparCG/Media',
+    mediaPath: `${defaultDir}/media`,
     logPath: 'log/',
-    dataPath: 'C:/CasparCG/Data',
+    dataPath: `${defaultDir}/data`,
     templatePath: 'template/',
     fontPath: 'font/',
     controllerPort: 5250,
@@ -175,63 +193,84 @@ function createDefaultConfig(): StructuredConfig {
 }
 
 function toStructuredConfig(config: any): StructuredConfig {
-  const channels = Array.isArray(config?.channels?.channels) && config.channels.channels.length
-    ? config.channels.channels.map((channel: any) => ({
-        videoMode: channel?.video_mode || '1080i5000',
-        screens: Array.isArray(channel?.consumers?.screens) && channel.consumers.screens.length
-          ? channel.consumers.screens.map((screen: any) => ({
-              device: Number(screen?.device ?? 1),
-              aspectRatio: screen?.aspect_ratio || 'default',
-              stretch: screen?.stretch || 'fill',
-              windowed: screen?.windowed ?? true,
-              keyOnly: screen?.key_only ?? false,
-              vsync: screen?.vsync ?? false,
-              borderless: screen?.borderless ?? false,
-              interactive: screen?.interactive ?? true,
-              alwaysOnTop: screen?.always_on_top ?? false,
-              x: Number(screen?.x ?? 0),
-              y: Number(screen?.y ?? 0),
-              width: Number(screen?.width ?? 0),
-              height: Number(screen?.height ?? 0),
-              sbsKey: screen?.sbs_key ?? false,
-              colourSpace: screen?.colour_space || 'RGB'
-            }))
-          : [],
-        systemAudio: Array.isArray(channel?.consumers?.system_audio) && channel.consumers.system_audio.length
-          ? channel.consumers.system_audio.map((audio: any) => ({
-              channelLayout: audio?.channel_layout || 'stereo',
-              latency: Number(audio?.latency ?? 200)
-            }))
-          : [],
-        decklinks: Array.isArray(channel?.consumers?.decklinks) && channel.consumers.decklinks.length
-          ? channel.consumers.decklinks.map((decklink: any) => ({
-              device: Number(decklink?.device ?? 1),
-              keyDevice: decklink?.key_device ?? null,
-              embeddedAudio: decklink?.embedded_audio ?? false,
-              latency: decklink?.latency || 'normal',
-              keyer: decklink?.keyer || 'external',
-              keyOnly: decklink?.key_only ?? false,
-              bufferDepth: Number(decklink?.buffer_depth ?? 3)
-            }))
-          : []
-      }))
+  const defaultDir = configPath.value
+    ? configPath.value.replace(/\\/g, '/').replace(/\/[^/]+$/, '')
+    : 'C:/CasparCG';
+
+  const channelsContainer = config?.channels;
+  const rawChannels = ensureArray(
+    getField(channelsContainer, 'channel', 'channels') ?? channelsContainer
+  );
+
+  const channels: ChannelConfig[] = rawChannels.length
+    ? rawChannels.map((channel: any) => {
+        const consumers = channel?.consumers || {};
+        const rawScreens = ensureArray(
+          getField(consumers, 'screen', 'screens')
+        );
+        const rawAudio = ensureArray(
+          getField(consumers, 'system-audio', 'system_audio', 'systemAudio')
+        );
+        const rawDecklinks = ensureArray(
+          getField(consumers, 'decklink', 'decklinks')
+        );
+
+        return {
+          videoMode: getField(channel, 'video-mode', 'video_mode', 'videoMode') || '1080i5000',
+          screens: rawScreens.map((screen: any) => ({
+            device: Number(getField(screen, 'device') ?? 1),
+            aspectRatio: getField(screen, 'aspect-ratio', 'aspect_ratio', 'aspectRatio') || 'default',
+            stretch: getField(screen, 'stretch') || 'fill',
+            windowed: getField(screen, 'windowed') ?? true,
+            keyOnly: getField(screen, 'key-only', 'key_only', 'keyOnly') ?? false,
+            vsync: getField(screen, 'vsync') ?? false,
+            borderless: getField(screen, 'borderless') ?? false,
+            interactive: getField(screen, 'interactive') ?? true,
+            alwaysOnTop: getField(screen, 'always-on-top', 'always_on_top', 'alwaysOnTop') ?? false,
+            x: Number(getField(screen, 'x') ?? 0),
+            y: Number(getField(screen, 'y') ?? 0),
+            width: Number(getField(screen, 'width') ?? 0),
+            height: Number(getField(screen, 'height') ?? 0),
+            sbsKey: getField(screen, 'sbs-key', 'sbs_key', 'sbsKey') ?? false,
+            colourSpace: getField(screen, 'colour-space', 'colour_space', 'colourSpace') || 'RGB'
+          })),
+          systemAudio: rawAudio.map((audio: any) => ({
+            channelLayout: getField(audio, 'channel-layout', 'channel_layout', 'channelLayout') || 'stereo',
+            latency: Number(getField(audio, 'latency') ?? 200)
+          })),
+          decklinks: rawDecklinks.map((decklink: any) => ({
+            device: Number(getField(decklink, 'device') ?? 1),
+            keyDevice: getField(decklink, 'key-device', 'key_device', 'keyDevice') ?? null,
+            embeddedAudio: getField(decklink, 'embedded-audio', 'embedded_audio', 'embeddedAudio') ?? false,
+            latency: getField(decklink, 'latency') || 'normal',
+            keyer: getField(decklink, 'keyer') || 'external',
+            keyOnly: getField(decklink, 'key-only', 'key_only', 'keyOnly') ?? false,
+            bufferDepth: Number(getField(decklink, 'buffer-depth', 'buffer_depth', 'bufferDepth') ?? 3)
+          }))
+        };
+      })
     : [createDefaultChannel()];
 
+  const paths = config?.paths || {};
+  const tcpList = ensureArray(getField(config?.controllers, 'tcp'));
+  const firstTcp = tcpList[0] || {};
+  const amcpMediaServer = getField(config?.amcp, 'media-server', 'media_server', 'mediaServer');
+
   return {
-    logLevel: config?.log_level || 'info',
-    logAlignColumns: config?.log_align_columns ?? true,
-    lockClearPhrase: config?.lock_clear_phrase || 'secret',
-    mediaPath: config?.paths?.media_path || 'C:/CasparCG/Media',
-    logPath: config?.paths?.log_path || 'log/',
-    dataPath: config?.paths?.data_path || 'C:/CasparCG/Data',
-    templatePath: config?.paths?.template_path || 'template/',
-    fontPath: config?.paths?.font_path || 'font/',
-    controllerPort: Number(config?.controllers?.tcp?.[0]?.port ?? 5250),
-    controllerProtocol: config?.controllers?.tcp?.[0]?.protocol || 'AMCP',
-    mediaServerHost: config?.amcp?.media_server?.host || 'localhost',
-    mediaServerPort: Number(config?.amcp?.media_server?.port ?? 8000),
-    oscDefaultPort: Number(config?.osc?.default_port ?? 6250),
-    oscDisableSendToAmcpClients: config?.osc?.disable_send_to_amcp_clients ?? false,
+    logLevel: getField(config, 'log-level', 'log_level', 'logLevel') || 'info',
+    logAlignColumns: getField(config, 'log-align-columns', 'log_align_columns', 'logAlignColumns') ?? true,
+    lockClearPhrase: getField(config, 'lock-clear-phrase', 'lock_clear_phrase', 'lockClearPhrase') || 'secret',
+    mediaPath: getField(paths, 'media-path', 'media_path', 'mediaPath') || `${defaultDir}/media`,
+    logPath: getField(paths, 'log-path', 'log_path', 'logPath') || 'log/',
+    dataPath: getField(paths, 'data-path', 'data_path', 'dataPath') || `${defaultDir}/data`,
+    templatePath: getField(paths, 'template-path', 'template_path', 'templatePath') || 'template/',
+    fontPath: getField(paths, 'font-path', 'font_path', 'fontPath') || 'font/',
+    controllerPort: Number(getField(firstTcp, 'port') ?? 5250),
+    controllerProtocol: getField(firstTcp, 'protocol') || 'AMCP',
+    mediaServerHost: getField(amcpMediaServer, 'host') || 'localhost',
+    mediaServerPort: Number(getField(amcpMediaServer, 'port') ?? 8000),
+    oscDefaultPort: Number(getField(config?.osc, 'default-port', 'default_port', 'defaultPort') ?? 6250),
+    oscDisableSendToAmcpClients: getField(config?.osc, 'disable-send-to-amcp-clients', 'disable_send_to_amcp_clients', 'disableSendToAmcpClients') ?? false,
     channels
   };
 }
@@ -240,48 +279,64 @@ function toStructuredPayload(config: StructuredConfig) {
   const textOrUndefined = (value: string) => value.trim() || undefined;
 
   return {
-    log_level: textOrUndefined(config.logLevel),
-    log_align_columns: config.logAlignColumns,
-    lock_clear_phrase: textOrUndefined(config.lockClearPhrase),
+    'log-level': textOrUndefined(config.logLevel),
+    'log-align-columns': config.logAlignColumns,
+    'lock-clear-phrase': textOrUndefined(config.lockClearPhrase),
     paths: {
+      'media-path': textOrUndefined(config.mediaPath),
+      'log-path': textOrUndefined(config.logPath),
+      'data-path': textOrUndefined(config.dataPath),
+      'template-path': textOrUndefined(config.templatePath),
+      'font-path': textOrUndefined(config.fontPath),
       media_path: textOrUndefined(config.mediaPath),
       log_path: textOrUndefined(config.logPath),
       data_path: textOrUndefined(config.dataPath),
       template_path: textOrUndefined(config.templatePath),
-      font_path: textOrUndefined(config.fontPath)
+      font_path: textOrUndefined(config.fontPath),
     },
     channels: {
-      channels: config.channels.map((channel) => ({
+      channel: config.channels.map((channel) => ({
+        'video-mode': textOrUndefined(channel.videoMode),
         video_mode: textOrUndefined(channel.videoMode),
         consumers: {
-          screens: channel.screens.map((screen) => ({
+          screen: channel.screens.map((screen) => ({
             device: screen.device,
+            'aspect-ratio': screen.aspectRatio,
             aspect_ratio: screen.aspectRatio,
             stretch: screen.stretch,
             windowed: screen.windowed,
+            'key-only': screen.keyOnly,
             key_only: screen.keyOnly,
             vsync: screen.vsync,
             borderless: screen.borderless,
             interactive: screen.interactive,
+            'always-on-top': screen.alwaysOnTop,
             always_on_top: screen.alwaysOnTop,
             x: screen.x,
             y: screen.y,
             width: screen.width,
             height: screen.height,
+            'sbs-key': screen.sbsKey,
             sbs_key: screen.sbsKey,
+            'colour-space': screen.colourSpace,
             colour_space: screen.colourSpace
           })),
-          system_audio: channel.systemAudio.map((audio) => ({
+          'system-audio': channel.systemAudio.map((audio) => ({
+            'channel-layout': audio.channelLayout,
             channel_layout: audio.channelLayout,
             latency: audio.latency
           })),
-          decklinks: channel.decklinks.map((decklink) => ({
+          decklink: channel.decklinks.map((decklink) => ({
             device: decklink.device,
+            'key-device': decklink.keyDevice ?? undefined,
             key_device: decklink.keyDevice ?? undefined,
+            'embedded-audio': decklink.embeddedAudio,
             embedded_audio: decklink.embeddedAudio,
             latency: decklink.latency,
             keyer: decklink.keyer,
+            'key-only': decklink.keyOnly,
             key_only: decklink.keyOnly,
+            'buffer-depth': decklink.bufferDepth,
             buffer_depth: decklink.bufferDepth
           }))
         }
@@ -294,13 +349,19 @@ function toStructuredPayload(config: StructuredConfig) {
       }]
     },
     amcp: {
+      'media-server': {
+        host: textOrUndefined(config.mediaServerHost),
+        port: config.mediaServerPort
+      },
       media_server: {
         host: textOrUndefined(config.mediaServerHost),
         port: config.mediaServerPort
       }
     },
     osc: {
+      'default-port': config.oscDefaultPort,
       default_port: config.oscDefaultPort,
+      'disable-send-to-amcp-clients': config.oscDisableSendToAmcpClients,
       disable_send_to_amcp_clients: config.oscDisableSendToAmcpClients
     }
   };
