@@ -261,6 +261,130 @@ impl JobObjectGuard {
 }
 
 // ---------------------------------------------------------------------------
+// Process Scanning & External Process Control
+// ---------------------------------------------------------------------------
+
+#[cfg(windows)]
+pub fn find_caspar_process_pid() -> Option<u32> {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return None;
+        }
+
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                let name = String::from_utf16_lossy(&entry.szExeFile);
+                let clean_name = name.trim_matches('\0').to_lowercase();
+                if clean_name == "casparcg.exe" {
+                    let pid = entry.th32ProcessID;
+                    CloseHandle(snapshot);
+                    return Some(pid);
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+
+        CloseHandle(snapshot);
+        None
+    }
+}
+
+#[cfg(not(windows))]
+pub fn find_caspar_process_pid() -> Option<u32> {
+    None
+}
+
+#[cfg(windows)]
+pub fn terminate_process_by_pid(pid: u32) -> bool {
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+    use windows_sys::Win32::Foundation::CloseHandle;
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if !handle.is_null() {
+            let ok = TerminateProcess(handle, 1);
+            CloseHandle(handle);
+            if ok != 0 {
+                return true;
+            }
+        }
+        let output = std::process::Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .output();
+        output.map(|o| o.status.success()).unwrap_or(false)
+    }
+}
+
+#[cfg(not(windows))]
+pub fn terminate_process_by_pid(_pid: u32) -> bool {
+    true
+}
+
+#[cfg(windows)]
+pub fn is_process_alive_by_pid(pid: u32) -> bool {
+    use windows_sys::Win32::System::Threading::{OpenProcess, GetExitCodeProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows_sys::Win32::Foundation::CloseHandle;
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return false;
+        }
+        let mut exit_code: u32 = 0;
+        let ok = GetExitCodeProcess(handle, &mut exit_code);
+        CloseHandle(handle);
+        if ok == 0 {
+            return false;
+        }
+        // STILL_ACTIVE = 259
+        exit_code == 259
+    }
+}
+
+#[cfg(not(windows))]
+pub fn is_process_alive_by_pid(_pid: u32) -> bool {
+    true
+}
+
+#[cfg(windows)]
+pub fn get_process_exit_code(pid: u32) -> Option<i32> {
+    use windows_sys::Win32::System::Threading::{OpenProcess, GetExitCodeProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows_sys::Win32::Foundation::CloseHandle;
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return None;
+        }
+        let mut exit_code: u32 = 0;
+        let ok = GetExitCodeProcess(handle, &mut exit_code);
+        CloseHandle(handle);
+        if ok != 0 && exit_code != 259 {
+            Some(exit_code as i32)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn get_process_exit_code(_pid: u32) -> Option<i32> {
+    None
+}
+
+// ---------------------------------------------------------------------------
 // Path & CWD Resolution
 // ---------------------------------------------------------------------------
 
@@ -369,6 +493,7 @@ struct SupervisorInner {
     circuit_breaker_tripped: bool,
     #[allow(dead_code)]
     job_guard: Option<JobObjectGuard>,
+    adopted_watchdog: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -394,6 +519,7 @@ impl CasparProcessSupervisor {
                 expected_stop: false,
                 circuit_breaker_tripped: false,
                 job_guard: None,
+                adopted_watchdog: None,
             })),
             crash_history: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
         }
@@ -412,19 +538,30 @@ impl CasparProcessSupervisor {
         let resolved = resolve_caspar_executable(&settings.casparcg_executable_path);
         let port = self.amcp_port;
         let port_open = is_port_listening(port).await;
+        let detected_pid = find_caspar_process_pid();
 
         let mut inner = self.inner.lock().await;
 
         // Dynamically reconcile state
-        if resolved.is_none() && !port_open {
+        if resolved.is_none() && !port_open && detected_pid.is_none() {
             inner.state = CasparProcessState::Unconfigured;
         } else if inner.child.is_none() {
-            if port_open {
-                inner.state = CasparProcessState::ExternalRunning;
+            if port_open || detected_pid.is_some() {
+                if inner.pid.is_none() {
+                    inner.pid = detected_pid;
+                }
+                if port_open {
+                    inner.state = CasparProcessState::Operational;
+                } else if inner.state != CasparProcessState::Crashed
+                    && inner.state != CasparProcessState::Starting
+                {
+                    inner.state = CasparProcessState::Starting;
+                }
             } else if inner.state != CasparProcessState::Crashed
                 && inner.state != CasparProcessState::Starting
             {
                 inner.state = CasparProcessState::Stopped;
+                inner.pid = None;
             }
         }
 
@@ -463,6 +600,35 @@ impl CasparProcessSupervisor {
         })
     }
 
+    async fn ensure_adopted_watchdog<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        settings: &RuntimeSettings,
+        port: u16,
+        pid: Option<u32>,
+    ) {
+        let mut inner = self.inner.lock().await;
+        if inner.child.is_some() {
+            return;
+        }
+        if inner.adopted_watchdog.is_some() && inner.pid == pid && pid.is_some() {
+            return;
+        }
+        if let Some(w) = inner.adopted_watchdog.take() {
+            w.abort();
+        }
+
+        let supervisor_clone = self.clone();
+        let app_clone = app.clone();
+        let settings_clone = settings.clone();
+
+        let handle = tauri::async_runtime::spawn(async move {
+            run_adopted_process_watchdog(supervisor_clone, app_clone, settings_clone, port, pid).await;
+        });
+
+        inner.adopted_watchdog = Some(handle);
+    }
+
     async fn start_internal<R: Runtime>(
         &self,
         app: &AppHandle<R>,
@@ -480,15 +646,32 @@ impl CasparProcessSupervisor {
         }
 
         let port = self.amcp_port;
+        let port_open = is_port_listening(port).await;
+        let detected_pid = find_caspar_process_pid();
 
-        // Check if port is already listening before checking local executable
-        if is_port_listening(port).await {
+        // If port is listening or process is already running, adopt it seamlessly
+        if port_open || detected_pid.is_some() {
+            let pid = detected_pid;
             {
                 let mut inner = self.inner.lock().await;
-                inner.state = CasparProcessState::ExternalRunning;
+                inner.state = if port_open {
+                    CasparProcessState::Operational
+                } else {
+                    CasparProcessState::Starting
+                };
+                inner.pid = pid;
                 inner.last_error = None;
             }
             emit_state_change(app, self, settings).await;
+
+            crate::diagnostics::push_caspar_process_log(
+                "INFO",
+                &format!("Adopted active CasparCG instance (PID: {:?}, Port 5250 open: {})", pid, port_open),
+            );
+
+            // Spawn adopted watchdog to monitor process health and crashes
+            self.ensure_adopted_watchdog(app, settings, port, pid).await;
+
             return Ok(());
         }
 
@@ -576,6 +759,9 @@ impl CasparProcessSupervisor {
             inner.last_error = None;
             inner.expected_stop = false;
             inner.job_guard = job_guard;
+            if let Some(w) = inner.adopted_watchdog.take() {
+                w.abort();
+            }
         }
 
         emit_state_change(app, self, settings).await;
@@ -606,12 +792,17 @@ impl CasparProcessSupervisor {
             let mut inner = self.inner.lock().await;
             inner.expected_stop = true;
             inner.circuit_breaker_tripped = false;
+            if let Some(w) = inner.adopted_watchdog.take() {
+                w.abort();
+            }
         }
 
-        let child = {
+        let (child, adopted_pid) = {
             let mut inner = self.inner.lock().await;
-            inner.child.take()
+            (inner.child.take(), inner.pid.take())
         };
+
+        let pid_to_terminate = adopted_pid.or_else(find_caspar_process_pid);
 
         if let Some(mut c) = child {
             if !force {
@@ -625,6 +816,12 @@ impl CasparProcessSupervisor {
             } else {
                 let _ = c.kill().await;
             }
+        } else if let Some(pid) = pid_to_terminate {
+            crate::diagnostics::push_caspar_process_log(
+                "INFO",
+                &format!("Terminating CasparCG instance (PID: {})...", pid),
+            );
+            terminate_process_by_pid(pid);
         }
 
         // If force is requested or if port is still listening, terminate CasparCG
@@ -643,6 +840,9 @@ impl CasparProcessSupervisor {
             #[cfg(windows)]
             {
                 if force || is_port_listening(port).await {
+                    if let Some(pid) = pid_to_terminate {
+                        terminate_process_by_pid(pid);
+                    }
                     let _ = std::process::Command::new("taskkill")
                         .args(["/F", "/IM", "casparcg.exe"])
                         .output();
@@ -654,6 +854,14 @@ impl CasparProcessSupervisor {
         let start_wait = Instant::now();
         while is_port_listening(port).await && start_wait.elapsed() < Duration::from_secs(3) {
             tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+
+        // Wait up to 3 seconds for process to actually exit if PID is known
+        if let Some(pid) = pid_to_terminate {
+            let start_wait_proc = Instant::now();
+            while is_process_alive_by_pid(pid) && start_wait_proc.elapsed() < Duration::from_secs(3) {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
         }
 
         {
@@ -675,9 +883,66 @@ impl CasparProcessSupervisor {
         settings: &RuntimeSettings,
     ) -> Result<(), String> {
         self.stop(app, settings, true).await?;
-        tokio::time::sleep(Duration::from_millis(1500)).await;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
         self.crash_history.lock().clear();
         self.start(app, settings).await
+    }
+}
+
+async fn run_adopted_process_watchdog<R: Runtime>(
+    supervisor: CasparProcessSupervisor,
+    app: AppHandle<R>,
+    settings: RuntimeSettings,
+    port: u16,
+    pid: Option<u32>,
+) {
+    let mut healthy_seconds = 0u32;
+    loop {
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        healthy_seconds += 1;
+        if healthy_seconds == 60 {
+            supervisor.crash_history.lock().clear();
+        }
+
+        let (expected_stop, has_child) = {
+            let inner = supervisor.inner.lock().await;
+            (inner.expected_stop, inner.child.is_some())
+        };
+
+        if expected_stop || has_child {
+            return;
+        }
+
+        let is_alive = if let Some(p) = pid {
+            is_process_alive_by_pid(p)
+        } else {
+            is_port_listening(port).await
+        };
+
+        if !is_alive {
+            let exit_code = if let Some(p) = pid {
+                get_process_exit_code(p).unwrap_or(-1)
+            } else {
+                -1
+            };
+
+            let was_expected = {
+                let mut inner = supervisor.inner.lock().await;
+                inner.pid = None;
+                inner.exit_code = Some(exit_code);
+                inner.expected_stop
+            };
+
+            if !was_expected {
+                handle_crash(&supervisor, &app, exit_code, &settings).await;
+            } else {
+                let mut inner = supervisor.inner.lock().await;
+                inner.state = CasparProcessState::Stopped;
+                drop(inner);
+                emit_state_change(&app, &supervisor, &settings).await;
+            }
+            return;
+        }
     }
 }
 
@@ -924,11 +1189,49 @@ async fn emit_state_change<R: Runtime>(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub async fn caspar_process_get_status(
+pub async fn caspar_process_get_status<R: Runtime>(
+    app: AppHandle<R>,
     supervisor: State<'_, CasparProcessSupervisor>,
     settings_state: State<'_, RuntimeSettingsState>,
 ) -> Result<CasparProcessStatus, String> {
     let settings = settings_state.snapshot();
+    let port = supervisor.amcp_port;
+    let port_open = is_port_listening(port).await;
+    let detected_pid = find_caspar_process_pid();
+    if (port_open || detected_pid.is_some()) && supervisor.is_primary() {
+        supervisor.ensure_adopted_watchdog(&app, &settings, port, detected_pid).await;
+    }
+    Ok(supervisor.get_status(&settings).await)
+}
+
+#[tauri::command]
+pub async fn caspar_process_adopt<R: Runtime>(
+    app: AppHandle<R>,
+    supervisor: State<'_, CasparProcessSupervisor>,
+    settings_state: State<'_, RuntimeSettingsState>,
+) -> Result<CasparProcessStatus, String> {
+    let settings = settings_state.snapshot();
+    let port = supervisor.amcp_port;
+    let port_open = is_port_listening(port).await;
+    let detected_pid = find_caspar_process_pid();
+    if port_open || detected_pid.is_some() {
+        {
+            let mut inner = supervisor.inner.lock().await;
+            if inner.child.is_none() {
+                inner.pid = detected_pid;
+                inner.state = if port_open {
+                    CasparProcessState::Operational
+                } else {
+                    CasparProcessState::Starting
+                };
+                inner.last_error = None;
+            }
+        }
+        if supervisor.is_primary() {
+            supervisor.ensure_adopted_watchdog(&app, &settings, port, detected_pid).await;
+        }
+        emit_state_change(&app, &supervisor, &settings).await;
+    }
     Ok(supervisor.get_status(&settings).await)
 }
 

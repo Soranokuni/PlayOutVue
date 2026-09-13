@@ -22,7 +22,7 @@ use studio_server::{save_studio_default_preset, get_studio_default_preset};
 use caspar::{caspar_send_command, configure_caspar_osc_listener, prepare_caspar_media_path, CasparOscListenerState, caspar_cg_add, caspar_cg_update, caspar_cg_play, caspar_cg_stop, caspar_play_image, caspar_clear_layer, caspar_register_playback, caspar_clear_playback, caspar_clear_playback_if_uuid, caspar_set_playback_paused, CasparPlaybackState};
 use amcp::AmcpClient;
 use caspar_process::{
-    caspar_process_check_port, caspar_process_get_status, caspar_process_restart,
+    caspar_process_adopt, caspar_process_check_port, caspar_process_get_status, caspar_process_restart,
     caspar_process_start, caspar_process_stop, caspar_process_validate_path,
     CasparProcessSupervisor, DEFAULT_AMCP_PORT,
 };
@@ -184,6 +184,7 @@ pub fn run() {
             auto_purge_ingestor_recycle_bin,
             verify_playback_ready,
             caspar_process_get_status,
+            caspar_process_adopt,
             caspar_process_start,
             caspar_process_stop,
             caspar_process_restart,

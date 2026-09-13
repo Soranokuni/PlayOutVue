@@ -287,6 +287,8 @@ const handleRestartServerFromSettings = async () => {
     if (!confirmed) return;
     try {
         await restartCasparServer();
+        const service = getActivePlayoutService();
+        await service.connect().catch((err) => console.warn('[Settings] Connect after restart:', err));
     } catch (e) {
         alert(`Failed to restart CasparCG server: ${e}`);
     }
@@ -950,7 +952,7 @@ const openTemplateDir = async () => {
                   <div style="display: flex; gap: 10px; margin-top: 14px; align-items: center;">
                       <button
                           class="glass-btn btn-primary"
-                          :disabled="!isPrimaryInstance || isStarting || processState === 'starting' || processState === 'operational'"
+                          :disabled="!isPrimaryInstance || isStarting || processState === 'starting' || processState === 'operational' || processState === 'external_running'"
                           @click="handleStartServerFromSettings"
                       >
                           {{ isStarting ? '⏳ Starting...' : '▶ Start Server' }}
@@ -965,7 +967,7 @@ const openTemplateDir = async () => {
                       </button>
                       <button
                           class="glass-btn"
-                          :disabled="!isPrimaryInstance || isStarting || processState === 'stopped' || processState === 'unconfigured'"
+                          :disabled="!isPrimaryInstance || isStarting || isStopping || processState === 'stopped' || processState === 'unconfigured'"
                           @click="handleRestartServerFromSettings"
                       >
                           🔄 Restart Server

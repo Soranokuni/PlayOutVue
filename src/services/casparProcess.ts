@@ -119,6 +119,23 @@ export async function restartCasparServer(): Promise<void> {
   }
 }
 
+/**
+ * Explicitly adopt an external or already-running CasparCG instance.
+ */
+export async function adoptCasparServer(): Promise<CasparProcessStatus | null> {
+  try {
+    const status = await invoke<CasparProcessStatus>('caspar_process_adopt');
+    processStatus.value = status;
+    processStateListeners.forEach((fn) => {
+      try { fn(status); } catch (e) { console.warn('[CasparProcess] Listener error:', e); }
+    });
+    return status;
+  } catch (err) {
+    console.warn('[CasparProcess] Failed to adopt instance:', err);
+    return null;
+  }
+}
+
 export type ProcessStateListener = (status: CasparProcessStatus) => void;
 const processStateListeners = new Set<ProcessStateListener>();
 
