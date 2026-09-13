@@ -7,11 +7,11 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "configuration")]
 pub struct CasparConfiguration {
-    #[serde(rename = "log-level", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "log-level", alias = "log_level", alias = "logLevel", skip_serializing_if = "Option::is_none")]
     pub log_level: Option<String>,
-    #[serde(rename = "log-align-columns", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "log-align-columns", alias = "log_align_columns", alias = "logAlignColumns", skip_serializing_if = "Option::is_none")]
     pub log_align_columns: Option<bool>,
-    #[serde(rename = "lock-clear-phrase", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "lock-clear-phrase", alias = "lock_clear_phrase", alias = "lockClearPhrase", skip_serializing_if = "Option::is_none")]
     pub lock_clear_phrase: Option<String>,
     #[serde(default)]
     pub paths: CasparPaths,
@@ -46,15 +46,15 @@ impl Default for CasparConfiguration {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CasparPaths {
-    #[serde(rename = "media-path", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "media-path", alias = "media_path", alias = "mediaPath", skip_serializing_if = "Option::is_none")]
     pub media_path: Option<String>,
-    #[serde(rename = "log-path", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "log-path", alias = "log_path", alias = "logPath", skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
-    #[serde(rename = "data-path", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "data-path", alias = "data_path", alias = "dataPath", skip_serializing_if = "Option::is_none")]
     pub data_path: Option<String>,
-    #[serde(rename = "template-path", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "template-path", alias = "template_path", alias = "templatePath", skip_serializing_if = "Option::is_none")]
     pub template_path: Option<String>,
-    #[serde(rename = "font-path", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "font-path", alias = "font_path", alias = "fontPath", skip_serializing_if = "Option::is_none")]
     pub font_path: Option<String>,
 }
 
@@ -72,13 +72,13 @@ impl Default for CasparPaths {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CasparChannels {
-    #[serde(rename = "channel", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(rename = "channel", alias = "channels", default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<CasparChannel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CasparChannel {
-    #[serde(rename = "video-mode", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "video-mode", alias = "video_mode", alias = "videoMode", skip_serializing_if = "Option::is_none")]
     pub video_mode: Option<String>,
     #[serde(default)]
     pub consumers: CasparConsumers,
@@ -99,11 +99,11 @@ impl Default for CasparChannel {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CasparConsumers {
-    #[serde(rename = "screen", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(rename = "screen", alias = "screens", default, skip_serializing_if = "Vec::is_empty")]
     pub screens: Vec<CasparScreenConsumer>,
-    #[serde(rename = "system-audio", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(rename = "system-audio", alias = "system_audio", alias = "systemAudio", default, skip_serializing_if = "Vec::is_empty")]
     pub system_audio: Vec<CasparSystemAudioConsumer>,
-    #[serde(rename = "decklink", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(rename = "decklink", alias = "decklinks", default, skip_serializing_if = "Vec::is_empty")]
     pub decklinks: Vec<CasparDecklinkConsumer>,
 }
 
@@ -111,13 +111,13 @@ pub struct CasparConsumers {
 pub struct CasparScreenConsumer {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<i32>,
-    #[serde(rename = "aspect-ratio", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "aspect-ratio", alias = "aspect_ratio", alias = "aspectRatio", skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stretch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub windowed: Option<bool>,
-    #[serde(rename = "key-only", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "key-only", alias = "key_only", alias = "keyOnly", skip_serializing_if = "Option::is_none")]
     pub key_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vsync: Option<bool>,
@@ -125,7 +125,7 @@ pub struct CasparScreenConsumer {
     pub borderless: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interactive: Option<bool>,
-    #[serde(rename = "always-on-top", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "always-on-top", alias = "always_on_top", alias = "alwaysOnTop", skip_serializing_if = "Option::is_none")]
     pub always_on_top: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub x: Option<i32>,
@@ -135,9 +135,9 @@ pub struct CasparScreenConsumer {
     pub width: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<i32>,
-    #[serde(rename = "sbs-key", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "sbs-key", alias = "sbs_key", alias = "sbsKey", skip_serializing_if = "Option::is_none")]
     pub sbs_key: Option<bool>,
-    #[serde(rename = "colour-space", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "colour-space", alias = "colour_space", alias = "colourSpace", skip_serializing_if = "Option::is_none")]
     pub colour_space: Option<String>,
 }
 
@@ -165,7 +165,7 @@ impl Default for CasparScreenConsumer {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CasparSystemAudioConsumer {
-    #[serde(rename = "channel-layout", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "channel-layout", alias = "channel_layout", alias = "channelLayout", skip_serializing_if = "Option::is_none")]
     pub channel_layout: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency: Option<i32>,
@@ -184,17 +184,17 @@ impl Default for CasparSystemAudioConsumer {
 pub struct CasparDecklinkConsumer {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<i32>,
-    #[serde(rename = "key-device", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "key-device", alias = "key_device", alias = "keyDevice", skip_serializing_if = "Option::is_none")]
     pub key_device: Option<i32>,
-    #[serde(rename = "embedded-audio", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "embedded-audio", alias = "embedded_audio", alias = "embeddedAudio", skip_serializing_if = "Option::is_none")]
     pub embedded_audio: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keyer: Option<String>,
-    #[serde(rename = "key-only", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "key-only", alias = "key_only", alias = "keyOnly", skip_serializing_if = "Option::is_none")]
     pub key_only: Option<bool>,
-    #[serde(rename = "buffer-depth", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "buffer-depth", alias = "buffer_depth", alias = "bufferDepth", skip_serializing_if = "Option::is_none")]
     pub buffer_depth: Option<i32>,
 }
 
@@ -237,7 +237,7 @@ impl Default for CasparTcpController {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CasparAmcp {
-    #[serde(rename = "media-server", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "media-server", alias = "media_server", alias = "mediaServer", skip_serializing_if = "Option::is_none")]
     pub media_server: Option<CasparMediaServer>,
 }
 
@@ -268,9 +268,9 @@ impl Default for CasparMediaServer {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CasparOsc {
-    #[serde(rename = "default-port", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "default-port", alias = "default_port", alias = "defaultPort", skip_serializing_if = "Option::is_none")]
     pub default_port: Option<i32>,
-    #[serde(rename = "disable-send-to-amcp-clients", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "disable-send-to-amcp-clients", alias = "disable_send_to_amcp_clients", alias = "disableSendToAmcpClients", skip_serializing_if = "Option::is_none")]
     pub disable_send_to_amcp_clients: Option<bool>,
 }
 
@@ -599,19 +599,29 @@ pub async fn read_svg_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn find_default_caspar_config() -> Option<String> {
-    default_config_candidates()
+pub async fn find_default_caspar_config<R: Runtime>(app: AppHandle<R>) -> Option<String> {
+    default_config_candidates(Some(&app))
         .into_iter()
         .find(|candidate| candidate.exists() && candidate.is_file())
         .map(|path| path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
-pub async fn load_caspar_config(path: Option<String>) -> Result<CasparConfigLoadResult, String> {
-    let resolved_path = resolve_requested_path(path)?;
+pub async fn load_caspar_config<R: Runtime>(
+    app: AppHandle<R>,
+    path: Option<String>,
+) -> Result<CasparConfigLoadResult, String> {
+    let resolved_path = resolve_requested_path(Some(&app), path)?;
 
     if !resolved_path.exists() {
-        let config = CasparConfiguration::default();
+        let parent_dir = resolved_path
+            .parent()
+            .unwrap_or_else(|| Path::new("C:/CasparCG"))
+            .to_string_lossy()
+            .replace('\\', "/");
+        let mut config = CasparConfiguration::default();
+        config.paths.media_path = Some(format!("{}/media", parent_dir));
+        config.paths.data_path = Some(format!("{}/data", parent_dir));
         let raw_xml = serialize_config(&config)?;
         return Ok(CasparConfigLoadResult {
             path: resolved_path.to_string_lossy().into_owned(),
@@ -633,16 +643,24 @@ pub async fn load_caspar_config(path: Option<String>) -> Result<CasparConfigLoad
 }
 
 #[tauri::command]
-pub async fn save_caspar_config_raw(path: String, raw_xml: String) -> Result<(), String> {
-    let target_path = resolve_requested_path(Some(path))?;
+pub async fn save_caspar_config_raw<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    raw_xml: String,
+) -> Result<(), String> {
+    let target_path = resolve_requested_path(Some(&app), Some(path))?;
     let _: CasparConfiguration = from_str(&raw_xml)
         .map_err(|error| format!("CasparCG config XML is invalid: {}", error))?;
     write_config_file(&target_path, raw_xml)
 }
 
 #[tauri::command]
-pub async fn save_caspar_config_structured(path: String, config: CasparConfiguration) -> Result<String, String> {
-    let target_path = resolve_requested_path(Some(path))?;
+pub async fn save_caspar_config_structured<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    config: CasparConfiguration,
+) -> Result<String, String> {
+    let target_path = resolve_requested_path(Some(&app), Some(path))?;
     let xml = serialize_config(&config)?;
     write_config_file(&target_path, xml.clone())?;
     Ok(xml)
@@ -653,7 +671,7 @@ pub async fn apply_caspar_decklink_config<R: Runtime>(
     app: AppHandle<R>,
     payload: DeckLinkApplyPayload,
 ) -> Result<DeckLinkApplyResult, String> {
-    let target_path = resolve_requested_path(Some(payload.path))?;
+    let target_path = resolve_requested_path(Some(&app), Some(payload.path))?;
     let mut config = if target_path.exists() {
         let raw_xml = std::fs::read_to_string(&target_path)
             .map_err(|error| format!("Failed to read CasparCG config '{}': {}", target_path.display(), error))?;
@@ -831,27 +849,74 @@ fn serialize_config(config: &CasparConfiguration) -> Result<String, String> {
     Ok(format!("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n{}\n", body))
 }
 
-fn resolve_requested_path(path: Option<String>) -> Result<PathBuf, String> {
+fn resolve_requested_path<R: Runtime>(app: Option<&AppHandle<R>>, path: Option<String>) -> Result<PathBuf, String> {
     let trimmed = path.unwrap_or_default().trim().to_string();
     if !trimmed.is_empty() {
         return Ok(PathBuf::from(trimmed));
     }
 
-    if let Some(found) = find_default_caspar_config_blocking() {
+    if let Some(found) = find_default_caspar_config_blocking(app) {
         return Ok(found);
+    }
+
+    if let Some(app) = app {
+        if let Some(runtime_state) = app.try_state::<crate::runtime_settings::RuntimeSettingsState>() {
+            let snapshot = runtime_state.snapshot();
+            if !snapshot.casparcg_executable_path.is_empty() {
+                let exe_p = PathBuf::from(&snapshot.casparcg_executable_path);
+                let parent = if exe_p.is_file() || snapshot.casparcg_executable_path.to_lowercase().ends_with(".exe") {
+                    exe_p.parent().map(|p| p.to_path_buf())
+                } else {
+                    Some(exe_p)
+                };
+                if let Some(p) = parent {
+                    let cfg_name = if !snapshot.casparcg_config_filename.is_empty() {
+                        snapshot.casparcg_config_filename.as_str()
+                    } else {
+                        "casparcg.config"
+                    };
+                    return Ok(p.join(cfg_name));
+                }
+            }
+        }
     }
 
     Ok(PathBuf::from("C:/CasparCG/casparcg.config"))
 }
 
-fn find_default_caspar_config_blocking() -> Option<PathBuf> {
-    default_config_candidates()
+fn find_default_caspar_config_blocking<R: Runtime>(app: Option<&AppHandle<R>>) -> Option<PathBuf> {
+    default_config_candidates(app)
         .into_iter()
         .find(|candidate| candidate.exists() && candidate.is_file())
 }
 
-fn default_config_candidates() -> Vec<PathBuf> {
+fn default_config_candidates<R: Runtime>(app: Option<&AppHandle<R>>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+
+    if let Some(app) = app {
+        if let Some(runtime_state) = app.try_state::<crate::runtime_settings::RuntimeSettingsState>() {
+            let snapshot = runtime_state.snapshot();
+            if !snapshot.casparcg_executable_path.is_empty() {
+                let exe_p = PathBuf::from(&snapshot.casparcg_executable_path);
+                let parent = if exe_p.is_file() || snapshot.casparcg_executable_path.to_lowercase().ends_with(".exe") {
+                    exe_p.parent().map(|p| p.to_path_buf())
+                } else {
+                    Some(exe_p)
+                };
+                if let Some(p) = parent {
+                    let cfg_name = if !snapshot.casparcg_config_filename.is_empty() {
+                        snapshot.casparcg_config_filename.as_str()
+                    } else {
+                        "casparcg.config"
+                    };
+                    candidates.push(p.join(cfg_name));
+                    if cfg_name != "casparcg.config" {
+                        candidates.push(p.join("casparcg.config"));
+                    }
+                }
+            }
+        }
+    }
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -955,5 +1020,43 @@ mod tests {
         assert_eq!(payload.deploy_templates, None);
         assert_eq!(payload.template_path, None);
         assert_eq!(payload.media_path, None);
+    }
+
+    #[test]
+    fn test_caspar_config_deserializes_with_aliases() {
+        let json_str = r#"{
+            "paths": {
+                "media_path": "D:/MyPlayoutMedia",
+                "dataPath": "D:/MyPlayoutData"
+            },
+            "channels": {
+                "channel": [
+                    {
+                        "videoMode": "1080i5000",
+                        "consumers": {
+                            "decklink": [
+                                {
+                                    "device": 2,
+                                    "keyDevice": 3,
+                                    "embeddedAudio": true,
+                                    "bufferDepth": 4
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        }"#;
+
+        let config: CasparConfiguration = serde_json::from_str(json_str).expect("Must deserialize with aliases");
+        assert_eq!(config.paths.media_path.as_deref(), Some("D:/MyPlayoutMedia"));
+        assert_eq!(config.paths.data_path.as_deref(), Some("D:/MyPlayoutData"));
+        assert_eq!(config.channels.channels.len(), 1);
+        assert_eq!(config.channels.channels[0].video_mode.as_deref(), Some("1080i5000"));
+        assert_eq!(config.channels.channels[0].consumers.decklinks.len(), 1);
+        assert_eq!(config.channels.channels[0].consumers.decklinks[0].device, Some(2));
+        assert_eq!(config.channels.channels[0].consumers.decklinks[0].key_device, Some(3));
+        assert_eq!(config.channels.channels[0].consumers.decklinks[0].embedded_audio, Some(true));
+        assert_eq!(config.channels.channels[0].consumers.decklinks[0].buffer_depth, Some(4));
     }
 }
