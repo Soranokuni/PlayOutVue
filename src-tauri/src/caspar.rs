@@ -142,9 +142,19 @@ fn resolve_caspar_media_path(path: &str, media_root: &str) -> Result<String, Str
 
     // ── Attempt 4: if the source path is already a safe relative path, return it ──
     let source_str = normalize_caspar_path(&source_canonical);
-    if is_caspar_safe_path(&source_str) && !source_str.contains(':') && !source_str.starts_with("/") {
+    if is_caspar_safe_path(&source_str) && !source_str.contains(':') && !source_str.starts_with('/') {
         // Only return as-is if it's a relative path (no drive letter, no leading /)
         return Ok(source_str);
+    }
+
+    // ── Attempt 4b: if the path is inside a /media/ directory, extract relative path ──
+    let source_lower = source_str.to_lowercase();
+    if let Some(media_idx) = source_lower.rfind("/media/") {
+        let relative = &source_str[media_idx + "/media/".len()..];
+        let relative_trimmed = relative.trim_start_matches('/');
+        if is_caspar_safe_path(relative_trimmed) && !relative_trimmed.is_empty() {
+            return Ok(relative_trimmed.to_string());
+        }
     }
 
     // ── Attempt 5: non-ASCII path with existing file → create alias ──
@@ -157,9 +167,9 @@ fn resolve_caspar_media_path(path: &str, media_root: &str) -> Result<String, Str
         ));
     }
 
-    let Some(root) = media_root_canonical.as_ref().or(Some(&media_root_path)) else {
+    let Some(root) = media_root_canonical.as_ref().or(if !media_root_path.as_os_str().is_empty() { Some(&media_root_path) } else { None }) else {
         return Err(format!(
-            "CasparCG cannot safely access non-ASCII path '{}' without a configured media root",
+            "CasparCG cannot safely access path '{}' without a configured media root",
             source_str
         ));
     };
@@ -1055,9 +1065,8 @@ pub fn spawn_playback_watchdog<R: Runtime>(
     })
 }
 
-/// Register the current item with the Rust state machine; Rust then owns advance.
-#[tauri::command]
-pub async fn caspar_register_playback<R: Runtime>(
+pub(crate) fn register_playback_internal(
+    s: &mut PlaybackStateInner,
     uuid: String,
     duration_ms: u64,
     expected_out_point_ms: u64,
@@ -1070,10 +1079,13 @@ pub async fn caspar_register_playback<R: Runtime>(
     playback_instance_id: Option<String>,
     trim_revision: Option<u64>,
     trim_out_ms: Option<u64>,
-    state: State<'_, CasparPlaybackState>,
-    app: AppHandle<R>,
-) -> Result<(), String> {
-    let mut s = state.0.lock();
+    is_adopted: Option<bool>,
+    elapsed_ms: Option<u64>,
+    now_mono: u64,
+) -> bool {
+    let adopted = is_adopted.unwrap_or(false);
+    let initial_elapsed = elapsed_ms.unwrap_or(0);
+
     s.current_uuid = Some(uuid.clone());
     s.play_generation = play_generation.unwrap_or(0);
     s.take_id = take_id.unwrap_or_default();
@@ -1082,7 +1094,6 @@ pub async fn caspar_register_playback<R: Runtime>(
     s.trim_revision = trim_revision.unwrap_or(0);
     s.is_playing = true;
     s.is_paused = false;
-    s.position_ms = 0;
     s.duration_ms = duration_ms;
     s.trim_in_ms = trim_in_ms;
 
@@ -1098,6 +1109,13 @@ pub async fn caspar_register_playback<R: Runtime>(
     let t_out = trim_out_ms.unwrap_or_else(|| trim_in_ms.saturating_add(if out_point != u64::MAX { out_point } else { duration_ms }));
     s.trim_out_ms = t_out;
 
+    let normalized_elapsed = if adopted {
+        initial_elapsed.saturating_sub(trim_in_ms)
+    } else {
+        0
+    };
+    s.position_ms = normalized_elapsed;
+
     let old_registered = s.registered_current_path.clone();
     let transitioned_before_registration = s
         .observed_transition_path
@@ -1111,50 +1129,87 @@ pub async fn caspar_register_playback<R: Runtime>(
         && !old_registered.is_empty()
         && extract_raw_filename_lower(&old_registered)
             == extract_raw_filename_lower(&current_path);
-    // A natural path-switch event may arrive immediately before this command.
-    // In that case the path is already authoritative. Otherwise require a
-    // fresh matching path packet before accepting `/file/time`, preventing
-    // in-flight UDP timing from the previous manual take from corrupting this
-    // item's zeroed position.
-    // A same-file subclip has no observable `/file/path` change. Its
-    // preceding position-based advance is the only transition signal; retain
-    // the path trust in that specific case and let `awaiting_position_reset`
-    // reject the old near-EOF time samples until the producer restarts at the
-    // new trim IN point.
-    s.path_confirmed = old_registered.is_empty()
+
+    s.path_confirmed = adopted
+        || old_registered.is_empty()
         || transitioned_before_registration
         || same_file_transition_before_registration;
 
     s.current_file_path = current_path.clone();
     s.registered_current_path = current_path;
     s.expected_next_path = next_path;
-    s.last_osc_at_ms = now_ms();
+    s.last_osc_at_ms = now_mono;
     s.last_tick_emit_ms = 0;
     s.advance_fired = false;
     s.stall_emitted = false;
     s.transition_triggered = false;
-    s.last_position_ms = 0;
+    s.last_position_ms = normalized_elapsed;
     s.position_stalled_ticks = 0;
-    s.position_ever_advanced = false;
-    s.awaiting_position_reset = true;
+    s.position_ever_advanced = adopted && normalized_elapsed > 0;
+    s.awaiting_position_reset = !adopted;
     s.observed_transition_path = None;
-    // A path-switch event proves the new foreground is already on air. The
-    // initial registration is also safe to acknowledge. A same-file AUTO
-    // transition is deliberately *not* acknowledged here: its old and new
-    // paths are indistinguishable, so the first reset time sample below is the
-    // physical confirmation.
-    let foreground_confirmed_now = s.path_confirmed && !same_file_transition_before_registration;
+
+    let foreground_confirmed_now = adopted
+        || (s.path_confirmed && !same_file_transition_before_registration);
     s.foreground_confirmation_emitted = foreground_confirmed_now;
 
     // Native Monotonic Timing Gate & Sample Progress Init
     let effective_duration_ms = t_out.saturating_sub(trim_in_ms);
     let effective_duration_ms = if effective_duration_ms == 0 { out_point } else { effective_duration_ms };
     let early_tolerance_ms = if effective_duration_ms >= 2000 { 300 } else { 0 };
-    let now_mono = now_ms();
+    let remaining_duration_ms = if adopted {
+        effective_duration_ms.saturating_sub(normalized_elapsed)
+    } else {
+        effective_duration_ms
+    };
     s.started_at_monotonic_ms = now_mono;
-    s.auto_advance_not_before_ms = now_mono.saturating_add(effective_duration_ms.saturating_sub(early_tolerance_ms));
-    s.accepted_post_take_samples = 0;
-    s.last_observed_position_ms = 0;
+    s.auto_advance_not_before_ms = now_mono.saturating_add(remaining_duration_ms.saturating_sub(early_tolerance_ms));
+    s.accepted_post_take_samples = if adopted { 2 } else { 0 };
+    s.last_observed_position_ms = normalized_elapsed;
+
+    foreground_confirmed_now
+}
+
+/// Register the current item with the Rust state machine; Rust then owns advance.
+#[tauri::command]
+pub async fn caspar_register_playback<R: Runtime>(
+    uuid: String,
+    duration_ms: u64,
+    expected_out_point_ms: u64,
+    current_path: String,
+    next_path: Option<String>,
+    trim_in_ms: u64,
+    play_generation: Option<u64>,
+    take_id: Option<String>,
+    rundown_item_id: Option<String>,
+    playback_instance_id: Option<String>,
+    trim_revision: Option<u64>,
+    trim_out_ms: Option<u64>,
+    is_adopted: Option<bool>,
+    elapsed_ms: Option<u64>,
+    state: State<'_, CasparPlaybackState>,
+    app: AppHandle<R>,
+) -> Result<(), String> {
+    let now = now_ms();
+    let mut s = state.0.lock();
+    let foreground_confirmed_now = register_playback_internal(
+        &mut s,
+        uuid,
+        duration_ms,
+        expected_out_point_ms,
+        current_path,
+        next_path,
+        trim_in_ms,
+        play_generation,
+        take_id,
+        rundown_item_id,
+        playback_instance_id,
+        trim_revision,
+        trim_out_ms,
+        is_adopted,
+        elapsed_ms,
+        now,
+    );
 
     let confirmed_uuid = if foreground_confirmed_now {
         s.current_uuid.clone()
@@ -1502,5 +1557,120 @@ mod tests {
         assert!(!state.foreground_confirmation_emitted);
         assert_eq!(state.auto_advance_not_before_ms, 0);
         assert_eq!(state.accepted_post_take_samples, 0);
+    }
+
+    #[test]
+    fn register_playback_internal_handles_adopted_and_fresh_playback() {
+        let mut state = PlaybackStateInner::default();
+        let now = 100_000;
+
+        // Fresh playback
+        let confirmed = register_playback_internal(
+            &mut state,
+            "fresh-uuid".to_string(),
+            60_000,
+            60_000,
+            "C:/Media/clip1.mp4".to_string(),
+            Some("C:/Media/clip2.mp4".to_string()),
+            0,
+            Some(1),
+            Some("take-1".to_string()),
+            Some("fresh-uuid".to_string()),
+            Some("inst-1".to_string()),
+            Some(0),
+            Some(60_000),
+            Some(false),
+            Some(0),
+            now,
+        );
+
+        assert!(confirmed);
+        assert!(state.is_playing);
+        assert!(!state.is_paused);
+        assert_eq!(state.position_ms, 0);
+        assert!(state.awaiting_position_reset);
+        assert_eq!(state.accepted_post_take_samples, 0);
+        // 60000ms duration with >=2000ms tolerance is 300ms
+        assert_eq!(state.auto_advance_not_before_ms, now + 60_000 - 300);
+
+        // Adopted running playback (e.g. at 20_000ms into a 60_000ms clip)
+        let adopted_confirmed = register_playback_internal(
+            &mut state,
+            "adopted-uuid".to_string(),
+            60_000,
+            60_000,
+            "C:/Media/clip1.mp4".to_string(),
+            Some("C:/Media/clip2.mp4".to_string()),
+            0,
+            Some(2),
+            Some("adopt-1".to_string()),
+            Some("adopted-uuid".to_string()),
+            Some("inst-2".to_string()),
+            Some(0),
+            Some(60_000),
+            Some(true),
+            Some(20_000),
+            now,
+        );
+
+        assert!(adopted_confirmed);
+        assert!(state.path_confirmed);
+        assert!(!state.awaiting_position_reset);
+        assert_eq!(state.position_ms, 20_000);
+        assert_eq!(state.last_position_ms, 20_000);
+        assert_eq!(state.last_observed_position_ms, 20_000);
+        assert!(state.position_ever_advanced);
+        assert_eq!(state.accepted_post_take_samples, 2);
+        // Remaining duration is 40_000ms; gate should be now + 40_000 - 300
+        assert_eq!(state.auto_advance_not_before_ms, now + 40_000 - 300);
+
+        // Adopted running playback with trim (trim_in: 10_000, trim_out: 50_000, raw_elapsed: 25_000)
+        let trimmed_adopted = register_playback_internal(
+            &mut state,
+            "adopted-trimmed-uuid".to_string(),
+            60_000,
+            40_000,
+            "C:/Media/clip2.mp4".to_string(),
+            None,
+            10_000,
+            Some(3),
+            Some("adopt-2".to_string()),
+            Some("adopted-trimmed-uuid".to_string()),
+            Some("inst-3".to_string()),
+            Some(0),
+            Some(50_000),
+            Some(true),
+            Some(25_000),
+            now,
+        );
+
+        assert!(trimmed_adopted);
+        // normalized_elapsed = 25_000 - 10_000 = 15_000
+        assert_eq!(state.position_ms, 15_000);
+        assert_eq!(state.last_position_ms, 15_000);
+        assert_eq!(state.last_observed_position_ms, 15_000);
+        assert!(state.position_ever_advanced);
+        // effective_duration = 50_000 - 10_000 = 40_000
+        // remaining_duration = 40_000 - 15_000 = 25_000
+        // gate = now + 25_000 - 300
+        assert_eq!(state.auto_advance_not_before_ms, now + 25_000 - 300);
+    }
+
+    #[test]
+    fn test_resolve_caspar_media_path_extracts_media_relative_path() {
+        // Path inside a media/ folder with empty media_root
+        let path = "C:/CasparCG/media/videos/clip1.mp4";
+        let resolved = resolve_caspar_media_path(path, "").unwrap();
+        assert_eq!(resolved, "videos/clip1.mp4");
+
+        // Windows backslash path
+        let win_path = r"C:\Users\Shado\Downloads\casparcg\media\videos\clip2.mp4";
+        let resolved_win = resolve_caspar_media_path(win_path, "").unwrap();
+        assert_eq!(resolved_win, "videos/clip2.mp4");
+
+        // Relative path already safe
+        let rel_path = "videos/clip3.mp4";
+        let resolved_rel = resolve_caspar_media_path(rel_path, "").unwrap();
+        assert_eq!(resolved_rel, "videos/clip3.mp4");
     }
 }

@@ -252,7 +252,7 @@ const connectionTone = computed<'ready' | 'processing' | 'error' | 'warning' | '
     case 'unconfigured': return 'error';
     case 'stopped': return 'warning';
     case 'starting': return 'processing';
-    case 'external_running': return 'idle';
+    case 'external_running': return 'ready';
     case 'disconnected': return 'warning';
     case 'crashed': return 'error';
     case 'operational': return 'ready';
@@ -272,7 +272,7 @@ const connectionLabel = computed(() => {
     case 'unconfigured': return 'CasparCG not found';
     case 'stopped': return 'CasparCG Stopped';
     case 'starting': return 'Starting CasparCG...';
-    case 'external_running': return 'CasparCG External';
+    case 'external_running': return 'CasparCG Ready (External)';
     case 'crashed': return 'CasparCG Crashed';
     case 'disconnected': return 'CasparCG offline';
     case 'operational': return 'CasparCG Ready';
@@ -319,7 +319,11 @@ const handleConnectionAction = async () => {
     return;
   }
 
-  if (processState.value === 'stopped' || processState.value === 'crashed') {
+  const isRunning = processStatus.value?.isPortOpen ||
+                    processState.value === 'operational' ||
+                    processState.value === 'external_running';
+
+  if (!isRunning && (processState.value === 'stopped' || processState.value === 'crashed')) {
     try {
       await startCasparServer();
       await service.connect();
@@ -440,14 +444,24 @@ onMounted(async () => {
     startJankMonitor();
   }
 
-  initCasparProcessListener().catch((err) => {
+  try {
+    await initCasparProcessListener();
+  } catch (err) {
     console.warn('[CasparProcess] Listener init failed:', err);
-  });
+  }
 
   // Restore connection and playback state on F5 refresh / launch
   if (settings.playoutEngine === 'casparcg') {
     const service = getActivePlayoutService();
-    if (settings.casparAutoStart && processState.value === 'stopped') {
+    const isRunning = processStatus.value?.isPortOpen ||
+                      processState.value === 'operational' ||
+                      processState.value === 'external_running';
+
+    if (isRunning) {
+      service.connect().catch((error) => {
+        console.warn('[Playout] Auto-connect to running CasparCG failed:', error);
+      });
+    } else if (settings.casparAutoStart || processState.value === 'stopped' || processState.value === 'crashed') {
       startCasparServer()
         .then(() => service.connect())
         .catch((error) => {

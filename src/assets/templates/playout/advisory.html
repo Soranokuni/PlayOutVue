@@ -4691,6 +4691,9 @@
       if (style.anchorPosition) setAnchorPosition(style.anchorPosition);
 
       // Synchronize control inputs first so shape constructors and updates read the new values
+      const accCol = style.accentColor || style.accentMid;
+      const bSize = style.badgeSizePx !== undefined ? style.badgeSizePx : style.ratingSize;
+      const bFont = style.badgeFontSizePx !== undefined ? style.badgeFontSizePx : style.ratingFontSize;
       const setCtrl = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
       setCtrl('txt-logo-content', style.wordmark);
       setCtrl('txt-logo-subtitle', style.subtitle);

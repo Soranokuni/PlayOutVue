@@ -556,19 +556,144 @@ const parseSecondsToMs = (value: string) => {
 const parseNumericXmlTag = (response: string, tagName: string) => {
     const match = response.match(new RegExp(`<${tagName}>([^<]+)</${tagName}>`, 'i'));
     if (!match?.[1]) return 0;
-    const value = Number.parseFloat(match[1].trim());
+    const text = match[1].trim();
+    if (text.includes('/')) {
+        const parts = text.split('/');
+        const num = Number.parseFloat(parts[0]?.trim() || '');
+        const den = Number.parseFloat(parts[1]?.trim() || '');
+        if (Number.isFinite(num) && Number.isFinite(den) && den > 0) {
+            return num / den;
+        }
+    }
+    const value = Number.parseFloat(text);
     return Number.isFinite(value) && value > 0 ? value : 0;
 };
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+export interface ActiveProducerInfo {
+    hasProducer: boolean;
+    path: string;
+    elapsedMs: number;
+    durationMs: number;
+    paused: boolean;
+}
+
+export const parseProducerInfoFromInfo = (response: string): ActiveProducerInfo => {
+    const res = String(response || '');
+    if (!res) {
+        return { hasProducer: false, path: '', elapsedMs: 0, durationMs: 0, paused: false };
+    }
+
+    // Isolate foreground section if XML
+    let fgSection = res;
+    const fgMatch = res.match(/<foreground>([\s\S]*?)<\/foreground>/i);
+    if (fgMatch?.[1]) {
+        fgSection = fgMatch[1];
+    }
+
+    // Check if producer is explicitly empty or layer has no producer
+    if (
+        fgSection.includes('<producer>empty</producer>') ||
+        fgSection.includes('<producer />') ||
+        fgSection.includes('<producer/>') ||
+        /producer\s*:\s*empty/i.test(fgSection)
+    ) {
+        return { hasProducer: false, path: '', elapsedMs: 0, durationMs: 0, paused: false };
+    }
+
+    // Extract clip path / filename in order of priority
+    let clipPath = '';
+    const pathTags = ['path', 'clip', 'name', 'file', 'filename'];
+    for (const tag of pathTags) {
+        const tagMatch = fgSection.match(new RegExp(`<${tag}>([^<]+)</${tag}>`, 'i'));
+        if (tagMatch?.[1]?.trim()) {
+            const candidate = tagMatch[1].trim();
+            if (candidate && candidate.toLowerCase() !== 'empty') {
+                clipPath = candidate;
+                break;
+            }
+        }
+    }
+
+    if (!clipPath) {
+        const textMatch = fgSection.match(/^\s*(?:path|file|clip)\s*:\s*(.+?)\s*$/im);
+        if (textMatch?.[1]?.trim()) {
+            clipPath = textMatch[1].trim();
+        }
+    }
+
+    clipPath = clipPath.replace(/\\/g, '/').replace(/"/g, '');
+    if (!clipPath || clipPath.toLowerCase() === 'empty') {
+        return { hasProducer: false, path: '', elapsedMs: 0, durationMs: 0, paused: false };
+    }
+
+    // Paused state
+    const pausedMatch = fgSection.match(/<paused>([^<]+)<\/paused>/i);
+    const paused = pausedMatch?.[1] ? pausedMatch[1].trim().toLowerCase() === 'true' : /paused\s*:\s*true/i.test(fgSection);
+
+    // Elapsed / position
+    let elapsedMs = 0;
+    const timeMatch = fgSection.match(/<time>([^<]+)<\/time>/i);
+    if (timeMatch?.[1]) {
+        const sec = Number.parseFloat(timeMatch[1].trim());
+        if (Number.isFinite(sec) && sec >= 0) {
+            elapsedMs = Math.round(sec * 1000);
+        }
+    }
+
+    // Duration
+    let durationMs = 0;
+    const durMatch = fgSection.match(/<duration>([^<]+)<\/duration>/i);
+    if (durMatch?.[1]) {
+        const sec = Number.parseFloat(durMatch[1].trim());
+        if (Number.isFinite(sec) && sec > 0) {
+            durationMs = Math.round(sec * 1000);
+        }
+    }
+
+    // Frame-based fallbacks
+    const fpsVal = parseNumericXmlTag(fgSection, 'fps') ||
+                   parseNumericXmlTag(fgSection, 'frame-rate') ||
+                   parseNumericXmlTag(fgSection, 'framerate') ||
+                   parseNumericXmlTag(res, 'frame_rate') ||
+                   PAL_FPS;
+
+    if (elapsedMs === 0) {
+        const playedFrames = parseNumericXmlTag(fgSection, 'frames-played') ||
+                             parseNumericXmlTag(fgSection, 'frame-number') ||
+                             parseNumericXmlTag(res, 'frame_number');
+        if (playedFrames > 0 && fpsVal > 0) {
+            elapsedMs = Math.round((playedFrames / fpsVal) * 1000);
+        }
+    }
+
+    if (durationMs === 0) {
+        const totalFrames = parseNumericXmlTag(fgSection, 'nb-frames') ||
+                            parseNumericXmlTag(fgSection, 'file-nb-frames') ||
+                            parseNumericXmlTag(res, 'nb_frames');
+        if (totalFrames > 0 && fpsVal > 0) {
+            durationMs = Math.round((totalFrames / fpsVal) * 1000);
+        }
+    }
+
+    if (durationMs === 0) {
+        durationMs = parseDurationFromCasparResponse(fgSection) || parseDurationFromCasparResponse(res);
+    }
+
+    return {
+        hasProducer: true,
+        path: clipPath,
+        elapsedMs,
+        durationMs,
+        paused,
+    };
+};
+
 /// Extract the foreground producer path from an `INFO <ch>-<layer>` response
-/// (CasparCG 2.x reports `Path:` / `File:` for file producers, and nothing for
-/// an empty layer).
 const parseForegroundPathFromInfo = (response: string) => {
-    const match = String(response || '').match(/^\s*(?:path|file)\s*:\s*(.+?)\s*$/im);
-    if (!match?.[1]) return '';
-    return match[1].trim().replace(/\\/g, '/').replace(/"/g, '');
+    const info = parseProducerInfoFromInfo(response);
+    return info.hasProducer ? info.path : '';
 };
 
 /// Phase 4 defense-in-depth: after a natural advance commits (register + timer
@@ -1051,6 +1176,144 @@ const ensureFeedbackListener = async () => {
     return feedbackListenerPromise;
 };
 
+/**
+ * Query CasparCG Layer 10 to inspect running media on connect/reconnect.
+ * If a clip is actively playing on air, adopt it seamlessly (sync UI, register
+ * timing gate in Rust with elapsed position, arm next item via LOADBG ... AUTO,
+ * re-apply Greek compliance) WITHOUT issuing any disruptive transport commands
+ * (PLAY, LOAD, CLEAR).
+ * If Layer 10 is idle or empty, fallback to persisted crash-resume evaluation.
+ */
+const synchronizeOnAirState = async () => {
+    let info = '';
+    try {
+        info = await sendRawCommand(`INFO ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
+    } catch (err) {
+        console.warn('[CasparCG] Failed to query active layer 10 info during handshake:', err);
+    }
+
+    const producerInfo = parseProducerInfoFromInfo(info);
+
+    if (producerInfo.hasProducer && producerInfo.path) {
+        console.info(
+            `[CasparCG] Active on-air clip detected on Layer ${CASPAR_LAYERS.video}: "${producerInfo.path}" ` +
+            `at ${(producerInfo.elapsedMs / 1000).toFixed(1)}s / ${(producerInfo.durationMs / 1000).toFixed(1)}s (paused: ${producerInfo.paused})`
+        );
+
+        if (queuedItems.length === 0) {
+            const store = useRundownStore();
+            const playlistItems = store.onAirPlaylist?.items || store.activeItems;
+            if (playlistItems && playlistItems.length > 0) {
+                queuedItems = playlistItems.map((i: any) => ({ ...i }));
+            } else if (store.playlists && store.playlists.length > 0) {
+                const detectedBase = normBasename(producerInfo.path);
+                for (const pl of store.playlists) {
+                    if (pl.items.some((it: any) => normBasename(it.path || it.shortPath || it.filename || '') === detectedBase)) {
+                        store.activatePlaylist?.(pl.id);
+                        store.onAirPlaylistId = pl.id;
+                        queuedItems = pl.items.map((i: any) => ({ ...i }));
+                        break;
+                    }
+                }
+            }
+        }
+
+        const detectedBase = normBasename(producerInfo.path);
+        const matchIndex = queuedItems.findIndex((it) => {
+            const itPath = it.path || it.shortPath || it.filename || '';
+            return normBasename(itPath) === detectedBase;
+        });
+
+        if (matchIndex >= 0) {
+            const matchedItem = queuedItems[matchIndex]!;
+            const matchedKey = queueKey(matchedItem);
+            console.info(`[CasparCG] Successfully adopted on-air clip: "${matchedItem.filename}" (key: ${matchedKey})`);
+
+            const hydrated = hydratePlayoutItem(matchedItem);
+            const totalDur = producerInfo.durationMs > 0 ? producerInfo.durationMs : hydrated.duration_ms;
+            const trimIn = hydrated.trim_in_ms || 0;
+            const trimOut = hydrated.trim_out_ms > 0 ? hydrated.trim_out_ms : (totalDur > 0 ? totalDur : 0);
+            const effectiveDur = trimOut > trimIn ? trimOut - trimIn : totalDur;
+            const normalizedElapsed = Math.max(0, producerInfo.elapsedMs - trimIn);
+
+            currentKey = matchedKey;
+            isCasparPlaying.value = true;
+            playStartIndex.value = matchIndex;
+            playStartTime.value = Date.now() - normalizedElapsed;
+            currentCasparDurationMs.value = effectiveDur;
+            updateDisplayedTime(normalizedElapsed);
+
+            const store = useRundownStore();
+            store.setOnAirPlayingItemById(matchedItem.id);
+            if (store.onAirPlaylistId) {
+                store.setOnAirPlayingIndex(matchIndex);
+            }
+            store.startPlaybackProgressTimer(matchedItem.id, effectiveDur, playStartTime.value);
+            onAdvanceCallback?.(matchedKey);
+
+            clearPlaybackState();
+            wasPlayingOnDisconnect = false;
+            lastOscTickAtMs = Date.now();
+            if (resumeEvalTimer) {
+                clearTimeout(resumeEvalTimer);
+                resumeEvalTimer = null;
+            }
+
+            let nextPath: string | null = null;
+            if (matchIndex + 1 < queuedItems.length) {
+                const nextItem = queuedItems[matchIndex + 1]!;
+                if (nextItem.type === 'video') {
+                    const nextHydrated = hydratePlayoutItem(nextItem);
+                    if (nextHydrated.path) {
+                        nextPath = await prepareCasparMediaPath(nextHydrated.path);
+                    }
+                }
+            }
+
+            try {
+                await invoke('caspar_register_playback', {
+                    uuid: matchedKey,
+                    durationMs: totalDur,
+                    expectedOutPointMs: effectiveDur,
+                    currentPath: hydrated.path,
+                    nextPath,
+                    trimInMs: trimIn,
+                    trimOutMs: trimOut,
+                    playGeneration: playToken,
+                    takeId: `adopt-${Date.now()}`,
+                    rundownItemId: matchedItem.id,
+                    playbackInstanceId: `adopt-${matchedKey}`,
+                    trimRevision: (matchedItem as any).trim_revision || 0,
+                    isAdopted: true,
+                    elapsedMs: producerInfo.elapsedMs,
+                });
+            } catch (err) {
+                console.warn('[CasparCG] Failed to register adopted playback in Rust:', err);
+            }
+
+            try {
+                await casparPlayoutService.applyComplianceForItem?.(matchedItem);
+            } catch (err) {
+                console.warn('[CasparCG] Failed to apply compliance for adopted item:', err);
+            }
+
+            if (matchIndex + 1 < queuedItems.length) {
+                const token = playToken;
+                const epoch = preloadGeneration;
+                preloadNextItemAt(matchIndex + 1, token, 6, 250, epoch).catch((err) => {
+                    console.warn('[CasparCG] Preloading next item after adoption failed:', err);
+                });
+            }
+
+            return;
+        } else {
+            console.warn(`[CasparCG] Active on-air clip "${producerInfo.path}" could not be matched in rundown.`);
+        }
+    }
+
+    scheduleResumeEvaluation();
+};
+
 const performHandshake = async () => {
     await ensureFeedbackListener();
     await sendRawCommandCore('INFO');
@@ -1058,16 +1321,12 @@ const performHandshake = async () => {
     reconnectAttempt = 0;
     clearReconnectTimer();
     startHeartbeat();
-    casparPlayoutService.clearCompliance?.().catch((e) => {
-        console.warn('[CasparCG] Non-fatal compliance clear failed during handshake:', e);
-    });
 
-    // Clear in-flight preloads, guard, and duration states on reconnect
+    // Clear in-flight preloads and guard on reconnect
     invalidatePreloads();
-    currentCasparDurationMs.value = 0;
     activeGuard.clear();
 
-    scheduleResumeEvaluation();
+    await synchronizeOnAirState();
 };
 
 /// Schedule the post-reconnect crash-resume evaluation. A single timer per
@@ -1095,6 +1354,12 @@ const evaluateResume = async (isForcedServerRestart = false) => {
     try {
         const settings = useSettingsStore();
         if (settings.autoResumeAfterRestart === false) return;
+
+        // If playback is already active and adopted, skip resume
+        if (isCasparPlaying.value && currentKey != null) {
+            console.info('[CasparCG] Playback is already active (adopted or running) — skipping crash resume.');
+            return;
+        }
 
         // If this was a forced server restart (watchdog relaunch), we know the engine died
         if (!isForcedServerRestart && Date.now() - lastOscTickAtMs < RESUME_TICK_SURVIVAL_MS) {
@@ -1198,7 +1463,7 @@ function scheduleReconnect() {
     }, delay);
 }
 
-const sendRawCommand = async (cmd: string) => {
+async function sendRawCommand(cmd: string): Promise<string> {
     try {
         const response = await sendRawCommandCore(cmd);
         if (!isCasparConnected.value) {
@@ -1219,7 +1484,7 @@ const sendRawCommand = async (cmd: string) => {
         }
         throw error;
     }
-};
+}
 
 async function preloadNextItemAt(
     index: number,
@@ -2299,9 +2564,7 @@ export const casparPlayoutService: PlayoutService = {
             if (!isCasparConnected.value || !reconnectRequested) {
                 console.info(`[CasparCG] Process supervisor reported CasparCG is ${status.state}. Connecting...`);
                 reconnectRequested = true;
-                runReconnectAttempt(true).then(() => {
-                    scheduleResumeEvaluation(true);
-                }).catch((err) => {
+                runReconnectAttempt(true).catch((err) => {
                     console.warn('[CasparCG] Reconnect after process state change failed:', err);
                 });
             }
