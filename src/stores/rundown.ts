@@ -1445,7 +1445,16 @@ export const useRundownStore = defineStore('rundown', () => {
         const duplicate = hydrateItem({ ...playlist.items[index], id: undefined });
         const newItems = [...playlist.items];
         newItems.splice(index + 1, 0, duplicate);
-        updatePlaylistState(playlist.id, { items: newItems });
+
+        let newCurrentPlayingIndex = playlist.currentPlayingIndex;
+        if (playlist.currentPlayingIndex >= 0 && (index + 1) <= playlist.currentPlayingIndex) {
+            newCurrentPlayingIndex += 1;
+        }
+
+        updatePlaylistState(playlist.id, {
+            items: newItems,
+            currentPlayingIndex: newCurrentPlayingIndex
+        });
     };
 
     const createPlaylist = (name?: string) => {
@@ -2029,7 +2038,21 @@ export const useRundownStore = defineStore('rundown', () => {
             }
         }
 
-        activeItems.value = newItems;
+        let newCurrentPlayingIndex = currentPlayingIndex.value;
+        if (currentPlayingIndex.value >= 0 && items[currentPlayingIndex.value]) {
+            const playingId = items[currentPlayingIndex.value]!.id;
+            const foundIdx = newItems.findIndex(i => i.id === playingId);
+            if (foundIdx !== -1) {
+                newCurrentPlayingIndex = foundIdx;
+            }
+        }
+
+        if (currentPlaylist.value) {
+            updatePlaylistState(currentPlaylist.value.id, {
+                items: newItems,
+                currentPlayingIndex: newCurrentPlayingIndex
+            });
+        }
     };
 
     const insertLibraryItems = (params: {
@@ -2060,8 +2083,16 @@ export const useRundownStore = defineStore('rundown', () => {
         const createdItems = params.items.map(draft => makeItem(draft));
         const createdIds = createdItems.map(i => i.id);
 
+        let newCurrentPlayingIndex = targetPlaylist.currentPlayingIndex;
+        if (targetPlaylist.currentPlayingIndex >= 0 && insertIndex <= targetPlaylist.currentPlayingIndex) {
+            newCurrentPlayingIndex += createdItems.length;
+        }
+
         currentList.splice(insertIndex, 0, ...createdItems);
-        updatePlaylistState(targetPlaylist.id, { items: currentList });
+        updatePlaylistState(targetPlaylist.id, {
+            items: currentList,
+            currentPlayingIndex: newCurrentPlayingIndex
+        });
 
         if (createdIds.length > 0) {
             selectItem(createdIds[0]!);
@@ -2090,7 +2121,19 @@ export const useRundownStore = defineStore('rundown', () => {
         saveUndoSnapshot();
         redoStack.value = [];
 
-        updatePlaylistState(targetPlaylist.id, { items: result.newItems });
+        let newCurrentPlayingIndex = targetPlaylist.currentPlayingIndex;
+        if (targetPlaylist.currentPlayingIndex >= 0 && targetPlaylist.items[targetPlaylist.currentPlayingIndex]) {
+            const playingId = targetPlaylist.items[targetPlaylist.currentPlayingIndex]!.id;
+            const foundIdx = result.newItems.findIndex(i => i.id === playingId);
+            if (foundIdx !== -1) {
+                newCurrentPlayingIndex = foundIdx;
+            }
+        }
+
+        updatePlaylistState(targetPlaylist.id, {
+            items: result.newItems,
+            currentPlayingIndex: newCurrentPlayingIndex
+        });
 
         if (result.movedItemIds.length > 0) {
             selectItem(result.movedItemIds[0]!);
@@ -2114,7 +2157,20 @@ export const useRundownStore = defineStore('rundown', () => {
 
         const removeSet = new Set(toRemove);
         const updated = items.filter(i => !removeSet.has(i.id));
-        activeItems.value = updated;
+
+        let newCurrentPlayingIndex = currentPlayingIndex.value;
+        if (protectedId) {
+            newCurrentPlayingIndex = updated.findIndex(i => i.id === protectedId);
+        } else if (newCurrentPlayingIndex >= updated.length) {
+            newCurrentPlayingIndex = -1;
+        }
+
+        if (currentPlaylist.value) {
+            updatePlaylistState(currentPlaylist.value.id, {
+                items: updated,
+                currentPlayingIndex: newCurrentPlayingIndex
+            });
+        }
         clearSelection();
     };
 

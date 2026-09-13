@@ -162,6 +162,36 @@ export const GREEK_COMPLIANCE_PRESETS: GreekCompliancePreset[] = [
     displayDurationSec: 0,
     repeatIntervalSec: 0
   },
+  {
+    id: '8-violence',
+    ageRating: '8',
+    name: '8+ • Βία',
+    badgeLabel: '8+ (ΒΙΑ)',
+    descriptors: ['violence'],
+    advisoryText: 'ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ',
+    displayDurationSec: 30,
+    repeatIntervalSec: 600
+  },
+  {
+    id: '8-language',
+    ageRating: '8',
+    name: '8+ • Φρασεολογία',
+    badgeLabel: '8+ (ΦΡΑΣ)',
+    descriptors: ['language'],
+    advisoryText: 'ΠΕΡΙΕΧΕΙ ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ',
+    displayDurationSec: 30,
+    repeatIntervalSec: 600
+  },
+  {
+    id: '8-violence-language',
+    ageRating: '8',
+    name: '8+ • Βία & Φρασεολογία',
+    badgeLabel: '8+ (ΒΙΑ+ΦΡΑΣ)',
+    descriptors: ['violence', 'language'],
+    advisoryText: 'ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ ΚΑΙ ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ',
+    displayDurationSec: 30,
+    repeatIntervalSec: 600
+  },
 
   // 12+ Presets (All combos)
   {

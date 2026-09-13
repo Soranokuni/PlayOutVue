@@ -277,6 +277,91 @@ describe('Deterministic Drag & Drop & Move Invariants', () => {
     expect(content).not.toContain('onRowDragOver');
     expect(content).not.toContain('onRowDrop');
   });
+
+  it('remaps currentPlayingIndex when moving the currently playing item', () => {
+    store.addItem({ name: 'Clip 0', type: 'video', path: '/0.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 1 (Playing)', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+
+    const items = store.activeItems;
+    const playingId = items[1].id;
+    const item0Id = items[0].id;
+    const item2Id = items[2].id;
+
+    // Set playing item at index 1
+    store.currentPlayingIndex = 1;
+    expect(store.currentPlayingIndex).toBe(1);
+
+    // Move playing item down after item 2
+    const resDown = store.moveRundownItems({
+      itemIds: [playingId],
+      target: { kind: 'after', targetItemId: item2Id }
+    });
+
+    expect(resDown.changed).toBe(true);
+    expect(store.activeItems.map(i => i.id)).toEqual([item0Id, item2Id, playingId]);
+    // currentPlayingIndex must follow the playing item to index 2
+    expect(store.currentPlayingIndex).toBe(2);
+
+    // Move playing item up before item 0
+    const resUp = store.moveRundownItems({
+      itemIds: [playingId],
+      target: { kind: 'before', targetItemId: item0Id }
+    });
+
+    expect(resUp.changed).toBe(true);
+    expect(store.activeItems.map(i => i.id)).toEqual([playingId, item0Id, item2Id]);
+    // currentPlayingIndex must follow the playing item to index 0
+    expect(store.currentPlayingIndex).toBe(0);
+  });
+
+  it('remaps currentPlayingIndex when items are moved around the playing item', () => {
+    store.addItem({ name: 'Clip 0', type: 'video', path: '/0.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 1 (Playing)', type: 'video', path: '/1.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/2.mp4', duration: 10 });
+
+    const items = store.activeItems;
+    const item0Id = items[0].id;
+    const playingId = items[1].id;
+    const item2Id = items[2].id;
+
+    store.currentPlayingIndex = 1;
+
+    // Move item 2 before item 0 (above playing item)
+    const res = store.moveRundownItems({
+      itemIds: [item2Id],
+      target: { kind: 'before', targetItemId: item0Id }
+    });
+
+    expect(res.changed).toBe(true);
+    expect(store.activeItems.map(i => i.id)).toEqual([item2Id, item0Id, playingId]);
+    // Playing item is now at index 2, currentPlayingIndex must be 2
+    expect(store.currentPlayingIndex).toBe(2);
+  });
+
+  it('shifts currentPlayingIndex when library items are inserted before the playing item', () => {
+    store.addItem({ name: 'Clip 0', type: 'video', path: '/0.mp4', duration: 10 });
+    store.addItem({ name: 'Clip 1 (Playing)', type: 'video', path: '/1.mp4', duration: 10 });
+
+    const items = store.activeItems;
+    const item0Id = items[0].id;
+    const playingId = items[1].id;
+
+    store.currentPlayingIndex = 1;
+
+    // Insert 2 items before item 0
+    store.insertLibraryItems({
+      items: [
+        { filename: 'New 1', type: 'video', path: '/n1.mp4', duration: 5 } as any,
+        { filename: 'New 2', type: 'video', path: '/n2.mp4', duration: 5 } as any
+      ],
+      target: { kind: 'before', targetItemId: item0Id }
+    });
+
+    // Playing item shifted from index 1 to index 3
+    expect(store.activeItems[3]?.id).toBe(playingId);
+    expect(store.currentPlayingIndex).toBe(3);
+  });
 });
 
 
