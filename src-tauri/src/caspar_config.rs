@@ -290,20 +290,39 @@ pub struct CasparConfigLoadResult {
     pub config: CasparConfiguration,
 }
 
+fn default_decklink_output() -> i32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeckLinkApplyPayload {
+    #[serde(default)]
     pub path: String,
+    #[serde(default, alias = "channel_index")]
     pub channel_index: usize,
+    #[serde(default = "default_decklink_output", alias = "output_device")]
     pub output_device: i32,
+    #[serde(default, alias = "key_device")]
     pub key_device: Option<i32>,
+    #[serde(default, alias = "embedded_audio")]
     pub embedded_audio: Option<bool>,
+    #[serde(default, alias = "buffer_depth")]
     pub buffer_depth: Option<i32>,
+    #[serde(default)]
     pub latency: Option<String>,
+    #[serde(default)]
     pub keyer: Option<String>,
+    #[serde(default, alias = "video_mode")]
     pub video_mode: Option<String>,
+    #[serde(default, alias = "enable_screen_consumer")]
     pub enable_screen_consumer: Option<bool>,
+    #[serde(default, alias = "deploy_templates")]
     pub deploy_templates: Option<bool>,
+    #[serde(default, alias = "template_path")]
     pub template_path: Option<String>,
+    #[serde(default, alias = "media_path")]
+    pub media_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -685,6 +704,18 @@ pub async fn apply_caspar_decklink_config<R: Runtime>(
         config.osc = Some(CasparOsc::default());
     }
 
+    // Optional media path configuration
+    if let Some(ref mp) = payload.media_path {
+        let trimmed = mp.trim();
+        if !trimmed.is_empty() {
+            let mut normalized = trimmed.replace('\\', "/");
+            if !normalized.ends_with('/') {
+                normalized.push('/');
+            }
+            config.paths.media_path = Some(normalized);
+        }
+    }
+
     // Optional template deployment
     let mut templates_deployed = None;
     if payload.deploy_templates.unwrap_or(true) {
@@ -838,4 +869,91 @@ fn default_config_candidates() -> Vec<PathBuf> {
     candidates.push(PathBuf::from("C:/CasparCG/casparcg.config"));
     candidates.push(PathBuf::from("C:/CasparLauncher/casparcg.config"));
     candidates
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decklink_apply_payload_deserializes_from_camel_case() {
+        let json_str = r#"{
+            "path": "C:/CasparCG/casparcg.config",
+            "channelIndex": 0,
+            "outputDevice": 2,
+            "keyDevice": 3,
+            "embeddedAudio": true,
+            "bufferDepth": 4,
+            "latency": "low",
+            "keyer": "internal",
+            "videoMode": "1080p2500",
+            "enableScreenConsumer": false,
+            "deployTemplates": true,
+            "templatePath": "C:/CasparCG/template",
+            "mediaPath": "D:/CasparMedia"
+        }"#;
+
+        let payload: DeckLinkApplyPayload = serde_json::from_str(json_str).expect("Must deserialize camelCase");
+        assert_eq!(payload.path, "C:/CasparCG/casparcg.config");
+        assert_eq!(payload.channel_index, 0);
+        assert_eq!(payload.output_device, 2);
+        assert_eq!(payload.key_device, Some(3));
+        assert_eq!(payload.embedded_audio, Some(true));
+        assert_eq!(payload.buffer_depth, Some(4));
+        assert_eq!(payload.latency.as_deref(), Some("low"));
+        assert_eq!(payload.keyer.as_deref(), Some("internal"));
+        assert_eq!(payload.video_mode.as_deref(), Some("1080p2500"));
+        assert_eq!(payload.enable_screen_consumer, Some(false));
+        assert_eq!(payload.deploy_templates, Some(true));
+        assert_eq!(payload.template_path.as_deref(), Some("C:/CasparCG/template"));
+        assert_eq!(payload.media_path.as_deref(), Some("D:/CasparMedia"));
+    }
+
+    #[test]
+    fn test_decklink_apply_payload_deserializes_from_snake_case() {
+        let json_str = r#"{
+            "path": "C:/CasparCG/casparcg.config",
+            "channel_index": 1,
+            "output_device": 1,
+            "key_device": null,
+            "embedded_audio": false,
+            "buffer_depth": 3,
+            "latency": "normal",
+            "keyer": "external",
+            "video_mode": "1080i5000",
+            "enable_screen_consumer": true,
+            "deploy_templates": false,
+            "template_path": null,
+            "media_path": "E:/Media/"
+        }"#;
+
+        let payload: DeckLinkApplyPayload = serde_json::from_str(json_str).expect("Must deserialize snake_case");
+        assert_eq!(payload.channel_index, 1);
+        assert_eq!(payload.output_device, 1);
+        assert_eq!(payload.key_device, None);
+        assert_eq!(payload.embedded_audio, Some(false));
+        assert_eq!(payload.buffer_depth, Some(3));
+        assert_eq!(payload.enable_screen_consumer, Some(true));
+        assert_eq!(payload.deploy_templates, Some(false));
+        assert_eq!(payload.media_path.as_deref(), Some("E:/Media/"));
+    }
+
+    #[test]
+    fn test_decklink_apply_payload_defaults() {
+        let json_str = r#"{}"#;
+        let payload: DeckLinkApplyPayload = serde_json::from_str(json_str).expect("Must deserialize empty object with defaults");
+        assert_eq!(payload.path, "");
+        assert_eq!(payload.channel_index, 0);
+        assert_eq!(payload.output_device, 1);
+        assert_eq!(payload.key_device, None);
+        assert_eq!(payload.embedded_audio, None);
+        assert_eq!(payload.buffer_depth, None);
+        assert_eq!(payload.latency, None);
+        assert_eq!(payload.keyer, None);
+        assert_eq!(payload.video_mode, None);
+        assert_eq!(payload.enable_screen_consumer, None);
+        assert_eq!(payload.deploy_templates, None);
+        assert_eq!(payload.template_path, None);
+        assert_eq!(payload.media_path, None);
+    }
 }

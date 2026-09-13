@@ -20,13 +20,17 @@ interface ConfigSummary {
   videoMode: string;
   decklinkDevices: number[];
   channelCount: number;
+  mediaPath?: string;
 }
 
 interface TemplateDeployResult {
   template_dir: string;
+  templateDir?: string;
   deployed: string[];
   skipped: string[];
 }
+
+const normalizePath = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
 
 const configPath = ref('');
 const configLoaded = ref(false);
@@ -40,7 +44,23 @@ const statusMessage = ref('');
 const templateDeployResult = ref<TemplateDeployResult | null>(null);
 
 const activeStep = ref(1);
-const totalSteps = 5;
+const totalSteps = 6;
+
+// Media Folder configuration
+const mediaStorageOption = ref<'default' | 'custom'>('default');
+const customMediaPath = ref('');
+
+const defaultMediaDir = computed(() => {
+  const parentDir = configPath.value ? configPath.value.replace(/\\/g, '/').replace(/\/[^/]+$/, '') : 'C:/CasparCG';
+  return `${parentDir}/media`;
+});
+
+const effectiveMediaPath = computed(() => {
+  if (mediaStorageOption.value === 'default') {
+    return defaultMediaDir.value;
+  }
+  return customMediaPath.value.trim();
+});
 
 // Output configuration
 const outputDevice = ref(1);
@@ -76,19 +96,21 @@ const bufferOptions = [1, 2, 3, 4, 5, 6, 7];
 
 const canGoNext = computed(() => {
   if (activeStep.value === 1) return configLoaded.value && !!configPath.value.trim() && !errorMessage.value;
-  if (activeStep.value === 2) return !!videoMode.value.trim();
-  if (activeStep.value === 3) return outputDevice.value >= 1 && outputDevice.value <= 8;
-  if (activeStep.value === 4) return !hasLiveInput.value || (inputDevice.value >= 1 && inputDevice.value <= 8 && inputDevice.value !== outputDevice.value);
+  if (activeStep.value === 2) return mediaStorageOption.value === 'default' || !!customMediaPath.value.trim();
+  if (activeStep.value === 3) return !!videoMode.value.trim();
+  if (activeStep.value === 4) return outputDevice.value >= 1 && outputDevice.value <= 8;
+  if (activeStep.value === 5) return !hasLiveInput.value || (inputDevice.value >= 1 && inputDevice.value <= 8 && inputDevice.value !== outputDevice.value);
   return true;
 });
 
 const stepTitle = computed(() => {
   const titles: Record<number, string> = {
     1: 'CasparCG Configuration & Connection',
-    2: 'Broadcast Video Standard',
-    3: 'Program Output (SDI / HDMI)',
-    4: 'Live Input & Rebroadcast',
-    5: 'CG Templates, Review & Apply',
+    2: 'Media Storage & Library Folder',
+    3: 'Broadcast Video Standard',
+    4: 'Program Output (SDI / HDMI)',
+    5: 'Live Input & Rebroadcast',
+    6: 'CG Templates, Review & Apply',
   };
   return titles[activeStep.value] || '';
 });
@@ -101,6 +123,7 @@ const routingSummary = computed(() => {
 const changesList = computed(() => {
   const changes: string[] = [];
   changes.push(`CasparCG XML: ${configPath.value}`);
+  changes.push(`Media Storage: ${effectiveMediaPath.value} (${mediaStorageOption.value === 'default' ? 'Default CasparCG root' : 'Custom'})`);
   changes.push(`Video Standard: ${videoMode.value} (${videoMode.value.startsWith('1080i') ? '1080i50 Interlaced' : 'Progressive'})`);
   changes.push(`Program Out: DeckLink ${outputDevice.value} (Buffer: ${outputBufferDepth.value}, Audio: ${outputEmbeddedAudio.value ? 'SDI Embedded' : 'System'}, Latency: ${outputLatency.value})`);
   if (enableScreenConsumer.value) {
@@ -160,11 +183,31 @@ const loadConfig = async (path?: string) => {
     inputFormat.value = settings.decklinkInputFormat || '1080i5000';
     customLiveRoute.value = settings.liveInputSourceName || '';
 
+    // Handle media path detection
+    const parentDir = result.path ? result.path.replace(/\\/g, '/').replace(/\/[^/]+$/, '') : 'C:/CasparCG';
+    const computedDefaultMedia = `${parentDir}/media`;
+    const cfgPaths = cfg.paths || {};
+    const configuredMedia = (cfgPaths['media-path'] || cfgPaths.media_path || settings.localMediaPath || '').trim();
+
+    if (
+      configuredMedia &&
+      configuredMedia !== 'media/' &&
+      configuredMedia !== 'media' &&
+      normalizePath(configuredMedia).toLowerCase() !== normalizePath(computedDefaultMedia).toLowerCase()
+    ) {
+      mediaStorageOption.value = 'custom';
+      customMediaPath.value = configuredMedia;
+    } else {
+      mediaStorageOption.value = 'default';
+      customMediaPath.value = '';
+    }
+
     configSummary.value = {
       path: result.path,
       videoMode: vidMode,
       decklinkDevices,
       channelCount,
+      mediaPath: mediaStorageOption.value === 'default' ? computedDefaultMedia : customMediaPath.value,
     };
 
     statusMessage.value = 'Configuration file loaded successfully.';
@@ -190,6 +233,19 @@ const pickConfigPath = async () => {
   if (!selection || Array.isArray(selection)) return;
   configPath.value = selection;
   await loadConfig(selection);
+};
+
+const pickMediaPath = async () => {
+  const selection = await open({
+    title: 'Select Media Directory for CasparCG & Playout',
+    multiple: false,
+    directory: true,
+    defaultPath: customMediaPath.value || defaultMediaDir.value || undefined,
+  });
+
+  if (!selection || Array.isArray(selection)) return;
+  customMediaPath.value = selection.replace(/\\/g, '/');
+  mediaStorageOption.value = 'custom';
 };
 
 const testConnection = async () => {
@@ -235,7 +291,18 @@ const applyConfig = async () => {
     const parentDir = configPath.value ? configPath.value.replace(/\\/g, '/').replace(/\/[^/]+$/, '') : 'C:/CasparCG';
     const templateBase = `${parentDir}/template`;
 
-    const result = await invoke<{ backup_path: string; raw_xml: string; channel_index: number; output_device: number; templates_deployed?: TemplateDeployResult }>(
+    const result = await invoke<{
+      backup_path?: string;
+      backupPath?: string;
+      raw_xml?: string;
+      rawXml?: string;
+      channel_index?: number;
+      channelIndex?: number;
+      output_device?: number;
+      outputDevice?: number;
+      templates_deployed?: TemplateDeployResult;
+      templatesDeployed?: TemplateDeployResult;
+    }>(
       'apply_caspar_decklink_config',
       {
         payload: {
@@ -251,6 +318,7 @@ const applyConfig = async () => {
           enableScreenConsumer: enableScreenConsumer.value,
           deployTemplates: true,
           templatePath: templateBase,
+          mediaPath: effectiveMediaPath.value || null,
         },
       }
     );
@@ -261,6 +329,7 @@ const applyConfig = async () => {
 
     settings.updateSettings({
       casparConfigPath: configPath.value,
+      localMediaPath: effectiveMediaPath.value || '',
       decklinkOutputName: `DeckLink ${outputDevice.value}`,
       decklinkOutputDevice: outputDevice.value,
       decklinkInputDevice: hasLiveInput.value ? inputDevice.value : 0,
@@ -274,7 +343,14 @@ const applyConfig = async () => {
       playoutProfile: videoMode.value.startsWith('1080i') ? 'PAL_1080I50' : 'PAL_1080P25',
     });
 
-    statusMessage.value = `Configuration applied successfully! Backup saved to ${result.backup_path}.`;
+    const templates = result.templates_deployed || result.templatesDeployed;
+    if (templates) {
+      templateDeployResult.value = templates;
+      statusMessage.value = `DeckLink configured & CG templates deployed to ${templates.template_dir || templates.templateDir || ''}.`;
+    }
+
+    const backup = result.backup_path || result.backupPath || '';
+    statusMessage.value = `Configuration applied successfully! Backup saved to ${backup}.`;
     setTimeout(() => emit('close'), 1800);
   } catch (error) {
     errorMessage.value = String(error || 'Failed to apply configuration');
@@ -362,7 +438,14 @@ watch(
           >
             <div class="step-circle">{{ step }}</div>
             <span class="step-name">
-              {{ step === 1 ? 'Server' : step === 2 ? 'Standard' : step === 3 ? 'Output' : step === 4 ? 'Live In' : 'Apply' }}
+              {{
+                step === 1 ? 'Server' :
+                step === 2 ? 'Media' :
+                step === 3 ? 'Standard' :
+                step === 4 ? 'Output' :
+                step === 5 ? 'Live In' :
+                'Apply'
+              }}
             </span>
           </div>
         </div>
@@ -395,6 +478,7 @@ watch(
                 <div class="summary-item"><strong>Path:</strong> <code>{{ configSummary.path }}</code></div>
                 <div class="summary-item"><strong>Channels:</strong> {{ configSummary.channelCount }}</div>
                 <div class="summary-item"><strong>Channel 1 Video Standard:</strong> <span class="text-accent">{{ configSummary.videoMode }}</span></div>
+                <div v-if="configSummary.mediaPath" class="summary-item"><strong>Media Storage:</strong> <code>{{ configSummary.mediaPath }}</code></div>
                 <div class="summary-item">
                   <strong>DeckLink Consumers:</strong>
                   <span v-if="configSummary.decklinkDevices.length">{{ configSummary.decklinkDevices.map(d => `Card ${d}`).join(', ') }}</span>
@@ -416,8 +500,77 @@ watch(
             <div v-if="testResult" class="status ok inline" style="margin-top:8px;">{{ testResult }}</div>
           </section>
 
-          <!-- STEP 2: Video Standard -->
+          <!-- STEP 2: Media Storage & Library Folder -->
           <section v-if="activeStep === 2" class="wizard-section">
+            <p class="section-desc">
+              Specify where video clips, commercials, and broadcast media files are stored. PlayOutVue and CasparCG Server will use this directory as your shared media root.
+            </p>
+
+            <div class="storage-options-grid">
+              <div
+                class="mode-card"
+                :class="{ selected: mediaStorageOption === 'default' }"
+                @click="mediaStorageOption = 'default'"
+              >
+                <div class="mode-header">
+                  <span class="mode-badge">DEFAULT</span>
+                  <input type="radio" value="default" v-model="mediaStorageOption" />
+                </div>
+                <div class="mode-name">CasparCG Server Media Root</div>
+                <div class="mode-desc">Use the standard <code>media/</code> subfolder inside your CasparCG Server directory.</div>
+                <div class="media-path-preview">
+                  <code>{{ defaultMediaDir }}</code>
+                </div>
+              </div>
+
+              <div
+                class="mode-card"
+                :class="{ selected: mediaStorageOption === 'custom' }"
+                @click="mediaStorageOption = 'custom'"
+              >
+                <div class="mode-header">
+                  <span class="mode-badge">CUSTOM</span>
+                  <input type="radio" value="custom" v-model="mediaStorageOption" />
+                </div>
+                <div class="mode-name">Custom Storage Folder</div>
+                <div class="mode-desc">Point to a dedicated drive, media RAID volume, or network share (NAS/SAN).</div>
+                <div class="media-path-preview">
+                  <code>{{ customMediaPath || 'Click to choose custom path…' }}</code>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="mediaStorageOption === 'custom'" class="form-group" style="margin-top: 10px;">
+              <label>Custom Media Directory Path</label>
+              <div class="input-with-button">
+                <input
+                  v-model="customMediaPath"
+                  type="text"
+                  class="glass-input"
+                  placeholder="e.g. D:/Media or //NAS/BroadcastMedia"
+                />
+                <button class="glass-btn" @click="pickMediaPath">Browse…</button>
+              </div>
+              <span class="hint-text">CasparCG Server and PlayOutVue will scan this folder for media assets.</span>
+            </div>
+
+            <div class="summary-card" style="margin-top: 8px;">
+              <div class="summary-title">Effective Playout Media Storage</div>
+              <div class="summary-grid">
+                <div class="summary-item">
+                  <strong>Active Storage Path:</strong>
+                  <code>{{ effectiveMediaPath || '(Not specified)' }}</code>
+                </div>
+                <div class="summary-item">
+                  <strong>CasparCG Tag:</strong>
+                  <code>&lt;paths&gt;&lt;media-path&gt;{{ effectiveMediaPath }}&lt;/media-path&gt;&lt;/paths&gt;</code>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- STEP 3: Video Standard -->
+          <section v-if="activeStep === 3" class="wizard-section">
             <p class="section-desc">
               Select the master broadcast video standard for CasparCG Channel 1. For Greek and European television (ERT, ANT1, MEGA, etc.), <strong>1080i50</strong> is the broadcast standard.
             </p>
@@ -440,8 +593,8 @@ watch(
             </div>
           </section>
 
-          <!-- STEP 3: Program Output (DeckLink SDI) -->
-          <section v-if="activeStep === 3" class="wizard-section">
+          <!-- STEP 4: Program Output (DeckLink SDI) -->
+          <section v-if="activeStep === 4" class="wizard-section">
             <p class="section-desc">
               Configure the primary Blackmagic DeckLink SDI card that outputs your on-air Program feed to the transmitter / master control switcher.
             </p>
@@ -503,8 +656,8 @@ watch(
             </div>
           </section>
 
-          <!-- STEP 4: Live Input & Rebroadcast -->
-          <section v-if="activeStep === 4" class="wizard-section">
+          <!-- STEP 5: Live Input & Rebroadcast -->
+          <section v-if="activeStep === 5" class="wizard-section">
             <p class="section-desc">
               Configure an SDI DeckLink input for live studio cameras, incoming feeds, or outside broadcasts. When you click <strong>LIVE</strong> or play a live rundown item, this feed routes directly to Program Out.
             </p>
@@ -554,8 +707,8 @@ watch(
             </template>
           </section>
 
-          <!-- STEP 5: Review & Apply -->
-          <section v-if="activeStep === 5" class="wizard-section">
+          <!-- STEP 6: Review & Apply -->
+          <section v-if="activeStep === 6" class="wizard-section">
             <p class="section-desc">
               Review your broadcast configuration before applying. A timestamped backup of your original <code>casparcg.config</code> will be created automatically.
             </p>
@@ -811,10 +964,24 @@ watch(
 }
 
 /* Video Mode Cards */
-.video-mode-grid {
+.video-mode-grid,
+.storage-options-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.media-path-preview {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  word-break: break-all;
+}
+
+.media-path-preview code {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #38bdf8;
 }
 
 .mode-card {
