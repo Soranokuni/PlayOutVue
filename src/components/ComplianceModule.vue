@@ -39,7 +39,7 @@ const durationSec = ref(30);
 const repeatIntervalSec = ref(600);
 
 const availablePresets = computed(() => {
-  if (selectedRating.value === 'none' || selectedRating.value === 'k' || selectedRating.value === '8') {
+  if (selectedRating.value === 'none' || selectedRating.value === 'k') {
     return [];
   }
   return GREEK_COMPLIANCE_PRESETS.filter(p => p.ageRating === selectedRating.value);
@@ -214,7 +214,7 @@ const clearComplianceOverlay = async () => {
           type="button"
           class="rating-select-btn"
           :class="{ active: selectedRating === r.id, ['btn-' + r.id]: true }"
-          @click="selectedRating = r.id as ComplianceRating; if (r.id === 'k' || r.id === '8' || r.id === 'none') { selectedDescriptors = []; advisoryText = ''; }"
+          @click="selectedRating = r.id as ComplianceRating; if (r.id === 'k' || r.id === 'none') { selectedDescriptors = []; advisoryText = ''; }"
         >
           <span class="btn-rating-title">{{ r.id === 'none' ? 'OFF' : r.id.toUpperCase() }}</span>
         </button>
@@ -229,8 +229,8 @@ const clearComplianceOverlay = async () => {
       </label>
     </div>
 
-    <!-- Descriptors & Quick Presets (Only for 12, 16, 18) -->
-    <template v-if="selectedRating === '12' || selectedRating === '16' || selectedRating === '18'">
+    <!-- Descriptors & Quick Presets (For 8, 12, 16, 18) -->
+    <template v-if="selectedRating === '8' || selectedRating === '12' || selectedRating === '16' || selectedRating === '18'">
       <!-- Quick Presets -->
       <div class="form-group" style="margin-top: 1rem;">
         <label class="text-secondary text-sm">1-Click Warning Presets (ΕΣΡ)</label>

@@ -3118,6 +3118,7 @@
   </g>
 </svg>`
     };
+    WARNING_GLYPHS.substances = WARNING_GLYPHS.drugs;
 
     // =========================================================================
     // BROADCAST NEUMORPHIC BLUEPRINTS (RESEARCH PAPER SPECIFICATIONS)
@@ -3352,6 +3353,7 @@
       violence: 'ΣΚΗΝΕΣ ΒΙΑΣ',
       sex: 'ΣΕΞ',
       drugs: 'ΧΡΗΣΗ ΟΥΣΙΩΝ',
+      substances: 'ΧΡΗΣΗ ΟΥΣΙΩΝ',
       language: 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ'
     };
 
@@ -3364,10 +3366,12 @@
     }
 
     function getDescriptorTexts() {
+      const drugsVal = getDescriptorValue('txt-warn-drugs', 'ΧΡΗΣΗ ΟΥΣΙΩΝ');
       return {
         lead: getDescriptorValue('txt-warn-lead', 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ'),
         violence: getDescriptorValue('txt-warn-violence', 'ΣΚΗΝΕΣ ΒΙΑΣ'),
-        drugs: getDescriptorValue('txt-warn-drugs', 'ΧΡΗΣΗ ΟΥΣΙΩΝ'),
+        drugs: drugsVal,
+        substances: drugsVal,
         sex: getDescriptorValue('txt-warn-sex', 'ΣΕΞ'),
         language: getDescriptorValue('txt-warn-language', 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ')
       };
@@ -3525,7 +3529,7 @@
       const str = String(w).toLowerCase();
       if (str.includes('βια') || str === 'violence') return 'violence';
       if (str.includes('σεξ') || str === 'sex') return 'sex';
-      if (str.includes('ουσι') || str.includes('ναρκ') || str === 'drugs') return 'drugs';
+      if (str.includes('ουσι') || str.includes('ναρκ') || str === 'drugs' || str === 'substances') return 'drugs';
       if (str.includes('γλωσσ') || str.includes('φρασε') || str === 'language') return 'language';
       return null;
     }

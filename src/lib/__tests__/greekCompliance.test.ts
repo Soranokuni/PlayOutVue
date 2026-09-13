@@ -74,4 +74,12 @@ describe('Greek Compliance Library & Payload Formatter', () => {
     expect(buildGreekAdvisoryText(['violence', 'sex'])).toBe('ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ ΚΑΙ ΣΕΞ');
     expect(GREEK_COMPLIANCE_PRESETS.length).toBeGreaterThan(10);
   });
+
+  it('includes 8+ presets with descriptors', () => {
+    const presets8 = GREEK_COMPLIANCE_PRESETS.filter(p => p.ageRating === '8');
+    expect(presets8.length).toBeGreaterThanOrEqual(3);
+    const violencePreset = presets8.find(p => p.descriptors.includes('violence'));
+    expect(violencePreset).toBeDefined();
+    expect(violencePreset?.advisoryText).toBe('ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ');
+  });
 });
