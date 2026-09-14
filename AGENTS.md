@@ -41,6 +41,10 @@ Coordinate all implementations through `.agents/skills/`:
 - **Explanation Box**: Slides out with the advisory text and high-contrast SVG warning glyphs (violence, substances, sex, language, shield combo), remains visible for 30 seconds, and then smoothly animates out.
 - **Deterministic Refresh**: Always clear layer 32 before adding the new template payload (`CLEAR 1-32` followed by `CG 1-32 ADD 1 ...`).
 
+### 5. Operator Dialog Safety & CasparCG Configuration Invariants
+- **Native Dialogs for Destructive Actions**: Never use browser-native `confirm()` or `alert()`. All destructive, server-control (Stop, Restart), or database purge actions must use `@tauri-apps/plugin-dialog` (`await ask(...)` / `await message(...)`) and strictly guard execution (`if (!confirmed) return;`).
+- **Dynamic Config Pathing & XML Kebab-Case Parity**: Never default CasparCG config paths to static `C:/CasparCG/casparcg.config` or `C:/CasparCG/Media`. Always derive paths dynamically from `RuntimeSettingsState.casparcg_executable_path`. All parsers and Rust serde models must support CasparCG's native kebab-case XML tags (`media-path`, `video-mode`, `decklink`, `embedded-audio`) alongside camelCase/snake_case to preserve wizard settings.
+
 ---
 
 ## Development & Verification Checklist
