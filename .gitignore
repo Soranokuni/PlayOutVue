@@ -58,7 +58,8 @@ __screenshots__/
 # ==============================================================================
 # AI Agent Instructions, Handoffs, and Planning Documents
 # ==============================================================================
-.agents/
+.agents/*
+!.agents/skills/
 .kilo/
 .gemini/
 .cursor/
