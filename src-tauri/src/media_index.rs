@@ -1,13 +1,43 @@
 use crate::db::CachedMediaEntry;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const INDEX_FILE_NAME: &str = ".playout_media_index.json";
 const INDEX_VERSION: u32 = 1;
 const FINGERPRINT_CHUNK_SIZE: usize = 64 * 1024;
+
+/// Per-media-root lock serialising every load -> mutate -> save cycle on the
+/// on-disk index. The background probe thread, directory scans, take-time
+/// `compute_frame_trim` and operator trim saves all touch the same file
+/// concurrently; without this a reader could observe a half-finished write,
+/// treat it as an empty index and then persist that emptiness, wiping every
+/// stable id and trim profile for the root.
+fn index_lock_for(index_path: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let registry = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = normalize_lock_key(index_path);
+    let mut guard = registry.lock();
+    guard
+        .entry(key)
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
+
+fn normalize_lock_key(path: &Path) -> PathBuf {
+    let lossy = path.to_string_lossy().replace('\\', "/");
+    // Case-insensitive filesystem on Windows: two spellings of the same root
+    // must map onto one lock.
+    PathBuf::from(lossy.to_lowercase())
+}
+
+static TMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +110,8 @@ pub fn hydrate_entry_from_index(
     let fingerprint = compute_file_fingerprint(file_path)?;
     let normalized_path = normalize_path(file_path);
     let index_path = resolve_index_path(media_root);
+    let lock = index_lock_for(&index_path);
+    let _guard = lock.lock();
     let mut index = load_index(&index_path)?;
 
     let Some(record_index) = index
@@ -126,6 +158,8 @@ pub fn upsert_entry(
     let fingerprint = compute_file_fingerprint(file_path)?;
     let normalized_path = normalize_path(file_path);
     let index_path = resolve_index_path(media_root);
+    let lock = index_lock_for(&index_path);
+    let _guard = lock.lock();
     let mut index = load_index(&index_path)?;
 
     let now = now_ms();
@@ -187,6 +221,8 @@ pub fn enrich_entry_from_index_by_alias(
     entry: &mut CachedMediaEntry,
 ) -> Result<bool, String> {
     let index_path = resolve_index_path(media_root);
+    let lock = index_lock_for(&index_path);
+    let _guard = lock.lock();
     let mut index = load_index(&index_path)?;
     let normalized_path = normalize_path(file_path);
 
@@ -258,6 +294,8 @@ pub fn save_trim_profile(
     }
 
     let index_path = resolve_index_path(media_root);
+    let lock = index_lock_for(&index_path);
+    let _guard = lock.lock();
     let mut index = load_index(&index_path)?;
     let normalized_path = normalize_path(file_path);
 
@@ -398,29 +436,71 @@ fn save_index(path: &Path, index: &MediaIndexDb) -> Result<(), String> {
         })?;
     }
 
+    // Data-loss guard: never replace a non-empty on-disk index with an empty
+    // one. An empty in-memory index here can only mean a caller observed a
+    // transient read failure (or a bug) -- persisting it would wipe every
+    // stable id and operator trim profile for this media root.
+    if index.records.is_empty() {
+        if let Some(existing_len) = on_disk_record_count(path) {
+            if existing_len > 0 {
+                return Err(format!(
+                    "Refusing to overwrite media index '{}' holding {} records with an empty index",
+                    path.display(),
+                    existing_len
+                ));
+            }
+        }
+    }
+
     let serialized = serde_json::to_string_pretty(index)
         .map_err(|error| format!("Failed to serialize media index: {}", error))?;
 
-    let tmp_path = path.with_extension("json.tmp");
-    fs::write(&tmp_path, serialized).map_err(|error| {
-        format!(
-            "Failed to write temporary media index '{}': {}",
-            tmp_path.display(),
-            error
-        )
-    })?;
+    // Unique temp name per writer: a shared `.tmp` path would let two
+    // concurrent writers interleave into a torn file.
+    let sequence = TMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let tmp_name = format!(
+        "{}.{}.{}.tmp",
+        INDEX_FILE_NAME,
+        std::process::id(),
+        sequence
+    );
+    let tmp_path = path.with_file_name(tmp_name);
 
-    if path.exists() {
-        let _ = fs::remove_file(path);
+    let write_result = fs::write(&tmp_path, serialized)
+        .map_err(|error| {
+            format!(
+                "Failed to write temporary media index '{}': {}",
+                tmp_path.display(),
+                error
+            )
+        })
+        .and_then(|_| {
+            // `rename` replaces an existing destination atomically on both
+            // Windows (MOVEFILE_REPLACE_EXISTING) and POSIX. The old file is
+            // never deleted first, so a concurrent reader always sees either
+            // the previous or the new complete index -- never NotFound.
+            fs::rename(&tmp_path, path).map_err(|error| {
+                format!(
+                    "Failed to finalize media index '{}': {}",
+                    path.display(),
+                    error
+                )
+            })
+        });
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
     }
+    write_result
+}
 
-    fs::rename(&tmp_path, path).map_err(|error| {
-        format!(
-            "Failed to finalize media index '{}': {}",
-            path.display(),
-            error
-        )
-    })
+/// Number of records currently persisted at `path`, or `None` when the file is
+/// absent or unreadable (in which case the caller must not block a save).
+fn on_disk_record_count(path: &Path) -> Option<usize> {
+    let content = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<MediaIndexDb>(&content)
+        .ok()
+        .map(|db| db.records.len())
 }
 
 fn generate_stable_id(fingerprint: &str) -> String {
@@ -502,5 +582,129 @@ impl Fnv1a64 {
 
     fn finish(&self) -> u64 {
         self.state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "playout_media_index_{}_{}_{}",
+            tag,
+            std::process::id(),
+            now_ms()
+        ));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    fn record(id: &str) -> MediaIndexRecord {
+        MediaIndexRecord {
+            stable_media_id: id.to_string(),
+            fingerprint: format!("fp-{}", id),
+            aliases: vec![format!("/media/{}.mp4", id)],
+            metadata: MediaIndexMetadata {
+                duration_ms: 1000,
+                width: 1920,
+                height: 1080,
+                codec: "h264".into(),
+                fps_num: 25,
+                fps_den: 1,
+                display_aspect_ratio: "16:9".into(),
+                field_order: "progressive".into(),
+                timecode_start: "00:00:00:00".into(),
+            },
+            trim_in_ms: 0,
+            trim_out_ms: 0,
+            last_seen_ms: now_ms(),
+        }
+    }
+
+    #[test]
+    fn save_index_never_overwrites_non_empty_with_empty() {
+        let dir = temp_dir("guard");
+        let path = resolve_index_path(&dir);
+        let mut populated = MediaIndexDb::default();
+        populated.records.push(record("a"));
+        save_index(&path, &populated).expect("initial save");
+
+        let empty = MediaIndexDb::default();
+        let result = save_index(&path, &empty);
+        assert!(result.is_err(), "empty save must be refused");
+
+        let reloaded = load_index(&path).expect("reload");
+        assert_eq!(reloaded.records.len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_index_allows_empty_when_nothing_persisted() {
+        let dir = temp_dir("empty_ok");
+        let path = resolve_index_path(&dir);
+        save_index(&path, &MediaIndexDb::default()).expect("empty save on fresh root");
+        assert!(path.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_index_leaves_no_temp_files_and_keeps_live_file_present() {
+        let dir = temp_dir("tmp");
+        let path = resolve_index_path(&dir);
+        let mut db = MediaIndexDb::default();
+        db.records.push(record("a"));
+        save_index(&path, &db).expect("save 1");
+        db.records.push(record("b"));
+        save_index(&path, &db).expect("save 2");
+
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .expect("read dir")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp files must be renamed away");
+        assert_eq!(load_index(&path).expect("reload").records.len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_writers_never_lose_records_or_tear_the_file() {
+        let dir = temp_dir("concurrent");
+        let path = resolve_index_path(&dir);
+        let mut seed = MediaIndexDb::default();
+        seed.records.push(record("seed"));
+        save_index(&path, &seed).expect("seed");
+
+        let writers = 8;
+        let rounds = 25;
+        let handles: Vec<_> = (0..writers)
+            .map(|w| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for r in 0..rounds {
+                        let lock = index_lock_for(&path);
+                        let _guard = lock.lock();
+                        let mut db = load_index(&path).expect("load under lock");
+                        db.records.push(record(&format!("w{}-r{}", w, r)));
+                        save_index(&path, &db).expect("save under lock");
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("writer thread");
+        }
+
+        let final_db = load_index(&path).expect("final load must parse");
+        assert_eq!(final_db.records.len(), 1 + writers * rounds);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lock_registry_is_case_and_separator_insensitive() {
+        let a = index_lock_for(Path::new(r"D:\Media\Root\.playout_media_index.json"));
+        let b = index_lock_for(Path::new("d:/media/root/.playout_media_index.json"));
+        assert!(Arc::ptr_eq(&a, &b));
     }
 }
