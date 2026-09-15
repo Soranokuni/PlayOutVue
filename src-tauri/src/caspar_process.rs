@@ -438,7 +438,7 @@ pub fn terminate_process_by_pid(pid: u32) -> bool {
                 return true;
             }
         }
-        let output = std::process::Command::new("taskkill")
+        let output = std::process::Command::new(crate::proc_util::windows_system_tool("taskkill.exe"))
             .args(["/F", "/PID", &pid.to_string()])
             .output();
         output.map(|o| o.status.success()).unwrap_or(false)
@@ -537,34 +537,18 @@ pub fn resolve_caspar_executable(configured: &str) -> Option<PathBuf> {
         }
     }
 
-    // 3. User Desktop & Downloads broadcast folders
-    if let Some(desktop) = dirs_next::desktop_dir() {
-        candidates.push(desktop.join("casparcg.exe"));
-        if let Ok(entries) = std::fs::read_dir(&desktop) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_dir() {
-                    let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if file_name.to_lowercase().starts_with("casparcg") {
-                        candidates.push(p.join("casparcg.exe"));
-                    }
-                }
-            }
-        }
-    }
+    // Audit T2-5: the Desktop and Downloads folders were searched here too.
+    // Anything a browser saves lands in Downloads, so a file named
+    // `casparcg.exe` dropped there would have been launched as the on-air
+    // engine on the next start. Only installation-style locations remain;
+    // anything else must be configured explicitly in Settings.
 
-    if let Some(downloads) = dirs_next::download_dir() {
-        candidates.push(downloads.join("casparcg.exe"));
-        if let Ok(entries) = std::fs::read_dir(&downloads) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_dir() {
-                    let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if file_name.to_lowercase().starts_with("casparcg") {
-                        candidates.push(p.join("casparcg.exe"));
-                    }
-                }
-            }
+    // 3. Program Files
+    for var in ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+        if let Some(dir) = std::env::var_os(var) {
+            let dir = PathBuf::from(dir);
+            candidates.push(dir.join("CasparCG").join("casparcg.exe"));
+            candidates.push(dir.join("CasparCG Server").join("casparcg.exe"));
         }
     }
 
@@ -573,7 +557,19 @@ pub fn resolve_caspar_executable(configured: &str) -> Option<PathBuf> {
     candidates.push(PathBuf::from("C:/CasparLauncher/casparcg.exe"));
     candidates.push(PathBuf::from("D:/CasparCG/casparcg.exe"));
 
-    candidates.into_iter().find(|p| p.is_file())
+    let resolved = candidates.into_iter().find(|p| p.is_file());
+    if let Some(ref p) = resolved {
+        if trimmed.is_empty() {
+            crate::diagnostics::push_caspar_process_log(
+                "WARN",
+                &format!(
+                    "CasparCG executable path is not configured; auto-discovered '{}'. Set it explicitly in Settings.",
+                    p.display()
+                ),
+            );
+        }
+    }
+    resolved
 }
 
 pub fn resolve_caspar_cwd(exe_path: &Path) -> PathBuf {
@@ -729,7 +725,10 @@ impl CasparProcessSupervisor {
         if inner.child.is_some() {
             return;
         }
-        if inner.adopted_watchdog.is_some() && inner.pid == pid && pid.is_some() {
+        // Keep the existing watchdog when it already tracks this identity. For
+        // a port-only adoption (no PID) the old condition was always false, so
+        // every 500 ms status poll aborted and respawned the task.
+        if inner.adopted_watchdog.is_some() && inner.pid == pid {
             return;
         }
         if let Some(w) = inner.adopted_watchdog.take() {
@@ -1069,21 +1068,37 @@ async fn run_adopted_process_watchdog<R: Runtime>(
                 -1
             };
 
-            let was_expected = {
+            // Audit T2-13: this watchdog supervises an instance PlayOut did
+            // *not* spawn (adopted by port/PID). An operator closing that
+            // window, or a launcher restarting it, must not trigger our
+            // crash-relaunch logic: we would race the external launcher and
+            // could start a second engine. Report the exit and stop here;
+            // auto-relaunch applies only to PlayOut-spawned children.
+            {
                 let mut inner = supervisor.inner.lock().await;
                 inner.pid = None;
                 inner.exit_code = Some(exit_code);
-                inner.expected_stop
-            };
-
-            if !was_expected {
-                handle_crash(&supervisor, &app, exit_code, &settings).await;
-            } else {
-                let mut inner = supervisor.inner.lock().await;
-                inner.state = CasparProcessState::Stopped;
-                drop(inner);
-                emit_state_change(&app, &supervisor, &settings).await;
+                inner.adopted_watchdog = None;
+                inner.state = if inner.expected_stop {
+                    CasparProcessState::Stopped
+                } else {
+                    CasparProcessState::Crashed
+                };
+                if !inner.expected_stop {
+                    inner.last_error = Some(format!(
+                        "External CasparCG instance exited (code {}). Not relaunching an instance PlayOut did not start.",
+                        exit_code
+                    ));
+                }
             }
+            crate::diagnostics::push_caspar_process_log(
+                "WARN",
+                &format!(
+                    "Adopted CasparCG instance (PID: {:?}) exited with code {}; auto-relaunch skipped for external instances.",
+                    pid, exit_code
+                ),
+            );
+            emit_state_change(&app, &supervisor, &settings).await;
             return;
         }
     }
@@ -1095,68 +1110,88 @@ async fn run_process_watchdog<R: Runtime>(
     settings: RuntimeSettings,
     port: u16,
 ) {
-    let mut boot_cycles = 0;
-    let max_boot_cycles = 30; // 15 seconds (500ms intervals)
+    // Audit T2-12: the boot phase used to *return* after 15 s without the
+    // AMCP port opening, abandoning supervision entirely. A slow DeckLink or
+    // CEF initialisation then left the UI stuck in `Starting` and a later
+    // crash was never detected or relaunched. Boot monitoring now only
+    // decides when to report `Operational`; supervision continues regardless.
+    const BOOT_WARNING_AFTER: Duration = Duration::from_secs(15);
+    let boot_started = Instant::now();
     let mut is_operational = false;
+    let mut boot_warning_issued = false;
 
-    // Phase 1: Boot monitoring
-    while boot_cycles < max_boot_cycles {
+    // Phase 1: Boot monitoring (500 ms cadence until the port opens)
+    while !is_operational {
         tokio::time::sleep(Duration::from_millis(500)).await;
-        boot_cycles += 1;
 
-        let mut inner = supervisor.inner.lock().await;
-        if let Some(ref mut child) = inner.child {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    let code = status.code().unwrap_or(-1);
-                    let was_expected = inner.expected_stop;
-                    inner.child = None;
-                    inner.pid = None;
-                    inner.exit_code = Some(code);
-                    drop(inner);
-
-                    if !was_expected {
-                        handle_crash(&supervisor, &app, code, &settings).await;
-                    } else {
-                        let mut inner = supervisor.inner.lock().await;
-                        inner.state = CasparProcessState::Stopped;
-                        drop(inner);
-                        emit_state_change(&app, &supervisor, &settings).await;
+        // Poll the child without holding the mutex across the port probe
+        // (the probe opens a TCP connection and can take up to 500 ms).
+        let poll = {
+            let mut inner = supervisor.inner.lock().await;
+            match inner.child {
+                Some(ref mut child) => match child.try_wait() {
+                    Ok(Some(status)) => {
+                        let code = status.code().unwrap_or(-1);
+                        let was_expected = inner.expected_stop;
+                        inner.child = None;
+                        inner.pid = None;
+                        inner.exit_code = Some(code);
+                        Some((code, was_expected))
                     }
-                    return;
-                }
-                Ok(None) => {
-                    if !is_operational && is_port_listening(port).await {
-                        is_operational = true;
-                        inner.state = CasparProcessState::Operational;
-                        inner.last_error = None;
-                        crate::diagnostics::push_caspar_process_log(
-                            "INFO",
-                            "CasparCG AMCP Port 5250 is open. Engine operational.",
-                        );
-                        drop(inner);
-                        emit_state_change(&app, &supervisor, &settings).await;
-                        break;
+                    Ok(None) => None,
+                    Err(e) => {
+                        log::warn!("[CasparProcess] Error polling child during boot: {}", e);
+                        return;
                     }
-                }
-                Err(e) => {
-                    log::warn!("[CasparProcess] Error polling child during boot: {}", e);
-                    break;
-                }
+                },
+                None => return, // taken by stop()
             }
-        } else {
+        };
+
+        if let Some((code, was_expected)) = poll {
+            if !was_expected {
+                handle_crash(&supervisor, &app, code, &settings).await;
+            } else {
+                let mut inner = supervisor.inner.lock().await;
+                inner.state = CasparProcessState::Stopped;
+                drop(inner);
+                emit_state_change(&app, &supervisor, &settings).await;
+            }
             return;
         }
-    }
 
-    if !is_operational {
-        let mut inner = supervisor.inner.lock().await;
-        if inner.state == CasparProcessState::Starting {
-            inner.last_error = Some("Startup timeout: AMCP port not responding within 15s".to_string());
+        if is_port_listening(port).await {
+            is_operational = true;
+            let mut inner = supervisor.inner.lock().await;
+            inner.state = CasparProcessState::Operational;
+            inner.last_error = None;
+            drop(inner);
+            crate::diagnostics::push_caspar_process_log(
+                "INFO",
+                &format!("CasparCG AMCP port {} is open. Engine operational.", port),
+            );
+            emit_state_change(&app, &supervisor, &settings).await;
+        } else if !boot_warning_issued && boot_started.elapsed() >= BOOT_WARNING_AFTER {
+            boot_warning_issued = true;
+            let mut inner = supervisor.inner.lock().await;
+            if inner.state == CasparProcessState::Starting {
+                inner.last_error = Some(format!(
+                    "Startup is slow: AMCP port {} not responding after {} s (still supervising)",
+                    port,
+                    BOOT_WARNING_AFTER.as_secs()
+                ));
+            }
+            drop(inner);
+            crate::diagnostics::push_caspar_process_log(
+                "WARN",
+                &format!(
+                    "CasparCG has not opened AMCP port {} after {} s; continuing to supervise the process.",
+                    port,
+                    BOOT_WARNING_AFTER.as_secs()
+                ),
+            );
+            emit_state_change(&app, &supervisor, &settings).await;
         }
-        drop(inner);
-        emit_state_change(&app, &supervisor, &settings).await;
-        return;
     }
 
     // Phase 2: Continuous steady-state supervision
