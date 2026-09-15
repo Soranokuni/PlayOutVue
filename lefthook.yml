@@ -1,0 +1,22 @@
+# Audit T1-13: local commit gate. Installed by `npm install` (prepare script).
+# Keeps to the fast checks; the full verify-build pipeline (vitest, cargo
+# test, clippy) runs in CI on every push and pull request.
+pre-commit:
+  parallel: true
+  commands:
+    eslint:
+      glob: "*.{ts,mts,tsx,vue}"
+      exclude: "src/assets/templates/**"
+      run: npx eslint --max-warnings=1000 {staged_files}
+    type-check:
+      glob: "*.{ts,mts,tsx,vue}"
+      run: npm run type-check
+    cargo-check:
+      glob: "src-tauri/**/*.rs"
+      run: cargo check --manifest-path src-tauri/Cargo.toml --quiet
+
+commit-msg:
+  commands:
+    conventional:
+      # Conventional Commits (AGENTS.md): type(scope): subject
+      run: node scripts/check-commit-msg.mjs {1}
