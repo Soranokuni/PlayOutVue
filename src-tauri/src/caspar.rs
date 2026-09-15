@@ -16,6 +16,15 @@ use crate::amcp::{validate_amcp_response, AmcpClient};
 use crate::caspar_layers::CasparLayer;
 
 const DEFAULT_CASPAR_OSC_PORT: u16 = 6250;
+/// OSC listener bind host. Loopback only: CasparCG runs on this machine
+/// (`amcp::CASPAR_AMCP_ADDR`), so no legitimate OSC traffic can come from the LAN.
+const OSC_BIND_HOST: &str = "127.0.0.1";
+
+/// Returns true when an OSC datagram source may drive playback state.
+/// Only loopback peers are trusted; everything else is dropped before decoding.
+pub fn is_trusted_osc_peer(peer: &std::net::SocketAddr) -> bool {
+    peer.ip().is_loopback()
+}
 const CASPAR_ALIAS_DIR: &str = "__sota_caspar";
 
 #[derive(Default)]
@@ -344,7 +353,14 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
         watchdog.abort();
     }
 
-    let bind_addr = format!("0.0.0.0:{}", target_port);
+    // Security: CasparCG is always driven over loopback (see amcp.rs
+    // CASPAR_AMCP_ADDR), so its OSC feed can only legitimately arrive from
+    // this machine. Binding all interfaces would let any LAN host inject
+    // fake `/file/time` and `/file/path` messages and drive the on-air
+    // advance state machine. Bind loopback only and additionally drop any
+    // datagram whose source is not loopback (defence in depth in case the
+    // bind address ever becomes configurable).
+    let bind_addr = format!("{}:{}", OSC_BIND_HOST, target_port);
     let socket = UdpSocket::bind(&bind_addr)
         .await
         .map_err(|error| format!("Failed to bind CasparCG OSC listener on {}: {}", bind_addr, error))?;
@@ -385,6 +401,7 @@ async fn run_osc_listener<R: Runtime>(
     playback_state: Arc<Mutex<PlaybackStateInner>>,
 ) {
     let mut buffer = [0_u8; 4096];
+    let untrusted_osc_drops = std::sync::atomic::AtomicU64::new(0);
 
     loop {
         tokio::select! {
@@ -392,9 +409,21 @@ async fn run_osc_listener<R: Runtime>(
                 break;
             }
             received = socket.recv_from(&mut buffer) => {
-                let Ok((size, _peer)) = received else {
+                let Ok((size, peer)) = received else {
                     continue;
                 };
+
+                if !is_trusted_osc_peer(&peer) {
+                    let dropped = untrusted_osc_drops.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    // Rate-limit the log: first drop, then every 1000th.
+                    if dropped == 1 || dropped % 1000 == 0 {
+                        log::warn!(
+                            "[CasparCG] Dropped OSC datagram from untrusted peer {} on {} (total dropped: {})",
+                            peer, bind_addr, dropped
+                        );
+                    }
+                    continue;
+                }
 
                 match rosc::decoder::decode_udp(&buffer[..size]) {
                     Ok((_remainder, packet)) => {
@@ -1403,6 +1432,21 @@ pub fn mixer_safe_for_layer(layer: u16) -> bool {
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn osc_listener_trusts_only_loopback_peers() {
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+        assert!(is_trusted_osc_peer(&SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6250)));
+        assert!(is_trusted_osc_peer(&SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 6250)));
+        assert!(!is_trusted_osc_peer(&SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 40)), 6250)));
+        assert!(!is_trusted_osc_peer(&SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 7)), 6250)));
+        assert!(!is_trusted_osc_peer(&SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 6250)));
+    }
+
+    #[test]
+    fn osc_listener_bind_host_is_loopback() {
+        assert_eq!(OSC_BIND_HOST, "127.0.0.1");
+    }
     /// Advance fires exactly once near EOF and not before (plan §5 state machine).
     #[test]
     fn advance_fires_once_near_eof() {
