@@ -47,6 +47,11 @@ export interface LibraryCommandContext {
   extendSelection(delta: -1 | 1): void;
   appendSelectedToPlaylist(): Promise<LibraryInsertResult>;
   insertSelectedAfter(rundownItemId: string | null): Promise<LibraryInsertResult>;
+  selectPage?(delta: -1 | 1, pageSize?: number): void;
+  renameSelected?(): void;
+  trashSelected?(): void;
+  getSelectedFolderId?(): string | null;
+  hasSelection?(): boolean;
 }
 
 export interface CommandContext {
@@ -453,6 +458,74 @@ commandRegistry.register({
   isEnabled: (ctx) => (ctx.originScope ?? ctx.scope) === 'library' && !!ctx.library,
   execute: (ctx) => {
     ctx.library?.extendSelection(1);
+  }
+});
+
+commandRegistry.register({
+  id: 'library.selectPageUp',
+  label: 'Scroll Library Page Up',
+  scopes: ['library'],
+  defaultShortcut: 'PageUp',
+  category: 'Library',
+  safety: 'safe',
+  paletteVisible: false,
+  isVisible: () => true,
+  isEnabled: (ctx) => (ctx.originScope ?? ctx.scope) === 'library' && !!ctx.library,
+  execute: (ctx) => {
+    ctx.library?.selectPage?.(-1);
+  }
+});
+
+commandRegistry.register({
+  id: 'library.selectPageDown',
+  label: 'Scroll Library Page Down',
+  scopes: ['library'],
+  defaultShortcut: 'PageDown',
+  category: 'Library',
+  safety: 'safe',
+  paletteVisible: false,
+  isVisible: () => true,
+  isEnabled: (ctx) => (ctx.originScope ?? ctx.scope) === 'library' && !!ctx.library,
+  execute: (ctx) => {
+    ctx.library?.selectPage?.(1);
+  }
+});
+
+commandRegistry.register({
+  id: 'library.renameSelected',
+  label: 'Rename Selected Library Item',
+  scopes: ['library'],
+  defaultShortcut: 'F2',
+  category: 'Library',
+  safety: 'safe',
+  paletteVisible: true,
+  isVisible: () => true,
+  isEnabled: (ctx) => {
+    if ((ctx.originScope ?? ctx.scope) !== 'library' || !ctx.library) return false;
+    if (ctx.library.hasSelection) return ctx.library.hasSelection();
+    return ctx.library.getSelectedAssetIds().length > 0 || !!ctx.library.getSelectedFolderId?.();
+  },
+  execute: (ctx) => {
+    ctx.library?.renameSelected?.();
+  }
+});
+
+commandRegistry.register({
+  id: 'library.trashSelected',
+  label: 'Move Selected Item to Recycle Bin',
+  scopes: ['library'],
+  defaultShortcut: 'Delete',
+  category: 'Library',
+  safety: 'destructive',
+  paletteVisible: true,
+  isVisible: () => true,
+  isEnabled: (ctx) => {
+    if ((ctx.originScope ?? ctx.scope) !== 'library' || !ctx.library) return false;
+    if (ctx.library.hasSelection) return ctx.library.hasSelection();
+    return ctx.library.getSelectedAssetIds().length > 0 || !!ctx.library.getSelectedFolderId?.();
+  },
+  execute: (ctx) => {
+    ctx.library?.trashSelected?.();
   }
 });
 

@@ -5,6 +5,7 @@ import { useRundownStore, parseBroadcastRating, serializeBroadcastRating } from 
 import type { ComplianceRating } from './rundown';
 import type { ContentDescriptorId } from '../lib/greekCompliance';
 import { invoke } from '@tauri-apps/api/core';
+import { message } from '@tauri-apps/plugin-dialog';
 
 export interface QcFinding {
     severity: 'info' | 'warning' | 'error' | string;
@@ -628,7 +629,10 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                 return vf === folderPath || vf.startsWith(folderPath + '/');
             });
             if (hasAssets) {
-                window.alert('Cannot remove folder: it contains active media assets.');
+                void message('Cannot remove folder: it contains active media assets.', {
+                    title: 'Folder In Use',
+                    kind: 'warning'
+                });
                 return;
             }
             delete transientFolders.value[folderPath];
@@ -642,7 +646,10 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         function renameTransientFolder(oldPath: string, newName: string) {
             const trimmed = newName.trim();
             if (!trimmed || trimmed.includes('/')) {
-                window.alert('Invalid folder name.');
+                void message('Invalid folder name.', {
+                    title: 'Invalid Name',
+                    kind: 'warning'
+                });
                 return;
             }
 
@@ -651,7 +658,10 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             const newPath = parts.join('/');
 
             if (transientFolders.value[newPath]) {
-                window.alert('A folder with that name already exists.');
+                void message('A folder with that name already exists.', {
+                    title: 'Folder Exists',
+                    kind: 'warning'
+                });
                 return;
             }
 

@@ -474,6 +474,16 @@ pub async fn deploy_caspar_templates<R: Runtime>(
     })
 }
 
+pub(crate) fn strip_verbatim_prefix(path_str: &str) -> String {
+    if let Some(stripped) = path_str.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", stripped)
+    } else if let Some(stripped) = path_str.strip_prefix(r"\\?\") {
+        stripped.to_string()
+    } else {
+        path_str.to_string()
+    }
+}
+
 #[tauri::command]
 pub async fn open_cg_studio_in_browser<R: Runtime>(
     app: AppHandle<R>,
@@ -510,15 +520,38 @@ pub async fn open_cg_studio_in_browser<R: Runtime>(
         format!("http://127.0.0.1:{}/studio", port)
     } else {
         let absolute_path = std::fs::canonicalize(&resolved_file).unwrap_or(resolved_file);
-        let path_str = absolute_path.to_string_lossy().replace('\\', "/");
-        let clean_path = path_str.trim_start_matches("//?/");
-        format!("file:///{}?studio=1#studio=1", clean_path)
+        let raw_path_str = absolute_path.to_string_lossy().to_string();
+        let clean_path = strip_verbatim_prefix(&raw_path_str).replace('\\', "/");
+        format!("file:///{}?studio=1#studio=1", clean_path.trim_start_matches('/'))
     };
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/c", "start", "", &target_url])
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+        let op: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+        let file_wide: Vec<u16> = target_url.encode_utf16().chain(std::iter::once(0)).collect();
+
+        let res = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                op.as_ptr(),
+                file_wide.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if (res as isize) <= 32 {
+            return Err(format!("ShellExecuteW failed to open URL '{}' (code: {})", target_url, res as isize));
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        std::process::Command::new(cmd)
+            .arg(&target_url)
             .spawn()
             .map_err(|e| format!("Failed to open browser: {}", e))?;
     }
@@ -542,17 +575,26 @@ pub async fn open_advisory_in_editor<R: Runtime>(
     };
 
     let absolute_path = std::fs::canonicalize(&resolved_file).unwrap_or(resolved_file);
-    let path_str = absolute_path.to_string_lossy().to_string();
+    let raw_path_str = absolute_path.to_string_lossy().to_string();
+    let clean_path = strip_verbatim_prefix(&raw_path_str);
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/c", "start", "notepad", &path_str])
+        std::process::Command::new("notepad")
+            .arg(&clean_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open editor: {}", e))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        std::process::Command::new(cmd)
+            .arg(&clean_path)
             .spawn()
             .map_err(|e| format!("Failed to open editor: {}", e))?;
     }
 
-    Ok(path_str)
+    Ok(clean_path)
 }
 
 #[tauri::command]
@@ -574,17 +616,26 @@ pub async fn open_template_directory<R: Runtime>(
 
     let _ = std::fs::create_dir_all(&dir_to_open);
     let absolute_path = std::fs::canonicalize(&dir_to_open).unwrap_or(dir_to_open);
-    let path_str = absolute_path.to_string_lossy().to_string();
+    let raw_path_str = absolute_path.to_string_lossy().to_string();
+    let clean_path = strip_verbatim_prefix(&raw_path_str);
 
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .arg(&path_str)
+            .arg(&clean_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open directory: {}", e))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        std::process::Command::new(cmd)
+            .arg(&clean_path)
             .spawn()
             .map_err(|e| format!("Failed to open directory: {}", e))?;
     }
 
-    Ok(path_str)
+    Ok(clean_path)
 }
 
 #[tauri::command]
@@ -1058,5 +1109,12 @@ mod tests {
         assert_eq!(config.channels.channels[0].consumers.decklinks[0].key_device, Some(3));
         assert_eq!(config.channels.channels[0].consumers.decklinks[0].embedded_audio, Some(true));
         assert_eq!(config.channels.channels[0].consumers.decklinks[0].buffer_depth, Some(4));
+    }
+
+    #[test]
+    fn test_strip_verbatim_prefix() {
+        assert_eq!(super::strip_verbatim_prefix(r"\\?\D:\PlayOut\templates"), r"D:\PlayOut\templates");
+        assert_eq!(super::strip_verbatim_prefix(r"\\?\UNC\server\share\file.html"), r"\\server\share\file.html");
+        assert_eq!(super::strip_verbatim_prefix(r"D:\normal\path"), r"D:\normal\path");
     }
 }

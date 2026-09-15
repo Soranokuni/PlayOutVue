@@ -14,6 +14,7 @@ import RundownRow from './RundownRow.vue';
 import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
 import { formatClockTime } from '../utils/timeFormat';
+import { useStudioClock } from '../composables/useStudioClock';
 import { activeScope } from '../composables/useOperatorShortcuts';
 import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget, type GeometrySnapshot } from '../lib/reorderHelper';
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
@@ -70,6 +71,8 @@ const indicatorOptions: Array<{ id: LibraryIndicator; label: string }> = [
   { id: 'telemarketing', label: 'Telemarketing' }
 ];
 
+const { timecode: studioClockTimecode, isNtpLocked } = useStudioClock();
+const showGraphicsDrawer = ref(false);
 const clockStr = computed(() => formatClockTime(store.clockMs));
 
 const itemDurationMs = (item: RundownItem): number => {
@@ -339,15 +342,33 @@ const ctxDelete = async () => {
     closeContextMenu();
     return;
   }
-  if (contextMenu.value.item && !isProtectedPlayingRow(contextMenu.value.index)) {
+  const item = contextMenu.value.item;
+  const index = contextMenu.value.index;
+  closeContextMenu();
+  if (item && !isProtectedPlayingRow(index)) {
     const confirmed = await ask(
-      `Delete "${getDisplayName(contextMenu.value.item)}" from ${store.currentPlaylistName}?`,
+      `Delete "${getDisplayName(item)}" from ${store.currentPlaylistName}?`,
       { title: 'Delete Item', kind: 'warning' }
     );
-    if (!confirmed) { closeContextMenu(); return; }
-    store.removeItem(contextMenu.value.item.id);
+    if (!confirmed) {
+      await nextTick();
+      focusList();
+      return;
+    }
+
+    const itemIndex = store.activeItems.findIndex(i => i.id === item.id);
+    const targetIndex = itemIndex >= 0 ? itemIndex : index;
+    const remaining = store.activeItems.filter(i => i.id !== item.id);
+    store.removeItem(item.id);
+    if (remaining.length > 0) {
+      const nextIndex = Math.max(0, Math.min(targetIndex, remaining.length - 1));
+      const nextItem = remaining[nextIndex];
+      if (nextItem) store.selectItem(nextItem.id);
+    }
+    await nextTick();
+    focusList();
+    return;
   }
-  closeContextMenu();
 };
 
 const saveMetadata = async (
@@ -559,6 +580,7 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'submenu',
+        id: 'compliance-rating',
         label: '🇬🇷 Σήματα Καταλληλότητας (Ηλικία)',
         children: ageRatingOptions.map(r => {
           const itemRating = item.complianceRating || 'none';
@@ -581,6 +603,7 @@ const menuItems = computed<MenuItem[]>(() => {
       },
       {
         type: 'submenu',
+        id: 'compliance-descriptors',
         label: '⚠️ Προειδοποιήσεις Περιεχομένου (ΕΣΡ)',
         children: [
           ...GREEK_CONTENT_DESCRIPTORS.map(d => {
@@ -610,6 +633,7 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'submenu',
+        id: 'content-type',
         label: 'Categories/Tags',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
@@ -621,6 +645,7 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'submenu',
+        id: 'legacy-tags',
         label: 'Legacy Tags',
         children: indicatorOptions.map(ind => ({
           type: 'action',
@@ -698,10 +723,23 @@ const createPlaylistTab = () => {
   store.createPlaylist();
 };
 
-const renamePlaylistTab = (playlist: RundownPlaylist) => {
-  const value = window.prompt('Rename playlist', playlist.name);
-  if (!value) return;
-  store.renamePlaylist(playlist.id, value);
+const editingPlaylistId = ref<string | null>(null);
+const editingPlaylistName = ref('');
+
+const startRenamePlaylistTab = async (playlist: RundownPlaylist) => {
+  editingPlaylistId.value = playlist.id;
+  editingPlaylistName.value = playlist.name;
+  await nextTick();
+  const input = document.querySelector<HTMLInputElement>('.tab-rename-input');
+  input?.focus();
+  input?.select();
+};
+
+const commitRenamePlaylistTab = () => {
+  if (editingPlaylistId.value && editingPlaylistName.value.trim()) {
+    store.renamePlaylist(editingPlaylistId.value, editingPlaylistName.value.trim());
+  }
+  editingPlaylistId.value = null;
 };
 
 const closePlaylistTab = async (playlist: RundownPlaylist) => {
@@ -749,7 +787,23 @@ const deleteRowItem = async (item: RundownItem, index: number) => {
     `Delete "${getDisplayName(item)}" from ${store.currentPlaylistName}?`,
     { title: 'Delete Item', kind: 'warning' }
   );
-  if (confirmed) store.removeItem(item.id);
+  if (!confirmed) {
+    await nextTick();
+    focusList();
+    return;
+  }
+
+  const itemIndex = store.activeItems.findIndex(i => i.id === item.id);
+  const targetIndex = itemIndex >= 0 ? itemIndex : index;
+  const remaining = store.activeItems.filter(i => i.id !== item.id);
+  store.removeItem(item.id);
+  if (remaining.length > 0) {
+    const nextIndex = Math.max(0, Math.min(targetIndex, remaining.length - 1));
+    const nextItem = remaining[nextIndex];
+    if (nextItem) store.selectItem(nextItem.id);
+  }
+  await nextTick();
+  focusList();
 };
 
 // Per-row values for <RundownRow> props. Each helper is also listed in the
@@ -1003,14 +1057,42 @@ onUnmounted(() => {
         <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge">▶ ON AIR</span>
       </div>
 
-      <!-- On-Demand Crawl Ticker Input/Toggle in Header -->
-      <div class="crawl-controls" style="display:flex; align-items:center; gap:8px; flex:1; max-width:400px; margin:0 15px;">
+      <div style="flex:1;"></div>
+
+      <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+        <!-- Graphics Ticker Drawer Toggle Button -->
+        <button 
+          class="icon-action rw-ticker-toggle-btn"
+          :class="{ 'is-active': showGraphicsDrawer || settings.cgCrawlActive }"
+          @click="showGraphicsDrawer = !showGraphicsDrawer"
+          title="Toggle On-Demand News Ticker & Graphics Drawer"
+        >
+          📰 Ticker
+          <span v-if="settings.cgCrawlActive" class="crawl-active-dot">●</span>
+        </button>
+
+        <!-- Precision Studio Wall Clock with NTP Lock Dot -->
+        <div class="studio-clock-wrap" title="Studio Wall Clock · System Clock Locked (NTP Synchronized)">
+          <span class="ntp-lock-dot" :class="{ 'is-locked': isNtpLocked }" title="System Clock Locked (NTP Synchronized)"></span>
+          <span class="clock-display">{{ studioClockTimecode }}</span>
+        </div>
+
+        <button class="icon-action" @click="showLiveDialog = true" title="Insert Live Item / Studio Block into Rundown">+ Live Block</button>
+        <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">■ Stop</button>
+      </div>
+    </div>
+
+    <!-- Collapsible Secondary Graphics Drawer -->
+    <div v-if="showGraphicsDrawer" class="rw-graphics-drawer">
+      <div class="graphics-drawer-content">
+        <span class="graphics-drawer-badge">📰 TICKER</span>
         <input 
           type="text" 
           v-model="settings.cgCrawlText" 
           placeholder="Enter news crawl ticker text..." 
-          class="crawl-input"
+          class="crawl-input glass-input"
           title="On-Demand Crawl Text (live update on type)"
+          autofocus
         />
         <button 
           class="crawl-btn" 
@@ -1019,14 +1101,9 @@ onUnmounted(() => {
           title="Toggle On-Demand Ticker Overlay"
         >
           <span class="crawl-btn-dot"></span>
-          ON-DEMAND CRAWL
+          {{ settings.cgCrawlActive ? 'CRAWL ON AIR' : 'START CRAWL' }}
         </button>
-      </div>
-
-      <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-        <span class="clock-display">{{ clockStr }}</span>
-        <button class="icon-action" @click="showLiveDialog = true" title="Add Live Entry">📹 Live</button>
-        <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">■ Stop</button>
+        <button class="drawer-close-btn" @click="showGraphicsDrawer = false" title="Close ticker drawer">✕</button>
       </div>
     </div>
 
@@ -1050,9 +1127,19 @@ onUnmounted(() => {
         class="playlist-tab"
         :class="{ 'is-active': playlist.id === store.activePlaylistId, 'is-onair': playlist.id === store.onAirPlaylistId }"
         @click="store.activatePlaylist(playlist.id)"
-        @dblclick.stop="renamePlaylistTab(playlist as RundownPlaylist)"
+        @dblclick.stop="startRenamePlaylistTab(playlist as RundownPlaylist)"
       >
-        <span class="playlist-tab-name">{{ playlist.name }}</span>
+        <input
+          v-if="editingPlaylistId === playlist.id"
+          v-model="editingPlaylistName"
+          class="tab-rename-input"
+          @click.stop
+          @blur="commitRenamePlaylistTab"
+          @keydown.enter.stop.prevent="commitRenamePlaylistTab"
+          @keydown.esc.stop.prevent="editingPlaylistId = null"
+          autofocus
+        />
+        <span v-else class="playlist-tab-name">{{ playlist.name }}</span>
         <span class="playlist-tab-state">{{ playlist.id === store.onAirPlaylistId ? 'ON AIR' : 'OFFLINE' }}</span>
         <button
           v-if="store.playlists.length > 1 && playlist.id !== store.onAirPlaylistId"
@@ -1218,9 +1305,90 @@ onUnmounted(() => {
   line-height: 1;
 }
 .tw-dismiss:hover { background: var(--bg-hover); }
+.studio-clock-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface-elevated, rgba(0, 0, 0, 0.25));
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-medium);
+}
+.ntp-lock-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+  flex-shrink: 0;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.ntp-lock-dot.is-locked {
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+}
 .clock-display {
-  font-family: var(--font-mono); font-size: 1.3rem; font-weight: 700;
-  letter-spacing: 1.5px; color: var(--text-primary); text-shadow: 0 0 10px var(--glass-border);
+  font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700;
+  letter-spacing: 1px; color: var(--text-primary); text-shadow: 0 0 10px var(--glass-border);
+  font-variant-numeric: tabular-nums;
+}
+.rw-ticker-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rw-ticker-toggle-btn.is-active {
+  background: color-mix(in srgb, var(--accent-blue, #38bdf8) 20%, transparent);
+  border-color: var(--accent-blue, #38bdf8);
+}
+.crawl-active-dot {
+  color: var(--accent-red, #ef4444);
+  font-size: 0.7rem;
+  animation: blink 1s step-end infinite;
+}
+.rw-graphics-drawer {
+  display: flex;
+  align-items: center;
+  background: var(--bg-surface-elevated, #1a1e24);
+  border-bottom: 1px solid var(--border-medium);
+  padding: 6px 12px;
+  animation: fadeIn 0.15s ease-out;
+}
+.graphics-drawer-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.graphics-drawer-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--accent-blue, #38bdf8);
+  white-space: nowrap;
+}
+.drawer-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.drawer-close-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.tab-rename-input {
+  background: var(--bg-surface);
+  border: 1px solid var(--accent-blue, #38bdf8);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  outline: none;
+  max-width: 130px;
 }
 .playing-badge {
   background: color-mix(in srgb, var(--accent-red) 18%, transparent); border: 1px solid color-mix(in srgb, var(--accent-red) 50%, transparent);

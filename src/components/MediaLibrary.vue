@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { refDebounced } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
-import { ask, save } from '@tauri-apps/plugin-dialog';
+import { ask, save, message } from '@tauri-apps/plugin-dialog';
 import { useRundownStore, parseBroadcastRating, serializeBroadcastRating, getMetadataFromAssetResponse, type ComplianceRating, type InsertionTarget } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
 import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDefaults';
@@ -151,7 +151,7 @@ export interface VisibleTreeRow {
     asset?: LibraryAsset;
 }
 
-const visibleTreeRows = computed<VisibleTreeRow[]>(() => {
+const displayedFolderRows = computed<VisibleTreeRow[]>(() => {
     const query = mediaLibrary.searchQuery.trim().toLowerCase();
     const tree = buildVirtualFolderTree(
         mediaLibrary.assets,
@@ -170,7 +170,6 @@ const visibleTreeRows = computed<VisibleTreeRow[]>(() => {
 
         const isExpanded = query ? true : (expandedFolders.value[node.path] !== false);
 
-        // 1. Folder row
         rows.push({
             key: `folder:${node.path}`,
             id: `folder:${node.path}`,
@@ -185,23 +184,9 @@ const visibleTreeRows = computed<VisibleTreeRow[]>(() => {
             isTransient: node.isTransient,
         });
 
-        // 2. If folder is expanded:
         if (isExpanded) {
-            // A. Subfolders on TOP
             for (const child of node.children) {
                 traverse(child);
-            }
-            // B. Direct assets BELOW subfolders
-            for (const asset of node.directAssets) {
-                rows.push({
-                    key: `asset:${asset.uuid}`,
-                    id: `asset:${asset.uuid}`,
-                    type: 'asset',
-                    depth: node.depth + 1,
-                    path: node.path,
-                    displayName: asset.display_name,
-                    asset,
-                });
             }
         }
     };
@@ -209,6 +194,28 @@ const visibleTreeRows = computed<VisibleTreeRow[]>(() => {
     traverse(tree);
     return rows;
 });
+
+const displayedAssets = computed<LibraryAsset[]>(() => {
+    const deleted = new Set(mediaLibrary.deletedUuids);
+    const query = mediaLibrary.searchQuery.trim().toLowerCase();
+
+    return mediaLibrary.assets.filter(a => {
+        if (deleted.has(a.uuid)) return false;
+
+        if (query) {
+            const name = (a.display_name || a.current_path || '').toLowerCase();
+            return name.includes(query);
+        }
+
+        const cur = mediaLibrary.currentFolderPath || '/';
+        if (cur === '/') return true;
+
+        const vf = a.virtual_folder || '/';
+        return vf === cur || vf.startsWith(cur + '/');
+    });
+});
+
+const visibleTreeRows = displayedFolderRows;
 
 // Breadcrumbs for active folder context
 const currentBreadcrumbs = computed(() => {
@@ -248,6 +255,19 @@ const formatDuration = (seconds: number) => {
         minutes ? `${minutes}m` : '',
         `${remainingSeconds}s`
     ].filter(Boolean).join(' ');
+};
+
+const formatTabularDuration = (seconds: number): string => {
+    const total = Math.max(0, Math.round(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const remainingSeconds = total % 60;
+    const mm = String(minutes).padStart(2, '0');
+    const ss = String(remainingSeconds).padStart(2, '0');
+    if (hours > 0) {
+        return `${String(hours).padStart(2, '0')}:${mm}:${ss}`;
+    }
+    return `${mm}:${ss}`;
 };
 
 const totalLibraryDuration = computed(() => {
@@ -671,6 +691,12 @@ function onAssetPointerDown(event: PointerEvent, asset: LibraryAsset) {
         event,
         payload,
         onDropOutside: ({ clientX, clientY }) => {
+            const trashEl = document.elementFromPoint(clientX, clientY)
+                ?.closest<HTMLElement>('.system-node-recycle-bin');
+            if (trashEl) {
+                doTrashAsset(asset.uuid);
+                return true;
+            }
             const folderElement = document.elementFromPoint(clientX, clientY)
                 ?.closest<HTMLElement>('[data-library-folder-path]');
             const folderPath = folderElement?.dataset.libraryFolderPath;
@@ -842,22 +868,112 @@ async function handleFolderPickerSelect(targetFolderPath: string) {
     }
 }
 
+const showActionsMenu = ref(false);
+
+const inlineEditingAssetUuid = ref<string | null>(null);
+const inlineRenameAssetValue = ref('');
+
+function startRenameAsset(asset: LibraryAsset) {
+    inlineEditingAssetUuid.value = asset.uuid;
+    inlineRenameAssetValue.value = asset.display_name;
+    nextTick(() => {
+        const input = document.querySelector<HTMLInputElement>('.lib-inline-rename-asset');
+        input?.focus();
+        input?.select();
+    });
+}
+
+async function commitInlineRenameAsset() {
+    const uuid = inlineEditingAssetUuid.value;
+    const newName = inlineRenameAssetValue.value.trim();
+    inlineEditingAssetUuid.value = null;
+    if (!uuid || !newName) return;
+    const asset = mediaLibrary.assets.find(a => a.uuid === uuid);
+    if (!asset || asset.display_name === newName) return;
+
+    if (!asset.uuid.startsWith('local:')) {
+        const result = await ingestorInvoke<void>(
+            'rename_ingestor_asset',
+            {
+                uuid,
+                displayName: newName,
+                display_name: newName,
+                apiBaseUrlOverride: null,
+                api_base_url_override: null
+            },
+            'ingestor-rename'
+        );
+        if (result === null) return;
+    }
+    mediaLibrary.renameAsset(uuid, newName);
+}
+
+function cancelInlineRenameAsset() {
+    inlineEditingAssetUuid.value = null;
+}
+
+const inlineEditingFolderPath = ref<string | null>(null);
+const inlineRenameFolderValue = ref('');
+
+function startRenameFolder(path: string) {
+    if (path === '/') return;
+    inlineEditingFolderPath.value = path;
+    inlineRenameFolderValue.value = path.split('/').pop() || '';
+    nextTick(() => {
+        const input = document.querySelector<HTMLInputElement>('.lib-inline-rename-folder');
+        input?.focus();
+        input?.select();
+    });
+}
+
+function commitInlineRenameFolder() {
+    const oldPath = inlineEditingFolderPath.value;
+    const newName = inlineRenameFolderValue.value.trim();
+    inlineEditingFolderPath.value = null;
+    if (!oldPath || !newName) return;
+    mediaLibrary.renameTransientFolder(oldPath, newName);
+}
+
+function cancelInlineRenameFolder() {
+    inlineEditingFolderPath.value = null;
+}
+
+const isCreatingFolder = ref(false);
+const newFolderNameValue = ref('');
+const newFolderParentPath = ref('/');
+
 function doNewVirtualFolder(parentPath?: string) {
     const base = parentPath || (contextMenu.value.node?.type === 'folder' ? contextMenu.value.node.virtualFolder : mediaLibrary.currentFolderPath) || '/';
-    const name = window.prompt(`New virtual subfolder name inside "${getFolderName(base)}":`);
-    if (!name) return;
-    mediaLibrary.createVirtualFolder(base, name);
+    newFolderParentPath.value = base;
+    newFolderNameValue.value = 'New Folder';
+    isCreatingFolder.value = true;
     closeContextMenu();
+    nextTick(() => {
+        const input = document.querySelector<HTMLInputElement>('.lib-new-folder-input');
+        input?.focus();
+        input?.select();
+    });
+}
+
+function commitNewVirtualFolder() {
+    if (!isCreatingFolder.value) return;
+    const name = newFolderNameValue.value.trim();
+    const parent = newFolderParentPath.value;
+    isCreatingFolder.value = false;
+    newFolderNameValue.value = '';
+    if (!name) return;
+    mediaLibrary.createVirtualFolder(parent, name);
+}
+
+function cancelNewVirtualFolder() {
+    newFolderNameValue.value = '';
+    isCreatingFolder.value = false;
 }
 
 function doRenameFolder() {
     const node = contextMenu.value.node;
-    if (!node || node.type !== 'folder') return;
-    const oldPath = node.virtualFolder;
-    const currentName = oldPath.split('/').pop() || '';
-    const newName = window.prompt(`Rename folder "${currentName}" to:`, currentName);
-    if (!newName) return;
-    mediaLibrary.renameTransientFolder(oldPath, newName);
+    if (!node || node.type !== 'folder' || node.virtualFolder === '/') return;
+    startRenameFolder(node.virtualFolder);
     closeContextMenu();
 }
 
@@ -868,36 +984,72 @@ function doRemoveFolder() {
     closeContextMenu();
 }
 
-async function doRenameSelected() {
+function doRenameSelected() {
     const asset = mediaLibrary.selectedAsset;
-    if (!asset) return;
-    const newName = window.prompt('Rename asset', asset.display_name);
-    if (!newName || newName === asset.display_name) return;
-
-    const result = await ingestorInvoke<void>(
-        'rename_ingestor_asset',
-        { uuid: asset.uuid, display_name: newName, apiBaseUrlOverride: null },
-        'ingestor-rename'
-    );
-    if (result === null) return;
-    mediaLibrary.renameAsset(asset.uuid, newName);
+    if (asset) {
+        startRenameAsset(asset);
+    } else if (mediaLibrary.selectedNodeId?.startsWith('folder:')) {
+        const path = mediaLibrary.selectedNodeId.slice(7);
+        if (path !== '/') {
+            startRenameFolder(path);
+        }
+    }
 }
 
 function doMoveSelected() {
-    openMoveAssetModal();
+    if (mediaLibrary.selectedAsset) {
+        openMoveAssetModal();
+    } else if (mediaLibrary.selectedNodeId?.startsWith('folder:')) {
+        const path = mediaLibrary.selectedNodeId.slice(7);
+        if (path !== '/') {
+            openMoveFolderModal(path);
+        }
+    }
 }
 
-function doDeleteSelected() {
-    const asset = mediaLibrary.selectedAsset;
-    if (!asset) return;
-    doTrashAsset(asset.uuid);
+async function doDeleteSelected() {
+    const selectedIds = mediaLibrary.selectedAssetIds;
+    if (selectedIds.length > 0) {
+        for (const uuid of selectedIds) {
+            await doTrashAsset(uuid);
+        }
+    } else if (mediaLibrary.selectedAsset) {
+        await doTrashAsset(mediaLibrary.selectedAsset.uuid);
+    } else if (mediaLibrary.selectedNodeId?.startsWith('folder:')) {
+        const path = mediaLibrary.selectedNodeId.slice(7);
+        if (path !== '/') {
+            await doTrashFolder(path);
+        }
+    }
+}
+
+const isTrashDragOver = ref(false);
+
+async function onTrashDrop(event: DragEvent) {
+    isTrashDragOver.value = false;
+    event.preventDefault();
+    if (event.dataTransfer) {
+        const folderPath = event.dataTransfer.getData(FOLDER_DRAG_MIME);
+        if (folderPath && folderPath !== '/') {
+            await doTrashFolder(folderPath);
+            return;
+        }
+    }
+    const selectedIds = mediaLibrary.selectedAssetIds;
+    if (selectedIds.length > 0) {
+        for (const uuid of selectedIds) {
+            await doTrashAsset(uuid);
+        }
+    } else if (mediaLibrary.selectedAsset) {
+        await doTrashAsset(mediaLibrary.selectedAsset.uuid);
+    }
 }
 
 async function doTrashAsset(uuid: string) {
     try {
         await mediaLibrary.trashAsset(uuid);
     } catch (e) {
-        window.alert(`Failed to move asset to Recycle Bin: ${e}`);
+        await message(`Failed to move asset to Recycle Bin: ${e}`, { title: 'Recycle Bin Error', kind: 'error' });
     }
 }
 
@@ -905,13 +1057,13 @@ async function doTrashFolder(folderPath: string) {
     try {
         await mediaLibrary.trashFolder(folderPath);
     } catch (e) {
-        window.alert(`Failed to move folder to Recycle Bin: ${e}`);
+        await message(`Failed to move folder to Recycle Bin: ${e}`, { title: 'Recycle Bin Error', kind: 'error' });
     }
 }
 
-function promptPurgeAsset(asset: LibraryAsset) {
+async function promptPurgeAsset(asset: LibraryAsset) {
     if (asset.uuid.startsWith('local:')) {
-        window.alert("Cannot purge local fallback assets.");
+        await message("Cannot purge local fallback assets.", { title: 'Purge Asset', kind: 'warning' });
         return;
     }
     purgeAlertModal.value = {
@@ -946,7 +1098,7 @@ async function executePurgeAlert() {
         }
         await fetchAssets({ force: true });
     } catch (e) {
-        window.alert(`Failed to purge: ${e}`);
+        await message(`Failed to purge: ${e}`, { title: 'Purge Error', kind: 'error' });
     }
 }
 
@@ -1090,9 +1242,17 @@ watch(
     { immediate: true }
 );
 
-const visibleAssetNodes = computed(() =>
-    mediaLibrary.allTreeNodes.filter((node) => node.type === 'asset')
-);
+const visibleAssetNodes = computed(() => {
+    const displayedUuids = new Set(displayedAssets.value.map(a => a.uuid));
+    return mediaLibrary.allTreeNodes.filter(
+        (node) => node.type === 'asset' && node.asset && displayedUuids.has(node.asset.uuid)
+    );
+});
+
+function onGlobalClick() {
+    closeContextMenu();
+    showActionsMenu.value = false;
+}
 
 onMounted(() => {
     activeLibraryContext.value = {
@@ -1102,6 +1262,33 @@ onMounted(() => {
         selectNext: () => mediaLibrary.moveSelectionDelta(1, visibleAssetNodes.value),
         selectFirst: () => mediaLibrary.selectFirst(visibleAssetNodes.value),
         selectLast: () => mediaLibrary.selectLast(visibleAssetNodes.value),
+        selectPage: (delta: -1 | 1, pageSize?: number) => {
+            mediaLibrary.moveSelectionPage(delta, pageSize || 10, visibleAssetNodes.value);
+            return true;
+        },
+        renameSelected: () => {
+            doRenameSelected();
+            return true;
+        },
+        trashSelected: () => {
+            doDeleteSelected();
+            return true;
+        },
+        getSelectedFolderId: () => {
+            if (mediaLibrary.selectedNodeId?.startsWith('folder:')) {
+                const path = mediaLibrary.selectedNodeId.slice(7);
+                return path !== '/' ? path : null;
+            }
+            return null;
+        },
+        hasSelection: () => {
+            if (mediaLibrary.selectedAssetIds.length > 0 || mediaLibrary.selectedAsset) return true;
+            if (mediaLibrary.selectedNodeId?.startsWith('folder:')) {
+                const path = mediaLibrary.selectedNodeId.slice(7);
+                return path !== '/';
+            }
+            return false;
+        },
         extendSelection: (delta: -1 | 1) => mediaLibrary.extendSelection(delta, visibleAssetNodes.value),
         appendSelectedToPlaylist: async (): Promise<LibraryInsertResult> => {
             const selectedUuids = mediaLibrary.selectedAssetIds;
@@ -1141,7 +1328,7 @@ onMounted(() => {
 
             return { insertedIds, skippedIds, errors };
         },
-        insertSelectedAfter: async (targetId: string | null): Promise<LibraryInsertResult> => {
+        insertSelectedAfter: async (targetId: string | null = null): Promise<LibraryInsertResult> => {
             const selectedUuids = mediaLibrary.selectedAssetIds;
             const selectedAssets = selectedUuids
                 .map(uuid => mediaLibrary.assets.find(a => a.uuid === uuid))
@@ -1194,9 +1381,11 @@ onMounted(() => {
         if (isScanning.value) return;
         if (!ingestorStatus.isIngestorOnline) return;
         fetchAssets().catch(() => {});
+        mediaLibrary.fetchRecycleBin().catch(() => {});
     }, 30000);
     mediaLibrary.fetchFolderColors();
-    window.addEventListener('click', closeContextMenu);
+    mediaLibrary.fetchRecycleBin().catch(() => {});
+    window.addEventListener('click', onGlobalClick);
 });
 
 onUnmounted(() => {
@@ -1210,7 +1399,7 @@ onUnmounted(() => {
         libraryPollTimer = null;
     }
     clearScheduledWarmup();
-    window.removeEventListener('click', closeContextMenu);
+    window.removeEventListener('click', onGlobalClick);
 });
 
 function onFolderDragOverPath(event: DragEvent, folderPath: string) {
@@ -1460,6 +1649,7 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'submenu',
+        id: 'compliance-rating',
         label: '🇬🇷 Σήματα Καταλληλότητας (Ηλικία)',
         children: ageRatingOptions.map(r => {
           const itemRating = ratingMeta.ageRating || 'none';
@@ -1482,6 +1672,7 @@ const menuItems = computed<MenuItem[]>(() => {
       },
       {
         type: 'submenu',
+        id: 'compliance-descriptors',
         label: '⚠️ Προειδοποιήσεις Περιεχομένου (ΕΣΡ)',
         children: [
           ...GREEK_CONTENT_DESCRIPTORS.map(d => {
@@ -1511,6 +1702,7 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'submenu',
+        id: 'content-type',
         label: 'Categories/Tags',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
@@ -1670,40 +1862,40 @@ const menuItems = computed<MenuItem[]>(() => {
       >
         📁 New
       </button>
-      <button
-        class="icon-action"
-        title="Rename selected asset"
-        :disabled="!mediaLibrary.selectedAsset"
-        @click="doRenameSelected"
-      >
-        ✏️ Rename
-      </button>
-      <button
-        class="icon-action"
-        title="Move selected asset"
-        :disabled="!mediaLibrary.selectedAsset"
-        @click="doMoveSelected"
-      >
-        ➡️ Move
-      </button>
-      <button
-        class="icon-action"
-        title="Move selected asset to Recycle Bin"
-        :disabled="!mediaLibrary.selectedAsset"
-        @click="doDeleteSelected"
-      >
-        🗑 Delete
-      </button>
-      <button
-        class="icon-action recycle-bin-toggle-btn"
-        title="Open Recycle Bin"
-        @click="showRecycleBin = true"
-      >
-        🗑 Recycle Bin
-        <span v-if="mediaLibrary.recycleBinAssets.length > 0" class="recycle-bin-count-badge">
-          {{ mediaLibrary.recycleBinAssets.length }}
-        </span>
-      </button>
+
+      <!-- Actions Dropdown -->
+      <div class="lib-actions-dropdown-wrap">
+        <button
+          class="icon-action lib-actions-trigger"
+          :title="showActionsMenu ? 'Close actions menu' : 'Asset and folder actions'"
+          @click.stop="showActionsMenu = !showActionsMenu"
+        >
+          ⋮
+        </button>
+        <div v-if="showActionsMenu" class="lib-actions-menu" @click.stop>
+          <button
+            class="lib-actions-item"
+            :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
+            @click="doRenameSelected(); showActionsMenu = false"
+          >
+            ✏️ Rename
+          </button>
+          <button
+            class="lib-actions-item"
+            :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
+            @click="doMoveSelected(); showActionsMenu = false"
+          >
+            ➡️ Move
+          </button>
+          <button
+            class="lib-actions-item lib-action-danger"
+            :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
+            @click="doDeleteSelected(); showActionsMenu = false"
+          >
+            🗑 Delete
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Debug panel -->
@@ -1764,134 +1956,203 @@ const menuItems = computed<MenuItem[]>(() => {
       </div>
     </div>
 
-    <!-- Tree List -->
+    <!-- Two-Pane Explorer Split -->
+    <!-- Top Pane: Folder Tree & Navigation -->
+    <div class="lib-folder-pane custom-scroll">
+      <div v-if="isScanning && !displayedFolderRows.length" class="lib-empty">⌛ Loading…</div>
+      <div v-else-if="displayedFolderRows.length === 0" class="lib-empty">No folders</div>
+      <div v-else class="lib-folder-tree">
+        <div
+          v-for="row in displayedFolderRows"
+          :key="row.key"
+          class="lib-row is-folder"
+          :class="{
+            'is-selected': mediaLibrary.selectedNodeId === row.id || (mediaLibrary.currentFolderPath === row.path && !mediaLibrary.selectedAssetId),
+            'is-folder-drop-target': folderDropTargetId === row.id,
+            'is-root-folder': row.depth === 0,
+          }"
+          :style="{ paddingLeft: `${row.depth * 18 + 8}px` }"
+          :data-library-folder-path="row.path"
+          :draggable="row.depth > 0"
+          @click="onFolderClick(row.path)"
+          @dblclick="onFolderDoubleClick(row.path)"
+          @contextmenu.prevent="onFolderContextMenu($event, row.path)"
+          @dragstart="onFolderDragStart($event, row.path)"
+          @dragend="folderDropTargetId = null"
+          @dragover="onFolderDragOverPath($event, row.path)"
+          @drop="onFolderDropPath($event, row.path)"
+        >
+          <!-- Vertical Indentation Tree Guides -->
+          <span
+            v-for="d in row.depth"
+            :key="d"
+            class="tree-guide-line"
+            :style="{ left: `${(d - 1) * 18 + 14}px` }"
+          ></span>
+
+          <!-- Chevron for collapsible folder -->
+          <span
+            v-if="row.hasChildren"
+            class="chevron-icon"
+            :class="{ 'is-expanded': row.isExpanded }"
+            @click.stop="expandedFolders[row.path] = !row.isExpanded"
+          >
+            ▶
+          </span>
+          <span v-else class="chevron-spacer"></span>
+
+          <span class="lib-icon" @click.stop="onFolderClick(row.path)">
+            <svg
+              class="folder-svg"
+              viewBox="0 0 24 24"
+              :style="{ fill: row.color || (row.depth === 0 ? '#38bdf8' : 'var(--accent-blue)') }"
+            >
+              <path v-if="row.isExpanded" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
+              <path v-else d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+            </svg>
+          </span>
+
+          <span class="lib-text">
+            <input
+              v-if="inlineEditingFolderPath === row.path"
+              v-model="inlineRenameFolderValue"
+              class="lib-inline-rename lib-inline-rename-folder"
+              type="text"
+              @click.stop
+              @keydown.enter.stop="commitInlineRenameFolder"
+              @keydown.esc.stop="cancelInlineRenameFolder"
+              @blur="commitInlineRenameFolder"
+            />
+            <span v-else class="lib-name folder-title-text">{{ row.displayName }}</span>
+          </span>
+
+          <span v-if="row.allAssetCount !== undefined" class="folder-count-badge">
+            {{ row.allAssetCount }}
+          </span>
+        </div>
+
+        <!-- Inline creating new folder -->
+        <div
+          v-if="isCreatingFolder"
+          class="lib-row is-folder is-new-folder"
+          :style="{ paddingLeft: '26px' }"
+        >
+          <span class="chevron-spacer"></span>
+          <span class="lib-icon">📁</span>
+          <input
+            v-model="newFolderNameValue"
+            class="lib-inline-rename lib-new-folder-input"
+            type="text"
+            placeholder="New folder name…"
+            @click.stop
+            @keydown.enter.stop="commitNewVirtualFolder"
+            @keydown.esc.stop="cancelNewVirtualFolder"
+            @blur="commitNewVirtualFolder"
+          />
+        </div>
+      </div>
+
+      <!-- Persistent Recycle Bin Node -->
+      <div
+        class="system-node-recycle-bin"
+        :class="{ 'is-drag-target': isTrashDragOver }"
+        title="Recycle Bin (Drag assets here to delete)"
+        @click="showRecycleBin = true"
+        @dragover.prevent="isTrashDragOver = true"
+        @dragleave="isTrashDragOver = false"
+        @drop.prevent="onTrashDrop($event)"
+      >
+        <span class="lib-icon">🗑️</span>
+        <span class="lib-text">Recycle Bin</span>
+        <span v-if="mediaLibrary.recycleBinAssets.length > 0" class="recycle-bin-count-badge">
+          {{ mediaLibrary.recycleBinAssets.length }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Resizable / Visual Divider -->
+    <div class="lib-pane-divider"></div>
+
+    <!-- Bottom Pane: High-Density Asset Table -->
     <div
       ref="libTreeRef"
-      class="lib-tree custom-scroll"
+      class="lib-asset-pane custom-scroll"
       data-command-scope="library"
       role="listbox"
-      aria-label="Media library"
+      aria-label="Media library assets"
       aria-multiselectable="true"
       tabindex="0"
       @focus="activeScope = 'library'"
       @contextmenu.prevent
-      style="overflow-y: auto;"
     >
-      <div v-if="isScanning && !visibleTreeRows.length" class="lib-empty">⌛ Loading…</div>
-      <div v-else-if="visibleTreeRows.length === 0" class="lib-empty">
-        {{ libraryQuery ? 'No matching assets found.' : '📂 No media found.\nSet the Ingestor API or media folder in ⚙️ Settings.' }}
+      <div v-if="isScanning && !displayedAssets.length" class="lib-empty">⌛ Loading…</div>
+      <div v-else-if="displayedAssets.length === 0" class="lib-empty">
+        {{ libraryQuery ? 'No matching assets found.' : '📂 No media in folder.\nSet the Ingestor API or media folder in ⚙️ Settings.' }}
       </div>
-      <div v-else class="lib-tree-content">
-        <template v-for="row in visibleTreeRows" :key="row.key">
-          <!-- 1. Folder Row -->
-          <div
-            v-if="row.type === 'folder'"
-            class="lib-row is-folder"
-            :class="{
-              'is-selected': mediaLibrary.selectedNodeId === row.id,
-              'is-folder-drop-target': folderDropTargetId === row.id,
-              'is-root-folder': row.depth === 0,
-            }"
-            :style="{ paddingLeft: `${row.depth * 18 + 8}px` }"
-            :data-library-folder-path="row.path"
-            :draggable="row.depth > 0"
-            @click="onFolderClick(row.path)"
-            @dblclick="onFolderDoubleClick(row.path)"
-            @contextmenu.prevent="onFolderContextMenu($event, row.path)"
-            @dragstart="onFolderDragStart($event, row.path)"
-            @dragend="folderDropTargetId = null"
-            @dragover="onFolderDragOverPath($event, row.path)"
-            @drop="onFolderDropPath($event, row.path)"
-          >
-            <!-- Vertical Indentation Tree Guides -->
-            <span
-              v-for="d in row.depth"
-              :key="d"
-              class="tree-guide-line"
-              :style="{ left: `${(d - 1) * 18 + 14}px` }"
-            ></span>
+      <div v-else class="lib-asset-list">
+        <div
+          v-for="asset in displayedAssets"
+          :key="asset.uuid"
+          class="lib-row is-asset"
+          :class="{
+            'is-selected': isAssetSelected(asset.uuid)
+          }"
+          role="option"
+          :data-asset-id="asset.uuid"
+          :aria-selected="isAssetSelected(asset.uuid)"
+          :tabindex="isAssetPrimarySelected(asset.uuid) ? 0 : -1"
+          @click="onAssetClick(asset, $event)"
+          @dblclick="onAssetDoubleClick(asset)"
+          @contextmenu.prevent="onAssetContextMenu($event, asset)"
+          @pointerdown="onAssetPointerDown($event, asset)"
+        >
+          <span class="lib-icon" @click.stop="onAssetClick(asset)">
+            <StatusIndicator
+              v-if="resolveLibraryStatusTone(asset, settings.qcSensitivity) !== 'ready'"
+              :tone="resolveLibraryStatusTone(asset, settings.qcSensitivity)"
+              variant="dot"
+              :tooltip="getAssetTooltip(asset)"
+            />
+            <span>🎬</span>
+          </span>
 
-            <!-- Chevron for collapsible folder -->
-            <span
-              class="chevron-icon"
-              :class="{ 'is-expanded': row.isExpanded }"
-              @click.stop="expandedFolders[row.path] = !row.isExpanded"
-            >
-              ▶
-            </span>
-
-            <span class="lib-icon" @click.stop="onFolderClick(row.path)">
-              <svg
-                class="folder-svg"
-                viewBox="0 0 24 24"
-                :style="{ fill: row.color || (row.depth === 0 ? '#38bdf8' : 'var(--accent-blue)') }"
-              >
-                <path v-if="row.isExpanded" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
-                <path v-else d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-              </svg>
-            </span>
-
-            <span class="lib-text">
-              <span class="lib-name folder-title-text">{{ row.displayName }}</span>
-            </span>
-
-            <span v-if="row.allAssetCount !== undefined" class="folder-count-badge">
-              {{ row.allAssetCount }}
-            </span>
-          </div>
-
-          <!-- 2. Asset Row -->
-          <div
-            v-else-if="row.type === 'asset' && row.asset"
-            class="lib-row is-asset"
-            :class="{
-              'is-selected': isAssetSelected(row.asset.uuid)
-            }"
-            role="option"
-            :data-asset-id="row.asset.uuid"
-            :aria-selected="isAssetSelected(row.asset.uuid)"
-            :tabindex="isAssetPrimarySelected(row.asset.uuid) ? 0 : -1"
-            :style="{ paddingLeft: `${row.depth * 18 + 8}px` }"
-            @click="onAssetClick(row.asset, $event)"
-            @dblclick="onAssetDoubleClick(row.asset)"
-            @contextmenu.prevent="onAssetContextMenu($event, row.asset)"
-            @pointerdown="onAssetPointerDown($event, row.asset)"
-          >
-            <!-- Vertical Indentation Tree Guides -->
-            <span
-              v-for="d in row.depth"
-              :key="d"
-              class="tree-guide-line"
-              :style="{ left: `${(d - 1) * 18 + 14}px` }"
-            ></span>
-
-            <span class="chevron-spacer"></span>
-
-            <span class="lib-icon" @click.stop="onAssetClick(row.asset)">
-              <StatusIndicator :tone="resolveLibraryStatusTone(row.asset, settings.qcSensitivity)" variant="dot" :tooltip="getAssetTooltip(row.asset)" />
-              <span>🎬</span>
-            </span>
-
-            <span class="lib-text" :class="{ 'is-managed': !row.asset.uuid.startsWith('local:') }">
-              <span class="lib-name-wrap">
-                <span class="lib-name">{{ row.asset.display_name }}</span>
-                <span class="mcr-badges">
-                  <span v-if="cachedRatingMeta(row.asset).ageRating !== 'none'" data-testid="age-rating-badge" class="mcr-badge badge-age" :class="`age-${cachedRatingMeta(row.asset).ageRating}`">
-                    {{ cachedRatingMeta(row.asset).ageRating.toUpperCase() }}
-                  </span>
-                  <span v-if="cachedRatingMeta(row.asset).tpFlag" class="mcr-badge badge-tp">TP</span>
-                  <span v-if="cachedRatingMeta(row.asset).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${cachedRatingMeta(row.asset).contentType}`">
-                    {{ cachedRatingMeta(row.asset).contentType.toUpperCase() }}
-                  </span>
+          <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">
+            <span class="lib-name-wrap">
+              <input
+                v-if="inlineEditingAssetUuid === asset.uuid"
+                v-model="inlineRenameAssetValue"
+                class="lib-inline-rename lib-inline-rename-asset"
+                type="text"
+                @click.stop
+                @keydown.enter.stop="commitInlineRenameAsset"
+                @keydown.esc.stop="cancelInlineRenameAsset"
+                @blur="commitInlineRenameAsset"
+              />
+              <span v-else class="lib-name">{{ asset.display_name }}</span>
+              <span class="mcr-badges">
+                <span v-if="cachedRatingMeta(asset).ageRating !== 'none'" data-testid="age-rating-badge" class="mcr-badge badge-age" :class="`age-${cachedRatingMeta(asset).ageRating}`">
+                  {{ cachedRatingMeta(asset).ageRating.toUpperCase() }}
+                </span>
+                <span v-if="cachedRatingMeta(asset).tpFlag" class="mcr-badge badge-tp">TP</span>
+                <span v-if="cachedRatingMeta(asset).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${cachedRatingMeta(asset).contentType}`">
+                  {{ cachedRatingMeta(asset).contentType.toUpperCase() }}
                 </span>
               </span>
             </span>
+          </span>
 
-            <span v-if="effectiveDurationSeconds(row.asset) > 0" class="lib-time-pill">
-              {{ formatDuration(effectiveDurationSeconds(row.asset)) }}
-            </span>
-          </div>
-        </template>
+          <span v-if="effectiveDurationSeconds(asset) > 0" class="lib-time-pill tabular-duration">
+            {{ formatTabularDuration(effectiveDurationSeconds(asset)) }}
+          </span>
+
+          <button
+            class="lib-row-action-btn"
+            title="Asset actions"
+            @click.stop="onAssetContextMenu($event, asset)"
+          >
+            ⋮
+          </button>
+        </div>
       </div>
     </div>
 
@@ -2096,6 +2357,157 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 .level-info .debug-level {
   color: var(--accent-blue);
+}
+
+.lib-folder-pane {
+  flex: 0 0 35%;
+  min-height: 110px;
+  max-height: 48%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 6px;
+}
+.lib-folder-tree {
+  flex: 1;
+}
+.lib-pane-divider {
+  height: 1px;
+  background: var(--border-medium);
+  flex-shrink: 0;
+  margin: 0;
+}
+.lib-asset-pane {
+  flex: 1 1 65%;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 4px 6px;
+  outline: none;
+}
+.lib-asset-list {
+  display: flex;
+  flex-direction: column;
+}
+.lib-asset-pane .lib-row.is-asset {
+  content-visibility: auto;
+  contain-intrinsic-size: 38px;
+}
+
+.system-node-recycle-bin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 6px 4px 2px 4px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.8125rem;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+.system-node-recycle-bin:hover,
+.system-node-recycle-bin.is-drag-target {
+  background: color-mix(in srgb, var(--accent-red) 14%, var(--bg-secondary));
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+.system-node-recycle-bin .lib-icon {
+  font-size: 1rem;
+}
+.system-node-recycle-bin .lib-text {
+  flex: 1;
+  font-weight: 600;
+}
+
+.lib-actions-dropdown-wrap {
+  position: relative;
+}
+.lib-actions-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  z-index: 50;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 2px;
+}
+.lib-actions-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 4px;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s ease;
+}
+.lib-actions-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
+}
+.lib-actions-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.lib-actions-item.lib-action-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
+  color: var(--accent-red);
+}
+
+.lib-inline-rename {
+  background: var(--bg-input);
+  border: 1px solid var(--accent-blue);
+  color: var(--text-primary);
+  font-size: 0.84rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  width: 100%;
+  outline: none;
+}
+.lib-row.is-new-folder {
+  background: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-hover));
+}
+
+.lib-row-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+.lib-row.is-asset:hover .lib-row-action-btn {
+  opacity: 1;
+}
+.lib-row-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.lib-time-pill.tabular-duration {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
 
 .lib-tree {

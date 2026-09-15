@@ -53,7 +53,16 @@ impl MediaDb {
             SqliteConnectionManager::memory()
         } else {
             SqliteConnectionManager::file(db_path)
-        };
+        }
+        .with_init(|conn| {
+            conn.busy_timeout(Duration::from_secs(5))?;
+            conn.execute_batch(
+                "PRAGMA synchronous=NORMAL;
+                 PRAGMA temp_store=MEMORY;
+                 PRAGMA foreign_keys=ON;",
+            )?;
+            Ok(())
+        });
 
         let pool = Pool::builder()
             .max_size(8)
@@ -78,6 +87,14 @@ impl MediaDb {
         }
     }
 
+    pub fn checkpoint(&self) -> Result<(), String> {
+        self.with_connection(|conn| {
+            conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
+                .map_err(|e| format!("WAL checkpoint failed: {}", e))?;
+            Ok(())
+        })
+    }
+
     fn with_connection<T>(&self, operation: impl FnOnce(&Connection) -> Result<T, String>) -> Result<T, String> {
         match &self.backend {
             MediaDbBackend::Disabled(reason) => Err(reason.clone()),
@@ -85,7 +102,6 @@ impl MediaDb {
                 let conn = pool
                     .get()
                     .map_err(|error| format!("Failed to get media cache connection: {}", error))?;
-                configure_connection(&conn)?;
                 operation(&conn)
             }
         }
@@ -238,23 +254,9 @@ impl MediaDb {
     }
 }
 
-fn configure_connection(conn: &Connection) -> Result<(), String> {
-    conn.busy_timeout(Duration::from_secs(5))
-        .map_err(|error| format!("Failed to set SQLite busy timeout: {}", error))?;
-
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA synchronous=NORMAL;
-         PRAGMA temp_store=MEMORY;
-         PRAGMA foreign_keys=ON;",
-    )
-    .map_err(|error| format!("Failed to configure media cache connection: {}", error))?;
-
-    Ok(())
-}
-
 fn initialize_media_cache_schema(conn: &Connection) -> Result<(), String> {
-    configure_connection(conn)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;")
+        .map_err(|error| format!("Failed to set SQLite WAL journal mode: {}", error))?;
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS media_cache (
@@ -369,4 +371,68 @@ pub fn default_db_path() -> PathBuf {
         .or_else(|| dirs_next::home_dir())
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("com.playout.client").join("media_cache.db")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_media_db_memory_init_and_checkpoint() {
+        let db = MediaDb::open(Path::new(":memory:")).expect("Failed to open memory DB");
+        let checkpoint_res = db.checkpoint();
+        assert!(checkpoint_res.is_ok(), "Checkpoint should succeed");
+
+        // Verify connection-scoped pragmas initialized by with_init
+        db.with_connection(|conn| {
+            let synchronous: i64 = conn.query_row("PRAGMA synchronous", [], |row| row.get(0)).unwrap();
+            // NORMAL is 1
+            assert_eq!(synchronous, 1);
+
+            let foreign_keys: i64 = conn.query_row("PRAGMA foreign_keys", [], |row| row.get(0)).unwrap();
+            assert_eq!(foreign_keys, 1);
+
+            let temp_store: i64 = conn.query_row("PRAGMA temp_store", [], |row| row.get(0)).unwrap();
+            // MEMORY is 2
+            assert_eq!(temp_store, 2);
+
+            Ok(())
+        }).unwrap();
+    }
+
+    #[test]
+    fn test_media_db_file_init_and_checkpoint() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "playout_test_db_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let db_path = temp_dir.join("test_media_cache.db");
+
+        let db = MediaDb::open(&db_path).expect("Failed to open file-backed DB");
+        let checkpoint_res = db.checkpoint();
+        assert!(checkpoint_res.is_ok(), "Checkpoint should succeed on file DB");
+
+        db.with_connection(|conn| {
+            let journal_mode: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
+            assert_eq!(journal_mode.to_lowercase(), "wal");
+
+            let synchronous: i64 = conn.query_row("PRAGMA synchronous", [], |row| row.get(0)).unwrap();
+            assert_eq!(synchronous, 1);
+
+            let foreign_keys: i64 = conn.query_row("PRAGMA foreign_keys", [], |row| row.get(0)).unwrap();
+            assert_eq!(foreign_keys, 1);
+
+            let temp_store: i64 = conn.query_row("PRAGMA temp_store", [], |row| row.get(0)).unwrap();
+            assert_eq!(temp_store, 2);
+
+            Ok(())
+        }).unwrap();
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
