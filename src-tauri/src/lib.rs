@@ -13,6 +13,7 @@ mod caspar;
 mod caspar_layers;
 mod amcp;
 mod caspar_config;
+mod caspar_config_patch;
 mod filesystem;
 mod ingestor_api;
 mod transcoder_sidecar;

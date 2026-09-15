@@ -4,6 +4,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import App from './App.vue'
+import { recordFrontendFault } from './lib/frontendFaults'
 
 const app = createApp(App)
 
@@ -13,6 +14,7 @@ const app = createApp(App)
 const reportFrontendFault = (source: string, error: unknown, extra?: string) => {
   const message = error instanceof Error ? `${error.name}: ${error.message}\n${error.stack ?? ''}` : String(error)
   console.error(`[${source}]`, message, extra ?? '')
+  recordFrontendFault(source, extra ? `${extra}: ${message}` : message)
   void import('@tauri-apps/api/core')
     .then(({ invoke }) =>
       invoke('push_diagnostic_log', {

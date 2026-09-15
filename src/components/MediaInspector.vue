@@ -77,7 +77,20 @@ const fetchFromIngestor = async () => {
         if (isRundownItem.value && item.id) {
             await store.resolveAssetFromApi(item.id);
         } else if (item.uuid && !item.uuid.startsWith('local:')) {
-            await invoke('sync_ingestor_asset', { uuid: item.uuid, api_base_url_override: null }).catch(() => {});
+            // `sync_ingestor_asset` was never registered in lib.rs, so this button
+            // silently did nothing. Re-resolve through the registered command.
+            const fresh = await invoke<any>('resolve_ingestor_asset', { uuid: item.uuid, apiBaseUrlOverride: null });
+            if (fresh && typeof fresh === 'object') {
+                mediaLibrary.updateAsset(item.uuid, {
+                    current_path: fresh.current_path ?? item.current_path,
+                    duration_ms: Number(fresh.duration_ms) || item.duration_ms,
+                    trim_in_ms: Number(fresh.trim_in_ms) || 0,
+                    trim_out_ms: Number(fresh.trim_out_ms) || item.trim_out_ms,
+                    rating: fresh.rating ?? item.rating,
+                    tp: fresh.tp ?? item.tp,
+                    status: fresh.status ?? item.status,
+                });
+            }
         }
     } catch (error) {
         console.error('[Inspector] Ingestor fetch failed', error);

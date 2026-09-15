@@ -516,6 +516,9 @@ pub async fn open_cg_studio_in_browser<R: Runtime>(
     };
 
     let port = crate::studio_server::STUDIO_SERVER_PORT.load(std::sync::atomic::Ordering::Relaxed);
+    if port == 0 {
+        return Err("The CG Studio bridge server is not running (ports 6258/6259 could not be bound). Check the diagnostics log.".to_string());
+    }
     let target_url = if port > 0 {
         // The per-launch bearer token travels in the URL once; the Studio
         // page reads it and attaches it to every bridge POST (audit T0-1).
@@ -586,7 +589,7 @@ pub async fn open_advisory_in_editor<R: Runtime>(
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("notepad")
+        std::process::Command::new(crate::proc_util::windows_system_tool("notepad.exe"))
             .arg(&clean_path)
             .spawn()
             .map_err(|e| format!("Failed to open editor: {}", e))?;
@@ -627,7 +630,7 @@ pub async fn open_template_directory<R: Runtime>(
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
+        std::process::Command::new(crate::proc_util::windows_system_tool("explorer.exe"))
             .arg(&clean_path)
             .spawn()
             .map_err(|e| format!("Failed to open directory: {}", e))?;
@@ -646,13 +649,65 @@ pub async fn open_template_directory<R: Runtime>(
 
 #[tauri::command]
 pub async fn read_svg_file(path: String) -> Result<String, String> {
+    // Audit T2-7: the result is injected into the on-air CG template via
+    // `innerHTML`. Restrict to `.svg` files of sane size that actually look
+    // like SVG; the template additionally sanitises the markup before use.
+    const MAX_SVG_BYTES: u64 = 2 * 1024 * 1024;
     let p = Path::new(&path);
-    if !p.exists() || !p.is_file() {
+    let meta = std::fs::metadata(p).map_err(|_| format!("File does not exist: {}", path))?;
+    if !meta.is_file() {
         return Err(format!("File does not exist: {}", path));
     }
-    let content = std::fs::read_to_string(p)
-        .map_err(|e| format!("Failed to read SVG file '{}': {}", path, e))?;
+    let is_svg_ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("svg"))
+        .unwrap_or(false);
+    if !is_svg_ext {
+        return Err(format!("Not an .svg file: {}", path));
+    }
+    if meta.len() > MAX_SVG_BYTES {
+        return Err(format!(
+            "SVG file '{}' is too large ({} bytes, limit {} bytes)",
+            path, meta.len(), MAX_SVG_BYTES
+        ));
+    }
+    let content = tauri::async_runtime::spawn_blocking(move || std::fs::read_to_string(&path))
+        .await
+        .map_err(|e| format!("SVG read task failed: {}", e))?
+        .map_err(|e| format!("Failed to read SVG file: {}", e))?;
+    if !looks_like_svg(&content) {
+        return Err("File does not contain an <svg> root element".to_string());
+    }
     Ok(content)
+}
+
+/// Cheap structural check: after an optional XML declaration / comments /
+/// DOCTYPE, the first element must be `<svg`.
+pub(crate) fn looks_like_svg(content: &str) -> bool {
+    let mut rest = content.trim_start_matches('\u{feff}').trim_start();
+    loop {
+        if rest.starts_with("<?") {
+            match rest.find("?>") {
+                Some(end) => rest = rest[end + 2..].trim_start(),
+                None => return false,
+            }
+        } else if rest.starts_with("<!--") {
+            match rest.find("-->") {
+                Some(end) => rest = rest[end + 3..].trim_start(),
+                None => return false,
+            }
+        } else if rest.starts_with("<!DOCTYPE") || rest.starts_with("<!doctype") {
+            match rest.find('>') {
+                Some(end) => rest = rest[end + 1..].trim_start(),
+                None => return false,
+            }
+        } else {
+            break;
+        }
+    }
+    let lower = rest.get(..4).map(|s| s.to_ascii_lowercase());
+    lower.as_deref() == Some("<svg")
 }
 
 #[tauri::command]
@@ -723,10 +778,9 @@ pub async fn save_caspar_config_structured<R: Runtime>(
     config: CasparConfiguration,
 ) -> Result<String, String> {
     let target_path = resolve_requested_path(Some(&app), Some(path))?;
-    let xml = serialize_config(&config)?;
-    // Audit T1-1 (partial): the typed round-trip drops XML elements the model
-    // does not know (see AUDIT-PLAN T1-1). Until in-place patching lands, a
-    // backup guarantees the operator can restore the original.
+    // Audit T1-1: patch the operator's file in place so elements the typed
+    // model does not know survive; a timestamped backup is taken regardless.
+    let xml = render_config_for_path(&target_path, &config)?;
     if target_path.is_file() {
         backup_config(&target_path)?;
     }
@@ -749,6 +803,17 @@ pub async fn apply_caspar_decklink_config<R: Runtime>(
         CasparConfiguration::default()
     };
 
+    // Audit T2-15: `channel_index` comes from the WebView. Without a bound a
+    // huge value would allocate that many default channels (OOM) and write a
+    // config CasparCG cannot start. CasparCG itself supports a handful of
+    // channels; 16 is far beyond any real deployment.
+    const MAX_CHANNEL_INDEX: usize = 15;
+    if payload.channel_index > MAX_CHANNEL_INDEX {
+        return Err(format!(
+            "Channel index {} is out of range (maximum {})",
+            payload.channel_index, MAX_CHANNEL_INDEX
+        ));
+    }
     while config.channels.channels.len() <= payload.channel_index {
         config.channels.channels.push(CasparChannel::default());
     }
@@ -816,7 +881,7 @@ pub async fn apply_caspar_decklink_config<R: Runtime>(
     }
 
     let backup_path = backup_config(&target_path)?;
-    let xml = serialize_config(&config)?;
+    let xml = render_config_for_path(&target_path, &config)?;
     write_config_file_atomic(&target_path, xml.clone())?;
 
     Ok(DeckLinkApplyResult {
@@ -901,6 +966,41 @@ fn write_config_file_atomic(path: &Path, contents: String) -> Result<(), String>
 
 fn write_config_file(path: &Path, contents: String) -> Result<(), String> {
     write_config_file_atomic(path, contents)
+}
+
+/// Produce the XML to write for `config` at `target_path` (audit T1-1). When
+/// the file already exists its XML is patched in place so every element the
+/// typed model does not know (`<html>`, `<ffmpeg>`, `<thumbnails>`, unknown
+/// consumers, comments, ...) is preserved. A file that cannot be read or
+/// parsed falls back to a full serialisation, with a log entry, because the
+/// caller has already decided to write and a backup is always taken first.
+fn render_config_for_path(target_path: &Path, config: &CasparConfiguration) -> Result<String, String> {
+    let model_xml = serialize_config(config)?;
+    if !target_path.is_file() {
+        return Ok(model_xml);
+    }
+    let original = match std::fs::read_to_string(target_path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            log::warn!(
+                "[CasparConfig] Cannot read '{}' for in-place patching ({}); writing full model",
+                target_path.display(),
+                error
+            );
+            return Ok(model_xml);
+        }
+    };
+    match crate::caspar_config_patch::patch_config_xml(&original, &model_xml) {
+        Ok(patched) => Ok(patched),
+        Err(error) => {
+            log::warn!(
+                "[CasparConfig] In-place patch of '{}' failed ({}); writing full model",
+                target_path.display(),
+                error
+            );
+            Ok(model_xml)
+        }
+    }
 }
 
 fn serialize_config(config: &CasparConfiguration) -> Result<String, String> {

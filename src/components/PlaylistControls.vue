@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
-import { ask, open, save } from '@tauri-apps/plugin-dialog';
+import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useRundownStore, type PlaylistFile, type AnyPlaylistFile } from '../stores/rundown';
+import { isPlayoutPlaying } from '../services/playout';
 
 const store = useRundownStore();
 
@@ -144,6 +145,25 @@ const savePlaylist = async (path: string) => {
 };
 
 const loadPlaylist = async (path: string, append = false) => {
+    // Audit T2-11: replacing the on-air playlist's items while a clip is
+    // playing orphans the on-air UUID (the same EOF-stop path as T0-3).
+    // Refuse a full load on the on-air tab while playing; appending is
+    // safe for playout but still asks, since it changes what plays next.
+    if (store.isCurrentPlaylistOnAir && isPlayoutPlaying.value) {
+        if (!append) {
+            await message(
+                'This playlist is ON AIR. Load the file into another tab, or stop playout first.',
+                { title: 'Load Playlist', kind: 'error' }
+            );
+            setStatus('Load refused: playlist is on air', 'error');
+            return;
+        }
+        const confirmed = await ask(
+            `Append the file's items to the ON AIR playlist "${store.currentPlaylistName}"?`,
+            { title: 'Append to On-Air Playlist', kind: 'warning' }
+        );
+        if (!confirmed) return;
+    }
     isLoading.value = true;
     try {
         const json = await invoke<string>('load_playlist', { path });

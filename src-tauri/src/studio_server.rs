@@ -11,6 +11,9 @@ pub static STUDIO_SERVER_PORT: AtomicU16 = AtomicU16::new(6258);
 /// allow a few MB, but never let a slow-drip client grow the buffer unbounded.
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
 
+/// Concurrent connections the studio bridge will service (audit T2-21).
+const MAX_CONCURRENT_CONNECTIONS: usize = 32;
+
 /// Per-launch random bearer token. Every mutating route (`POST /api/*`)
 /// requires `Authorization: Bearer <token>`. The token is handed to the
 /// Studio page through the URL that `open_cg_studio_in_browser` opens; no
@@ -86,11 +89,20 @@ pub fn start_studio_server<R: Runtime>(app: AppHandle<R>) {
                     l
                 }
                 Err(e) => {
+                    // Audit T2-21: leave the port at 0 so open_cg_studio_in_browser
+                    // reports "bridge not running" instead of opening a URL to a
+                    // port some other process owns.
+                    STUDIO_SERVER_PORT.store(0, Ordering::Relaxed);
                     log::warn!("[StudioServer] Failed to bind port 6258/6259: {}", e);
                     return;
                 }
             },
         };
+
+        // Audit T2-21: bound the number of concurrent connections so a client
+        // holding sockets open (each with its own 5 s header/body timeouts)
+        // cannot pile up tasks without limit.
+        let connection_permits = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
 
         let port = STUDIO_SERVER_PORT.load(Ordering::Relaxed);
         log::warn!("[StudioServer] Listening on http://127.0.0.1:{}", port);
@@ -98,8 +110,16 @@ pub fn start_studio_server<R: Runtime>(app: AppHandle<R>) {
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
+                    let Ok(permit) = connection_permits.clone().try_acquire_owned() else {
+                        log::warn!("[StudioServer] Connection limit ({}) reached; dropping connection", MAX_CONCURRENT_CONNECTIONS);
+                        drop(stream);
+                        continue;
+                    };
                     let app_clone = app.clone();
-                    tokio::spawn(handle_connection(stream, app_clone));
+                    tokio::spawn(async move {
+                        handle_connection(stream, app_clone).await;
+                        drop(permit);
+                    });
                 }
                 Err(e) => {
                     log::warn!("[StudioServer] accept error: {}", e);

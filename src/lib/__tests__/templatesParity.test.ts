@@ -82,6 +82,7 @@ describe('Broadcast Templates Parity Verification', () => {
             const rawScript = scriptMatches[i];
             const code = rawScript.replace(/^<script.*?>/i, '').replace(/<\/script>$/i, '');
             expect(() => {
+                // eslint-disable-next-line no-new-func -- compile-only syntax check of the template's script blocks; never invoked
                 new Function(code);
             }, `Syntax error detected in advisory.html script block #${i}`).not.toThrow();
         }

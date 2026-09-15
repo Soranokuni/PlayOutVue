@@ -181,10 +181,21 @@
         return;
       }
 
-      // Format text with repeating bullet separator
-      const sep = ' <span class="crawl-separator">◆</span> ';
-      const repeated = textContent + sep + textContent + sep + textContent;
-      track.innerHTML = repeated;
+      // Format text with repeating bullet separator. Audit T2-7: the crawl
+      // text is operator input rendered on air; build DOM nodes so markup in
+      // the text can never execute inside CasparCG's CEF.
+      track.textContent = '';
+      for (let i = 0; i < 3; i += 1) {
+        if (i > 0) {
+          track.appendChild(document.createTextNode(' '));
+          const sep = document.createElement('span');
+          sep.className = 'crawl-separator';
+          sep.textContent = '◆';
+          track.appendChild(sep);
+          track.appendChild(document.createTextNode(' '));
+        }
+        track.appendChild(document.createTextNode(textContent));
+      }
 
       wrapper.classList.add('visible');
 

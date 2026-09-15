@@ -1154,6 +1154,11 @@ pub async fn scan_directory<R: Runtime>(
             return Err(format!("Directory does not exist: {}", path));
         }
 
+        // Audit T2-14: a directory scan is the natural moment to drop alias
+        // copies whose source was deleted or re-exported (no-op when this
+        // directory has no alias folder).
+        crate::caspar::gc_stale_aliases(&target_dir);
+
         let mut results = Vec::new();
 
         fn visit_directory(

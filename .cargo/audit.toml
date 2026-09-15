@@ -1,0 +1,18 @@
+# cargo-audit configuration (CI "Dependency audit" job runs from the repo root
+# with `--file src-tauri/Cargo.lock`). Every entry here is a transitive
+# advisory that cannot be fixed from this crate; each must name the path and
+# the condition for removal. Direct dependencies are never ignored.
+[advisories]
+ignore = [
+    # quick-xml 0.38 is pulled by plist (tauri-utils / tauri-codegen /
+    # tauri-plugin build deps). Our own quick-xml is on 0.42 (fixed). The
+    # 0.38 copy only parses Tauri's own bundle metadata at build time, never
+    # operator input. Remove when tauri-utils moves plist to quick-xml >= 0.41.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    # rkyv 0.7 appears in the lockfile through tauri-plugin-log -> byte-unit
+    # -> rust_decimal, where it is an optional feature that is not enabled
+    # (`cargo tree -i rkyv` prints nothing for any target), so it is never
+    # compiled into this binary. Remove when rust_decimal moves to rkyv >= 0.8.17.
+    "RUSTSEC-2026-0235",
+]
