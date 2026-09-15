@@ -65,6 +65,93 @@ export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
     customRatingSvgPaths: {},
 };
 
+/**
+ * Audit T2-23: persisted settings were restored verbatim. A hand-edited or
+ * corrupted localStorage entry (or an older schema) could put a non-enum
+ * value into an AMCP command (`LATENCY_UNDEFINED`), a NaN into a layer
+ * position, or a string into a port. Coerce every enumerated / numeric field
+ * back to a valid value; unknown keys are left alone.
+ */
+const ENUM_FIELDS: Record<string, readonly string[]> = {
+    playoutEngine: ['casparcg', 'obs'],
+    theme: ['dark', 'monokai', 'light', 'soft-slate', 'periwinkle'],
+    uiScale: ['standard', 'comfortable', 'large'],
+    recycleBinAutoPurge: ['disabled', '1week', '2weeks', '3weeks', '1month'],
+    qcSensitivity: ['strict', 'production', 'lenient'],
+    decklinkLatency: ['normal', 'low', 'default'],
+    decklinkKeyer: ['external', 'external_separate_device', 'internal', 'default'],
+    playoutProfile: ['PAL_1080I50', 'PAL_1080P25'],
+    complianceRenderMode: ['html5', 'legacy_png'],
+    cgCrawlPosition: ['top', 'bottom'],
+};
+
+const INT_FIELDS: Record<string, { min: number; max: number }> = {
+    decklinkOutputDevice: { min: 0, max: 32 },
+    decklinkInputDevice: { min: 0, max: 32 },
+    decklinkKeyDevice: { min: 0, max: 32 },
+    decklinkBufferDepth: { min: 1, max: 16 },
+    casparOscPort: { min: 1, max: 65535 },
+    transitionFrames: { min: 0, max: 100 },
+    prerollFrames: { min: 0, max: 100 },
+    lastAutoPurgeCheck: { min: 0, max: Number.MAX_SAFE_INTEGER },
+};
+
+const POSITION_FIELDS = ['cgStationLogoPos', 'cgRatingBadgePos', 'cgTPPos', 'cgExplanationBannerPos', 'cgCrawlPos'] as const;
+
+/** A single token of the AMCP grammar: letters, digits, `_`, `-`, `.` */
+const AMCP_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
+
+export function sanitizeSettingsState<T extends Record<string, any>>(state: T, defaults: Record<string, any>): T {
+    for (const [key, allowed] of Object.entries(ENUM_FIELDS)) {
+        if (!allowed.includes(state[key])) {
+            (state as any)[key] = defaults[key];
+        }
+    }
+    for (const [key, range] of Object.entries(INT_FIELDS)) {
+        const value = Number(state[key]);
+        if (!Number.isFinite(value) || value < range.min || value > range.max) {
+            (state as any)[key] = defaults[key];
+        } else {
+            (state as any)[key] = Math.round(value);
+        }
+    }
+    for (const key of POSITION_FIELDS) {
+        const pos = state[key];
+        const fallback = defaults[key];
+        if (!pos || typeof pos !== 'object') {
+            (state as any)[key] = { ...fallback };
+            continue;
+        }
+        for (const axis of ['left', 'top', 'width', 'height'] as const) {
+            const value = Number(pos[axis]);
+            pos[axis] = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback[axis];
+        }
+    }
+    // Strings that end up inside an AMCP command line as bare tokens.
+    if (typeof state.decklinkInputFormat !== 'string' || !AMCP_TOKEN.test(state.decklinkInputFormat)) {
+        (state as any).decklinkInputFormat = defaults.decklinkInputFormat;
+    }
+    for (const key of ['cgCrawlTemplate', 'cgExplanationTemplate'] as const) {
+        const value = state[key];
+        if (typeof value !== 'string' || !/^[A-Za-z0-9_./ -]{1,256}$/.test(value) || value.includes('..')) {
+            (state as any)[key] = defaults[key];
+        }
+    }
+    // Free-text strings must never carry control characters (CRLF would
+    // split an AMCP command); the backend rejects them, but fix the store too.
+    for (const key of ['liveInputSourceName', 'cgCrawlText', 'decklinkOutputName'] as const) {
+        if (typeof state[key] !== 'string') {
+            (state as any)[key] = defaults[key];
+        } else if (/[\u0000-\u001f\u007f]/.test(state[key])) {
+            (state as any)[key] = state[key].replace(/[\u0000-\u001f\u007f]/g, ' ');
+        }
+    }
+    if (typeof state.ingestorApiBaseUrl !== 'string' || !/^https?:\/\/[^\s]+$/i.test(state.ingestorApiBaseUrl)) {
+        (state as any).ingestorApiBaseUrl = defaults.ingestorApiBaseUrl;
+    }
+    return state;
+}
+
 export const useSettingsStore = defineStore('settings', {
     state: () => ({
         playoutEngine: 'casparcg' as PlayoutEngine,
@@ -228,5 +315,11 @@ export const useSettingsStore = defineStore('settings', {
         }
     },
 
-    persist: true
+    persist: {
+        afterHydrate: (ctx) => {
+            // Defaults are the store's own initial state.
+            const defaults = (ctx.store.$options?.state?.() ?? {}) as Record<string, any>;
+            sanitizeSettingsState(ctx.store.$state as Record<string, any>, defaults);
+        }
+    }
 });

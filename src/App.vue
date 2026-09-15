@@ -17,6 +17,8 @@ import { useIngestorStatusStore } from './stores/ingestorStatus';
 import { useMediaLibraryStore } from './stores/mediaLibrary';
 import { useOperatorShortcuts, activeModalName, closeCommandPalette, activeInspectorItem, openInspectorModal, closeInspectorModal } from './composables/useOperatorShortcuts';
 import { advanceNext, manualTakeFailure } from './services/caspar';
+import { persistenceFault, clearPersistenceFault } from './lib/persistenceStorage';
+import { frontendFaults, dismissFrontendFault } from './lib/frontendFaults';
 import {
   processStatus,
   processState,
@@ -604,6 +606,25 @@ onUnmounted(() => {
         <span class="halt-text">Playout halted after 3 consecutive errors — operator intervention required.</span>
       </div>
       <button class="halt-dismiss-btn" @click="playoutHalted = false">Dismiss</button>
+    </div>
+
+    <!-- Audit T1-8: rundown changes are not reaching localStorage -->
+    <div v-if="persistenceFault" class="halt-banner persist-banner" role="alert">
+      <div class="halt-content">
+        <span class="halt-icon">💾</span>
+        <span class="halt-text">{{ persistenceFault.message }} Save the rundown to a file now.</span>
+      </div>
+      <button class="halt-dismiss-btn" @click="clearPersistenceFault()">Dismiss</button>
+    </div>
+
+    <!-- Audit T1-12: unhandled frontend faults, non-blocking -->
+    <div v-if="frontendFaults.length" class="fault-toasts" aria-live="polite">
+      <div v-for="fault in frontendFaults" :key="fault.id" class="fault-toast">
+        <span class="fault-source">{{ fault.source }}</span>
+        <span class="fault-message">{{ fault.message }}</span>
+        <span v-if="fault.count > 1" class="fault-count">×{{ fault.count }}</span>
+        <button class="fault-dismiss" title="Dismiss" @click="dismissFrontendFault(fault.id)">✕</button>
+      </div>
     </div>
     
     <aside class="panel panel-library glass-panel"><MediaLibrary /></aside>
@@ -1434,6 +1455,74 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.persist-banner {
+  top: 72px;
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 0 8px 32px rgba(245, 158, 11, 0.2);
+}
+
+.fault-toasts {
+  position: absolute;
+  right: 16px;
+  bottom: 92px;
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(480px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.fault-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(230, 57, 70, 0.14);
+  border: 1px solid rgba(230, 57, 70, 0.4);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  font-size: 0.8rem;
+  font-family: Inter, system-ui, sans-serif;
+  pointer-events: auto;
+  animation: slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fault-source {
+  font-weight: 700;
+  opacity: 0.85;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.fault-message {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fault-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.fault-dismiss {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.fault-dismiss:hover {
+  opacity: 1;
 }
 
 .halt-icon {
