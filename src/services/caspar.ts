@@ -76,7 +76,7 @@ async function dispatchPlayWithRetry(
     let lastError: unknown;
     for (let attempt = 1; attempt <= DISPATCH_RETRY_ATTEMPTS; attempt++) {
         try {
-            const result = await dispatchPlay(item, channel, layer, nextPath, resumeSeekMs, isStale);
+            const result = await dispatchPlay(item, channel, layer, nextPath, resumeSeekMs, isStale, undefined, token);
             if (result === null) return null;
             return result;
         } catch (error) {
@@ -714,70 +714,10 @@ const parseForegroundPathFromInfo = (response: string) => {
     return info.hasProducer ? info.path : '';
 };
 
-/// Phase 4 defense-in-depth: after a natural advance commits (register + timer
-/// started), wait for Rust's `caspar://foreground-confirmed` — i.e. the OSC
-/// path/position proving the preloaded clip is genuinely on air. On timeout,
-/// verify via `INFO 1-10` and only re-issue a hard PLAY when the on-air clip is
-/// provably wrong (empty layer or an unrelated path). A still-pending
-/// transition (previous clip still foreground) is allowed an extra round.
-async function confirmAndRepairForeground(
-    key: string,
-    hydrated: RundownItem,
-    expectedPath: string,
-    prevPath: string,
-    token: number
-) {
-    try {
-        const confirmed = await waitForForegroundConfirmation(key, 1500);
-        if (confirmed) return;
-        if (token !== playToken || currentKey !== key) return;
-
-        for (let round = 0; round < 2; round += 1) {
-            if (round > 0) await wait(800);
-            if (token !== playToken || currentKey !== key) return;
-
-            let info = '';
-            try {
-                info = await sendRawCommand(`INFO ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
-            } catch {
-                // Transport/AMCP failure — the watchdog and end guard still
-                // own the advance; do not repair blindly.
-                return;
-            }
-
-            const onAir = parseForegroundPathFromInfo(info);
-            if (!onAir) {
-                // Empty layer: the AUTO transition never fired — hard PLAY.
-                await repairForegroundPlay(key, hydrated, token, 'empty layer after natural advance');
-                return;
-            }
-            const onAirNorm = normBasename(onAir);
-            const expectedNorm = normBasename(expectedPath);
-            if (expectedNorm && onAirNorm === expectedNorm) return;
-            const prevNorm = normBasename(prevPath);
-            if (prevNorm && onAirNorm === prevNorm) {
-                continue; // transition still pending — allow one more round
-            }
-            await repairForegroundPlay(key, hydrated, token, `foreground is "${onAir}" instead of the expected clip`);
-            return;
-        }
-    } catch (error) {
-        console.warn('[CasparCG] Foreground confirmation check failed', error);
-    }
-}
-
-async function repairForegroundPlay(key: string, hydrated: RundownItem, token: number, reason: string) {
-    if (token !== playToken || currentKey !== key) return;
-    console.warn(`[CasparCG] Repairing foreground: ${reason} — re-issuing hard PLAY with correct trim.`);
-    invoke('push_diagnostic_log', {
-        level: 'warn',
-        scope: 'caspar-playout',
-        message: `Foreground repair: ${reason} for ${hydrated.path}`
-    }).catch(() => {});
-    await dispatchPlayWithRetry(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, null, 0, token).catch((error) => {
-        console.warn('[CasparCG] Foreground repair PLAY failed', error);
-    });
-}
+// Audit T2-10: the former `confirmAndRepairForeground` / `repairForegroundPlay`
+// helpers (poll `INFO 1-10` after a natural advance and re-issue PLAY) were
+// removed. They had no callers, and AGENTS.md §2 forbids re-issuing PLAY while
+// a clip is on air because it destroys the LOADBG AUTO background buffer.
 
 const parseDurationFromCasparResponse = (response: string) => {
     if (!response) return 0;
@@ -1015,7 +955,8 @@ async function refreshCurrentProducerDuration(
                     expectedOutPointMs: expectedOutPointMs,
                     currentPath: currentPath,
                     nextPath: nextPath,
-                    trimInMs: 0
+                    trimInMs: 0,
+                    playGeneration: token
                 }).catch((e: any) => {
                     console.warn('[CasparCG] Failed to re-register playback duration', e);
                 });
@@ -1103,11 +1044,25 @@ const ensureFeedbackListener = async () => {
                 // a rundown item id: a late UDP event can carry an old intent
                 // record but must never advance the new on-air UUID.
                 const uuid = payload?.currentUuid;
-                if (currentKey && uuid === currentKey) {
-                    advanceNext(true, uuid).catch((error) => {
-                        console.error('[CasparCG] advanceNext error', error);
-                    });
+                if (!currentKey || uuid !== currentKey) return;
+                // Audit T2-10: second fence. Every registration stamps the
+                // frontend play generation (`playToken`) into Rust; an
+                // advance emitted for an *earlier* registration of the same
+                // UUID (a re-take of the same row while the old event was in
+                // flight) carries the old generation and is dropped. A
+                // generation of 0 means "not stamped" and is accepted.
+                const generation = payload?.playGeneration;
+                if (typeof generation === 'number' && generation > 0 && generation !== playToken) {
+                    invoke('push_diagnostic_log', {
+                        level: 'warn',
+                        scope: 'caspar-playout',
+                        message: `ADVANCE_REJECTED: stale generation ${generation} (current ${playToken}) for ${uuid}, reason=${payload?.reason}`
+                    }).catch(() => {});
+                    return;
                 }
+                advanceNext(true, uuid).catch((error) => {
+                    console.error('[CasparCG] advanceNext error', error);
+                });
             });
         }
 
@@ -1649,7 +1604,8 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
                 expectedOutPointMs: durationMs,
                 currentPath: '',
                 nextPath: null,
-                trimInMs: 0
+                trimInMs: 0,
+                playGeneration: token
             }).catch((e: any) => {
                 console.warn('[CasparCG] Failed to register live playback', e);
             });
@@ -1964,7 +1920,8 @@ async function advanceToNext(token: number, natural: boolean) {
                     expectedOutPointMs: expectedOutMs,
                     currentPath: nextItemPath,
                     nextPath: nextNextPath,
-                    trimInMs: hydrated.trim_in_ms || 0
+                    trimInMs: hydrated.trim_in_ms || 0,
+                    playGeneration: transitionToken
                 }).catch((e: any) => {
                     console.warn('[CasparCG] Failed to register playback on natural advance', e);
                 });
@@ -2067,50 +2024,6 @@ export function assertPlaybackIntent(intent: PlaybackIntent): void {
     }
 }
 
-export async function requestAutoAdvance(event: QualifiedAdvanceEvent): Promise<boolean> {
-    if (!isCasparPlaying.value) return false;
-
-    const targetItemId = playbackCoordinator.evaluateAutoAdvance(
-        {
-            generation: event.playGeneration,
-            takeId: event.takeId,
-            playbackInstanceId: event.playbackInstanceId,
-            itemId: event.rundownItemId,
-        },
-        useRundownStore().getPlayableItems() as any
-    );
-
-    if (!targetItemId) {
-        invoke('push_diagnostic_log', {
-            level: 'warn',
-            scope: 'caspar-playout',
-            message: `ADVANCE_REJECTED: Stale or unverified auto-advance event rejected (gen=${event.playGeneration}, item=${event.rundownItemId}, reason=${event.reason})`
-        }).catch(() => {});
-        return false;
-    }
-
-    const store = useRundownStore();
-    const takeResult = playbackCoordinator.initiateTake(
-        { targetItemId, rundownRevision: (store as any).rundownRevision || 0, source: 'auto' },
-        store.getPlayableItems() as any
-    );
-
-    if (!takeResult) {
-        return false;
-    }
-
-    invoke('push_diagnostic_log', {
-        level: 'info',
-        scope: 'caspar-playout',
-        message: `ADVANCE_ACCEPTED: Auto-advance to item ${targetItemId} initiated (gen=${takeResult.intent.playGeneration}, takeId=${takeResult.intent.takeId}, reason=${event.reason})`
-    }).catch(() => {});
-
-    const item = store.getPlayableItems().find((i: any) => i.id === targetItemId);
-    if (!item) return false;
-
-    return await playItemWithIntent(item as any, takeResult.intent);
-}
-
 export async function playItemWithIntent(
     item: PlayoutItem,
     intent: PlaybackIntent,
@@ -2182,7 +2095,8 @@ export async function playItemWithIntent(
                 takeId: intent.takeId,
                 rundownItemId: intent.targetItemId,
                 trimRevision: intent.rundownRevisionAtIntent
-            }
+            },
+            requestToken
         );
 
         if (
@@ -2793,7 +2707,14 @@ export const casparPlayoutService: PlayoutService = {
         if (settings.decklinkKeyer && settings.decklinkKeyer !== 'external') cmdParts.push(`KEYER_${settings.decklinkKeyer.toUpperCase()}`);
         if (settings.decklinkBufferDepth && settings.decklinkBufferDepth !== 3) cmdParts.push(`BUFFER_DEPTH ${settings.decklinkBufferDepth}`);
         if (settings.decklinkKeyDevice && settings.decklinkKeyDevice > 0) cmdParts.push(`KEY_DEVICE ${settings.decklinkKeyDevice}`);
-        await sendRawCommand(`REMOVE ${PROGRAM_CHANNEL} DECKLINK ${deviceId}`);
+        // Audit T2-16: REMOVE answers 404 when no DeckLink consumer is
+        // attached yet (the normal first-start case). That must not abort
+        // the ADD that follows.
+        try {
+            await sendRawCommand(`REMOVE ${PROGRAM_CHANNEL} DECKLINK ${deviceId}`);
+        } catch (error) {
+            console.info(`[CasparCG] DeckLink ${deviceId} REMOVE before ADD reported: ${String(error)}`);
+        }
         await sendRawCommand(cmdParts.join(' '));
     },
 

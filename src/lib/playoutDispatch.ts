@@ -123,7 +123,11 @@ export async function dispatchPlay(
     nextPath: string | null = null,
     resumeSeekMs: number = 0,
     isStale?: () => boolean,
-    intent?: { playGeneration: number; takeId: string; rundownItemId?: string; trimRevision?: number }
+    intent?: { playGeneration: number; takeId: string; rundownItemId?: string; trimRevision?: number },
+    /// Frontend play generation (`playToken` in caspar.ts). Stamped into the
+    /// Rust registration so the `caspar://advance` listener can drop events
+    /// emitted for an earlier registration of the same UUID (audit T2-10).
+    frontendGeneration?: number
 ): Promise<{ durationMs: number; expectedOutMs: number } | null> {
     // 0. Pre-flight: verify file exists, has metadata, and passed QC
     const readiness = await verifyPlaybackReady(item.path);
@@ -201,7 +205,7 @@ export async function dispatchPlay(
         currentPath: formattedPath,
         nextPath,
         trimInMs: (item.trim_in_ms || 0) + (resumeSeekMs > 0 ? resumeSeekMs : 0),
-        playGeneration: intent?.playGeneration,
+        playGeneration: frontendGeneration ?? intent?.playGeneration,
         takeId: intent?.takeId,
         rundownItemId: intent?.rundownItemId || item.id,
         playbackInstanceId: undefined,
