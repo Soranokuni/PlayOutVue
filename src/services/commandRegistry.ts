@@ -63,7 +63,30 @@ export interface CommandContext {
   activeModal: string | null;
   trimmer: TrimmerCommandContext | null;
   requireTakeConfirmation?: boolean;
+  /// Set by a caller that has ALREADY obtained operator confirmation for this
+  /// invocation (e.g. the command palette), so the registry does not ask twice.
+  confirmed?: boolean;
 }
+
+export type CommandConfirmationHandler = (cmd: CommandDefinition, ctx: CommandContext) => Promise<boolean>;
+
+/// Default confirmation: native Tauri dialog (AGENTS.md §5 forbids browser
+/// confirm()). Fails CLOSED -- if the dialog cannot be shown the destructive
+/// command does not run.
+const defaultConfirmationHandler: CommandConfirmationHandler = async (cmd) => {
+  try {
+    const { ask } = await import('@tauri-apps/plugin-dialog');
+    return await ask(`${cmd.label}?`, {
+      title: 'Confirm Command',
+      kind: 'warning',
+      okLabel: 'Confirm',
+      cancelLabel: 'Cancel'
+    });
+  } catch (error) {
+    console.error('[CommandRegistry] confirmation dialog unavailable; refusing destructive command', cmd.id, error);
+    return false;
+  }
+};
 
 export type CommandCategory =
   | 'Rundown'
@@ -94,6 +117,12 @@ export interface CommandDefinition {
 
 class CommandRegistry {
   private commands = new Map<string, CommandDefinition>();
+  private confirmationHandler: CommandConfirmationHandler = defaultConfirmationHandler;
+
+  /// Override how destructive commands are confirmed (tests, custom UI).
+  public setConfirmationHandler(handler: CommandConfirmationHandler | null): void {
+    this.confirmationHandler = handler ?? defaultConfirmationHandler;
+  }
 
   public register(command: CommandDefinition): void {
     this.commands.set(command.id, command);
@@ -121,6 +150,13 @@ class CommandRegistry {
     const cmd = this.commands.get(id);
     if (!cmd) return false;
     if (!cmd.isEnabled(ctx)) return false;
+    // Audit T1-11: `requiresConfirmation` was declared on destructive
+    // commands but only the palette honoured it; Delete/Backspace and
+    // Ctrl+X ran them unprompted. Enforce it here for every entry point.
+    if (cmd.requiresConfirmation && !ctx.confirmed) {
+      const confirmed = await this.confirmationHandler(cmd, ctx);
+      if (!confirmed) return false;
+    }
     await cmd.execute(ctx);
     return true;
   }

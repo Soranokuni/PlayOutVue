@@ -41,7 +41,11 @@
     },
     "windows": {
       "webviewInstallMode": {
-        "type": "downloadBootstrapper"
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsi",
+        "installMode": "perMachine"
       },
       "wix": {
         "language": "en-US"

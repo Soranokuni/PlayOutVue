@@ -74,7 +74,10 @@ pub fn apply_runtime_settings(
     state: State<'_, RuntimeSettingsState>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
-    save_settings_to_disk(&settings);
+    if let Err(error) = save_settings_to_disk(&settings) {
+        log::error!("{}", error);
+        return Err(error);
+    }
     state.update(settings.clone());
     diagnostics.set_enabled(settings.debug_enabled);
     Ok(())
@@ -99,16 +102,12 @@ fn load_settings_from_disk() -> Option<RuntimeSettings> {
     serde_json::from_str::<RuntimeSettings>(&content).ok()
 }
 
-fn save_settings_to_disk(settings: &RuntimeSettings) {
+fn save_settings_to_disk(settings: &RuntimeSettings) -> Result<(), String> {
     let path = config_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-
-    let json = serde_json::to_string_pretty(settings).unwrap_or_default();
-    let tmp = path.with_extension("json.tmp");
-    let _ = std::fs::write(&tmp, &json);
-    let _ = std::fs::rename(&tmp, &path);
+    let json = serde_json::to_string_pretty(settings)
+        .map_err(|e| format!("Failed to serialise runtime settings: {}", e))?;
+    crate::atomic_fs::write_atomic(&path, json.as_bytes())
+        .map_err(|e| format!("Failed to persist runtime settings to '{}': {}", path.display(), e))
 }
 
 pub fn resolve_tool_path<R: Runtime>(app: Option<&AppHandle<R>>, state: Option<&RuntimeSettingsState>, name: &str) -> String {

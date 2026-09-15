@@ -194,6 +194,7 @@ const runCommand = async (cmd: CommandDefinition) => {
   if (cmd.requiresConfirmation || cmd.destructive || cmd.safety === 'destructive') {
     const confirmed = await confirmAction(cmd.label);
     if (!confirmed) return;
+    ctx.confirmed = true;
   }
 
   try {

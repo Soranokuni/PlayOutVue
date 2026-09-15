@@ -50,11 +50,11 @@ Coordinate all implementations through `.agents/skills/`:
 ## Development & Verification Checklist
 
 Before declaring any task complete or staging git commits, execute the full `.agents/skills/verify-build` pipeline:
-1. `npm test -- --run` (Must pass all 207+ frontend unit and integration tests)
+1. `npm test -- --run` (Must pass all 260+ frontend unit and integration tests)
 2. `npm run type-check` (Must pass with 0 TypeScript errors via `vue-tsc --build`)
 3. `npm run build` (Must produce clean production client bundle in `dist/`)
 4. `cargo check --manifest-path src-tauri/Cargo.toml` (Must compile cleanly with 0 errors)
-5. `cargo test --manifest-path src-tauri/Cargo.toml` (Must pass all 63 backend unit and integration tests)
+5. `cargo test --manifest-path src-tauri/Cargo.toml` (Must pass all 98+ backend unit and integration tests; `cargo clippy --all-targets -- -D warnings` must also be clean)
 6. `cargo test --manifest-path ../PlayoutTranscode/Cargo.toml --test contract_boundary` (Must verify cross-repo contract integrity whenever touching asset, trim, or metadata schemas)
 
 ---

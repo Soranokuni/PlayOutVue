@@ -732,10 +732,10 @@ mod tests {
             assert!(token.starts_with('"') && token.ends_with('"'));
             // Every inner quote is escaped as \".
             let inner = &token[1..token.len() - 1];
-            let mut chars = inner.chars().peekable();
+            let chars = inner.chars().peekable();
             let mut unescaped_quotes = 0;
             let mut backslash_count = 0;
-            while let Some(c) = chars.next() {
+            for c in chars {
                 if c == '\\' {
                     backslash_count += 1;
                 } else if c == '"' {

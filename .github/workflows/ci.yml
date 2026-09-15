@@ -1,0 +1,66 @@
+name: CI
+
+# Audit T1-13: every quality gate in AGENTS.md was manual. This workflow runs
+# the verify-build pipeline on every push and pull request so a regression in
+# the playout state machine can never reach main unnoticed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (type-check, tests, build)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test -- --run
+      - run: npm run build-only
+
+  backend:
+    name: Backend (clippy, tests)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # The Tauri build script embeds ../dist; provide an empty one so
+      # `cargo clippy`/`cargo test` do not require a frontend build here.
+      - run: New-Item -ItemType Directory -Force dist | Out-Null; if (-not (Test-Path dist/index.html)) { Set-Content dist/index.html '<!doctype html>' }
+        shell: pwsh
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  supply-chain:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    # Reports known vulnerabilities. Non-blocking for now: the npm dev tree has
+    # transitive advisories with fixes pending (AUDIT-PLAN T2-17). Flip
+    # `continue-on-error` to false once the baseline is clean.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm audit --omit=dev --audit-level=high
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit --file src-tauri/Cargo.lock

@@ -18,13 +18,13 @@ pub async fn start() -> Result<u16, String> {
         .map_err(|error| format!("[MediaServer] Failed to get local address: {}", error))?
         .port();
     SERVER_PORT.store(port, Ordering::Relaxed);
-    eprintln!("[MediaServer] Listening on 127.0.0.1:{}", port);
+    log::warn!("[MediaServer] Listening on 127.0.0.1:{}", port);
 
     tokio::spawn(async move {
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => { tokio::spawn(handle(stream)); }
-                Err(e) => eprintln!("[MediaServer] accept error: {}", e),
+                Err(e) => log::warn!("[MediaServer] accept error: {}", e),
             }
         }
     });
@@ -153,7 +153,7 @@ async fn handle(mut stream: tokio::net::TcpStream) {
         status, mime, content_len, start, end, total
     );
 
-    if let Err(_) = stream.write_all(headers.as_bytes()).await { return; }
+    if (stream.write_all(headers.as_bytes()).await).is_err() { return; }
     if is_head { return; } // HEAD → headers only
 
     // Stream the file
@@ -161,8 +161,8 @@ async fn handle(mut stream: tokio::net::TcpStream) {
         Ok(f) => f,
         Err(_) => return,
     };
-    if start > 0 {
-        if let Err(_) = file.seek(std::io::SeekFrom::Start(start)).await { return; }
+    if start > 0 && (file.seek(std::io::SeekFrom::Start(start)).await).is_err() {
+        return;
     }
 
     let mut remaining = content_len;

@@ -13,6 +13,7 @@ describe('PR 3 Safe Command Registry & Structural Editing Commands', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia());
+    commandRegistry.setConfirmationHandler(async () => true);
     store = useRundownStore();
     if (store.playlists[0]) {
       store.activatePlaylist(store.playlists[0].id);

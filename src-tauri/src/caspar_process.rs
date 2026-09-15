@@ -115,7 +115,7 @@ impl InstanceLock {
             // bInitialOwner = 1 (TRUE): Request immediate ownership of the mutex
             let handle = CreateMutexW(std::ptr::null_mut(), 1, wide.as_ptr());
             if handle.is_null() {
-                eprintln!("[InstanceLock] Failed to create mutex: {}", name);
+                log::warn!("[InstanceLock] Failed to create mutex: {}", name);
                 return Self {
                     handle: std::ptr::null_mut(),
                     is_primary: false,
@@ -127,12 +127,12 @@ impl InstanceLock {
             let is_primary = last_error != ERROR_ALREADY_EXISTS;
 
             if !is_primary {
-                eprintln!(
+                log::warn!(
                     "[InstanceLock] Mutex '{}' already held by another instance. Running in MONITOR mode.",
                     name
                 );
             } else {
-                eprintln!(
+                log::warn!(
                     "[InstanceLock] Primary lock acquired for '{}'. Full supervision enabled.",
                     name
                 );
@@ -321,6 +321,106 @@ pub fn find_caspar_process_pid() -> Option<u32> {
 
 #[cfg(not(windows))]
 pub fn find_caspar_process_pid() -> Option<u32> {
+    None
+}
+
+/// Image name (lower-case, e.g. `casparcg.exe`) of a live process, if any.
+#[cfg(windows)]
+pub fn process_image_name(pid: u32) -> Option<String> {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return None;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = None;
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                if entry.th32ProcessID == pid {
+                    let name = String::from_utf16_lossy(&entry.szExeFile);
+                    found = Some(name.trim_matches('\0').to_lowercase());
+                    break;
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+        CloseHandle(snapshot);
+        found
+    }
+}
+
+#[cfg(not(windows))]
+pub fn process_image_name(_pid: u32) -> Option<String> {
+    None
+}
+
+pub fn is_casparcg_pid(pid: &u32) -> bool {
+    process_image_name(*pid)
+        .map(|name| name == "casparcg.exe")
+        .unwrap_or(false)
+}
+
+/// PID of the process that owns the IPv4 TCP listener on `port`, via
+/// `GetExtendedTcpTable`. Audit T1-2: this lets `stop()` terminate exactly the
+/// CasparCG instance bound to *our* AMCP port instead of the first
+/// `casparcg.exe` in the process table (or every one of them).
+#[cfg(windows)]
+pub fn find_pid_listening_on_port(port: u16) -> Option<u32> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
+    };
+    use windows_sys::Win32::Networking::WinSock::AF_INET;
+
+    unsafe {
+        let mut size: u32 = 0;
+        let _ = GetExtendedTcpTable(
+            std::ptr::null_mut(),
+            &mut size,
+            0,
+            AF_INET as u32,
+            TCP_TABLE_OWNER_PID_LISTENER,
+            0,
+        );
+        if size == 0 {
+            return None;
+        }
+        // Over-allocate slightly: the table can grow between the two calls.
+        let mut buffer = vec![0u8; size as usize + 4096];
+        let mut size = buffer.len() as u32;
+        let result = GetExtendedTcpTable(
+            buffer.as_mut_ptr() as *mut _,
+            &mut size,
+            0,
+            AF_INET as u32,
+            TCP_TABLE_OWNER_PID_LISTENER,
+            0,
+        );
+        if result != 0 || (size as usize) < std::mem::size_of::<u32>() {
+            return None;
+        }
+        let table = buffer.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
+        let count = (*table).dwNumEntries as usize;
+        let rows_ptr = std::ptr::addr_of!((*table).table) as *const MIB_TCPROW_OWNER_PID;
+        let max_rows = (size as usize).saturating_sub(std::mem::size_of::<u32>())
+            / std::mem::size_of::<MIB_TCPROW_OWNER_PID>();
+        let rows = std::slice::from_raw_parts(rows_ptr, count.min(max_rows));
+        rows.iter()
+            .find(|row| u16::from_be(row.dwLocalPort as u16) == port)
+            .map(|row| row.dwOwningPid)
+    }
+}
+
+#[cfg(not(windows))]
+pub fn find_pid_listening_on_port(_port: u16) -> Option<u32> {
     None
 }
 
@@ -834,7 +934,11 @@ impl CasparProcessSupervisor {
             (inner.child.take(), inner.pid.take())
         };
 
-        let pid_to_terminate = adopted_pid.or_else(find_caspar_process_pid);
+        let port = self.amcp_port;
+        // Resolve the PID that actually owns our AMCP port; only ever kill a
+        // process that is both bound to that port and named casparcg.exe.
+        let pid_to_terminate = adopted_pid
+            .or_else(|| find_pid_listening_on_port(port).filter(is_casparcg_pid));
 
         if let Some(mut c) = child {
             if !force {
@@ -857,7 +961,6 @@ impl CasparProcessSupervisor {
         }
 
         // If force is requested or if port is still listening, terminate CasparCG
-        let port = self.amcp_port;
         if is_port_listening(port).await {
             crate::diagnostics::push_caspar_process_log("INFO", "Terminating active CasparCG instance on port...");
             if let Ok(Ok(mut stream)) = tokio::time::timeout(
@@ -869,15 +972,23 @@ impl CasparProcessSupervisor {
                 let _ = stream.flush().await;
             }
 
-            #[cfg(windows)]
-            {
-                if force || is_port_listening(port).await {
-                    if let Some(pid) = pid_to_terminate {
+            if force || is_port_listening(port).await {
+                // Audit T1-2: never `taskkill /IM casparcg.exe`. That took down
+                // every CasparCG on the machine (second channel, backup,
+                // monitor instance). Terminate only the port owner.
+                match pid_to_terminate.or_else(|| find_pid_listening_on_port(port).filter(is_casparcg_pid)) {
+                    Some(pid) => {
                         terminate_process_by_pid(pid);
                     }
-                    let _ = std::process::Command::new("taskkill")
-                        .args(["/F", "/IM", "casparcg.exe"])
-                        .output();
+                    None => {
+                        crate::diagnostics::push_caspar_process_log(
+                            "WARN",
+                            &format!(
+                                "Port {} still open but no casparcg.exe owner could be resolved; refusing machine-wide kill",
+                                port
+                            ),
+                        );
+                    }
                 }
             }
         }
@@ -1029,7 +1140,7 @@ async fn run_process_watchdog<R: Runtime>(
                     }
                 }
                 Err(e) => {
-                    eprintln!("[CasparProcess] Error polling child during boot: {}", e);
+                    log::warn!("[CasparProcess] Error polling child during boot: {}", e);
                     break;
                 }
             }
@@ -1086,7 +1197,7 @@ async fn run_process_watchdog<R: Runtime>(
                     // Still running healthy
                 }
                 Err(e) => {
-                    eprintln!("[CasparProcess] Error polling child in steady state: {}", e);
+                    log::warn!("[CasparProcess] Error polling child in steady state: {}", e);
                     return;
                 }
             }
@@ -1103,7 +1214,7 @@ async fn handle_crash<R: Runtime>(
     exit_code: i32,
     fallback_settings: &RuntimeSettings,
 ) {
-    eprintln!("[CasparProcess] Process exited unexpectedly with code {}", exit_code);
+    log::warn!("[CasparProcess] Process exited unexpectedly with code {}", exit_code);
     crate::diagnostics::push_caspar_process_log(
         "ERROR",
         &format!("CasparCG process exited unexpectedly with code {}", exit_code),

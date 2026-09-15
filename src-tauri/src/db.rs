@@ -368,7 +368,7 @@ fn file_identity(path: &str) -> Option<(u64, u64)> {
 /// Falls back to CWD if home dir not available.
 pub fn default_db_path() -> PathBuf {
     let base = dirs_next::data_dir()
-        .or_else(|| dirs_next::home_dir())
+        .or_else(dirs_next::home_dir)
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("com.playout.client").join("media_cache.db")
 }

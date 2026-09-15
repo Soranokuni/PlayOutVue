@@ -1,3 +1,5 @@
+mod atomic_fs;
+mod proc_util;
 mod scanner;
 mod stream;
 mod trimmer;
@@ -56,20 +58,71 @@ fn get_media_url(path: String) -> String {
     media_server::url_for(&path)
 }
 
+/// Startup-time error reporting that is safe in a `windows_subsystem = "windows"`
+/// binary: `eprintln!` panics if stderr is a closed pipe, which would abort
+/// the on-air app on a harmless warning. Writes to the log facade (once the
+/// plugin is up) and best-effort to stderr.
+fn startup_error(message: &str) {
+    log::error!("{}", message);
+    use std::io::Write as _;
+    let _ = writeln!(std::io::stderr(), "[PlayOut] {}", message);
+}
+
+/// Audit T1-6: capture every panic into a crash report file and the log
+/// before the default hook runs. With `panic = "unwind"` the process keeps
+/// running for panics inside spawned tasks; for a panic on the main thread
+/// this still guarantees a post-mortem artefact exists.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let report = format!(
+            "PlayOut panic\ntime: {}\nthread: {}\nlocation: {}\nmessage: {}\n\nbacktrace:\n{}\n",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0),
+            thread.name().unwrap_or("<unnamed>"),
+            info.location().map(|l| l.to_string()).unwrap_or_default(),
+            info.payload()
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "<non-string panic payload>".to_string()),
+            std::backtrace::Backtrace::force_capture()
+        );
+        log::error!("{}", report);
+        diagnostics::push_caspar_process_log("PANIC", &report);
+        if let Some(mut dir) = dirs_next::data_dir() {
+            dir.push("com.playout.client");
+            dir.push("crash-reports");
+            let _ = std::fs::create_dir_all(&dir);
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            let _ = std::fs::write(dir.join(format!("panic-{}.txt", stamp)), report.as_bytes());
+        }
+        default_hook(info);
+    }));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_panic_hook();
+
     // Start the local media streaming server (async, random port, no memory overhead)
     let _media_server_runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => {
             if let Err(error) = rt.block_on(media_server::start()) {
-                eprintln!("[PlayOut] Media server disabled: {}", error);
+                startup_error(&format!("Media server disabled: {}", error));
                 None
             } else {
                 Some(rt)
             }
         }
         Err(error) => {
-            eprintln!("[PlayOut] Failed to start bootstrap runtime for media server: {}", error);
+            startup_error(&format!("Failed to start bootstrap runtime for media server: {}", error));
             None
         }
     };
@@ -82,11 +135,11 @@ pub fn run() {
     let media_db = match MediaDb::open(&db_path) {
         Ok(db) => db,
         Err(error) => {
-            eprintln!("[PlayOut] Media DB open failed: {}. Using in-memory fallback.", error);
+            startup_error(&format!("Media DB open failed: {}. Using in-memory fallback.", error));
             match MediaDb::open(std::path::Path::new(":memory:")) {
                 Ok(memory_db) => memory_db,
                 Err(memory_error) => {
-                    eprintln!("[PlayOut] In-memory media DB fallback failed: {}. Media cache disabled.", memory_error);
+                    startup_error(&format!("In-memory media DB fallback failed: {}. Media cache disabled.", memory_error));
                     MediaDb::disabled(format!("Media cache unavailable: {}; fallback failed: {}", error, memory_error))
                 }
             }
@@ -104,6 +157,16 @@ pub fn run() {
 
     if let Err(error) = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Audit T1-7: the plugin default rotates at 40 KB with KeepOne, i.e.
+        // ~80 KB of history on a 24/7 broadcast host. Keep 10 x 50 MiB.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .max_file_size(50 * 1024 * 1024)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(10))
+                .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
+                .build(),
+        )
         .manage(diagnostics)
         .manage(settings_state)
         .manage(DbState(media_db))
@@ -247,15 +310,10 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            app.handle().plugin(
-                tauri_plugin_log::Builder::default()
-                    .level(log::LevelFilter::Info)
-                    .build(),
-            )?;
             Ok(())
         })
         .run(tauri::generate_context!())
     {
-        eprintln!("[PlayOut] error while running tauri application: {}", error);
+        startup_error(&format!("error while running tauri application: {}", error));
     }
 }

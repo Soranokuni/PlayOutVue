@@ -2,7 +2,6 @@ use std::path::Path;
 use tauri::{AppHandle, Runtime, State};
 
 use crate::media_index;
-use crate::scanner::probe_media_metadata;
 use crate::transcoder_sidecar;
 use crate::runtime_settings::{resolve_tool_path, RuntimeSettingsState};
 
@@ -39,50 +38,57 @@ pub async fn get_media_preview_info<R: Runtime>(
     app: AppHandle<R>,
     runtime_settings: State<'_, RuntimeSettingsState>,
 ) -> Result<(i64, i64, String), String> {
-    use std::process::Command;
-
     let ffmpeg = get_ffmpeg_path(Some(&app), Some(&runtime_settings));
+    let ffprobe = crate::scanner::get_ffprobe_path(Some(&app), Some(&runtime_settings));
 
-    // Run ffprobe for duration and frame count.
-    let probe = Command::new(&ffmpeg.replace("ffmpeg.exe", "ffprobe.exe"))
-        .args([
+    // Audit T1-3: both child processes used to run synchronously on an async
+    // worker with no deadline. Run them on the blocking pool with hard
+    // timeouts so a stalled share can never wedge the runtime.
+    tauri::async_runtime::spawn_blocking(move || -> Result<(i64, i64, String), String> {
+        use std::process::Command;
+        use std::time::Duration;
+
+        let mut probe_cmd = Command::new(&ffprobe);
+        probe_cmd.args([
             "-v", "error",
+            "-protocol_whitelist", "file,crypto,data",
             "-select_streams", "v:0",
             "-show_entries", "stream=nb_frames:stream=duration",
             "-show_entries", "format=duration",
             "-of", "csv=p=0:nk=1",
-            &input_path,
-        ])
-        .output()
-        .map_err(|e| format!("ffprobe failed: {}", e))?;
+            "-i", &input_path,
+        ]);
+        let probe = crate::proc_util::run_with_timeout(probe_cmd, Duration::from_secs(20))
+            .map_err(|e| format!("ffprobe failed: {}", e))?;
 
-    let probe_stdout = String::from_utf8_lossy(&probe.stdout);
-    let probe_lines: Vec<&str> = probe_stdout.lines().collect();
+        let probe_stdout = String::from_utf8_lossy(&probe.stdout);
+        let probe_lines: Vec<&str> = probe_stdout.lines().collect();
 
-    let duration_ms = probe_lines
-        .iter()
-        .filter_map(|line| line.split(',').next())
-        .filter_map(|value| value.parse::<f64>().ok())
-        .filter(|value| *value > 0.0)
-        .map(|seconds| (seconds * 1000.0).round() as i64)
-        .next()
-        .unwrap_or(0);
+        let duration_ms = probe_lines
+            .iter()
+            .filter_map(|line| line.split(',').next())
+            .filter_map(|value| value.parse::<f64>().ok())
+            .filter(|value| *value > 0.0)
+            .map(|seconds| (seconds * 1000.0).round() as i64)
+            .next()
+            .unwrap_or(0);
 
-    let frame_count = probe_lines
-        .iter()
-        .filter_map(|line| line.split(',').nth(1))
-        .filter_map(|value| value.parse::<f64>().ok())
-        .filter(|value| *value > 0.0)
-        .map(|frames| frames as i64)
-        .next()
-        .unwrap_or(0);
+        let frame_count = probe_lines
+            .iter()
+            .filter_map(|line| line.split(',').nth(1))
+            .filter_map(|value| value.parse::<f64>().ok())
+            .filter(|value| *value > 0.0)
+            .map(|frames| frames as i64)
+            .next()
+            .unwrap_or(0);
 
-    // Extract a single preview frame from the first second into memory.
-    let output = Command::new(&ffmpeg)
-        .args([
+        // Extract a single preview frame from the first second into memory.
+        let mut frame_cmd = Command::new(&ffmpeg);
+        frame_cmd.args([
             "-y",
             "-hide_banner",
             "-loglevel", "error",
+            "-protocol_whitelist", "file,crypto,data,pipe",
             "-ss", "00:00:01.000",
             "-i", &input_path,
             "-frames:v", "1",
@@ -90,21 +96,24 @@ pub async fn get_media_preview_info<R: Runtime>(
             "-f", "image2pipe",
             "-vcodec", "mjpeg",
             "pipe:1",
-        ])
-        .output()
-        .map_err(|e| format!("ffmpeg preview frame failed: {}", e))?;
+        ]);
+        let output = crate::proc_util::run_with_timeout(frame_cmd, Duration::from_secs(30))
+            .map_err(|e| format!("ffmpeg preview frame failed: {}", e))?;
 
-    if !output.status.success() {
-        return Err(format!(
-            "ffmpeg preview frame exited unsuccessfully: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
+        if !output.status.success() {
+            return Err(format!(
+                "ffmpeg preview frame exited unsuccessfully: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
 
-    let base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &output.stdout);
-    let preview_uri = format!("data:image/jpeg;base64,{}", base64);
+        let base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &output.stdout);
+        let preview_uri = format!("data:image/jpeg;base64,{}", base64);
 
-    Ok((duration_ms, frame_count, preview_uri))
+        Ok((duration_ms, frame_count, preview_uri))
+    })
+    .await
+    .map_err(|e| format!("preview task failed: {}", e))?
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -254,8 +263,13 @@ pub async fn compute_frame_trim<R: Runtime>(
         // hold a stale mid-copy entry filtered out above). Probing directly
         // keeps the take from failing with "Asset not found" and skipping to
         // the next item.
-        let entry = probe_media_metadata(Some(&app), Some(&runtime_settings), &path, Some(&diagnostics))
-            .map_err(|e| format!("Asset probe failed for {}: {}", path, e))?;
+        let ffprobe = crate::scanner::get_ffprobe_path(Some(&app), Some(&runtime_settings));
+        let entry = crate::scanner::probe_media_metadata_async(ffprobe, path.clone())
+            .await
+            .map_err(|e| {
+                log::warn!("[trimmer] ffprobe fallback failed for '{}': {}", path, e);
+                format!("Asset probe failed for {}: {}", path, e)
+            })?;
         let _ = db_state.0.upsert(&entry);
         entry
     } else {
