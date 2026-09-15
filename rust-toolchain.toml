@@ -1,0 +1,7 @@
+# Audit T1-13 / T2-18: pin the toolchain so local builds, CI and release
+# artefacts agree. `rust-version` in src-tauri/Cargo.toml is the minimum the
+# dependency tree actually needs; this is the version we build with.
+[toolchain]
+channel = "1.92.0"
+components = ["clippy", "rustfmt"]
+targets = ["x86_64-pc-windows-msvc"]
