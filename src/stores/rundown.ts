@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { createGuardedStorage } from '../lib/persistenceStorage';
 import { v4 as uuidv4 } from 'uuid';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, shallowRef, triggerRef, ref, watch, toRaw } from 'vue';
@@ -2347,5 +2348,20 @@ export const useRundownStore = defineStore('rundown', () => {
         nextPlayableItem
     };
 }, {
-    persist: true
+    // Audit T1-8: `persist: true` serialised EVERY returned ref on every
+    // mutation -- including up to 100 undo snapshots of the whole rundown,
+    // the clipboard, and 4 Hz progress/clock refs -- into localStorage, with
+    // quota errors swallowed. Persist only durable operator state, through a
+    // storage wrapper that surfaces failures.
+    persist: {
+        pick: [
+            'playlists',
+            'activePlaylistId',
+            'onAirPlaylistId',
+            'currentPlayingItemId',
+            'currentPlayingInstanceId',
+            'isRundownLocked'
+        ],
+        storage: createGuardedStorage()
+    }
 });
