@@ -775,10 +775,9 @@ pub async fn save_caspar_config_structured<R: Runtime>(
     config: CasparConfiguration,
 ) -> Result<String, String> {
     let target_path = resolve_requested_path(Some(&app), Some(path))?;
-    let xml = serialize_config(&config)?;
-    // Audit T1-1 (partial): the typed round-trip drops XML elements the model
-    // does not know (see AUDIT-PLAN T1-1). Until in-place patching lands, a
-    // backup guarantees the operator can restore the original.
+    // Audit T1-1: patch the operator's file in place so elements the typed
+    // model does not know survive; a timestamped backup is taken regardless.
+    let xml = render_config_for_path(&target_path, &config)?;
     if target_path.is_file() {
         backup_config(&target_path)?;
     }
@@ -879,7 +878,7 @@ pub async fn apply_caspar_decklink_config<R: Runtime>(
     }
 
     let backup_path = backup_config(&target_path)?;
-    let xml = serialize_config(&config)?;
+    let xml = render_config_for_path(&target_path, &config)?;
     write_config_file_atomic(&target_path, xml.clone())?;
 
     Ok(DeckLinkApplyResult {
@@ -964,6 +963,41 @@ fn write_config_file_atomic(path: &Path, contents: String) -> Result<(), String>
 
 fn write_config_file(path: &Path, contents: String) -> Result<(), String> {
     write_config_file_atomic(path, contents)
+}
+
+/// Produce the XML to write for `config` at `target_path` (audit T1-1). When
+/// the file already exists its XML is patched in place so every element the
+/// typed model does not know (`<html>`, `<ffmpeg>`, `<thumbnails>`, unknown
+/// consumers, comments, ...) is preserved. A file that cannot be read or
+/// parsed falls back to a full serialisation, with a log entry, because the
+/// caller has already decided to write and a backup is always taken first.
+fn render_config_for_path(target_path: &Path, config: &CasparConfiguration) -> Result<String, String> {
+    let model_xml = serialize_config(config)?;
+    if !target_path.is_file() {
+        return Ok(model_xml);
+    }
+    let original = match std::fs::read_to_string(target_path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            log::warn!(
+                "[CasparConfig] Cannot read '{}' for in-place patching ({}); writing full model",
+                target_path.display(),
+                error
+            );
+            return Ok(model_xml);
+        }
+    };
+    match crate::caspar_config_patch::patch_config_xml(&original, &model_xml) {
+        Ok(patched) => Ok(patched),
+        Err(error) => {
+            log::warn!(
+                "[CasparConfig] In-place patch of '{}' failed ({}); writing full model",
+                target_path.display(),
+                error
+            );
+            Ok(model_xml)
+        }
+    }
 }
 
 fn serialize_config(config: &CasparConfiguration) -> Result<String, String> {
