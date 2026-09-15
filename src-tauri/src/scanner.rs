@@ -148,7 +148,7 @@ fn get_short_path(path: &str) -> String {
 //   3. <cwd>/../Requirements/ffmpeg/bin/ffprobe.exe           (cwd = src-tauri, dev mode)
 //   4. "ffprobe" (system PATH fallback)
 
-fn get_ffprobe_path<R: Runtime>(app: Option<&AppHandle<R>>, runtime_settings: Option<&RuntimeSettingsState>) -> String {
+pub fn get_ffprobe_path<R: Runtime>(app: Option<&AppHandle<R>>, runtime_settings: Option<&RuntimeSettingsState>) -> String {
     resolve_tool_path(app, runtime_settings, "ffprobe.exe")
 }
 
@@ -676,31 +676,37 @@ fn load_cached_or_probe(
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-/// Probe a media file with ffprobe, bypassing the cache entirely, and return
-/// a fresh metadata entry. Last-resort fallback for the playback path: the
-/// ingestor copies the file into the CasparCG media folder *before* writing
-/// the sidecar JSON, so a manual take inside that window (or with a stale or
-/// invalid cache entry) would otherwise fail the pre-flight check and the
-/// rundown would skip the clip.
-pub fn probe_media_metadata<R: Runtime>(
-    app: Option<&AppHandle<R>>,
-    runtime_settings: Option<&RuntimeSettingsState>,
-    filepath: &str,
-    diagnostics: Option<&DiagnosticState>,
-) -> Result<CachedMediaEntry, String> {
-    let ffprobe = get_ffprobe_path(app, runtime_settings);
-    run_ffprobe(&ffprobe, filepath, diagnostics)
+/// Upper bound for a single ffprobe run. A file on an SMB share that just went
+/// offline can otherwise block for the redirector timeout (30-60 s+), which,
+/// when called from a Tauri command, parks an async worker and starves the
+/// OSC listener / playback watchdog (audit T1-3).
+const FFPROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Probe a file off the async runtime with a hard timeout. Use this from
+/// `async fn` Tauri commands instead of `probe_media_metadata`.
+pub async fn probe_media_metadata_async(ffprobe: String, filepath: String) -> Result<CachedMediaEntry, String> {
+    tauri::async_runtime::spawn_blocking(move || run_ffprobe(&ffprobe, &filepath, None))
+        .await
+        .map_err(|e| format!("ffprobe task failed: {}", e))?
 }
 
 fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticState>) -> Result<CachedMediaEntry, String> {
     let mut command = Command::new(ffprobe);
-    command.args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", filepath]);
+    // `-i` keeps a path that starts with `-` from being parsed as an option,
+    // and the protocol whitelist stops `http:`/`concat:` style inputs from
+    // making ffprobe reach out to the network or read arbitrary files.
+    command.args([
+        "-v", "quiet",
+        "-protocol_whitelist", "file,crypto,data",
+        "-print_format", "json",
+        "-show_format", "-show_streams",
+        "-i", filepath,
+    ]);
 
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);
 
-    let output = command
-        .output()
+    let output = crate::proc_util::run_with_timeout(command, FFPROBE_TIMEOUT)
         .map_err(|e| format!("ffprobe exec failed: {}", e))?;
 
     if !output.status.success() {
@@ -791,9 +797,9 @@ fn is_supported_media_extension(ext: &str) -> bool {
     ["mp4", "mkv", "mov", "mxf", "avi", "webm", "ts", "m2ts"].contains(&ext)
 }
 
-fn collect_media_files(root: &PathBuf) -> Result<Vec<PathBuf>, String> {
+fn collect_media_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
-    let mut pending = vec![root.clone()];
+    let mut pending = vec![root.to_path_buf()];
 
     while let Some(dir) = pending.pop() {
         let entries = std::fs::read_dir(&dir)
@@ -875,7 +881,7 @@ fn warm_media_files(
 }
 
 fn run_background_probe(
-    root: &PathBuf,
+    root: &Path,
     ffprobe: &str,
     db: &MediaDb,
     probe_state: &MediaProbeState,
@@ -897,7 +903,7 @@ fn run_background_probe(
         ),
     );
 
-    let warm_res = warm_media_files(ffprobe, &files, db, root.as_path(), diagnostics, |file_path, stats| {
+    let warm_res = warm_media_files(ffprobe, &files, db, root, diagnostics, |file_path, stats| {
         update_probe_status(probe_state, |status| {
             status.current_file = normalize_display_path(file_path);
             status.checked = stats.checked;
