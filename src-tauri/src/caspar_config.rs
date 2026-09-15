@@ -516,6 +516,9 @@ pub async fn open_cg_studio_in_browser<R: Runtime>(
     };
 
     let port = crate::studio_server::STUDIO_SERVER_PORT.load(std::sync::atomic::Ordering::Relaxed);
+    if port == 0 {
+        return Err("The CG Studio bridge server is not running (ports 6258/6259 could not be bound). Check the diagnostics log.".to_string());
+    }
     let target_url = if port > 0 {
         // The per-launch bearer token travels in the URL once; the Studio
         // page reads it and attaches it to every bridge POST (audit T0-1).
