@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
@@ -384,6 +384,20 @@ const refreshStudioPresetState = async () => {
 const onWindowFocus = () => {
     refreshStudioPresetState();
 };
+
+// Audit T1-10: the component stays mounted for the app's lifetime, so the
+// local shadow state was captured once at launch. Saving later wrote that
+// stale snapshot over live store values (e.g. reverting an active crawl).
+// Re-map from the store every time the dialog opens.
+watch(
+    () => props.isOpen,
+    (open) => {
+        if (open) {
+            mapLocalState();
+            void refreshStudioPresetState();
+        }
+    }
+);
 
 onMounted(async () => {
     mapLocalState();
