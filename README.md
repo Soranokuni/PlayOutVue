@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24c8db?logo=tauri&logoColor=white)](https://tauri.app/)
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
-[![Rust](https://img.shields.io/badge/Rust-1.77%2B-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.88%2B-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![CasparCG](https://img.shields.io/badge/CasparCG-2.3%2B-orange.svg)](https://casparcg.com/)
 [![Blackmagic](https://img.shields.io/badge/Blackmagic-DeckLink-black.svg)](https://www.blackmagicdesign.com/)
 
@@ -29,7 +29,7 @@ graph TD
         RL[RundownList - Playlist Grid]
         ML[MediaLibrary - Virtual Folders]
         MI[MediaInspector - Trim & Compliance]
-        RB[RecycleBin - Safe Purge]
+        RB[RecycleBinModal - Safe Purge]
         DW[DeckLinkWizard - Live Input]
     end
 
@@ -189,15 +189,16 @@ PlayOut/
 
 ### Prerequisites
 1. **Node.js**: `^20.19.0 || >=22.12.0`
-2. **Rust**: `1.77.2+` with `rustup`
+2. **Rust**: `1.88+` (`rust-toolchain.toml` pins 1.92.0) with `rustup`
 3. **Microsoft C++ Build Tools**: Visual Studio 2022 C++ x64/x86 build tools
 4. **CasparCG Server**: Version 2.3+ (installed locally or reachable over the local network)
 5. **PlayoutTranscode**: Ingest service running on port `4353`
 
 ### 1. Install Dependencies
 ```powershell
-npm install
+npm ci
 ```
+`npm ci` installs the exact lockfile versions and registers the `lefthook` pre-commit hooks (ESLint, type-check, `cargo check`).
 
 ### 2. Run in Development Mode
 Launch the complete desktop application with hot-reloading:
@@ -219,7 +220,7 @@ npm run test
 ```powershell
 npm run tauri build
 ```
-The installer executable (`.msi` / `.exe`) will be generated in `src-tauri/target/release/bundle/`.
+The NSIS installer (`.exe`) is generated in `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/` (`.cargo/config.toml` pins the target triple). Archive the matching `.pdb` from `src-tauri/target/x86_64-pc-windows-msvc/release/` with each release so crash reports can be symbolised.
 
 ---
 

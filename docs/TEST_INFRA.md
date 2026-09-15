@@ -39,13 +39,47 @@
   - Contract Boundary Suite: `cargo test --test contract_boundary`
 
 ## Test File Organization
-- `d:\PlayOut\src\stores\__tests__\manualTake.test.ts` (R1 Manual Take & Index Tracking)
-- `d:\PlayOut\src\components\__tests__\RundownNavigation.test.ts` (R2 Arrow Navigation & Virtualization)
-- `d:\PlayOut\src\utils\__tests__\frameMath.test.ts` (R3 Trimmer Frame Math & Timecode Formatting)
-- `d:\PlayOut\src\components\__tests__\TrimPanel.test.ts` (R3 Trimmer UI & Drag Listener Cleanup)
-- `d:\PlayOut\src\stores\__tests__\trimSync.test.ts` (R4 Subclip Trim & Duration Sync)
-- `d:\PlayOut\src\stores\__tests__\rundownPerformance.test.ts` (R5 Performance & ETA Memoization)
-- `d:\PlayOut\src\__tests__\e2eWorkloads.test.ts` (Tier 4 Real-World E2E Workload Scenarios)
+- `src/components/__tests__/CommandPalette.test.ts`
+- `src/components/__tests__/LibraryNavigation.test.ts`
+- `src/components/__tests__/MediaLibraryErgonomics.test.ts`
+- `src/components/__tests__/RatingBadgeOwnership.test.ts`
+- `src/components/__tests__/RecycleBinModal.test.ts`
+- `src/components/__tests__/RundownAutoScroll.test.ts`
+- `src/components/__tests__/RundownDragDrop.test.ts`
+- `src/components/__tests__/RundownFocusRetention.test.ts`
+- `src/components/__tests__/RundownKeyboardEvents.test.ts`
+- `src/components/__tests__/RundownNavigation.test.ts`
+- `src/components/__tests__/RundownStructuralEditing.test.ts`
+- `src/components/__tests__/SettingsModalConfirmation.test.ts`
+- `src/components/__tests__/ShortcutScopePrecedence.test.ts`
+- `src/components/__tests__/StatusIndicatorIntegration.test.ts`
+- `src/components/__tests__/TrimPanel.test.ts`
+- `src/components/__tests__/VirtualSubclip.test.ts`
+- `src/composables/__tests__/operatorKeyboardRouting.test.ts`
+- `src/composables/__tests__/structuralKeyboardShortcuts.test.ts`
+- `src/composables/__tests__/useDragSession.test.ts`
+- `src/composables/__tests__/useOperatorShortcuts.test.ts`
+- `src/composables/__tests__/useStudioClock.test.ts`
+- `src/lib/__tests__/commandCollision.test.ts`
+- `src/lib/__tests__/commandSearch.test.ts`
+- `src/lib/__tests__/frontendFaults.test.ts`
+- `src/lib/__tests__/greekCompliance.test.ts`
+- `src/lib/__tests__/persistenceStorage.test.ts`
+- `src/lib/__tests__/playbackCoordinator.test.ts`
+- `src/lib/__tests__/playoutFailurePolicy.test.ts`
+- `src/lib/__tests__/reorderHelper.test.ts`
+- `src/lib/__tests__/scaleBaseline.test.ts`
+- `src/lib/__tests__/templatesParity.test.ts`
+- `src/lib/__tests__/timecode.test.ts`
+- `src/lib/__tests__/trimCommands.test.ts`
+- `src/lib/__tests__/trimController.test.ts`
+- `src/lib/__tests__/v2IngestorAdapter.test.ts`
+- `src/lib/__tests__/virtualFolderTree.test.ts`
+- `src/services/__tests__/casparAdoption.test.ts`
+- `src/services/__tests__/casparProcess.test.ts`
+- `src/services/__tests__/commandConfirmation.test.ts`
+- `src/services/__tests__/queueOwnership.test.ts`
+- `src/stores/__tests__/settingsHydration.test.ts`
 - `d:\PlayoutTranscode\tests\contract_boundary.rs` (Backend Upstream Asset Contract Boundary)
 
 ## Coverage Thresholds

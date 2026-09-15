@@ -65,6 +65,23 @@ pub fn run_with_timeout(mut command: Command, timeout: Duration) -> Result<Outpu
     Ok(Output { status, stdout, stderr })
 }
 
+/// Absolute path of a Windows system tool (audit T2-4). `Command::new("taskkill")`
+/// resolves through `PATH`, and the process CWD is searched first on Windows,
+/// so a planted `taskkill.exe` next to a media root or in the CasparCG folder
+/// would run with the operator's privileges. Always spawn system tools from
+/// `%SystemRoot%\System32` (or `%SystemRoot%` for explorer.exe).
+#[cfg(windows)]
+pub fn windows_system_tool(name: &str) -> std::path::PathBuf {
+    let root = std::env::var_os("SystemRoot")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
+    if name.eq_ignore_ascii_case("explorer.exe") {
+        root.join(name)
+    } else {
+        root.join("System32").join(name)
+    }
+}
+
 fn drain<R: Read>(reader: Option<R>) -> Vec<u8> {
     let mut buffer = Vec::new();
     if let Some(mut reader) = reader {

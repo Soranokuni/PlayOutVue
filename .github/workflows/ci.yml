@@ -24,6 +24,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm run type-check
       - run: npm test -- --run
       - run: npm run build-only
@@ -49,10 +50,9 @@ jobs:
   supply-chain:
     name: Dependency audit
     runs-on: ubuntu-latest
-    # Reports known vulnerabilities. Non-blocking for now: the npm dev tree has
-    # transitive advisories with fixes pending (AUDIT-PLAN T2-17). Flip
-    # `continue-on-error` to false once the baseline is clean.
-    continue-on-error: true
+    # Reports known vulnerabilities. Blocking since the T2-17 clean-up brought
+    # the npm baseline (prod and dev trees) to zero advisories.
+    continue-on-error: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -60,7 +60,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=high
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit --locked
       - run: cargo audit --file src-tauri/Cargo.lock

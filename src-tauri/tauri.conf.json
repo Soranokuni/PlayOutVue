@@ -23,12 +23,14 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' tauri: ipc:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: asset: tauri: http://127.0.0.1:* http://localhost:*; media-src 'self' asset: tauri: http://127.0.0.1:* http://localhost:*; connect-src 'self' ipc: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*;"
+      "csp": "default-src 'self' tauri: ipc:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: tauri: http://127.0.0.1:* http://localhost:*; media-src 'self' blob: tauri: http://127.0.0.1:* http://localhost:*; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none';"
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -46,9 +48,6 @@
       "nsis": {
         "installerHooks": "./windows/hooks.nsi",
         "installMode": "perMachine"
-      },
-      "wix": {
-        "language": "en-US"
       }
     }
   }
