@@ -791,6 +791,20 @@ export const useRundownStore = defineStore('rundown', () => {
     const getPlayableItems = (playlistId = activePlaylistId.value) =>
         (getPlaylistById(playlistId)?.items || []).filter((item) => !isGapItem(item));
 
+    /// Push a playlist's playable items to the playout engine's queue snapshot,
+    /// but only when that playlist is the one on air (audit T0-3). Editing or
+    /// loading an offline tab must never replace the live queue: the engine
+    /// would lose the on-air UUID and STOP at the next EOF. When nothing is on
+    /// air the queue is only a preview snapshot and any playlist may update it.
+    const syncPlayoutQueue = (playlistId: string) => {
+        const onAir = onAirPlaylistId.value;
+        if (onAir && onAir !== playlistId) return false;
+        casparPlayoutService.refreshQueue?.(getPlayableItems(playlistId) as any)?.catch?.((error: unknown) => {
+            console.error('[Rundown] Failed to sync playout queue', error);
+        });
+        return true;
+    };
+
     const normalizeVisibleStartIndex = (playlistId: string, visibleIndex: number) => {
         const playlist = getPlaylistById(playlistId);
         if (!playlist || !playlist.items.length) return -1;
@@ -1344,7 +1358,7 @@ export const useRundownStore = defineStore('rundown', () => {
                          }
                          if (changed) {
                              updatePlaylistState(playlistId, { items: newItems });
-                             casparPlayoutService.refreshQueue?.(getPlayableItems(playlistId) as any);
+                             syncPlayoutQueue(playlistId);
                          }
                      } catch (e) {
                          try {
@@ -1716,7 +1730,7 @@ export const useRundownStore = defineStore('rundown', () => {
                 newItems[index] = { ...existing, ...updates } as RundownItem;
                 updatePlaylistState(playlist.id, { items: newItems });
             }
-            casparPlayoutService.refreshQueue?.(getPlayableItems(playlist.id) as any);
+            syncPlayoutQueue(playlist.id);
         } catch (error) {
             try {
                 const ingestor = useIngestorStatusStore();
@@ -2268,6 +2282,7 @@ export const useRundownStore = defineStore('rundown', () => {
         currentPlayingIndex,
         isGapItem,
         getPlayableItems,
+        syncPlayoutQueue,
         normalizeVisibleStartIndex,
         resolvePlayableStartIndex,
         buildPlaybackPayload,

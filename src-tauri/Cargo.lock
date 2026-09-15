@@ -2634,6 +2634,7 @@ dependencies = [
  "quick-xml",
  "r2d2",
  "r2d2_sqlite",
+ "rand 0.9.2",
  "regex",
  "reqwest 0.12.28",
  "rosc",

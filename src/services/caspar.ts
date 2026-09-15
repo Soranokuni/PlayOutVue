@@ -158,6 +158,24 @@ function queueKey(item: PlayoutItem): string {
     return item.id;
 }
 
+/// True when `items` holds the entry identified by `key`. Exported for tests.
+export function queueContainsKey(items: readonly PlayoutItem[], key: string | null): boolean {
+    if (!key) return false;
+    return items.some((item) => queueKey(item) === key);
+}
+
+/// Test-only introspection of the live queue snapshot and on-air key.
+/// Never use from production code -- the queue is owned by this module.
+export const __playoutQueueTestHooks = {
+    getQueuedItems: () => queuedItems,
+    getCurrentKey: () => currentKey,
+    setState(items: PlayoutItem[], key: string | null, playing: boolean) {
+        queuedItems = items.map((i: any) => ({ ...i }));
+        currentKey = key;
+        isCasparPlaying.value = playing;
+    },
+};
+
 /// Resolve the LIVE store item by id. The queue snapshot (`queuedItems`) is a
 /// shallow copy taken at play() time; ingestor trim resolution writes
 /// `trim_in_ms`/`trim_out_ms` to the store asynchronously and only re-syncs
@@ -2473,6 +2491,27 @@ export const casparPlayoutService: PlayoutService = {
         // Identity-keyed: the current item is tracked by `currentKey`, so a
         // reordered/replaced queue is re-resolved on the next advance without any
         // index remapping. This is the §A desync fix.
+        if (!isCasparPlaying.value || !currentKey) {
+            queuedItems = items.map((i: any) => ({ ...i }));
+            invalidatePreloads();
+            return;
+        }
+
+        // Ownership guard (audit T0-3): while a clip is on air, only a queue
+        // that still contains the on-air UUID may replace the live snapshot.
+        // The store protects the on-air row from deletion, so an incoming
+        // list without `currentKey` can only be a *different* playlist (an
+        // offline tab being edited or loaded). Adopting it would make the
+        // next EOF advance resolve `currentIndex === -1` and STOP + CLEAR the
+        // program layer -- dead air. Keep the current queue untouched.
+        if (!queueContainsKey(items, currentKey)) {
+            console.warn(
+                '[CasparCG] refreshQueue ignored: incoming queue does not contain the on-air item',
+                { currentKey, incomingCount: items.length }
+            );
+            return;
+        }
+
         queuedItems = items.map((i: any) => ({ ...i }));
 
         // A queued AUTO background belongs to the prior queue topology. Keep
@@ -2481,16 +2520,8 @@ export const casparPlayoutService: PlayoutService = {
         // this an operator who moves or deletes the next row can see CasparCG
         // auto-take the old background while the frontend advances to the
         // edited queue.
-        if (!isCasparPlaying.value || !currentKey) {
-            invalidatePreloads();
-            return;
-        }
-
         const currentIndex = queuedItems.findIndex((item) => queueKey(item) === currentKey);
         if (currentIndex < 0) {
-            // The on-air UUID was removed from the playable queue. Do not
-            // guess a new current index or issue a hard command; the next EOF
-            // transition will stop safely rather than wrapping to row zero.
             invalidatePreloads();
             return;
         }
