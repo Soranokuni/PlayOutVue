@@ -248,20 +248,132 @@ fn is_safe_path_component(component: &str) -> bool {
         && !component.contains('\\')
 }
 
-fn build_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))
+/// Audit T2-6: every asset id is interpolated into a URL path. Accept only a
+/// canonical RFC 4122 textual UUID (`8-4-4-4-12` hex) so a value such as
+/// `../folders/purge` can never rewrite the route. Case is preserved so the
+/// Ingestor's own ids round-trip unchanged into response maps.
+pub fn validate_uuid(uuid: &str) -> Result<String, String> {
+    let trimmed = uuid.trim();
+    let bytes = trimmed.as_bytes();
+    let groups: [usize; 5] = [8, 4, 4, 4, 12];
+    let mut idx = 0usize;
+    let mut ok = bytes.len() == 36;
+    for (g, len) in groups.iter().enumerate() {
+        if !ok {
+            break;
+        }
+        let end = idx + len;
+        if end > bytes.len() || !bytes[idx..end].iter().all(|b| b.is_ascii_hexdigit()) {
+            ok = false;
+            break;
+        }
+        idx = end;
+        if g < 4 {
+            if idx >= bytes.len() || bytes[idx] != b'-' {
+                ok = false;
+                break;
+            }
+            idx += 1;
+        }
+    }
+    if ok {
+        Ok(trimmed.to_string())
+    } else {
+        Err(format!("Invalid Ingestor asset id '{}': expected a UUID", trimmed))
+    }
 }
 
-fn resolve_base_url(app_base_url: &str, override_url: &str) -> String {
-    let raw = if override_url.trim().is_empty() {
-        app_base_url.trim()
+/// Largest Ingestor response body we will buffer (asset lists with QC
+/// reports are a few hundred KB; 16 MiB leaves ample headroom).
+const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Read a response body with a hard size cap so a misbehaving or spoofed
+/// Ingestor cannot make the playout process allocate without bound.
+async fn read_body_capped(response: reqwest::Response) -> Result<String, String> {
+    if let Some(len) = response.content_length() {
+        if len as usize > MAX_RESPONSE_BYTES {
+            return Err(format!("Ingestor response too large ({} bytes)", len));
+        }
+    }
+    let mut response = response;
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| format!("Failed to read Ingestor response: {}", e))?
+    {
+        if buf.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(format!("Ingestor response exceeded {} bytes", MAX_RESPONSE_BYTES));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// One shared HTTP client for the whole process (connection pooling, one TLS
+/// config) instead of a new client and connector per Tauri command.
+fn build_client() -> Result<reqwest::Client, String> {
+    static CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+                .build()
+                .map_err(|e| format!("Failed to build HTTP client: {}", e))
+        })
+        .clone()
+}
+
+/// Host part (lower-case, without port) of an http(s) URL, or `None` when the
+/// value is not an absolute http(s) URL.
+fn url_host(url: &str) -> Option<String> {
+    let lower = url.trim().to_ascii_lowercase();
+    let rest = lower
+        .strip_prefix("http://")
+        .or_else(|| lower.strip_prefix("https://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let authority = authority.rsplit('@').next()?;
+    let host = if let Some(stripped) = authority.strip_prefix('[') {
+        stripped.split(']').next()?.to_string()
     } else {
-        override_url.trim()
+        authority.split(':').next()?.to_string()
     };
-    raw.trim_end_matches('/').to_string()
+    if host.is_empty() { None } else { Some(host) }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host == "localhost"
+        || host == "::1"
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+}
+
+/// Audit T2-6: `api_base_url_override` arrives from the WebView on every
+/// call. A compromised page could point the Rust client (and its purge/
+/// rename calls) at an arbitrary host. The override is honoured only when
+/// it targets loopback or the same host as the operator-configured base
+/// URL; anything else is ignored with a log entry.
+fn resolve_base_url(app_base_url: &str, override_url: &str) -> String {
+    let configured = app_base_url.trim().trim_end_matches('/');
+    let candidate = override_url.trim().trim_end_matches('/');
+    if candidate.is_empty() {
+        return configured.to_string();
+    }
+    let trusted = match url_host(candidate) {
+        Some(host) => is_loopback_host(&host) || url_host(configured).as_deref() == Some(host.as_str()),
+        None => false,
+    };
+    if trusted {
+        candidate.to_string()
+    } else {
+        log::warn!(
+            "[Ingestor] Ignoring untrusted api_base_url_override '{}' (configured base: '{}')",
+            candidate, configured
+        );
+        configured.to_string()
+    }
 }
 
 fn now_ms() -> u64 {
@@ -334,7 +446,7 @@ pub async fn list_ingestor_assets<R: Runtime>(
     if let Ok(response) = v2_res {
         let status = response.status();
         if status.is_success() {
-            let body = response.text().await.map_err(|e| {
+            let body = read_body_capped(response).await.map_err(|e| {
                 format!("Failed to read Ingestor V2 list response: {}", e)
             })?;
             if let Ok(v2_assets) = serde_json::from_str::<Vec<V2AssetDto>>(&body) {
@@ -345,7 +457,7 @@ pub async fn list_ingestor_assets<R: Runtime>(
             }
         } else if status.as_u16() != 404 {
             // Non-404 V2 error (e.g. 500 server error): report failure without fallback
-            let body = response.text().await.unwrap_or_default();
+            let body = read_body_capped(response).await.unwrap_or_default();
             let err = format!("Ingestor V2 API returned HTTP {}: {}", status.as_u16(), body);
             diagnostics.push("error", "ingestor", err.clone());
             return Err(err);
@@ -366,7 +478,7 @@ pub async fn list_ingestor_assets<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.map_err(|e| {
+    let body = read_body_capped(response).await.map_err(|e| {
         let err = format!("Failed to read Ingestor list response for '{}': {}", url, e);
         diagnostics.push("error", "ingestor", err.clone());
         err
@@ -413,6 +525,7 @@ pub async fn resolve_ingestor_asset<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<AssetResponse, String> {
+    let uuid = validate_uuid(&uuid)?;
     let start_time = std::time::Instant::now();
     let base_url = resolve_base_url(
         &get_ingestor_api_base_url(&app),
@@ -428,7 +541,7 @@ pub async fn resolve_ingestor_asset<R: Runtime>(
     if let Ok(response) = v2_res {
         let status = response.status();
         if status.is_success() {
-            let body = response.text().await.map_err(|e| {
+            let body = read_body_capped(response).await.map_err(|e| {
                 format!("Failed to read Ingestor V2 asset response: {}", e)
             })?;
             if let Ok(v2_asset) = serde_json::from_str::<V2AssetDto>(&body) {
@@ -438,7 +551,7 @@ pub async fn resolve_ingestor_asset<R: Runtime>(
                 return Ok(mapped);
             }
         } else if status.as_u16() != 404 {
-            let body = response.text().await.unwrap_or_default();
+            let body = read_body_capped(response).await.unwrap_or_default();
             let err = format!("Ingestor V2 API returned HTTP {} for asset '{}': {}", status.as_u16(), uuid, body);
             diagnostics.push("error", "ingestor", err.clone());
             return Err(err);
@@ -459,7 +572,7 @@ pub async fn resolve_ingestor_asset<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.map_err(|e| {
+    let body = read_body_capped(response).await.map_err(|e| {
         let err = format!("Failed to read Ingestor API response for '{}': {}", url, e);
         diagnostics.push("error", "ingestor", err.clone());
         err
@@ -506,6 +619,7 @@ pub async fn update_ingestor_trim<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    let uuid = validate_uuid(&uuid)?;
     if !is_safe_path_component(&uuid) {
         return Err("SECURITY VIOLATION: Invalid UUID format detected (Path Traversal)".into());
     }
@@ -549,7 +663,7 @@ pub async fn update_ingestor_trim<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
 
     if !status.is_success() {
         let err = format!(
@@ -574,6 +688,7 @@ pub async fn update_ingestor_rating<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    let uuid = validate_uuid(&uuid)?;
     let start_time = std::time::Instant::now();
     let final_rating = if rating.contains('|') {
         rating.trim().to_string()
@@ -611,7 +726,7 @@ pub async fn update_ingestor_rating<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
 
     if !status.is_success() {
         let err = format!(
@@ -639,6 +754,10 @@ pub async fn resolve_ingestor_assets_batch<R: Runtime>(
     if uuids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
+    let uuids = uuids
+        .iter()
+        .map(|u| validate_uuid(u))
+        .collect::<Result<Vec<String>, String>>()?;
 
     let base_url = resolve_base_url(
         &get_ingestor_api_base_url(&app),
@@ -648,13 +767,11 @@ pub async fn resolve_ingestor_assets_batch<R: Runtime>(
     let url = format!("{}/api/assets/batch", base_url);
     diagnostics.push("info", "ingestor", format!("Resolving batch of {} assets at '{}'", uuids.len(), url));
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    let client = build_client()?;
 
     let response_res = client
         .post(&url)
+        .timeout(Duration::from_secs(10))
         .json(&uuids)
         .send()
         .await;
@@ -668,7 +785,7 @@ pub async fn resolve_ingestor_assets_batch<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.map_err(|e| {
+    let body = read_body_capped(response).await.map_err(|e| {
         let err = format!("Failed to read Ingestor batch API response for '{}': {}", url, e);
         diagnostics.push("error", "ingestor", err.clone());
         err
@@ -717,6 +834,7 @@ pub async fn move_ingestor_asset<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    let uuid = validate_uuid(&uuid)?;
     if !is_safe_path_component(&uuid) {
         return Err("SECURITY VIOLATION: Invalid UUID format detected (Path Traversal)".into());
     }
@@ -783,6 +901,7 @@ pub async fn rename_ingestor_asset<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    let uuid = validate_uuid(&uuid)?;
     let start_time = std::time::Instant::now();
     let base_url = resolve_base_url(
         &get_ingestor_api_base_url(&app),
@@ -892,6 +1011,7 @@ pub async fn create_ingestor_subclip<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<AssetResponse, String> {
+    let uuid = validate_uuid(&uuid)?;
     let start_time = std::time::Instant::now();
     if trim_in_ms < 0 || trim_out_ms < 0 {
         return Err("Trim values must be non-negative".to_string());
@@ -935,7 +1055,7 @@ pub async fn create_ingestor_subclip<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.map_err(|e| {
+    let body = read_body_capped(response).await.map_err(|e| {
         let err = format!("Failed to read subclip response for '{}': {}", url, e);
         diagnostics.push("error", "ingestor", err.clone());
         err
@@ -973,6 +1093,7 @@ pub async fn update_ingestor_tp<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    let uuid = validate_uuid(&uuid)?;
     let start_time = std::time::Instant::now();
     let upper = tp.to_ascii_uppercase();
 
@@ -1005,7 +1126,7 @@ pub async fn update_ingestor_tp<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
 
     if !status.is_success() {
         let err = format!(
@@ -1029,6 +1150,7 @@ pub async fn purge_ingestor_asset<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    let uuid = validate_uuid(&uuid)?;
     let start_time = std::time::Instant::now();
 
     let base_url = resolve_base_url(
@@ -1054,7 +1176,7 @@ pub async fn purge_ingestor_asset<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
 
     if !status.is_success() {
         let err = format!(
@@ -1078,6 +1200,7 @@ pub async fn trash_ingestor_asset<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    let uuid = validate_uuid(&uuid)?;
     let start_time = std::time::Instant::now();
     let base_url = resolve_base_url(
         &get_ingestor_api_base_url(&app),
@@ -1094,7 +1217,7 @@ pub async fn trash_ingestor_asset<R: Runtime>(
         err
     })?;
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
         diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
@@ -1131,7 +1254,7 @@ pub async fn trash_ingestor_folder<R: Runtime>(
         err
     })?;
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
         diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
@@ -1149,6 +1272,7 @@ pub async fn restore_ingestor_asset<R: Runtime>(
     api_base_url_override: Option<String>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<Option<AssetResponse>, String> {
+    let uuid = validate_uuid(&uuid)?;
     let start_time = std::time::Instant::now();
     let base_url = resolve_base_url(
         &get_ingestor_api_base_url(&app),
@@ -1169,7 +1293,7 @@ pub async fn restore_ingestor_asset<R: Runtime>(
         err
     })?;
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
         diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
@@ -1221,7 +1345,7 @@ pub async fn restore_ingestor_folder<R: Runtime>(
         err
     })?;
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
         diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
@@ -1252,7 +1376,7 @@ pub async fn list_ingestor_recycle_bin<R: Runtime>(
         err
     })?;
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
         diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
@@ -1288,7 +1412,7 @@ pub async fn purge_ingestor_recycle_bin<R: Runtime>(
         err
     })?;
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
         diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
@@ -1325,7 +1449,7 @@ pub async fn purge_ingestor_folder<R: Runtime>(
         err
     })?;
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
         diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
@@ -1362,7 +1486,7 @@ pub async fn auto_purge_ingestor_recycle_bin<R: Runtime>(
         err
     })?;
     let status = response.status();
-    let body = response.text().await.unwrap_or_else(|_| String::new());
+    let body = read_body_capped(response).await.unwrap_or_else(|_| String::new());
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
         diagnostics.push("error", "ingestor", format!("{} in {}ms", err, elapsed));
@@ -1403,7 +1527,7 @@ pub async fn list_ingestor_folder_colors<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.unwrap_or_default();
+    let body = read_body_capped(response).await.unwrap_or_default();
 
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
@@ -1465,7 +1589,7 @@ pub async fn set_ingestor_folder_color<R: Runtime>(
     })?;
 
     let status = response.status();
-    let body = response.text().await.unwrap_or_default();
+    let body = read_body_capped(response).await.unwrap_or_default();
 
     if !status.is_success() {
         let err = format!("Ingestor API returned HTTP {} for '{}': {}", status.as_u16(), url, body);
@@ -1651,5 +1775,51 @@ mod tests {
         assert!(mapped.loudness.is_some());
         assert_eq!(mapped.loudness.unwrap().integrated_lufs, Some(-23.1));
     }
-}
+    // ── Audit T2-6 ───────────────────────────────────────────────────────────
 
+    #[test]
+    fn validate_uuid_accepts_only_canonical_uuids() {
+        assert_eq!(
+            validate_uuid(" 3F2504E0-4f89-11d3-9a0c-0305e82c3301 ").unwrap(),
+            "3F2504E0-4f89-11d3-9a0c-0305e82c3301"
+        );
+        for bad in [
+            "",
+            "3f2504e04f8911d39a0c0305e82c3301",
+            "../folders/purge",
+            "3f2504e0-4f89-11d3-9a0c-0305e82c330",
+            "3f2504e0-4f89-11d3-9a0c-0305e82c33011",
+            "3f2504e0-4f89-11d3-9a0c-0305e82c330g",
+            "3f2504e0_4f89_11d3_9a0c_0305e82c3301",
+            "3f2504e0-4f89-11d3-9a0c-0305e82c3301/trash",
+            "3f2504e0-4f89-11d3-9a0c-0305e82c3301?x=1",
+        ] {
+            assert!(validate_uuid(bad).is_err(), "{}", bad);
+        }
+    }
+
+    #[test]
+    fn base_url_override_is_restricted_to_loopback_or_configured_host() {
+        let cfg = "http://ingest-host.local:4353";
+        assert_eq!(resolve_base_url(cfg, ""), cfg);
+        assert_eq!(resolve_base_url(cfg, "http://127.0.0.1:4353/"), "http://127.0.0.1:4353");
+        assert_eq!(resolve_base_url(cfg, "http://localhost:9000"), "http://localhost:9000");
+        assert_eq!(resolve_base_url(cfg, "http://[::1]:9000"), "http://[::1]:9000");
+        assert_eq!(resolve_base_url(cfg, "https://INGEST-HOST.local:8443"), "https://INGEST-HOST.local:8443");
+        // Untrusted: different host, non-http scheme, garbage.
+        assert_eq!(resolve_base_url(cfg, "http://evil.example.com"), cfg);
+        assert_eq!(resolve_base_url(cfg, "http://user@evil.example.com"), cfg);
+        assert_eq!(resolve_base_url(cfg, "ftp://127.0.0.1"), cfg);
+        assert_eq!(resolve_base_url(cfg, "not a url"), cfg);
+    }
+
+    #[test]
+    fn url_host_parsing() {
+        assert_eq!(url_host("http://127.0.0.1:4353/api").as_deref(), Some("127.0.0.1"));
+        assert_eq!(url_host("https://Host.Example/").as_deref(), Some("host.example"));
+        assert_eq!(url_host("http://[::1]:80").as_deref(), Some("::1"));
+        assert_eq!(url_host("http://u:p@h.example:1/x").as_deref(), Some("h.example"));
+        assert_eq!(url_host("h.example"), None);
+        assert_eq!(url_host("http://"), None);
+    }
+}
