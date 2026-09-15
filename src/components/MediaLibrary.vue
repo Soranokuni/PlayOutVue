@@ -1007,11 +1007,29 @@ function doMoveSelected() {
     }
 }
 
+/// Audit T1-11: every path that moves library content to the Recycle Bin
+/// (Delete key, actions menu, context menu, drag onto the bin) asks first,
+/// with a native dialog. One prompt per gesture, not per item.
+async function confirmTrash(description: string): Promise<boolean> {
+    try {
+        return await ask(`Move ${description} to the Recycle Bin?`, {
+            title: 'Recycle Bin',
+            kind: 'warning',
+            okLabel: 'Move to Bin',
+            cancelLabel: 'Cancel'
+        });
+    } catch (e) {
+        console.error('[MediaLibrary] confirmation dialog unavailable; refusing trash', e);
+        return false;
+    }
+}
+
 async function doDeleteSelected() {
     const selectedIds = mediaLibrary.selectedAssetIds;
     if (selectedIds.length > 0) {
+        if (!(await confirmTrash(`${selectedIds.length} selected item${selectedIds.length === 1 ? '' : 's'}`))) return;
         for (const uuid of selectedIds) {
-            await doTrashAsset(uuid);
+            await doTrashAsset(uuid, true);
         }
     } else if (mediaLibrary.selectedAsset) {
         await doTrashAsset(mediaLibrary.selectedAsset.uuid);
@@ -1037,15 +1055,21 @@ async function onTrashDrop(event: DragEvent) {
     }
     const selectedIds = mediaLibrary.selectedAssetIds;
     if (selectedIds.length > 0) {
+        if (!(await confirmTrash(`${selectedIds.length} dragged item${selectedIds.length === 1 ? '' : 's'}`))) return;
         for (const uuid of selectedIds) {
-            await doTrashAsset(uuid);
+            await doTrashAsset(uuid, true);
         }
     } else if (mediaLibrary.selectedAsset) {
         await doTrashAsset(mediaLibrary.selectedAsset.uuid);
     }
 }
 
-async function doTrashAsset(uuid: string) {
+async function doTrashAsset(uuid: string, alreadyConfirmed = false) {
+    if (!alreadyConfirmed) {
+        const asset = mediaLibrary.assets.find((a: any) => a.uuid === uuid);
+        const label = asset?.display_name || asset?.current_path?.split(/[\\/]/).pop() || 'this asset';
+        if (!(await confirmTrash(`"${label}"`))) return;
+    }
     try {
         await mediaLibrary.trashAsset(uuid);
     } catch (e) {
@@ -1053,7 +1077,10 @@ async function doTrashAsset(uuid: string) {
     }
 }
 
-async function doTrashFolder(folderPath: string) {
+async function doTrashFolder(folderPath: string, alreadyConfirmed = false) {
+    if (!alreadyConfirmed) {
+        if (!(await confirmTrash(`folder "${folderPath}" and its contents`))) return;
+    }
     try {
         await mediaLibrary.trashFolder(folderPath);
     } catch (e) {

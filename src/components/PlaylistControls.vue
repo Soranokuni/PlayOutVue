@@ -174,23 +174,38 @@ const clearRundown = async () => {
     setStatus(`Cleared ${store.currentPlaylistName}`);
 };
 
+// Audit T1-11: `window.prompt` is a browser dialog (forbidden by AGENTS.md
+// §5 and unreliable inside WebView2). The gap time is entered inline instead.
+const showGapInput = ref(false);
+const gapTimeDraft = ref('');
+
 const addGapLine = () => {
     if (!store.canScheduleCurrentPlaylist) {
         setStatus('Gap lines are only available on offline playlists.', 'error');
         return;
     }
+    gapTimeDraft.value = store.currentPlaylistStartFrom || '16:00';
+    showGapInput.value = true;
+};
 
-    const suggested = store.currentPlaylistStartFrom || '16:00';
-    const value = window.prompt('Insert gap line at time (HH:MM or HH:MM:SS)', suggested);
-    if (!value) return;
+const cancelGapLine = () => {
+    showGapInput.value = false;
+    gapTimeDraft.value = '';
+};
 
+const commitGapLine = () => {
+    const value = gapTimeDraft.value.trim();
+    if (!value) {
+        cancelGapLine();
+        return;
+    }
     const inserted = store.addGapMarker(value);
     if (!inserted) {
         setStatus('Use a valid time like 16:45 or 16:45:00.', 'error');
         return;
     }
-
     setStatus(`Inserted gap line at ${value}`);
+    cancelGapLine();
 };
 
 const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
@@ -244,7 +259,23 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
         @blur="commitStartFrom"
         @keydown.enter.prevent="commitStartFrom"
       >
-      <button class="pl-btn" @click="addGapLine" :disabled="!store.canScheduleCurrentPlaylist" title="Insert offline gap line">⏱</button>
+      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" :disabled="!store.canScheduleCurrentPlaylist" title="Insert offline gap line">⏱</button>
+      <template v-else>
+        <input
+          v-model="gapTimeDraft"
+          class="pl-input pl-input--gap"
+          type="text"
+          inputmode="numeric"
+          placeholder="HH:MM[:SS]"
+          maxlength="8"
+          aria-label="Gap line time"
+          autofocus
+          @keydown.enter.prevent="commitGapLine"
+          @keydown.esc.prevent="cancelGapLine"
+        >
+        <button class="pl-btn" @click="commitGapLine" title="Insert gap line at this time">✔</button>
+        <button class="pl-btn" @click="cancelGapLine" title="Cancel">✖</button>
+      </template>
     </div>
 
     <div class="pl-buttons">
