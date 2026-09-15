@@ -243,11 +243,60 @@ fn is_caspar_safe_path(path: &str) -> bool {
     path.is_ascii() && !path.contains('"')
 }
 
-fn ensure_ascii_alias(source: &Path, media_root: &Path) -> Result<PathBuf, String> {
-    let alias_dir = media_root.join(CASPAR_ALIAS_DIR);
-    std::fs::create_dir_all(&alias_dir)
-        .map_err(|error| format!("Failed to create CasparCG alias directory '{}': {}", alias_dir.display(), error))?;
+/// Audit T2-14: ASCII alias copies used to be fire-and-forget. A copy (when
+/// hard-linking across volumes failed) went stale the moment the source was
+/// re-exported, and nothing ever deleted aliases whose source was gone. The
+/// alias directory now carries a manifest (`aliases.json`) recording the
+/// source path, size and mtime of every alias, so a stale copy is replaced
+/// at take time and [`gc_stale_aliases`] can remove orphans during a scan.
+const ALIAS_MANIFEST_NAME: &str = "aliases.json";
 
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
+struct AliasEntry {
+    source: String,
+    size: u64,
+    mtime_ms: u64,
+}
+
+#[derive(Debug, Default, Serialize, serde::Deserialize)]
+struct AliasManifest {
+    #[serde(default)]
+    entries: std::collections::BTreeMap<String, AliasEntry>,
+}
+
+/// Serialises every load→mutate→save of an alias manifest in this process.
+fn alias_manifest_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn load_alias_manifest(alias_dir: &Path) -> AliasManifest {
+    std::fs::read_to_string(alias_dir.join(ALIAS_MANIFEST_NAME))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn save_alias_manifest(alias_dir: &Path, manifest: &AliasManifest) {
+    if let Ok(json) = serde_json::to_string_pretty(manifest) {
+        if let Err(error) = crate::atomic_fs::write_atomic(&alias_dir.join(ALIAS_MANIFEST_NAME), json.as_bytes()) {
+            log::warn!("[CasparCG] Failed to persist alias manifest in '{}': {}", alias_dir.display(), error);
+        }
+    }
+}
+
+fn source_fingerprint(source: &Path) -> Option<(u64, u64)> {
+    let meta = std::fs::metadata(source).ok()?;
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    Some((meta.len(), mtime_ms))
+}
+
+fn alias_file_name(source: &Path) -> String {
     let source_name = source
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -256,19 +305,55 @@ fn ensure_ascii_alias(source: &Path, media_root: &Path) -> Result<PathBuf, Strin
         .unwrap_or_else(|| "asset".to_string());
     let extension = source.extension().and_then(|ext| ext.to_str()).unwrap_or_default();
     let hash = stable_hash(&normalize_caspar_path(source));
-    let alias_name = if extension.is_empty() {
+    if extension.is_empty() {
         format!("{}_{}", source_name, hash)
     } else {
         format!("{}_{}.{}", source_name, hash, extension)
+    }
+}
+
+fn ensure_ascii_alias(source: &Path, media_root: &Path) -> Result<PathBuf, String> {
+    let alias_dir = media_root.join(CASPAR_ALIAS_DIR);
+    std::fs::create_dir_all(&alias_dir)
+        .map_err(|error| format!("Failed to create CasparCG alias directory '{}': {}", alias_dir.display(), error))?;
+
+    let alias_name = alias_file_name(source);
+    let alias_path = alias_dir.join(&alias_name);
+    let (size, mtime_ms) = source_fingerprint(source)
+        .ok_or_else(|| format!("Cannot stat CasparCG alias source '{}'", source.display()))?;
+    let expected = AliasEntry {
+        source: normalize_caspar_path(source),
+        size,
+        mtime_ms,
     };
-    let alias_path = alias_dir.join(alias_name);
+
+    let _guard = alias_manifest_lock().lock();
+    let mut manifest = load_alias_manifest(&alias_dir);
 
     if alias_path.exists() {
-        return Ok(alias_path);
+        match manifest.entries.get(&alias_name) {
+            Some(entry) if *entry == expected => return Ok(alias_path),
+            Some(_) => {
+                // Source changed since the alias was made: the copy is stale.
+                log::info!(
+                    "[CasparCG] Alias '{}' is stale (source changed); recreating",
+                    alias_path.display()
+                );
+                let _ = std::fs::remove_file(&alias_path);
+            }
+            None => {
+                // Pre-manifest alias. If it is a hard link it is by definition
+                // current; a copy may be stale, but we cannot tell, so adopt it
+                // and let a future source change trigger the replacement.
+                manifest.entries.insert(alias_name.clone(), expected);
+                save_alias_manifest(&alias_dir, &manifest);
+                return Ok(alias_path);
+            }
+        }
     }
 
     match std::fs::hard_link(source, &alias_path) {
-        Ok(()) => Ok(alias_path),
+        Ok(()) => {}
         Err(hard_link_error) => {
             std::fs::copy(source, &alias_path)
                 .map_err(|copy_error| format!(
@@ -277,9 +362,72 @@ fn ensure_ascii_alias(source: &Path, media_root: &Path) -> Result<PathBuf, Strin
                     hard_link_error,
                     copy_error
                 ))?;
-            Ok(alias_path)
         }
     }
+    manifest.entries.insert(alias_name, expected);
+    save_alias_manifest(&alias_dir, &manifest);
+    Ok(alias_path)
+}
+
+/// Remove alias files whose source is gone or has changed, and legacy
+/// (pre-manifest) alias files older than 30 days. Returns the number of
+/// files removed. Cheap no-op when the media root has no alias directory.
+pub fn gc_stale_aliases(media_root: &Path) -> usize {
+    let alias_dir = media_root.join(CASPAR_ALIAS_DIR);
+    if !alias_dir.is_dir() {
+        return 0;
+    }
+    let _guard = alias_manifest_lock().lock();
+    let mut manifest = load_alias_manifest(&alias_dir);
+    let mut removed = 0usize;
+
+    let stale: Vec<String> = manifest
+        .entries
+        .iter()
+        .filter(|(_, entry)| {
+            let source = PathBuf::from(&entry.source);
+            match source_fingerprint(&source) {
+                Some((size, mtime_ms)) => size != entry.size || mtime_ms != entry.mtime_ms,
+                None => true, // source gone
+            }
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in stale {
+        let path = alias_dir.join(&name);
+        if !path.exists() || std::fs::remove_file(&path).is_ok() {
+            manifest.entries.remove(&name);
+            removed += 1;
+        }
+    }
+
+    // Legacy files never recorded in the manifest.
+    const LEGACY_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
+    if let Ok(entries) = std::fs::read_dir(&alias_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            if name == ALIAS_MANIFEST_NAME || manifest.entries.contains_key(name) || !path.is_file() {
+                continue;
+            }
+            let old_enough = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| SystemTime::now().duration_since(t).ok())
+                .map(|age| age > LEGACY_MAX_AGE)
+                .unwrap_or(false);
+            if old_enough && std::fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+
+    save_alias_manifest(&alias_dir, &manifest);
+    if removed > 0 {
+        log::info!("[CasparCG] Alias GC removed {} stale alias file(s) under '{}'", removed, alias_dir.display());
+    }
+    removed
 }
 
 fn sanitize_ascii_component(value: &str) -> String {
@@ -314,6 +462,16 @@ pub async fn caspar_send_command(
     cmd: String,
     client: State<'_, AmcpClient>,
 ) -> Result<String, String> {
+    // Audit T2-2: the untyped passthrough is the widest IPC surface into the
+    // on-air server. Only playout/telemetry verbs are accepted here; server
+    // control (KILL/RESTART) belongs to the process supervisor.
+    if !crate::amcp::is_allowed_passthrough_command(&cmd) {
+        let verb = cmd.split_whitespace().next().unwrap_or("");
+        return Err(format!(
+            "AMCP verb '{}' is not permitted through caspar_send_command",
+            verb
+        ));
+    }
     let resp = client.send(&cmd).await?;
     validate_amcp_response(&resp)?;
     Ok(resp.body)
@@ -331,13 +489,31 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
         return Err("OSC port must be greater than 0".to_string());
     }
 
-    let (existing_port, existing_stop_tx, existing_task, existing_watchdog) = {
-        let mut guard = state.0.lock();
-
+    {
+        let guard = state.0.lock();
         if guard.port == Some(target_port) && guard.task.is_some() {
             return Ok(target_port);
         }
+    }
 
+    // Security: CasparCG is always driven over loopback (see amcp.rs
+    // CASPAR_AMCP_ADDR), so its OSC feed can only legitimately arrive from
+    // this machine. Binding all interfaces would let any LAN host inject
+    // fake `/file/time` and `/file/path` messages and drive the on-air
+    // advance state machine. Bind loopback only and additionally drop any
+    // datagram whose source is not loopback (defence in depth in case the
+    // bind address ever becomes configurable).
+    //
+    // Audit T2-15: bind the new socket *before* tearing down the running
+    // listener. If the new port is unavailable the operator gets an error and
+    // the on-air feed keeps flowing on the old port instead of being lost.
+    let bind_addr = format!("{}:{}", OSC_BIND_HOST, target_port);
+    let socket = UdpSocket::bind(&bind_addr)
+        .await
+        .map_err(|error| format!("Failed to bind CasparCG OSC listener on {}: {}", bind_addr, error))?;
+
+    let (existing_port, existing_stop_tx, existing_task, existing_watchdog) = {
+        let mut guard = state.0.lock();
         (guard.port.take(), guard.stop_tx.take(), guard.task.take(), guard.watchdog_task.take())
     };
 
@@ -350,18 +526,6 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
     if let Some(watchdog) = existing_watchdog {
         watchdog.abort();
     }
-
-    // Security: CasparCG is always driven over loopback (see amcp.rs
-    // CASPAR_AMCP_ADDR), so its OSC feed can only legitimately arrive from
-    // this machine. Binding all interfaces would let any LAN host inject
-    // fake `/file/time` and `/file/path` messages and drive the on-air
-    // advance state machine. Bind loopback only and additionally drop any
-    // datagram whose source is not loopback (defence in depth in case the
-    // bind address ever becomes configurable).
-    let bind_addr = format!("{}:{}", OSC_BIND_HOST, target_port);
-    let socket = UdpSocket::bind(&bind_addr)
-        .await
-        .map_err(|error| format!("Failed to bind CasparCG OSC listener on {}: {}", bind_addr, error))?;
 
     let (stop_tx, stop_rx) = oneshot::channel();
     let playback_state = playback.0.clone();
@@ -398,8 +562,13 @@ async fn run_osc_listener<R: Runtime>(
     mut stop_rx: oneshot::Receiver<()>,
     playback_state: Arc<Mutex<PlaybackStateInner>>,
 ) {
-    let mut buffer = [0_u8; 4096];
+    // Audit T2-15: CasparCG bundles every layer's OSC state per tick; a
+    // channel with many layers (or long file paths) exceeds 4 KB and the
+    // datagram was truncated into a decode error. UDP datagrams are at most
+    // 64 KB, so this buffer can never truncate.
+    let mut buffer = vec![0_u8; 65_536];
     let untrusted_osc_drops = std::sync::atomic::AtomicU64::new(0);
+    let decode_failures = std::sync::atomic::AtomicU64::new(0);
 
     loop {
         tokio::select! {
@@ -428,7 +597,15 @@ async fn run_osc_listener<R: Runtime>(
                         process_decoded_packet(&app, packet, &playback_state);
                     }
                     Err(error) => {
-                        log::warn!("[CasparCG] Failed to decode OSC packet on {}: {}", bind_addr, error);
+                        let failures = decode_failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        // Rate-limited: a malformed sender at 50 Hz would
+                        // otherwise fill the log at 50 lines/s.
+                        if failures == 1 || failures.is_multiple_of(500) {
+                            log::warn!(
+                                "[CasparCG] Failed to decode OSC packet on {} ({} bytes, total failures: {}): {}",
+                                bind_addr, size, failures, error
+                            );
+                        }
                     }
                 }
             }
@@ -1389,6 +1566,9 @@ pub async fn caspar_cg_add(
     data: serde_json::Value,
     client: State<'_, AmcpClient>,
 ) -> Result<String, String> {
+    if !crate::amcp::is_safe_template_name(&template) {
+        return Err(format!("CG template name '{}' contains disallowed characters", template));
+    }
     let data_str = serde_json::to_string(&data).map_err(|e| format!("CG payload serialize: {}", e))?;
     let cmd = crate::amcp::cg_add_cmd(channel, layer, 1, &template, play, &data_str);
     let resp = client.send(&cmd).await?;
@@ -1800,5 +1980,74 @@ mod tests {
         let rel_path = "videos/clip3.mp4";
         let resolved_rel = resolve_caspar_media_path(rel_path, "").unwrap();
         assert_eq!(resolved_rel, "videos/clip3.mp4");
+    }
+    // ── Audit T2-14: alias manifest / GC ─────────────────────────────────────
+
+    fn temp_media_root(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "playout_alias_{}_{}_{}",
+            tag,
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn alias_is_recorded_reused_and_replaced_when_source_changes() {
+        let root = temp_media_root("lifecycle");
+        let source = root.join("Καλημέρα.mp4");
+        std::fs::write(&source, b"v1").unwrap();
+
+        let alias = ensure_ascii_alias(&source, &root).unwrap();
+        assert!(alias.exists());
+        let manifest = load_alias_manifest(&root.join(CASPAR_ALIAS_DIR));
+        assert_eq!(manifest.entries.len(), 1);
+
+        // Same source, unchanged: same alias, no rewrite.
+        let again = ensure_ascii_alias(&source, &root).unwrap();
+        assert_eq!(again, alias);
+
+        // Source re-exported (different size): alias is refreshed.
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(&source, b"version two").unwrap();
+        let refreshed = ensure_ascii_alias(&source, &root).unwrap();
+        assert_eq!(refreshed, alias, "alias name is path-stable");
+        assert_eq!(std::fs::read(&refreshed).unwrap(), b"version two");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn gc_removes_aliases_whose_source_is_gone_or_changed() {
+        let root = temp_media_root("gc");
+        let keep_src = root.join("Ένα.mp4");
+        let gone_src = root.join("Δύο.mp4");
+        std::fs::write(&keep_src, b"keep").unwrap();
+        std::fs::write(&gone_src, b"gone").unwrap();
+        let keep_alias = ensure_ascii_alias(&keep_src, &root).unwrap();
+        let gone_alias = ensure_ascii_alias(&gone_src, &root).unwrap();
+        // Break the hard link relationship so removing the source does not
+        // also make the alias disappear on its own.
+        let _ = std::fs::remove_file(&gone_alias);
+        std::fs::write(&gone_alias, b"stale copy").unwrap();
+        std::fs::remove_file(&gone_src).unwrap();
+
+        // An untracked legacy file that is fresh must survive.
+        let alias_dir = root.join(CASPAR_ALIAS_DIR);
+        let legacy = alias_dir.join("legacy_123.mp4");
+        std::fs::write(&legacy, b"legacy").unwrap();
+
+        assert_eq!(gc_stale_aliases(&root), 1);
+        assert!(keep_alias.exists());
+        assert!(!gone_alias.exists());
+        assert!(legacy.exists());
+        let manifest = load_alias_manifest(&alias_dir);
+        assert_eq!(manifest.entries.len(), 1);
+
+        // No alias dir → no-op.
+        assert_eq!(gc_stale_aliases(&root.join("nowhere")), 0);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
