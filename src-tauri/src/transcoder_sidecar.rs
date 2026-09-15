@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Runtime, State};
 
 use crate::runtime_settings::RuntimeSettingsState;
-use crate::scanner::{probe_media_metadata, DbState};
+use crate::scanner::DbState;
 
 /// Describes the original source media that was transcoded.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -69,6 +69,7 @@ pub struct TranscoderSidecar {
 /// `mezzanine_ok` is true AND there are no critical warnings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct QcVerdict {
     pub ready: bool,
     pub mezzanine_ok: bool,
@@ -78,18 +79,6 @@ pub struct QcVerdict {
     pub has_sidecar: bool,
 }
 
-impl Default for QcVerdict {
-    fn default() -> Self {
-        Self {
-            ready: false,
-            mezzanine_ok: false,
-            warnings: Vec::new(),
-            transcoded_at: String::new(),
-            profile_used: String::new(),
-            has_sidecar: false,
-        }
-    }
-}
 
 /// Compute the sidecar JSON path for a given media file path.
 ///
@@ -148,7 +137,7 @@ pub fn read_sidecar(media_path: &Path) -> Option<TranscoderSidecar> {
     match serde_json::from_str::<TranscoderSidecar>(&content) {
         Ok(sidecar) => Some(sidecar),
         Err(error) => {
-            eprintln!(
+            log::warn!(
                 "[transcoder_sidecar] Failed to parse '{}': {}",
                 sidecar_path.display(),
                 error
@@ -297,7 +286,7 @@ pub async fn verify_playback_ready<R: Runtime>(
         if let Some(ref sc) = sidecar {
             let entry = sidecar_to_cached_entry(sc, trimmed);
             if let Err(e) = db_state.0.upsert(&entry) {
-                eprintln!("[verify_playback_ready] DB upsert from sidecar failed: {}", e);
+                log::warn!("[verify_playback_ready] DB upsert from sidecar failed: {}", e);
             } else {
                 has_db_entry = true;
             }
@@ -311,16 +300,17 @@ pub async fn verify_playback_ready<R: Runtime>(
     // pre-flight check and the rundown would skip the clip. Probe the file
     // directly and upsert the result so playback proceeds.
     if !has_db_entry && file_exists {
-        match probe_media_metadata(Some(&app), Some(&runtime_settings), trimmed, None) {
+        let ffprobe = crate::scanner::get_ffprobe_path(Some(&app), Some(&runtime_settings));
+        match crate::scanner::probe_media_metadata_async(ffprobe, trimmed.to_string()).await {
             Ok(entry) => {
                 if let Err(e) = db_state.0.upsert(&entry) {
-                    eprintln!("[verify_playback_ready] DB upsert from ffprobe fallback failed: {}", e);
+                    log::warn!("[verify_playback_ready] DB upsert from ffprobe fallback failed: {}", e);
                 } else {
                     has_db_entry = true;
                 }
             }
             Err(e) => {
-                eprintln!("[verify_playback_ready] ffprobe fallback failed for '{}': {}", trimmed, e);
+                log::warn!("[verify_playback_ready] ffprobe fallback failed for '{}': {}", trimmed, e);
             }
         }
     }

@@ -6,7 +6,7 @@ authors = ["Soranokuni <shadowsora13@hotmail.gr>"]
 repository = "https://github.com/Soranokuni/PlayOutVue"
 license = "MIT"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88"
 default-run = "playout_app"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -50,13 +50,23 @@ windows-sys = { version = "0.60", features = [
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
 ] }
 
 # src-tauri/Cargo.toml
 
 [profile.release]
-panic = "abort" # Strip expensive panic clean-up logic
+# Audit T1-6: this is an on-air master-control process. `panic = "abort"`
+# turned any panic into an instant, silent process exit with no report and no
+# chance to flush logs. Unwinding costs nothing measurable for this workload
+# and lets the panic hook (lib.rs) write a crash report first.
+panic = "unwind"
 codegen-units = 1 # Compile everything together for maximum optimization
 lto = true # Link Time Optimization (removes dead code)
 opt-level = 3 # Optimize for runtime speed (real-time playout)
-strip = true # Automatically strip symbols from the binary
+# Keep line tables so panic backtraces are symbolisable. On MSVC the debug info
+# lives in the separate .pdb, so the executable itself stays small; archive the
+# .pdb next to each release so crash reports can be resolved later.
+debug = "line-tables-only"
+strip = "none"

@@ -86,14 +86,14 @@ pub fn start_studio_server<R: Runtime>(app: AppHandle<R>) {
                     l
                 }
                 Err(e) => {
-                    eprintln!("[StudioServer] Failed to bind port 6258/6259: {}", e);
+                    log::warn!("[StudioServer] Failed to bind port 6258/6259: {}", e);
                     return;
                 }
             },
         };
 
         let port = STUDIO_SERVER_PORT.load(Ordering::Relaxed);
-        eprintln!("[StudioServer] Listening on http://127.0.0.1:{}", port);
+        log::warn!("[StudioServer] Listening on http://127.0.0.1:{}", port);
 
         loop {
             match listener.accept().await {
@@ -102,7 +102,7 @@ pub fn start_studio_server<R: Runtime>(app: AppHandle<R>) {
                     tokio::spawn(handle_connection(stream, app_clone));
                 }
                 Err(e) => {
-                    eprintln!("[StudioServer] accept error: {}", e);
+                    log::warn!("[StudioServer] accept error: {}", e);
                 }
             }
         }
@@ -483,12 +483,10 @@ pub fn bake_preset_into_template_content(content: &str, preset: &serde_json::Val
             }
         }
 
-        // Regex fallback
-        if let Ok(re) = regex::Regex::new(r"(?s)let\s+BAKED_DEFAULT_PRESET\s*=\s*.*?;(?=\s*(?://|/\*|const\s+MASTER_STANDARD_PRESETS|let\s+|function\s+))") {
-            if re.is_match(content) {
-                return re.replace(content, replacement.as_str()).to_string();
-            }
-        }
+        // (A former regex fallback here used look-ahead, which the `regex`
+        // crate does not support; `Regex::new` always failed so the branch
+        // was dead. Removed -- the statement search above plus the literal
+        // `null` fallback below cover every shipped template.)
         if content.contains("let BAKED_DEFAULT_PRESET = null;") {
             return content.replace("let BAKED_DEFAULT_PRESET = null;", &replacement);
         }
@@ -561,7 +559,7 @@ pub async fn save_default_preset_and_sync<R: Runtime>(
     if let Some(parent) = storage_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::write(&storage_path, &preset_json)
+    crate::atomic_fs::write_atomic(&storage_path, preset_json.as_bytes())
         .map_err(|e| format!("Failed to write preset storage: {}", e))?;
 
     // 2. Development only: mirror into public & assets so `tauri dev` and git

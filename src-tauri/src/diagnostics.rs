@@ -9,7 +9,39 @@ use tokio::io::AsyncWriteExt;
 use std::sync::OnceLock;
 use std::path::Path;
 
-static LOG_TX: OnceLock<mpsc::UnboundedSender<String>> = OnceLock::new();
+static LOG_TX: OnceLock<mpsc::Sender<String>> = OnceLock::new();
+
+/// Bounded so a stalled disk can never grow the in-memory backlog without
+/// limit; when full, new lines are dropped (counted) instead of buffered.
+const LOG_CHANNEL_CAPACITY: usize = 8192;
+/// Rotate `caspar-playout.log` at this size and keep this many old files.
+const LOG_ROTATE_BYTES: u64 = 20 * 1024 * 1024;
+const LOG_KEEP_ROTATED: usize = 5;
+static LOG_DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn enqueue_log_line(line: String) {
+    if let Some(tx) = LOG_TX.get() {
+        if tx.try_send(line).is_err() {
+            LOG_DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+/// Shift `<log>.1` -> `<log>.2` ... and move the live file to `<log>.1`,
+/// keeping at most `keep` rotated generations.
+pub fn rotate_log_files(path: &Path, keep: usize) {
+    let base = path.to_string_lossy().into_owned();
+    for index in (1..keep).rev() {
+        let from = std::path::PathBuf::from(format!("{}.{}", base, index));
+        let to = std::path::PathBuf::from(format!("{}.{}", base, index + 1));
+        if from.exists() {
+            let _ = std::fs::rename(&from, &to);
+        }
+    }
+    if keep >= 1 && path.exists() {
+        let _ = std::fs::rename(path, std::path::PathBuf::from(format!("{}.1", base)));
+    }
+}
 #[allow(dead_code)]
 static INSTALL_SALT: OnceLock<String> = OnceLock::new();
 
@@ -55,27 +87,50 @@ pub fn redact_path_for_diagnostics(path: String) -> String {
 }
 
 pub fn init_background_logger() {
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let (tx, mut rx) = mpsc::channel::<String>(LOG_CHANNEL_CAPACITY);
     if LOG_TX.set(tx).is_err() {
         return;
     }
 
     tauri::async_runtime::spawn(async move {
-        if let Some(mut path) = dirs_next::data_dir() {
-            path.push("com.playout.client");
-            let _ = tokio::fs::create_dir_all(&path).await;
-            path.push("caspar-playout.log");
-            
-            if let Ok(mut file) = tokio::fs::OpenOptions::new()
+        let Some(mut path) = dirs_next::data_dir() else { return };
+        path.push("com.playout.client");
+        let _ = tokio::fs::create_dir_all(&path).await;
+        path.push("caspar-playout.log");
+
+        async fn open_append(path: &Path) -> Option<(tokio::fs::File, u64)> {
+            let file = tokio::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(&path)
-                .await 
-            {
-                while let Some(log_line) = rx.recv().await {
-                    let _ = file.write_all(log_line.as_bytes()).await;
+                .open(path)
+                .await
+                .ok()?;
+            let written = file.metadata().await.map(|m| m.len()).unwrap_or(0);
+            Some((file, written))
+        }
+
+        let Some((mut file, mut written)) = open_append(&path).await else { return };
+
+        while let Some(log_line) = rx.recv().await {
+            let bytes = log_line.as_bytes();
+            if written.saturating_add(bytes.len() as u64) > LOG_ROTATE_BYTES {
+                let _ = file.flush().await;
+                drop(file);
+                rotate_log_files(&path, LOG_KEEP_ROTATED);
+                match open_append(&path).await {
+                    Some((f, w)) => {
+                        file = f;
+                        written = w;
+                    }
+                    None => return,
                 }
             }
+            if file.write_all(bytes).await.is_ok() {
+                written = written.saturating_add(bytes.len() as u64);
+            }
+            // Flush per line: this log exists for post-mortems, and the tail
+            // must survive an abrupt exit.
+            let _ = file.flush().await;
         }
     });
 }
@@ -87,9 +142,7 @@ pub fn push_caspar_process_log(level: &str, msg: &str) {
         level.to_uppercase(),
         msg
     );
-    if let Some(tx) = LOG_TX.get() {
-        let _ = tx.send(log_line);
-    }
+    enqueue_log_line(log_line);
 }
 
 const MAX_DIAGNOSTIC_ENTRIES: usize = 250;
@@ -149,9 +202,7 @@ impl DiagnosticState {
             msg_str
         );
 
-        if let Some(tx) = LOG_TX.get() {
-            let _ = tx.send(log_line);
-        }
+        enqueue_log_line(log_line);
 
         if !self.is_enabled() {
             return;
@@ -245,6 +296,23 @@ fn format_timestamp(timestamp_ms: u64) -> String {
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn rotate_log_files_shifts_generations_and_caps_count() {
+        let dir = std::env::temp_dir().join(format!("playout_log_rotate_{}_{}", std::process::id(), now_ms()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("caspar-playout.log");
+        for gen in 0..4 {
+            std::fs::write(&log, format!("gen{}", gen)).unwrap();
+            rotate_log_files(&log, 3);
+        }
+        assert!(!log.exists(), "live file moved to .1");
+        assert_eq!(std::fs::read_to_string(dir.join("caspar-playout.log.1")).unwrap(), "gen3");
+        assert_eq!(std::fs::read_to_string(dir.join("caspar-playout.log.2")).unwrap(), "gen2");
+        assert_eq!(std::fs::read_to_string(dir.join("caspar-playout.log.3")).unwrap(), "gen1");
+        assert!(!dir.join("caspar-playout.log.4").exists(), "gen0 must have been dropped");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     #[test]
     fn test_redact_path_consistency() {
         let path = "C:\\Media\\Video1.mp4";

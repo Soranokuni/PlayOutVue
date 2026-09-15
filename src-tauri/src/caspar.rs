@@ -100,7 +100,7 @@ fn resolve_caspar_media_path(path: &str, media_root: &str) -> Result<String, Str
     // canonicalised (file not found, network share, etc.) and therefore
     // strip_prefix on the Path fails even though the media root prefix is
     // present.  We normalise both to forward-slash + lowercase and compare.
-    if let Some(root) = media_root_canonical.as_ref().or(media_root_path.exists().then(|| &media_root_path)) {
+    if let Some(root) = media_root_canonical.as_ref().or(media_root_path.exists().then_some(&media_root_path)) {
         if let Some(relative_str) = try_string_strip_prefix(&source, root) {
             if is_caspar_safe_path(&relative_str) {
                 return Ok(relative_str);
@@ -224,10 +224,8 @@ fn try_string_strip_prefix(source: &Path, media_root: &Path) -> Option<String> {
 }
 
 fn strip_verbatim_prefix(path: &str) -> &str {
-    if path.starts_with("//?/") {
-        &path[4..]
-    } else if path.starts_with(r"\\?\") {
-        &path[4..]
+    if let Some(rest) = path.strip_prefix("//?/").or_else(|| path.strip_prefix(r"\\?\")) {
+        rest
     } else {
         path
     }
@@ -242,7 +240,7 @@ fn normalize_caspar_path(path: &Path) -> String {
 }
 
 fn is_caspar_safe_path(path: &str) -> bool {
-    path.chars().all(|ch| ch.is_ascii()) && !path.contains('"')
+    path.is_ascii() && !path.contains('"')
 }
 
 fn ensure_ascii_alias(source: &Path, media_root: &Path) -> Result<PathBuf, String> {
@@ -416,7 +414,7 @@ async fn run_osc_listener<R: Runtime>(
                 if !is_trusted_osc_peer(&peer) {
                     let dropped = untrusted_osc_drops.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                     // Rate-limit the log: first drop, then every 1000th.
-                    if dropped == 1 || dropped % 1000 == 0 {
+                    if dropped == 1 || dropped.is_multiple_of(1000) {
                         log::warn!(
                             "[CasparCG] Dropped OSC datagram from untrusted peer {} on {} (total dropped: {})",
                             peer, bind_addr, dropped
@@ -430,7 +428,7 @@ async fn run_osc_listener<R: Runtime>(
                         process_decoded_packet(&app, packet, &playback_state);
                     }
                     Err(error) => {
-                        eprintln!("[CasparCG] Failed to decode OSC packet on {}: {}", bind_addr, error);
+                        log::warn!("[CasparCG] Failed to decode OSC packet on {}: {}", bind_addr, error);
                     }
                 }
             }
@@ -459,7 +457,7 @@ fn process_decoded_packet<R: Runtime>(
 
             let event = osc_message_to_event_from_raw(address, args);
             if let Err(error) = app.emit("caspar-osc", event) {
-                eprintln!("[CasparCG] Failed to emit OSC event: {}", error);
+                log::warn!("[CasparCG] Failed to emit OSC event: {}", error);
             }
         }
         OscPacket::Bundle(bundle) => {
@@ -521,10 +519,8 @@ fn is_program_file_path_address(address: &str) -> bool {
 
 fn extract_raw_filename_lower(path_str: &str) -> String {
     let mut cleaned = path_str.replace('\\', "/");
-    if cleaned.starts_with("//?/") {
-        cleaned = cleaned[4..].to_string();
-    } else if cleaned.starts_with("\\\\?\\") {
-        cleaned = cleaned[4..].to_string();
+    if let Some(rest) = cleaned.strip_prefix("//?/").or_else(|| cleaned.strip_prefix("\\\\?\\")) {
+        cleaned = rest.to_string();
     }
     if cleaned.len() >= 2 && cleaned.chars().nth(1) == Some(':') {
         cleaned = cleaned[2..].to_string();
@@ -601,8 +597,7 @@ fn handle_playback_path_osc<R: Runtime>(
             && path_norm == expected_norm
             && !registered_norm.is_empty()
             && path_norm != registered_norm
-        {
-            if !s.transition_triggered {
+            && !s.transition_triggered {
                 s.transition_triggered = true;
                 s.advance_fired = true; // Sync the advance fired flag to prevent double-trigger
                 s.expected_next_path = None; // Clear the expected next path state to avoid deadlock
@@ -633,7 +628,6 @@ fn handle_playback_path_osc<R: Runtime>(
                 });
                 return;
             }
-        }
     }
 
     if let Some(current_uuid) = confirmed_uuid {
@@ -677,6 +671,20 @@ fn arg_to_float(arg: &OscType) -> Option<f64> {
 
 /// Advance fires when position is within this many ms of duration.
 const ADVANCE_THRESHOLD_MS: u64 = 200;
+/// Audit T1-4: after a fresh take the state machine ignores `/file/time`
+/// samples until one lands in `[trim_in, trim_in + 2500 ms]`. If the first
+/// sample that reaches us is already past that window (late registration,
+/// a producer whose reported time base differs from the assumed trim_in),
+/// the item would never tick or advance. Bound the wait.
+const POSITION_RESET_MAX_WAIT_MS: u64 = 3000;
+const POSITION_RESET_MAX_IGNORED_SAMPLES: u32 = 25;
+
+/// Pure decision: give up waiting for an in-window position sample and accept
+/// the live position as-is.
+pub fn should_abandon_position_reset_wait(now_mono_ms: u64, waiting_since_ms: u64, ignored_samples: u32) -> bool {
+    now_mono_ms.saturating_sub(waiting_since_ms) >= POSITION_RESET_MAX_WAIT_MS
+        || ignored_samples >= POSITION_RESET_MAX_IGNORED_SAMPLES
+}
 /// Throttle `caspar://playback-tick` to at most one emission per this interval.
 const TICK_THROTTLE_MS: u64 = 100;
 /// If no OSC packet arrives for this long while playing, the watchdog emits
@@ -746,6 +754,10 @@ pub struct PlaybackStateInner {
     pub trim_in_ms: u64,
     pub trim_out_ms: u64,
     pub awaiting_position_reset: bool,
+    /// Monotonic time the reset wait started and how many out-of-window
+    /// samples were discarded since (see `should_abandon_position_reset_wait`).
+    pub awaiting_reset_since_ms: u64,
+    pub awaiting_reset_ignored_samples: u32,
     /// A foreground path observed by the path-switch advance. This bridges the
     /// hand-off where OSC reports the new foreground immediately before the
     /// frontend registers that item as the active playback state.
@@ -790,6 +802,8 @@ impl Default for PlaybackStateInner {
             trim_in_ms: 0,
             trim_out_ms: 0,
             awaiting_position_reset: false,
+            awaiting_reset_since_ms: 0,
+            awaiting_reset_ignored_samples: 0,
             observed_transition_path: None,
             foreground_confirmation_emitted: false,
             started_at_monotonic_ms: 0,
@@ -817,6 +831,7 @@ fn now_ms() -> u64 {
 
 /// Pure advance decision: exactly one advance per item.
 /// Requires: position near end, now_ms >= auto_advance_not_before_ms, and required progress samples.
+#[allow(clippy::too_many_arguments)]
 pub fn playback_should_advance(
     is_playing: bool,
     is_paused: bool,
@@ -876,8 +891,22 @@ fn handle_playback_osc<R: Runtime>(
                     foreground_confirmed_uuid = s.current_uuid.clone();
                 }
             } else {
-                s.last_osc_at_ms = now;
-                return;
+                s.awaiting_reset_ignored_samples = s.awaiting_reset_ignored_samples.saturating_add(1);
+                if should_abandon_position_reset_wait(now, s.awaiting_reset_since_ms, s.awaiting_reset_ignored_samples) {
+                    log::warn!(
+                        "[CasparCG] Position reset window never observed for {:?} (trim_in={} ms, first accepted pos={} ms, ignored={}); accepting live position",
+                        s.current_uuid, s.trim_in_ms, pos, s.awaiting_reset_ignored_samples
+                    );
+                    s.awaiting_position_reset = false;
+                    if !s.foreground_confirmation_emitted {
+                        s.foreground_confirmation_emitted = true;
+                        foreground_confirmed_uuid = s.current_uuid.clone();
+                    }
+                    // fall through: this sample is accepted as the live position
+                } else {
+                    s.last_osc_at_ms = now;
+                    return;
+                }
             }
         } else {
             s.last_osc_at_ms = now;
@@ -1024,8 +1053,8 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                         s.transition_triggered = true;
                         advance_reason = Some("watchdog-deadline".to_string());
                     }
-                } else if gap >= 1500 {
-                    if s.position_ms > 0
+                } else if gap >= 1500
+                    && s.position_ms > 0
                         && s.expected_out_point_ms > 0
                         && s.expected_out_point_ms != u64::MAX
                         && s.position_ms >= s.expected_out_point_ms.saturating_sub(2000)
@@ -1035,7 +1064,6 @@ pub fn spawn_playback_watchdog<R: Runtime>(
                         s.transition_triggered = true;
                         advance_reason = Some("eof-watchdog".to_string());
                     }
-                }
 
                 if advance_reason.is_none()
                     && s.position_ever_advanced
@@ -1094,6 +1122,7 @@ pub fn spawn_playback_watchdog<R: Runtime>(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn register_playback_internal(
     s: &mut PlaybackStateInner,
     uuid: String,
@@ -1176,6 +1205,8 @@ pub(crate) fn register_playback_internal(
     s.position_stalled_ticks = 0;
     s.position_ever_advanced = adopted && normalized_elapsed > 0;
     s.awaiting_position_reset = !adopted;
+    s.awaiting_reset_since_ms = now_mono;
+    s.awaiting_reset_ignored_samples = 0;
     s.observed_transition_path = None;
 
     let foreground_confirmed_now = adopted
@@ -1193,6 +1224,16 @@ pub(crate) fn register_playback_internal(
     };
     s.started_at_monotonic_ms = now_mono;
     s.auto_advance_not_before_ms = now_mono.saturating_add(remaining_duration_ms.saturating_sub(early_tolerance_ms));
+    // Audit T1-4: with an unknown duration (`out_point == u64::MAX`) the
+    // arithmetic above armed a gate at u64::MAX, which permanently blocked the
+    // path-switch advance and every watchdog fallback -- a LOADBG AUTO
+    // transition CasparCG performed was never reported and the rundown
+    // desynced. Position-based advance is still impossible without a
+    // duration (`playback_should_advance` requires a finite out point), so
+    // simply do not gate the other mechanisms.
+    if out_point == u64::MAX {
+        s.auto_advance_not_before_ms = now_mono;
+    }
     s.accepted_post_take_samples = if adopted { 2 } else { 0 };
     s.last_observed_position_ms = normalized_elapsed;
 
@@ -1201,6 +1242,7 @@ pub(crate) fn register_playback_internal(
 
 /// Register the current item with the Rust state machine; Rust then owns advance.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn caspar_register_playback<R: Runtime>(
     uuid: String,
     duration_ms: u64,
@@ -1441,6 +1483,48 @@ mod tests {
         assert!(!is_trusted_osc_peer(&SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 40)), 6250)));
         assert!(!is_trusted_osc_peer(&SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 7)), 6250)));
         assert!(!is_trusted_osc_peer(&SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 6250)));
+    }
+
+    #[test]
+    fn position_reset_wait_is_bounded_by_time_and_sample_count() {
+        assert!(!should_abandon_position_reset_wait(1_000, 1_000, 0));
+        assert!(!should_abandon_position_reset_wait(1_000 + POSITION_RESET_MAX_WAIT_MS - 1, 1_000, 3));
+        assert!(should_abandon_position_reset_wait(1_000 + POSITION_RESET_MAX_WAIT_MS, 1_000, 0));
+        assert!(should_abandon_position_reset_wait(1_000, 1_000, POSITION_RESET_MAX_IGNORED_SAMPLES));
+        // monotonic clock never goes backwards, but never panic if it did
+        assert!(!should_abandon_position_reset_wait(500, 1_000, 0));
+    }
+
+    #[test]
+    fn unknown_duration_registration_does_not_arm_an_infinite_gate() {
+        let mut state = PlaybackStateInner::default();
+        let now = 250_000;
+        register_playback_internal(
+            &mut state,
+            "live-ish".to_string(),
+            0,
+            0,
+            "C:/Media/unknown.mxf".to_string(),
+            Some("C:/Media/next.mp4".to_string()),
+            0,
+            Some(3),
+            Some("take-3".to_string()),
+            Some("live-ish".to_string()),
+            Some("inst-3".to_string()),
+            Some(0),
+            None,
+            Some(false),
+            Some(0),
+            now,
+        );
+        assert_eq!(state.expected_out_point_ms, u64::MAX);
+        assert_eq!(state.auto_advance_not_before_ms, now, "gate must not be u64::MAX");
+        assert_eq!(state.awaiting_reset_since_ms, now);
+        assert_eq!(state.awaiting_reset_ignored_samples, 0);
+        // Position-based advance still impossible without a finite out point.
+        assert!(!playback_should_advance(
+            true, false, false, u64::MAX, 10_000, now + 10_000, state.auto_advance_not_before_ms, 5, u64::MAX
+        ));
     }
 
     #[test]
