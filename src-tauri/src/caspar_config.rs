@@ -448,7 +448,7 @@ pub async fn deploy_caspar_templates<R: Runtime>(
         if file_path.exists() && !overwrite_files {
             skipped.push(format!("playout/{}", name));
         } else {
-            std::fs::write(&file_path, content)
+            crate::atomic_fs::write_atomic(&file_path, content.as_bytes())
                 .map_err(|e| format!("Failed to write template '{}': {}", file_path.display(), e))?;
             deployed.push(format!("playout/{}", name));
         }
@@ -458,7 +458,7 @@ pub async fn deploy_caspar_templates<R: Runtime>(
     if let Some(preset_val) = crate::studio_server::load_saved_default_preset(&app) {
         if let Ok(preset_json_pretty) = serde_json::to_string_pretty(&preset_val) {
             let preset_path = target_dir.join("advisory_default_preset.json");
-            if std::fs::write(&preset_path, &preset_json_pretty).is_ok() {
+            if crate::atomic_fs::write_atomic(&preset_path, preset_json_pretty.as_bytes()).is_ok() {
                 deployed.push("playout/advisory_default_preset.json".into());
             }
         }
@@ -708,6 +708,11 @@ pub async fn save_caspar_config_raw<R: Runtime>(
     let target_path = resolve_requested_path(Some(&app), Some(path))?;
     let _: CasparConfiguration = from_str(&raw_xml)
         .map_err(|error| format!("CasparCG config XML is invalid: {}", error))?;
+    // Audit T1-1 (partial): never overwrite a live casparcg.config without a
+    // timestamped backup, whichever save path the operator used.
+    if target_path.is_file() {
+        backup_config(&target_path)?;
+    }
     write_config_file(&target_path, raw_xml)
 }
 
@@ -719,6 +724,12 @@ pub async fn save_caspar_config_structured<R: Runtime>(
 ) -> Result<String, String> {
     let target_path = resolve_requested_path(Some(&app), Some(path))?;
     let xml = serialize_config(&config)?;
+    // Audit T1-1 (partial): the typed round-trip drops XML elements the model
+    // does not know (see AUDIT-PLAN T1-1). Until in-place patching lands, a
+    // backup guarantees the operator can restore the original.
+    if target_path.is_file() {
+        backup_config(&target_path)?;
+    }
     write_config_file(&target_path, xml.clone())?;
     Ok(xml)
 }
@@ -763,11 +774,10 @@ pub async fn apply_caspar_decklink_config<R: Runtime>(
     channel.consumers.decklinks = vec![decklink];
 
     // Ensure screen consumer is present if requested
-    if payload.enable_screen_consumer.unwrap_or(true) {
-        if channel.consumers.screens.is_empty() {
+    if payload.enable_screen_consumer.unwrap_or(true)
+        && channel.consumers.screens.is_empty() {
             channel.consumers.screens = vec![CasparScreenConsumer::default()];
         }
-    }
 
     // Ensure system audio consumer is present
     if channel.consumers.system_audio.is_empty() {
@@ -885,16 +895,8 @@ fn backup_config(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn write_config_file_atomic(path: &Path, contents: String) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("Failed to create config directory '{}': {}", parent.display(), error))?;
-    }
-
-    let tmp_path = path.with_extension("config.tmp");
-    std::fs::write(&tmp_path, contents)
-        .map_err(|error| format!("Failed to write temp config '{}': {}", tmp_path.display(), error))?;
-    std::fs::rename(&tmp_path, path)
-        .map_err(|error| format!("Failed to finalize config '{}': {}", path.display(), error))
+    crate::atomic_fs::write_atomic(path, contents.as_bytes())
+        .map_err(|error| format!("Failed to write config '{}': {}", path.display(), error))
 }
 
 fn write_config_file(path: &Path, contents: String) -> Result<(), String> {

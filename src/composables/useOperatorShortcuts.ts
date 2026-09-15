@@ -86,6 +86,17 @@ export function getVisiblePageSize(containerEl: HTMLElement | null): number {
 export function classifyActiveScope(): ShortcutScope {
   const active = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
 
+  // Audit T1-9: native text controls win over every container scope. A
+  // focused input inside a modal or the trimmer must keep native typing,
+  // undo and Escape semantics; otherwise Ctrl+Z in a Settings field undid
+  // the on-air rundown (OPERATOR-UI-CONTRACT §5: text-input above trimmer).
+  if (
+    active?.isContentEditable ||
+    ['INPUT', 'TEXTAREA', 'SELECT'].includes(active?.tagName ?? '')
+  ) {
+    return 'text-input';
+  }
+
   if (active?.closest('[data-command-scope="modal"]')) {
     return 'modal';
   }
@@ -100,13 +111,6 @@ export function classifyActiveScope(): ShortcutScope {
 
   if (activeModalName.value) {
     return 'modal';
-  }
-
-  if (
-    active?.isContentEditable ||
-    ['INPUT', 'TEXTAREA', 'SELECT'].includes(active?.tagName ?? '')
-  ) {
-    return 'text-input';
   }
 
   if (active?.closest('[data-command-scope="rundown"]') || active?.closest('[role="listbox"][aria-label="Playlist rundown"]')) {
@@ -167,11 +171,11 @@ export function useOperatorShortcuts() {
     const target = event.target as HTMLElement | null;
     const scope = classifyActiveScope();
 
-    // 1. Text input handling: allow normal typing, but pass Escape to close transient UI
+    // 1. Text input handling: allow normal typing. Escape blurs the field but
+    //    is NOT swallowed, so the owning dialog / trim panel can still close
+    //    on it (audit T1-9).
     if (scope === 'text-input') {
       if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
         target?.blur();
       }
       return;
@@ -274,7 +278,9 @@ export function useOperatorShortcuts() {
     if (event.code === 'F8' || event.key === 'F8') {
       event.preventDefault();
       event.stopPropagation();
-      if (activeModalName.value) return; // Do not execute inside active dialogs
+      // Do not execute inside active dialogs -- including DOM-only modals
+      // that never set activeModalName (Settings, wizards, trimmer).
+      if (activeModalName.value || scope === 'modal' || scope === 'command-palette' || scope === 'trimmer') return;
       const actionId = event.shiftKey ? 'library.insertSelected' : 'library.appendSelected';
       const cmd = commandRegistry.get(actionId);
       const f8Ctx: CommandContext = { ...ctx, originScope: 'library' };
@@ -454,15 +460,17 @@ export function useOperatorShortcuts() {
       }
     }
 
-    // 9. Undo / Redo Global Shortcuts
-    if (event.ctrlKey && (event.key === 'z' || event.key === 'Z')) {
+    // 9. Undo / Redo Shortcuts -- rundown history only. Never fire while a
+    //    dialog, the palette or the trimmer owns focus (audit T1-9).
+    const undoRedoAllowed = scope === 'rundown' || scope === 'library' || scope === 'global';
+    if (undoRedoAllowed && event.ctrlKey && (event.key === 'z' || event.key === 'Z')) {
       event.preventDefault();
       event.stopPropagation();
       const actionId = event.shiftKey ? 'rundown.redo' : 'rundown.undo';
       await commandRegistry.execute(actionId, ctx);
       return;
     }
-    if (event.ctrlKey && (event.key === 'y' || event.key === 'Y')) {
+    if (undoRedoAllowed && event.ctrlKey && (event.key === 'y' || event.key === 'Y')) {
       event.preventDefault();
       event.stopPropagation();
       await commandRegistry.execute('rundown.redo', ctx);
