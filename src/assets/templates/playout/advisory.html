@@ -7,14 +7,14 @@
   <!-- Google Fonts: Inter, Montserrat, Roboto, Roboto Mono with Greek subset -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Montserrat:wght@500;600;700;800;900&family=Roboto+Mono:wght@500;700&family=Roboto:wght@400;500;700;900&display=swap&subset=greek,greek-ext,latin" rel="stylesheet">
-  <!-- GSAP 3: Local vendor bundle with CDN fallback -->
+  <!-- Audit T2-8: the web-font stylesheet is loaded without blocking first
+       paint (media="print" until it arrives). An offline render host falls
+       through to the local fallbacks in each font stack instead of stalling
+       the on-air template for the network timeout. -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Montserrat:wght@500;600;700;800;900&family=Roboto+Mono:wght@500;700&family=Roboto:wght@400;500;700;900&display=swap&subset=greek,greek-ext,latin" rel="stylesheet" media="print" onload="this.media='all'">
+  <!-- GSAP 3: local vendor bundle only. The former document.write() CDN
+       fallback fetched script from the internet on the render host (T2-8). -->
   <script src="vendor/gsap.min.js"></script>
-  <script>
-    if (typeof gsap === 'undefined') {
-      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"><\/script>');
-    }
-  </script>
   <script>
     // Immediate execution before DOM render to guarantee zero-latency transparency
     (function() {
@@ -3269,6 +3269,44 @@
       return upper;
     }
 
+    // Parse SVG markup and strip anything executable: <script>, <foreignObject>,
+    // embedded documents, external <use>/<image> references, on* handlers and
+    // javascript:/data:text URLs. Returns a detached <svg> element or null.
+    function sanitizeSvgMarkup(markup) {
+      if (typeof markup !== 'string' || markup.length > 2 * 1024 * 1024) return null;
+      let doc;
+      try {
+        doc = new DOMParser().parseFromString(markup, 'image/svg+xml');
+      } catch (_) {
+        return null;
+      }
+      const root = doc.documentElement;
+      if (!root || root.localName !== 'svg' || doc.getElementsByTagName('parsererror').length) return null;
+      const FORBIDDEN = new Set(['script', 'foreignobject', 'iframe', 'object', 'embed', 'audio', 'video', 'animate', 'set', 'animatetransform', 'animatemotion']);
+      const walker = [root];
+      while (walker.length) {
+        const el = walker.pop();
+        const children = Array.from(el.children || []);
+        for (const child of children) {
+          const name = child.localName.toLowerCase();
+          if (FORBIDDEN.has(name)) { child.remove(); continue; }
+          walker.push(child);
+        }
+        for (const attr of Array.from(el.attributes)) {
+          const attrName = attr.name.toLowerCase();
+          const value = String(attr.value || '').replace(/[\s\u0000-\u001f]+/g, '').toLowerCase();
+          const isRef = attrName === 'href' || attrName === 'xlink:href' || attrName === 'src';
+          if (attrName.startsWith('on')
+              || (isRef && !value.startsWith('#') && !value.startsWith('data:image/'))
+              || value.startsWith('javascript:')
+              || value.includes('data:text/html')) {
+            el.removeAttribute(attr.name);
+          }
+        }
+      }
+      return document.importNode(root, true);
+    }
+
     function escapeHtml(str) {
       if (str === null || str === undefined) return '';
       return String(str)
@@ -4631,11 +4669,18 @@
         if (parsed.show_explanation !== undefined) currentConfig.show_explanation = !!parsed.show_explanation;
         if (parsed.show_station_logo !== undefined) currentConfig.show_station_logo = !!parsed.show_station_logo;
 
-        // Custom Station Logo SVG override
+        // Custom Station Logo SVG override. Audit T2-7: the markup comes
+        // from an arbitrary file on disk (read_svg_file); sanitise it before
+        // it enters the on-air DOM.
         if (parsed.customLogoSvg) {
           const logoContainer = document.getElementById('station-logo-container');
           if (logoContainer) {
-            logoContainer.innerHTML = parsed.customLogoSvg;
+            const safeSvg = sanitizeSvgMarkup(parsed.customLogoSvg);
+            if (safeSvg) {
+              logoContainer.replaceChildren(safeSvg);
+            } else {
+              console.warn('[advisory] customLogoSvg rejected by sanitizer');
+            }
           }
         }
 
