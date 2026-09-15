@@ -16,6 +16,7 @@
 
 use quick_xml::events::Event;
 use quick_xml::Reader;
+use quick_xml::XmlVersion;
 
 /// A node of the generic XML tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,9 +90,7 @@ pub fn parse(xml: &str) -> Result<Element, String> {
                 attach(&mut stack, &mut root, Node::Element(element))?;
             }
             Event::Text(text) => {
-                let raw = text
-                    .xml_content()
-                    .map_err(|e| format!("XML text decode error: {}", e))?;
+                let raw = text.xml_content(XmlVersion::Implicit1_0);
                 // Structural whitespace (indentation between elements) is
                 // dropped; whitespace that continues a text node (e.g. the
                 // space between two entity references) is kept.
@@ -105,19 +104,17 @@ pub fn parse(xml: &str) -> Result<Element, String> {
                 push_text(&mut stack, raw.as_ref())?;
             }
             Event::GeneralRef(reference) => {
-                let name = reference
-                    .decode()
-                    .map_err(|e| format!("XML entity decode error: {}", e))?;
+                let name = reference.into_inner();
                 let resolved = resolve_entity(name.as_ref())
                     .ok_or_else(|| format!("XML parse error: unknown entity '&{};'", name))?;
                 push_text(&mut stack, &resolved)?;
             }
             Event::CData(cdata) => {
-                let raw = String::from_utf8_lossy(cdata.into_inner().as_ref()).into_owned();
+                let raw = cdata.into_inner().into_owned();
                 attach(&mut stack, &mut root, Node::CData(raw))?;
             }
             Event::Comment(comment) => {
-                let raw = String::from_utf8_lossy(comment.into_inner().as_ref()).into_owned();
+                let raw = comment.into_inner().into_owned();
                 // Comments before the root element are dropped (there is no
                 // parent to keep them under); inside the tree they are kept.
                 if !stack.is_empty() {
@@ -136,13 +133,13 @@ pub fn parse(xml: &str) -> Result<Element, String> {
 }
 
 fn element_from_start(start: &quick_xml::events::BytesStart<'_>) -> Result<Element, String> {
-    let name = String::from_utf8_lossy(start.name().as_ref()).into_owned();
+    let name = start.name().as_ref().to_string();
     let mut attrs = Vec::new();
     for attr in start.attributes() {
         let attr = attr.map_err(|e| format!("XML attribute error in <{}>: {}", name, e))?;
-        let key = String::from_utf8_lossy(attr.key.as_ref()).into_owned();
+        let key = attr.key.as_ref().to_string();
         let value = attr
-            .unescape_value()
+            .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|e| format!("XML attribute decode error in <{}>: {}", name, e))?
             .into_owned();
         attrs.push((key, value));
