@@ -581,6 +581,24 @@ export const useRundownStore = defineStore('rundown', () => {
         currentPlaylist.value?.items.find((item) => item.id === selectedItemId.value) || null
     );
 
+    const nextPlayableItem = computed<RundownItem | null>(() => {
+        const playlist = onAirPlaylist.value || currentPlaylist.value;
+        if (!playlist || !playlist.items.length) return null;
+
+        const currentIndex = playlist.currentPlayingIndex >= 0
+            ? playlist.currentPlayingIndex
+            : (playlist.selectedItemId ? playlist.items.findIndex((item) => item.id === playlist.selectedItemId) : -1);
+
+        const startSearch = currentIndex >= 0 ? currentIndex + 1 : 0;
+        for (let i = startSearch; i < playlist.items.length; i++) {
+            const item = playlist.items[i];
+            if (item && item.type !== 'gap') {
+                return item;
+            }
+        }
+        return null;
+    });
+
     const totalDuration = computed(() =>
         (currentPlaylist.value?.items || []).reduce((acc, item) => {
             if (item.type === 'gap') return acc;
@@ -2310,7 +2328,8 @@ export const useRundownStore = defineStore('rundown', () => {
         canUndo,
         canRedo,
         isRundownLocked,
-        toggleRundownLock
+        toggleRundownLock,
+        nextPlayableItem
     };
 }, {
     persist: true

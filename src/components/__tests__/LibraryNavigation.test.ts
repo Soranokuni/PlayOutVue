@@ -216,7 +216,7 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
     wrapper.unmount();
   });
 
-  it('keeps New, Rename, Move, and Delete action buttons reachable in MediaLibrary toolbar', () => {
+  it('keeps New in toolbar and Rename, Move, and Delete in actions dropdown', async () => {
     const wrapper = mount(MediaLibrary, {
       global: {
         stubs: {
@@ -231,9 +231,16 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
     const buttons = toolbar.findAll('button');
     const buttonTexts = buttons.map(b => b.text());
     expect(buttonTexts.some(t => t.includes('New'))).toBe(true);
-    expect(buttonTexts.some(t => t.includes('Rename'))).toBe(true);
-    expect(buttonTexts.some(t => t.includes('Move'))).toBe(true);
-    expect(buttonTexts.some(t => t.includes('Delete'))).toBe(true);
+
+    const actionsTrigger = toolbar.find('.lib-actions-trigger');
+    expect(actionsTrigger.exists()).toBe(true);
+    await actionsTrigger.trigger('click');
+
+    const menuButtons = wrapper.findAll('.lib-actions-menu button');
+    const menuButtonTexts = menuButtons.map(b => b.text());
+    expect(menuButtonTexts.some(t => t.includes('Rename'))).toBe(true);
+    expect(menuButtonTexts.some(t => t.includes('Move'))).toBe(true);
+    expect(menuButtonTexts.some(t => t.includes('Delete'))).toBe(true);
     wrapper.unmount();
   });
 
@@ -254,5 +261,37 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
 
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('triggers rename and trash commands via F2 and Delete keyboard shortcuts', async () => {
+    const renameSpy = vi.fn();
+    const trashSpy = vi.fn();
+    activeLibraryContext.value = {
+      ...activeLibraryContext.value!,
+      renameSelected: renameSpy,
+      trashSelected: trashSpy,
+      hasSelection: () => true,
+      getSelectedAssetIds: () => ['asset-1']
+    };
+
+    const f2Event = new KeyboardEvent('keydown', {
+      key: 'F2',
+      code: 'F2',
+      bubbles: true,
+      cancelable: true
+    });
+    window.dispatchEvent(f2Event);
+    expect(f2Event.defaultPrevented).toBe(true);
+    expect(renameSpy).toHaveBeenCalledTimes(1);
+
+    const delEvent = new KeyboardEvent('keydown', {
+      key: 'Delete',
+      code: 'Delete',
+      bubbles: true,
+      cancelable: true
+    });
+    window.dispatchEvent(delEvent);
+    expect(delEvent.defaultPrevented).toBe(true);
+    expect(trashSpy).toHaveBeenCalledTimes(1);
   });
 });

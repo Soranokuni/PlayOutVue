@@ -362,6 +362,30 @@ export function useOperatorShortcuts() {
         await commandRegistry.execute('library.extendSelectionNext', ctx);
         return;
       }
+      if (event.key === 'PageUp') {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('library.selectPageUp', ctx);
+        return;
+      }
+      if (event.key === 'PageDown') {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('library.selectPageDown', ctx);
+        return;
+      }
+      if (event.key === 'F2') {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('library.renameSelected', ctx);
+        return;
+      }
+      if (event.key === 'Delete') {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('library.trashSelected', ctx);
+        return;
+      }
       if (event.key === 'Home') {
         event.preventDefault();
         event.stopPropagation();

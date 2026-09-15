@@ -897,14 +897,17 @@ fn run_background_probe(
         ),
     );
 
-    let stats = warm_media_files(ffprobe, &files, db, root.as_path(), diagnostics, |file_path, stats| {
+    let warm_res = warm_media_files(ffprobe, &files, db, root.as_path(), diagnostics, |file_path, stats| {
         update_probe_status(probe_state, |status| {
             status.current_file = normalize_display_path(file_path);
             status.checked = stats.checked;
             status.updated = stats.updated;
             status.skipped = stats.skipped;
         });
-    })?;
+    });
+
+    let _ = db.checkpoint();
+    let stats = warm_res?;
 
     update_probe_status(probe_state, |status| {
         status.running = false;
@@ -1300,7 +1303,9 @@ pub async fn scan_directory<R: Runtime>(
             Ok(())
         }
 
-        visit_directory(&target_dir, &target_dir, &db, &mut results)?;
+        let visit_res = visit_directory(&target_dir, &target_dir, &db, &mut results);
+        let _ = db.checkpoint();
+        visit_res?;
 
         results.sort_by(|a, b| {
             match (a.entry_kind.as_str(), b.entry_kind.as_str()) {
@@ -1355,10 +1360,13 @@ pub async fn warm_media_cache<R: Runtime>(
     let app_handle = app.clone();
     let target_dir_for_log = target_dir.clone();
 
-    let stats = tauri::async_runtime::spawn_blocking(move || {
+    let stats = tauri::async_runtime::spawn_blocking(move || -> Result<WarmMediaCacheResult, String> {
         let files = collect_media_files(&target_dir)?;
         let diagnostics = app_handle.state::<DiagnosticState>();
-        warm_media_files(&ffprobe, &files, &db, target_dir.as_path(), &diagnostics, |_file_path, _stats| {})
+        let warm_res = warm_media_files(&ffprobe, &files, &db, target_dir.as_path(), &diagnostics, |_file_path, _stats| {});
+        let _ = db.checkpoint();
+        let result = warm_res?;
+        Ok(result)
     })
     .await
     .map_err(|error| format!("Media warm-up worker failed: {}", error))??;

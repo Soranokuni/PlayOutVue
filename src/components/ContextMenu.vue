@@ -31,6 +31,7 @@ const emit = defineEmits<{
 }>();
 
 const menuRef = ref<HTMLElement | null>(null);
+const submenuRef = ref<HTMLElement | null>(null);
 const computedX = ref(props.x);
 const computedY = ref(props.y);
 const isPositioned = ref(false);
@@ -101,19 +102,25 @@ const openSubmenu = (event: MouseEvent, item: MenuItem, index: number) => {
   const parentId = item.id || `sub-${index}`;
   currentHoveredParentId.value = parentId;
 
+  // If this submenu is already active, keep it open and cancel closing
+  if (activeSubmenu.value && activeSubmenu.value.id === parentId) {
+    return;
+  }
+
   const target = event.currentTarget as HTMLElement;
+  if (!target) return;
   const rect = target.getBoundingClientRect();
-  const submenuWidth = 190;
+  const submenuWidth = 220;
   
   // Calculate left coordinate (flip to open left if it overflows right screen boundary)
-  let left = rect.right;
+  let left = rect.right - 2;
   if (rect.right + submenuWidth > window.innerWidth) {
-    left = Math.max(10, rect.left - submenuWidth);
+    left = Math.max(10, rect.left - submenuWidth + 2);
   }
   
   // Calculate top coordinate (clamp if it overflows bottom boundary)
   let top = rect.top;
-  const estimatedSubmenuHeight = item.children.length * 32 + 8; // approx
+  const estimatedSubmenuHeight = item.children.length * 32 + 10;
   if (rect.top + estimatedSubmenuHeight > window.innerHeight) {
     top = Math.max(10, window.innerHeight - estimatedSubmenuHeight - 10);
   }
@@ -126,12 +133,31 @@ const openSubmenu = (event: MouseEvent, item: MenuItem, index: number) => {
   };
 };
 
-const onMouseLeaveItem = () => {
+const onItemMouseMove = (event: MouseEvent, item: MenuItem, index: number) => {
+  if (item.type === 'submenu' && item.children && item.children.length > 0 && !item.disabled) {
+    const parentId = item.id || `sub-${index}`;
+    if (!activeSubmenu.value || activeSubmenu.value.id !== parentId) {
+      openSubmenu(event, item, index);
+    } else if (closeTimeout) {
+      clearTimeout(closeTimeout);
+      closeTimeout = null;
+    }
+  }
+};
+
+const onMouseLeaveItem = (event: MouseEvent) => {
+  const related = event.relatedTarget as Node | null;
+  // If moving directly into the open submenu flyout, don't close!
+  if (submenuRef.value && related && submenuRef.value.contains(related)) {
+    return;
+  }
+
   // Start hover bridge close timeout
+  if (closeTimeout) clearTimeout(closeTimeout);
   closeTimeout = setTimeout(() => {
     activeSubmenu.value = null;
     currentHoveredParentId.value = null;
-  }, 220);
+  }, 240);
 };
 
 const onMouseEnterSubmenu = () => {
@@ -141,7 +167,15 @@ const onMouseEnterSubmenu = () => {
   }
 };
 
-const onMouseLeaveSubmenu = () => {
+const onMouseLeaveSubmenu = (event: MouseEvent) => {
+  const related = event.relatedTarget as Node | null;
+  // If moving back into the main context menu, do NOT close prematurely;
+  // let the main menu item determine active hover state!
+  if (menuRef.value && related && menuRef.value.contains(related)) {
+    return;
+  }
+
+  if (closeTimeout) clearTimeout(closeTimeout);
   closeTimeout = setTimeout(() => {
     activeSubmenu.value = null;
     currentHoveredParentId.value = null;
@@ -215,7 +249,7 @@ const onMouseLeaveSubmenu = () => {
           v-if="item.type === 'divider'"
           class="menu-divider"
           @mouseenter="openSubmenu($event, { type: 'divider' }, idx)"
-          @mouseleave="onMouseLeaveItem"
+          @mouseleave="onMouseLeaveItem($event)"
         />
 
         <!-- Label -->
@@ -223,7 +257,7 @@ const onMouseLeaveSubmenu = () => {
           v-else-if="item.type === 'label'"
           class="menu-label"
           @mouseenter="openSubmenu($event, { type: 'label' }, idx)"
-          @mouseleave="onMouseLeaveItem"
+          @mouseleave="onMouseLeaveItem($event)"
         >
           {{ item.label }}
         </div>
@@ -234,7 +268,7 @@ const onMouseLeaveSubmenu = () => {
           class="menu-item"
           :class="{ danger: item.danger, disabled: item.disabled }"
           @mouseenter="openSubmenu($event, item, idx)"
-          @mouseleave="onMouseLeaveItem"
+          @mouseleave="onMouseLeaveItem($event)"
           @click.stop="!item.disabled && item.action && (item.action(), emit('close'))"
         >
           <span class="menu-item-check-spacer">
@@ -252,7 +286,8 @@ const onMouseLeaveSubmenu = () => {
             'submenu-active': currentHoveredParentId === (item.id || `sub-${idx}`)
           }"
           @mouseenter="openSubmenu($event, item, idx)"
-          @mouseleave="onMouseLeaveItem"
+          @mousemove="onItemMouseMove($event, item, idx)"
+          @mouseleave="onMouseLeaveItem($event)"
           @click.stop="openSubmenu($event, item, idx)"
         >
           <span class="menu-item-check-spacer"></span>
@@ -270,6 +305,7 @@ const onMouseLeaveSubmenu = () => {
     <Teleport to="body">
       <div
         v-if="activeSubmenu"
+        ref="submenuRef"
         class="win11-context-menu submenu-flyout custom-scrollbar"
         :style="{
           top: activeSubmenu.top + 'px',
@@ -277,7 +313,7 @@ const onMouseLeaveSubmenu = () => {
           position: 'fixed'
         }"
         @mouseenter="onMouseEnterSubmenu"
-        @mouseleave="onMouseLeaveSubmenu"
+        @mouseleave="onMouseLeaveSubmenu($event)"
         @click.stop
       >
         <template v-for="(child, cIdx) in activeSubmenu.children" :key="cIdx">
@@ -515,6 +551,17 @@ const onMouseLeaveSubmenu = () => {
   border: 1px solid var(--border-medium);
   border-radius: 0.6rem;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.submenu-flyout::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: -14px;
+  width: 16px;
+  background: transparent;
+  pointer-events: auto;
 }
 
 .submenu-active {

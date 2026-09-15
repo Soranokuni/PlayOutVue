@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { message } from '@tauri-apps/plugin-dialog';
 import MediaLibrary from './components/MediaLibrary.vue';
 import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
@@ -112,8 +113,8 @@ const footerMetaRef = ref<HTMLElement | null>(null);
 const showProductInfo = ref(false);
 const showQuickGuide = ref(false);
 
-const APP_NAME = 'PlayOutOS';
-const APP_VERSION = '2.0.1';
+const APP_NAME = 'Aether';
+const APP_VERSION = '3.0';
 
 const appHighlights = [
   'Multi-playlist rundown planning with separate offline prep and on-air control.',
@@ -213,7 +214,7 @@ const closeFooterPanels = () => {
 };
 
 const handleGlobalPointerDown = (event: PointerEvent) => {
-  const target = event.target as Node | null;
+  const target = event.target as HTMLElement | null;
   if (footerMetaRef.value && target && footerMetaRef.value.contains(target)) return;
   closeFooterPanels();
 };
@@ -386,15 +387,97 @@ const toggleSdi = async () => {
     }
 };
 
+
+
+const isLiveCutArmed = ref(false);
+let liveCutArmTimer: ReturnType<typeof setTimeout> | null = null;
+
 const cutToLive = async () => {
+  if (!isLiveCutArmed.value) {
+    isLiveCutArmed.value = true;
+    if (liveCutArmTimer) clearTimeout(liveCutArmTimer);
+    liveCutArmTimer = setTimeout(() => {
+      isLiveCutArmed.value = false;
+      liveCutArmTimer = null;
+    }, 3000);
+    return;
+  }
+
+  if (liveCutArmTimer) {
+    clearTimeout(liveCutArmTimer);
+    liveCutArmTimer = null;
+  }
+  isLiveCutArmed.value = false;
+
   try {
     await getActivePlayoutService().cutToLive?.();
     manualTakeFailure.value = null;
   } catch (err: any) {
     console.error('[Live] Cut to live failed:', err);
-    alert(err?.message || String(err));
+    await message(err?.message || String(err), { title: 'Live Cut Failed', kind: 'error' });
   }
 };
+
+const formatTabularDuration = (seconds: number) => {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainingSeconds = total % 60;
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(remainingSeconds).padStart(2, '0');
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${mm}:${ss}`;
+  }
+  return `${mm}:${ss}`;
+};
+
+const nextUpItem = computed(() => rundown.nextPlayableItem);
+
+const nextUpItemTitle = computed(() => {
+  if (!nextUpItem.value) return 'End of Rundown';
+  const item = nextUpItem.value;
+  if (item.display_name) return item.display_name;
+  if (item.current_path) {
+    const fn = item.current_path.split(/[/\\]/).pop();
+    if (fn && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fn)) {
+      return fn;
+    }
+  }
+  if (item.filename && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.filename)) {
+    return item.filename;
+  }
+  return 'Untitled Asset';
+});
+
+const nextUpItemDuration = computed(() => {
+  if (!nextUpItem.value) return '';
+  const item = nextUpItem.value;
+  if (item.type === 'live') {
+    const durSec = item.plannedDuration || item.duration || 0;
+    return durSec > 0 ? formatTabularDuration(durSec) : 'LIVE';
+  }
+  const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
+  const inMs = item.trim_in_ms ?? item.inPoint ?? 0;
+  const outMs = item.trim_out_ms ?? (item.outPoint > 0 ? item.outPoint : totalMs);
+  const durSec = (outMs > inMs && inMs >= 0) ? (outMs - inMs) / 1000 : totalMs / 1000;
+  return formatTabularDuration(durSec);
+});
+
+const isNextUpImminent = computed(() => {
+  if (!isPlayoutPlaying.value || !rundown.playbackCountdownStr) return false;
+  const cleaned = rundown.playbackCountdownStr.replace(/^-/, '').trim();
+  const parts = cleaned.split(':').map(p => parseInt(p, 10));
+  if (parts.some(isNaN)) return false;
+  let totalSecs = 0;
+  if (parts.length === 3) {
+    totalSecs = parts[0]! * 3600 + parts[1]! * 60 + parts[2]!;
+  } else if (parts.length === 2) {
+    totalSecs = parts[0]! * 60 + parts[1]!;
+  } else {
+    return false;
+  }
+  return totalSecs >= 0 && totalSecs <= 10;
+});
 
 const returnFromLive = async () => {
   try {
@@ -491,6 +574,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   onMouseUp();
+  if (liveCutArmTimer) {
+    clearTimeout(liveCutArmTimer);
+    liveCutArmTimer = null;
+  }
   window.removeEventListener('pointerdown', handleGlobalPointerDown);
   window.removeEventListener('playout:open-inspector', handleInspectorOpenEvent);
   if (unlistenHeartbeat) {
@@ -527,25 +614,28 @@ onUnmounted(() => {
     <!-- Simplified Master Control Bar -->
     <footer class="control-bar glass-panel">
 
-      <!-- Connection -->
+      <!-- Connection Indicator & Control in One Field -->
       <div class="ctrl-section">
-        <div
-          class="status-dot"
+        <button
+          class="ctrl-btn conn-toggle-btn"
           :class="[
             'tone-' + connectionTone,
-            { pulse: connectionTone === 'processing' || processState === 'unconfigured' || processState === 'crashed' }
+            { 'is-connected': isPlayoutConnected }
           ]"
-        ></div>
-        <span class="ctrl-label">{{ connectionLabel }}</span>
-        <span v-if="!isPrimaryInstance" class="monitor-badge" title="Running in secondary Monitor Mode (Read-Only)">MONITOR</span>
-        <button
-          class="ctrl-btn"
           :disabled="isStarting || processState === 'starting'"
           @click="handleConnectionAction"
-          style="font-size:0.7rem;"
+          :title="isPlayoutConnected ? 'CasparCG Connected · Click to Disconnect' : `CasparCG (${connectionLabel}) · Click to ${connectionBtnText}`"
         >
-          {{ connectionBtnText }}
+          <span
+            class="status-dot"
+            :class="[
+              'tone-' + connectionTone,
+              { pulse: connectionTone === 'processing' || processState === 'unconfigured' || processState === 'crashed' }
+            ]"
+          ></span>
+          <span class="conn-text">{{ isPlayoutConnected ? 'CONNECTED' : connectionBtnText }}</span>
         </button>
+        <span v-if="!isPrimaryInstance" class="monitor-badge" title="Running in secondary Monitor Mode (Read-Only)">MONITOR</span>
       </div>
 
       <div class="ctrl-divider"></div>
@@ -570,15 +660,22 @@ onUnmounted(() => {
         >
           ■ STOP
         </button>
-        
+      </div>
+
+      <!-- Spatial Safety Fencing for Studio Routing & CUT TO LIVE -->
+      <div class="ctrl-divider barrier-fence-divider"></div>
+
+      <div class="ctrl-section ctrl-routing-fence">
+        <span class="routing-fence-label">ROUTING</span>
         <button
           v-if="!isPlayoutLive"
           class="ctrl-btn btn-live-now"
+          :class="{ 'btn-live-armed': isLiveCutArmed }"
           :disabled="!isPlayoutConnected || !isPrimaryInstance"
           @click="cutToLive"
-          title="Cut to Live DeckLink/AMCP Source"
+          :title="!isLiveCutArmed ? 'Arm Cut to Live (First Click to Arm)' : 'Click Again to Execute Hardware Cut to Live'"
         >
-          🔴 CUT TO LIVE
+          {{ isLiveCutArmed ? '⚠️ CONFIRM CUT (ARMED)' : '🔴 CUT TO LIVE' }}
         </button>
         <button
           v-else
@@ -600,9 +697,19 @@ onUnmounted(() => {
 
       <div class="ctrl-divider"></div>
 
-      <!-- Media Timecode -->
-      <div class="ctrl-section">
+      <!-- Media Timecode & Next Up Telemetry Dock -->
+      <div class="ctrl-section ctrl-telemetry-group">
         <div class="timecode">{{ currentPlayoutTime }}</div>
+        <div class="ctrl-nextup-dock" :class="{ 'is-imminent': isNextUpImminent }">
+          <div class="nextup-header">
+            <span class="nextup-kicker">NEXT UP</span>
+            <span v-if="isNextUpImminent" class="nextup-imminent-pill">ADVANCE &lt; 10s</span>
+          </div>
+          <div class="nextup-body">
+            <span class="nextup-title" :title="nextUpItemTitle">{{ nextUpItemTitle }}</span>
+            <span v-if="nextUpItemDuration" class="nextup-duration-pill">{{ nextUpItemDuration }}</span>
+          </div>
+        </div>
       </div>
 
       <div class="ctrl-divider"></div>
@@ -649,9 +756,12 @@ onUnmounted(() => {
           class="ctrl-meta-btn ctrl-meta-brand"
           :class="{ 'is-open': showProductInfo }"
           @click.stop="toggleProductInfo"
-          :title="`${APP_NAME} ${APP_VERSION}`"
+          :title="`${APP_NAME} ${APP_VERSION} · System Info`"
+          aria-label="System Info"
         >
-          {{ APP_NAME }} {{ APP_VERSION }}
+          <svg class="brand-play-icon" viewBox="0 0 24 24" width="13" height="13">
+            <path fill="currentColor" d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28a1 1 0 0 0-1.5.86z"/>
+          </svg>
         </button>
         <button
           class="ctrl-meta-btn ctrl-meta-help"
@@ -775,17 +885,17 @@ onUnmounted(() => {
 
 .btn-play {
   background:#33becc; border-color:#33becc;
-  color:#000; font-size:1rem; font-weight:800;
-  padding:9px 32px; letter-spacing:2px;
-  box-shadow:0 0 16px rgba(51,190,204,0.4);
+  color:#000; font-size:0.88rem; font-weight:800;
+  padding:6px 20px; letter-spacing:1px;
+  box-shadow:0 0 12px rgba(51,190,204,0.35);
 }
-.btn-play:hover:not(:disabled) { background:#45d4e3; box-shadow:0 0 24px rgba(51,190,204,0.7); }
+.btn-play:hover:not(:disabled) { background:#45d4e3; box-shadow:0 0 18px rgba(51,190,204,0.6); }
 
 .btn-stop {
   background:#e63946; border-color:#e63946;
-  color:#fff; font-size:1rem; font-weight:800;
-  padding:9px 32px; letter-spacing:2px;
-  box-shadow:0 0 16px rgba(230,57,70,0.4);
+  color:#fff; font-size:0.88rem; font-weight:800;
+  padding:6px 20px; letter-spacing:1px;
+  box-shadow:0 0 12px rgba(230,57,70,0.35);
   animation:pulse-stop 1.5s ease-in-out infinite;
 }
 @keyframes pulse-stop {
@@ -797,22 +907,22 @@ onUnmounted(() => {
 
 .btn-live-now {
   background:rgba(230,57,70,0.1); border-color:#e63946;
-  color:#fff; font-size:0.85rem; font-weight:800;
-  padding:8px 16px; letter-spacing:1px; margin-left:8px;
+  color:#fff; font-size:0.8rem; font-weight:800;
+  padding:5px 12px; letter-spacing:0.5px; margin-left:0;
   animation:pulse-live 2s infinite;
 }
-.btn-live-now:hover { background:rgba(230,57,70,0.3); border-color:#fca5a5; box-shadow:0 0 16px rgba(230,57,70,0.4); }
+.btn-live-now:hover { background:rgba(230,57,70,0.3); border-color:#fca5a5; box-shadow:0 0 12px rgba(230,57,70,0.4); }
 
 .btn-live-active {
   background:#ef4444; border-color:#f87171;
-  color:#fff; font-size:0.85rem; font-weight:800;
-  padding:8px 16px; letter-spacing:1px; margin-left:8px;
-  box-shadow:0 0 20px rgba(239,68,68,0.7);
+  color:#fff; font-size:0.8rem; font-weight:800;
+  padding:5px 12px; letter-spacing:0.5px; margin-left:0;
+  box-shadow:0 0 16px rgba(239,68,68,0.7);
   animation:pulse-live 1s infinite;
 }
 .btn-live-active:hover {
   background:#dc2626; border-color:#fca5a5;
-  box-shadow:0 0 28px rgba(239,68,68,0.9);
+  box-shadow:0 0 24px rgba(239,68,68,0.9);
 }
 
 .lock-toggle-btn {
@@ -850,13 +960,236 @@ onUnmounted(() => {
 }
 
 .timecode {
-  font-size: var(--timecode-font-size, 1.35rem);
+  font-size: 1.75rem;
   font-weight: 700;
   letter-spacing: 2.5px;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
   color: var(--accent-blue);
-  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-blue) 35%, transparent);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  line-height: 1;
+}
+
+.barrier-fence-divider {
+  width: 2px !important;
+  height: 32px !important;
+  background: var(--border-strong, #475569) !important;
+  margin: 0 10px !important;
+}
+
+.ctrl-routing-fence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.routing-fence-label {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--accent-red, #ef4444);
+  white-space: nowrap;
+}
+
+.btn-live-armed {
+  background: #d97706 !important;
+  border-color: #f59e0b !important;
+  color: #fff !important;
+  box-shadow: 0 0 16px rgba(217, 119, 6, 0.8) !important;
+  animation: pulse-armed 0.6s infinite alternate !important;
+}
+
+@keyframes pulse-armed {
+  0% { background: #d97706; box-shadow: 0 0 10px #d97706; }
+  100% { background: #dc2626; box-shadow: 0 0 25px #dc2626; }
+}
+
+.conn-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 5px 11px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.conn-toggle-btn.is-connected {
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #22c55e;
+}
+
+.conn-toggle-btn.is-connected:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #f87171;
+}
+
+.conn-toggle-btn:not(.is-connected) {
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+}
+
+.conn-toggle-btn:not(.is-connected):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  border-color: var(--accent-blue);
+  color: var(--text-primary);
+}
+
+.conn-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 220px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-secondary);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+}
+
+.conn-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.conn-popover-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.conn-popover-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.conn-popover-body {
+  font-size: 0.72rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.conn-popover-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.conn-popover-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ctrl-telemetry-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ctrl-nextup-dock {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg-surface-elevated, rgba(0, 0, 0, 0.25));
+  border: 1px solid var(--border-subtle);
+  min-width: 140px;
+  max-width: 195px;
+  height: 32px;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.ctrl-nextup-dock.is-imminent {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  animation: pulse-imminent 1s infinite alternate;
+}
+
+@keyframes pulse-imminent {
+  0% { box-shadow: 0 0 6px rgba(245, 158, 11, 0.4); }
+  100% { box-shadow: 0 0 16px rgba(245, 158, 11, 0.8); }
+}
+
+.nextup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  line-height: 1;
+}
+
+.nextup-kicker {
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.nextup-imminent-pill {
+  font-size: 0.52rem;
+  font-weight: 800;
+  color: #fff;
+  background: #d97706;
+  padding: 0 3px;
+  border-radius: 2px;
+  line-height: 1.2;
+  animation: blink 1s step-end infinite;
+}
+
+.nextup-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  line-height: 1.2;
+}
+
+.nextup-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.nextup-duration-pill {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--accent-blue);
+  font-variant-numeric: tabular-nums;
+  background: rgba(56, 189, 248, 0.1);
+  padding: 0 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.brand-play-icon {
+  fill: #c084fc !important;
+  filter: drop-shadow(0 0 3px rgba(192, 132, 252, 0.6));
 }
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -931,11 +1264,31 @@ onUnmounted(() => {
 }
 
 .ctrl-meta-brand {
-  padding: 0 12px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border-radius: 50% !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(168, 85, 247, 0.15) !important;
+  border: 1px solid rgba(168, 85, 247, 0.45) !important;
+  color: #c084fc !important;
+}
+
+.ctrl-meta-brand:hover,
+.ctrl-meta-brand.is-open {
+  background: rgba(168, 85, 247, 0.28) !important;
+  border-color: rgba(168, 85, 247, 0.75) !important;
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.45) !important;
+  color: #d8b4fe !important;
+}
+
+.ctrl-meta-brand:hover .brand-play-icon,
+.ctrl-meta-brand.is-open .brand-play-icon {
+  fill: #d8b4fe !important;
+  filter: drop-shadow(0 0 5px rgba(192, 132, 252, 0.8));
 }
 
 .ctrl-meta-help {

@@ -208,7 +208,8 @@ impl JobObjectGuard {
 
         unsafe {
             let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
-            if handle.is_null() {
+            if handle.is_null() || handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+                log::warn!("[JobObjectGuard] CreateJobObjectW failed");
                 return None;
             }
 
@@ -223,6 +224,7 @@ impl JobObjectGuard {
             );
 
             if ok == 0 {
+                log::warn!("[JobObjectGuard] SetInformationJobObject failed");
                 windows_sys::Win32::Foundation::CloseHandle(handle);
                 return None;
             }
@@ -237,13 +239,29 @@ impl JobObjectGuard {
 
         unsafe {
             let proc_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
-            if proc_handle.is_null() {
+            if proc_handle.is_null() || proc_handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+                log::warn!("[JobObjectGuard] OpenProcess failed for PID {}", pid);
                 return false;
             }
 
             let ok = AssignProcessToJobObject(self.handle, proc_handle) != 0;
             windows_sys::Win32::Foundation::CloseHandle(proc_handle);
+            if !ok {
+                log::warn!("[JobObjectGuard] AssignProcessToJobObject failed for PID {}", pid);
+            }
             ok
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for JobObjectGuard {
+    fn drop(&mut self) {
+        if !self.handle.is_null() && self.handle != windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+            unsafe {
+                windows_sys::Win32::Foundation::CloseHandle(self.handle);
+            }
+            self.handle = std::ptr::null_mut();
         }
     }
 }
@@ -713,10 +731,24 @@ impl CasparProcessSupervisor {
             {
                 if let Some(guard) = JobObjectGuard::new() {
                     if let Some(p) = pid {
-                        guard.assign_pid(p);
+                        if !guard.assign_pid(p) {
+                            crate::diagnostics::push_caspar_process_log(
+                                "WARN",
+                                &format!("Failed to assign CasparCG PID {} to Windows Job Object guard", p),
+                            );
+                        }
+                    } else {
+                        crate::diagnostics::push_caspar_process_log(
+                            "WARN",
+                            "CasparCG child process has no PID; skipping Windows Job Object assignment",
+                        );
                     }
                     Some(guard)
                 } else {
+                    crate::diagnostics::push_caspar_process_log(
+                        "WARN",
+                        "Failed to create Windows Job Object for process supervision (processes may persist if PlayOut terminates unexpectedly)",
+                    );
                     None
                 }
             }
@@ -1408,5 +1440,30 @@ mod tests {
 
         assert_eq!(history.len(), 4);
         assert!(history.len() > 3); // Trip breaker
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_job_object_guard_lifecycle() {
+        let guard = JobObjectGuard::new();
+        assert!(guard.is_some(), "JobObjectGuard::new should succeed on Windows");
+        let guard = guard.unwrap();
+
+        // Spawn a child process to verify PID assignment without affecting test runner
+        let mut child = std::process::Command::new("cmd")
+            .args(["/c", "ping", "127.0.0.1", "-n", "3"])
+            .spawn()
+            .expect("Failed to spawn test child process");
+
+        let child_pid = child.id();
+        let assigned = guard.assign_pid(child_pid);
+        assert!(assigned, "JobObjectGuard should successfully assign child process PID");
+
+        // Explicit drop to verify CloseHandle execution terminates/cleans up the child without panic
+        drop(guard);
+
+        // Cleanup child process
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }

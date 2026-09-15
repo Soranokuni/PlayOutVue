@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "PlayOut",
-  "version": "2.0.1",
+  "productName": "Aether",
+  "version": "3.0.0",
   "identifier": "com.playout.client",
   "build": {
     "frontendDist": "../dist",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "PlayOut — CasparCG Playout Controller",
+        "title": "Aether — Broadcast Master Control Playout",
         "width": 1400,
         "height": 860,
         "minWidth": 1100,
