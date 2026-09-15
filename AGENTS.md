@@ -21,7 +21,7 @@ Coordinate all implementations through `.agents/skills/`:
 ### 2. Guarding Against Premature Advances & Skips
 - **Monotonic Timing Gate Invariant**:
   - No clip may trigger an `osc-position` or `osc-path-switch` advance before its monotonic duration gate has elapsed (`now_monotonic >= auto_advance_not_before_ms`).
-  - In `src-tauri/src/caspar.rs`, `handle_path_osc` MUST check `s.path_confirmed && now_mono >= s.auto_advance_not_before_ms` before firing `osc-path-switch`.
+  - In `src-tauri/src/caspar.rs`, `handle_playback_path_osc` MUST check `s.path_confirmed && now_mono >= s.auto_advance_not_before_ms` before firing `osc-path-switch`.
 - **Synchronous Key Claiming Invariant**:
   - Whenever a manual `take()` or `playItemAt()` is called, `currentKey` MUST be set synchronously before any async await calls.
   - The `caspar://advance` listener MUST enforce `currentKey && uuid && uuid === currentKey`. Any in-flight advance event from a previously playing clip carrying a different UUID must be dropped immediately.
@@ -50,11 +50,11 @@ Coordinate all implementations through `.agents/skills/`:
 ## Development & Verification Checklist
 
 Before declaring any task complete or staging git commits, execute the full `.agents/skills/verify-build` pipeline:
-1. `npm test -- --run` (Must pass all 260+ frontend unit and integration tests)
-2. `npm run type-check` (Must pass with 0 TypeScript errors via `vue-tsc --build`)
+1. `npm test -- --run` (Must pass all 270+ frontend unit and integration tests; `npm run lint` must report 0 errors)
+2. `npm run type-check` (Must pass with 0 TypeScript errors via `vue-tsc --build`); `npm run lint` (ESLint, 0 errors)
 3. `npm run build` (Must produce clean production client bundle in `dist/`)
 4. `cargo check --manifest-path src-tauri/Cargo.toml` (Must compile cleanly with 0 errors)
-5. `cargo test --manifest-path src-tauri/Cargo.toml` (Must pass all 98+ backend unit and integration tests; `cargo clippy --all-targets -- -D warnings` must also be clean)
+5. `cargo test --manifest-path src-tauri/Cargo.toml` (Must pass all 120+ backend unit and integration tests; `cargo clippy --all-targets -- -D warnings` must also be clean)
 6. `cargo test --manifest-path ../PlayoutTranscode/Cargo.toml --test contract_boundary` (Must verify cross-repo contract integrity whenever touching asset, trim, or metadata schemas)
 
 ---

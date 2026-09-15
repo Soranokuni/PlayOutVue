@@ -104,4 +104,4 @@ Requirements/ffmpeg/doc/
 Requirements/ffmpeg/presets/
 Requirements/ffmpeg/LICENSE.txt
 Requirements/vcredist/VC_redist.x64.exe
-/logos/
+# (/logos/ was listed here but logos/logo.png and logos/logo.svg are tracked; audit T2-19)
