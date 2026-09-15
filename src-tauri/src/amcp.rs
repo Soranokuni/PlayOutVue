@@ -103,6 +103,71 @@ pub struct AmcpClient {
     read_only: Arc<Mutex<bool>>,
 }
 
+/// Audit T2-3: AMCP is a CRLF-delimited line protocol. Any control character
+/// inside a command (a `\r\n` smuggled into a file name, a settings string or
+/// a template payload) would terminate the command early and let the
+/// remainder execute as a second, unintended command on the on-air server.
+/// Reject the whole command instead of trying to sanitise it: the caller's
+/// input is broken and must not reach the wire.
+pub fn validate_amcp_command(cmd: &str) -> Result<(), String> {
+    let body = cmd.trim_end_matches(['\r', '\n']);
+    if body.trim().is_empty() {
+        return Err("AMCP command is empty".to_string());
+    }
+    if let Some(ch) = body.chars().find(|c| c.is_control()) {
+        return Err(format!(
+            "AMCP command rejected: contains control character U+{:04X}",
+            ch as u32
+        ));
+    }
+    Ok(())
+}
+
+/// Verbs the frontend may issue through the untyped `caspar_send_command`
+/// passthrough (audit T2-2). Everything the app needs is here; server-control
+/// and diagnostic verbs (`KILL`, `RESTART`, `GL GC`, `LOG`, `LOCK`, `SET`,
+/// `DATA STORE`, `THUMBNAIL GENERATE_ALL`, ...) are deliberately absent so a
+/// DOM-XSS in the WebView cannot take the server down or rewrite its state.
+/// Process control goes through the supervisor, which is a separate command.
+const ALLOWED_PASSTHROUGH_VERBS: &[&str] = &[
+    "PLAY", "LOADBG", "LOAD", "STOP", "PAUSE", "RESUME", "CLEAR", "CALL", "SWAP",
+    "ADD", "REMOVE", "MIXER", "CG", "INFO", "CLS", "TLS", "CINF", "VERSION", "PING",
+];
+
+/// Returns true if the leading verb of `cmd` is in the passthrough allow-list.
+/// Commands with a request-id prefix (`REQ <id> <VERB>`) are checked on the
+/// verb that follows the id.
+pub fn is_allowed_passthrough_command(cmd: &str) -> bool {
+    let mut tokens = cmd.split_whitespace();
+    let Some(first) = tokens.next() else { return false };
+    let verb = if first.eq_ignore_ascii_case("REQ") {
+        // `REQ <id> <VERB>`
+        tokens.next();
+        match tokens.next() {
+            Some(v) => v,
+            None => return false,
+        }
+    } else {
+        first
+    };
+    ALLOWED_PASSTHROUGH_VERBS
+        .iter()
+        .any(|allowed| verb.eq_ignore_ascii_case(allowed))
+}
+
+/// CG template names are interpolated unescaped into `CG ... ADD` (they are
+/// CasparCG template-directory relative paths). Restrict them to a safe
+/// character set so a name can never close the quoted token or inject a
+/// second command.
+pub fn is_safe_template_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 256
+        && !name.contains("..")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ' '))
+}
+
 /// Returns true if an AMCP command is a safe telemetry/read-only query.
 pub fn is_safe_read_only_command(cmd: &str) -> bool {
     let upper = cmd.trim().to_uppercase();
@@ -149,6 +214,7 @@ impl AmcpClient {
 
     /// Send a single AMCP command and await its framed reply.
     pub async fn send(&self, cmd: &str) -> Result<AmcpResponse, String> {
+        validate_amcp_command(cmd)?;
         if self.is_read_only() && !is_safe_read_only_command(cmd) {
             return Err(format!(
                 "AMCP command '{}' rejected: Instance is running in MONITOR MODE (Read-Only).",
@@ -295,7 +361,8 @@ async fn amcp_worker(mut rx: mpsc::Receiver<AmcpRequest>) {
 /// - `200` (data block): status line + data terminated by a blank line
 ///   (`\r\n\r\n`).
 /// - `201` (single data line): status line + exactly one more line.
-/// - everything else (`202` ack, `4xx`, `5xx`): the status line alone.
+/// - `400` (unknown command): status line + the echoed command line.
+/// - everything else (`202` ack, `401`-`404`, `5xx`): the status line alone.
 ///
 /// Previously every reply waited for the `\r\n\r\n` terminator or the 300 ms
 /// read-gap timeout, so single-line acks (e.g. `202 PLAY OK`) stalled every
@@ -317,8 +384,14 @@ async fn read_framed_reply(stream: &mut TcpStream) -> Result<String, String> {
             // Data block until the blank-line terminator.
             read_until(stream, &mut buf, &mut chunk, 0, b"\r\n\r\n", false, READ_GAP_TIMEOUT).await?;
         }
-        201 => {
-            // Exactly one more line after the status line.
+        201 | 400 => {
+            // 201: exactly one more line after the status line.
+            // 400: CasparCG 2.x answers a malformed/unknown command with
+            // `400 ERROR\r\n<echo of the command>\r\n`. Without draining the
+            // echo line it would be read as the status line of the *next*
+            // command and every subsequent reply would be off by one
+            // (audit T2-9). The drain is best-effort (`require = false`), so
+            // a server that sends a bare `400 ERROR` only costs one read-gap.
             let first_nl = buf
                 .windows(2)
                 .position(|w| w == b"\r\n")
@@ -845,5 +918,65 @@ mod tests {
             play_trimmed_cmd(1, 10, "media/clip", 100, 250),
             "PLAY 1-10 \"media/clip\" SEEK 100 LENGTH 150"
         );
+    }
+    // ── Audit T2-3 / T2-2 / T2-9 ─────────────────────────────────────────────
+
+    #[test]
+    fn validate_amcp_command_rejects_control_characters() {
+        assert!(validate_amcp_command("PLAY 1-10 \"clip\"").is_ok());
+        assert!(validate_amcp_command("PLAY 1-10 \"clip\"\r\n").is_ok(), "trailing CRLF is the frame terminator");
+        assert!(validate_amcp_command("PLAY 1-10 \"a\r\nKILL\"").is_err());
+        assert!(validate_amcp_command("PLAY 1-10 \"a\nKILL\"").is_err());
+        assert!(validate_amcp_command("INFO\x00").is_err());
+        assert!(validate_amcp_command("INFO\x7f").is_err());
+        assert!(validate_amcp_command("").is_err());
+        assert!(validate_amcp_command("   \r\n").is_err());
+        // Non-ASCII printable text is not a control character.
+        assert!(validate_amcp_command("CG 1-33 UPDATE 1 \"{\\\"t\\\":\\\"Καλησπέρα\\\"}\"").is_ok());
+    }
+
+    #[test]
+    fn passthrough_allow_list() {
+        for ok in ["PLAY 1-10 \"x\"", "loadbg 1-10 x AUTO", "CLEAR 1-20", "INFO 1-10", "CLS \"dir\"",
+                   "REMOVE 1 DECKLINK 1", "ADD 1 DECKLINK 1", "PAUSE 1-10", "REQ abc INFO"] {
+            assert!(is_allowed_passthrough_command(ok), "{}", ok);
+        }
+        for bad in ["KILL", "RESTART", "GL GC", "LOG LEVEL trace", "LOCK 1 ACQUIRE x", "SET 1 MODE 1080p5000",
+                    "DATA STORE x y", "THUMBNAIL GENERATE_ALL", "DIAG", "BYE", "", "REQ abc", "REQ abc KILL"] {
+            assert!(!is_allowed_passthrough_command(bad), "{}", bad);
+        }
+    }
+
+    #[test]
+    fn template_name_allow_list() {
+        assert!(is_safe_template_name("playout/advisory"));
+        assert!(is_safe_template_name("playout/crawl"));
+        assert!(is_safe_template_name("my template-2.0"));
+        assert!(!is_safe_template_name(""));
+        assert!(!is_safe_template_name("../../etc"));
+        assert!(!is_safe_template_name("adv\" 1 \"{}\"\r\nKILL"));
+        assert!(!is_safe_template_name("adv\"isory"));
+        assert!(!is_safe_template_name(r"adv\isory"));
+    }
+
+    /// CasparCG 2.x echoes the offending command on the line after `400 ERROR`.
+    /// The echo must be consumed as part of this reply, not left in the socket
+    /// to be mistaken for the next command's status line.
+    #[tokio::test]
+    async fn read_framed_reply_400_drains_echo_line() {
+        let (mut client, server) = serve_reply(b"400 ERROR\r\nFOO 1-10\r\n").await;
+        let body = read_framed_reply(&mut client).await.unwrap();
+        assert_eq!(body, "400 ERROR\r\nFOO 1-10\r\n");
+        server.await.unwrap();
+    }
+
+    /// A server that sends a bare `400 ERROR` still gets a complete reply
+    /// (the drain is best-effort and bounded by the read-gap timeout).
+    #[tokio::test]
+    async fn read_framed_reply_400_without_echo_still_completes() {
+        let (mut client, server) = serve_reply(b"400 ERROR\r\n").await;
+        let body = read_framed_reply(&mut client).await.unwrap();
+        assert_eq!(body, "400 ERROR\r\n");
+        server.await.unwrap();
     }
 }
