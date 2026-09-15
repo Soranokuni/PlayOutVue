@@ -517,7 +517,13 @@ pub async fn open_cg_studio_in_browser<R: Runtime>(
 
     let port = crate::studio_server::STUDIO_SERVER_PORT.load(std::sync::atomic::Ordering::Relaxed);
     let target_url = if port > 0 {
-        format!("http://127.0.0.1:{}/studio", port)
+        // The per-launch bearer token travels in the URL once; the Studio
+        // page reads it and attaches it to every bridge POST (audit T0-1).
+        format!(
+            "http://127.0.0.1:{}/studio?studio=1&token={}",
+            port,
+            crate::studio_server::studio_bridge_token()
+        )
     } else {
         let absolute_path = std::fs::canonicalize(&resolved_file).unwrap_or(resolved_file);
         let raw_path_str = absolute_path.to_string_lossy().to_string();
