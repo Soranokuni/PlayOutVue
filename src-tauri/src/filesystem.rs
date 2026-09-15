@@ -80,7 +80,7 @@ pub async fn list_filesystem_roots() -> Result<Vec<String>, String> {
         if roots.is_empty() {
             return Err("No accessible drives found".to_string());
         }
-        return Ok(roots);
+        Ok(roots)
     }
 
     #[cfg(not(target_os = "windows"))]

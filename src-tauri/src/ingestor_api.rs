@@ -131,6 +131,7 @@ pub struct AssetResponse {
 
 /// Centralized Strict Readiness Predicate.
 /// An asset is considered playable only if it satisfies all 8 invariant requirements.
+#[allow(clippy::too_many_arguments)]
 pub fn evaluate_strict_readiness(
     status: &str,
     mezzanine_ok: bool,
