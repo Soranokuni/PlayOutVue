@@ -63,6 +63,33 @@ fn get_media_url(path: String) -> String {
 /// binary: `eprintln!` panics if stderr is a closed pipe, which would abort
 /// the on-air app on a harmless warning. Writes to the log facade (once the
 /// plugin is up) and best-effort to stderr.
+/// PERF F-16: the main window is created hidden (`visible: false` in
+/// tauri.conf.json) so the operator never sees a white, unstyled frame while
+/// the bundle parses. The frontend calls `frontend_ready` after its first DOM
+/// commit; `MAIN_WINDOW_REVEAL_FALLBACK` guarantees the window still appears
+/// if that call never arrives (frontend crash before mount, dev-server hiccup).
+const MAIN_WINDOW_REVEAL_FALLBACK: std::time::Duration = std::time::Duration::from_secs(4);
+
+fn reveal_main_window(app: &tauri::AppHandle, reason: &str) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_visible().unwrap_or(false) {
+        return;
+    }
+    if let Err(error) = window.show() {
+        log::warn!("Failed to show main window ({}): {}", reason, error);
+        return;
+    }
+    let _ = window.set_focus();
+    log::info!("Main window revealed ({})", reason);
+}
+
+#[tauri::command]
+fn frontend_ready(app: tauri::AppHandle) {
+    reveal_main_window(&app, "frontend mounted");
+}
+
 fn startup_error(message: &str) {
     log::error!("{}", message);
     use std::io::Write as _;
@@ -255,13 +282,20 @@ pub fn run() {
             caspar_process_validate_path,
             caspar_process_check_port,
             save_studio_default_preset,
-            get_studio_default_preset
+            get_studio_default_preset,
+            frontend_ready
         ])
         .setup(|app| {
             init_background_logger();
             let app_handle = app.handle().clone();
             spawn_ingestor_heartbeat(app_handle.clone());
             studio_server::start_studio_server(app_handle);
+
+            let reveal_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(MAIN_WINDOW_REVEAL_FALLBACK).await;
+                reveal_main_window(&reveal_handle, "fallback timeout");
+            });
 
             let tray_menu = MenuBuilder::new(app)
                 .text("tray_show", "Show Window")
