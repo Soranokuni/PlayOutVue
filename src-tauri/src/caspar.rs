@@ -758,8 +758,8 @@ fn handle_playback_path_osc<R: Runtime>(
         None
     };
 
-    if let Some(expected) = &s.expected_next_path {
-        let expected_norm = extract_raw_filename_lower(expected);
+    let expected_norm_opt = s.expected_next_path.as_deref().map(extract_raw_filename_lower);
+    if let Some(expected_norm) = expected_norm_opt {
         // Guard against same-file transitions (e.g. a subclip that points to
         // the same media file as its parent). When the parent starts playing,
         // the OSC `/file/path` echoes the parent's path — which is identical to
@@ -769,6 +769,39 @@ fn handle_playback_path_osc<R: Runtime>(
         // switched to a different file than the one the current item was
         // registered with.
         let now_mono = now_ms();
+
+        // The preloaded clip is on air although the current clip is nowhere
+        // near its end: CasparCG performed the AUTO transition prematurely.
+        // Report it once, operator-visible, and let the gate keep the state
+        // machine from acting on it (never re-issue PLAY).
+        if !s.premature_switch_flagged
+            && path_norm == expected_norm
+            && !registered_norm.is_empty()
+            && path_norm != registered_norm
+            && is_premature_auto_switch(now_mono, s.auto_advance_not_before_ms, PREMATURE_SWITCH_MARGIN_MS)
+        {
+            s.premature_switch_flagged = true;
+            let early_by_ms = s.auto_advance_not_before_ms.saturating_sub(now_mono);
+            let message = format!(
+                "Premature AUTO transition: CasparCG put the preloaded clip '{}' on air {} ms before the current clip '{}' ({:?}) was due to end. The rundown will show the wrong item as ON AIR until the next transition. Cause is usually a LOADBG issued before the current clip rendered its first frame.",
+                path_norm, early_by_ms, registered_norm, s.current_uuid
+            );
+            log::error!("[CasparCG] {}", message);
+            if let Some(diagnostics) = tauri::Manager::try_state::<crate::diagnostics::DiagnosticState>(app) {
+                diagnostics.push("error", "caspar-playout", message.clone());
+            }
+            let payload = serde_json::json!({
+                "currentUuid": s.current_uuid,
+                "observedPath": normalized_path,
+                "earlyByMs": early_by_ms,
+                "message": message,
+            });
+            let app_clone = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = app_clone.emit("caspar://premature-transition", payload);
+            });
+        }
+
         if s.path_confirmed
             && now_mono >= s.auto_advance_not_before_ms
             && path_norm == expected_norm
@@ -856,6 +889,24 @@ const ADVANCE_THRESHOLD_MS: u64 = 200;
 const POSITION_RESET_MAX_WAIT_MS: u64 = 3000;
 const POSITION_RESET_MAX_IGNORED_SAMPLES: u32 = 25;
 
+/// How much earlier than the monotonic gate a foreground switch to the
+/// preloaded clip must happen to be reported as a premature AUTO transition.
+/// The gate itself already sits 300 ms before the expected end, so anything
+/// more than a second early cannot be a legitimate EOF hand-off.
+const PREMATURE_SWITCH_MARGIN_MS: u64 = 1000;
+
+/// True when CasparCG put the *preloaded* clip on air while the current clip
+/// still had more than `margin_ms` to run before its advance gate. Observed
+/// 2026-09-18: `LOADBG … AUTO` issued before the just-PLAYed (SEEK'd) clip
+/// rendered its first frame makes CasparCG's `frame_number()` (= time() -
+/// start(), with time() == 0 before the first frame) wrap around, so the AUTO
+/// trigger fires on the very next tick and the next clip replaces the one the
+/// operator took. Rust owns the advance decision and must never re-issue
+/// PLAY, so this is surfaced loudly rather than repaired automatically.
+pub fn is_premature_auto_switch(now_mono_ms: u64, gate_ms: u64, margin_ms: u64) -> bool {
+    gate_ms != u64::MAX && gate_ms != 0 && now_mono_ms.saturating_add(margin_ms) < gate_ms
+}
+
 /// Pure decision: give up waiting for an in-window position sample and accept
 /// the live position as-is.
 pub fn should_abandon_position_reset_wait(now_mono_ms: u64, waiting_since_ms: u64, ignored_samples: u32) -> bool {
@@ -942,6 +993,14 @@ pub struct PlaybackStateInner {
     /// Ensures the frontend receives at most one physical-foreground
     /// confirmation per registered item.
     pub foreground_confirmation_emitted: bool,
+    /// At most one `caspar://foreground-position-confirmed` per registered
+    /// item: emitted once a `/file/time` sample inside the post-take reset
+    /// window was seen (or the wait was abandoned), i.e. once the new clip has
+    /// demonstrably rendered its first frame. The frontend arms the next
+    /// `LOADBG … AUTO` only after this.
+    pub position_confirmation_emitted: bool,
+    /// At most one premature-AUTO-transition report per registered item.
+    pub premature_switch_flagged: bool,
 
     // Native Timing Gate & Progress Validation
     pub started_at_monotonic_ms: u64,
@@ -983,6 +1042,8 @@ impl Default for PlaybackStateInner {
             awaiting_reset_ignored_samples: 0,
             observed_transition_path: None,
             foreground_confirmation_emitted: false,
+            position_confirmation_emitted: false,
+            premature_switch_flagged: false,
             started_at_monotonic_ms: 0,
             auto_advance_not_before_ms: 0,
             accepted_post_take_samples: 0,
@@ -1043,6 +1104,7 @@ fn handle_playback_osc<R: Runtime>(
     let now = now_ms();
     let mut s = state.lock();
     let mut foreground_confirmed_uuid: Option<String> = None;
+    let mut position_confirmed_uuid: Option<String> = None;
     if !s.is_playing || s.is_paused {
         return;
     }
@@ -1067,17 +1129,31 @@ fn handle_playback_osc<R: Runtime>(
                     s.foreground_confirmation_emitted = true;
                     foreground_confirmed_uuid = s.current_uuid.clone();
                 }
+                if !s.position_confirmation_emitted {
+                    s.position_confirmation_emitted = true;
+                    position_confirmed_uuid = s.current_uuid.clone();
+                }
             } else {
                 s.awaiting_reset_ignored_samples = s.awaiting_reset_ignored_samples.saturating_add(1);
                 if should_abandon_position_reset_wait(now, s.awaiting_reset_since_ms, s.awaiting_reset_ignored_samples) {
-                    log::warn!(
-                        "[CasparCG] Position reset window never observed for {:?} (trim_in={} ms, first accepted pos={} ms, ignored={}); accepting live position",
+                    let message = format!(
+                        "Position reset window never observed for {:?} (trim_in={} ms, first accepted pos={} ms, ignored={}); accepting live position",
                         s.current_uuid, s.trim_in_ms, pos, s.awaiting_reset_ignored_samples
                     );
+                    log::warn!("[CasparCG] {}", message);
+                    // Operator-visible too: this is the signature of a clip
+                    // that is not where the rundown thinks it is.
+                    if let Some(diagnostics) = tauri::Manager::try_state::<crate::diagnostics::DiagnosticState>(app) {
+                        diagnostics.push("warn", "caspar-playout", message);
+                    }
                     s.awaiting_position_reset = false;
                     if !s.foreground_confirmation_emitted {
                         s.foreground_confirmation_emitted = true;
                         foreground_confirmed_uuid = s.current_uuid.clone();
+                    }
+                    if !s.position_confirmation_emitted {
+                        s.position_confirmation_emitted = true;
+                        position_confirmed_uuid = s.current_uuid.clone();
                     }
                     // fall through: this sample is accepted as the live position
                 } else {
@@ -1148,10 +1224,16 @@ fn handle_playback_osc<R: Runtime>(
         };
         let app_clone = app.clone();
         let confirmation = foreground_confirmed_uuid;
+        let position_confirmation = position_confirmed_uuid;
         drop(s);
         tauri::async_runtime::spawn(async move {
             if let Some(current_uuid) = confirmation {
                 let _ = app_clone.emit("caspar://foreground-confirmed", serde_json::json!({
+                    "currentUuid": current_uuid,
+                }));
+            }
+            if let Some(current_uuid) = position_confirmation {
+                let _ = app_clone.emit("caspar://foreground-position-confirmed", serde_json::json!({
                     "currentUuid": current_uuid,
                 }));
             }
@@ -1171,12 +1253,18 @@ fn handle_playback_osc<R: Runtime>(
     } else {
         None
     };
-    if foreground_confirmed_uuid.is_some() || tick.is_some() {
+    if foreground_confirmed_uuid.is_some() || position_confirmed_uuid.is_some() || tick.is_some() {
         let app_clone = app.clone();
         let confirmation = foreground_confirmed_uuid;
+        let position_confirmation = position_confirmed_uuid;
         tauri::async_runtime::spawn(async move {
             if let Some(current_uuid) = confirmation {
                 let _ = app_clone.emit("caspar://foreground-confirmed", serde_json::json!({
+                    "currentUuid": current_uuid,
+                }));
+            }
+            if let Some(current_uuid) = position_confirmation {
+                let _ = app_clone.emit("caspar://foreground-position-confirmed", serde_json::json!({
                     "currentUuid": current_uuid,
                 }));
             }
@@ -1389,6 +1477,10 @@ pub(crate) fn register_playback_internal(
     let foreground_confirmed_now = adopted
         || (s.path_confirmed && !same_file_transition_before_registration);
     s.foreground_confirmation_emitted = foreground_confirmed_now;
+    // An adopted (already running) clip has rendered frames long ago; a fresh
+    // registration must wait for the reset-window sample.
+    s.position_confirmation_emitted = adopted;
+    s.premature_switch_flagged = false;
 
     // Native Monotonic Timing Gate & Sample Progress Init
     let effective_duration_ms = t_out.saturating_sub(trim_in_ms);
@@ -1464,11 +1556,17 @@ pub async fn caspar_register_playback<R: Runtime>(
     } else {
         None
     };
+    let position_confirmed_now = s.position_confirmation_emitted;
     drop(s);
     if let Some(current_uuid) = confirmed_uuid {
         let _ = app.emit("caspar://foreground-confirmed", serde_json::json!({
             "currentUuid": current_uuid,
         }));
+        if position_confirmed_now {
+            let _ = app.emit("caspar://foreground-position-confirmed", serde_json::json!({
+                "currentUuid": current_uuid,
+            }));
+        }
     }
 
     Ok(())
@@ -1545,6 +1643,8 @@ fn clear_playback_state(s: &mut PlaybackStateInner) {
     s.awaiting_position_reset = false;
     s.observed_transition_path = None;
     s.foreground_confirmation_emitted = false;
+    s.position_confirmation_emitted = false;
+    s.premature_switch_flagged = false;
     s.started_at_monotonic_ms = 0;
     s.auto_advance_not_before_ms = 0;
     s.accepted_post_take_samples = 0;
@@ -1833,6 +1933,76 @@ mod tests {
         let (pos_1, dur_1) = parse_timing_payload_from_args(&args_1);
         assert_eq!(pos_1, Some(5200));
         assert_eq!(dur_1, None);
+    }
+
+    #[test]
+    fn premature_auto_switch_is_detected_only_well_before_the_gate() {
+        // Gate 20 s away: a switch now is premature.
+        assert!(is_premature_auto_switch(1_000, 21_000, PREMATURE_SWITCH_MARGIN_MS));
+        // Within the margin of the gate: legitimate EOF hand-off.
+        assert!(!is_premature_auto_switch(20_500, 21_000, PREMATURE_SWITCH_MARGIN_MS));
+        assert!(!is_premature_auto_switch(21_000, 21_000, PREMATURE_SWITCH_MARGIN_MS));
+        assert!(!is_premature_auto_switch(25_000, 21_000, PREMATURE_SWITCH_MARGIN_MS));
+        // Unknown duration (T1-4: gate disarmed) or never armed: never flag.
+        assert!(!is_premature_auto_switch(1_000, u64::MAX, PREMATURE_SWITCH_MARGIN_MS));
+        assert!(!is_premature_auto_switch(1_000, 0, PREMATURE_SWITCH_MARGIN_MS));
+    }
+
+    #[test]
+    fn registration_resets_position_confirmation_and_premature_flag() {
+        let now = 5_000_000;
+        let mut state = PlaybackStateInner {
+            position_confirmation_emitted: true,
+            premature_switch_flagged: true,
+            ..PlaybackStateInner::default()
+        };
+        register_playback_internal(
+            &mut state,
+            "fresh".to_string(),
+            60_000,
+            60_000,
+            "C:/Media/a.mp4".to_string(),
+            Some("C:/Media/b.mp4".to_string()),
+            2_000,
+            Some(1),
+            Some("take-1".to_string()),
+            Some("fresh".to_string()),
+            Some("inst-1".to_string()),
+            Some(0),
+            Some(62_000),
+            Some(false),
+            Some(0),
+            now,
+        );
+        assert!(!state.position_confirmation_emitted, "a fresh take must wait for the reset-window sample");
+        assert!(!state.premature_switch_flagged);
+        assert!(state.awaiting_position_reset);
+
+        // Adopting an already running clip needs no wait.
+        register_playback_internal(
+            &mut state,
+            "adopted".to_string(),
+            60_000,
+            60_000,
+            "C:/Media/b.mp4".to_string(),
+            None,
+            0,
+            Some(2),
+            Some("take-2".to_string()),
+            Some("adopted".to_string()),
+            Some("inst-2".to_string()),
+            Some(0),
+            Some(60_000),
+            Some(true),
+            Some(20_000),
+            now,
+        );
+        assert!(state.position_confirmation_emitted);
+        assert!(!state.awaiting_position_reset);
+
+        clear_playback_state(&mut state);
+        assert!(!state.position_confirmation_emitted);
+        assert!(!state.premature_switch_flagged);
     }
 
     #[test]

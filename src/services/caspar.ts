@@ -9,6 +9,7 @@ import { hydrateItem, type RundownItem } from '../lib/rundownHydrator';
 import { dispatchPlay, dispatchLoadbg, computeDurationMsFromTrim, type FrameTrimResult } from '../lib/playoutDispatch';
 import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
+import { recordFrontendFault } from '../lib/frontendFaults';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
 import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordinator';
 import { parseDescriptorsFromText, getGreekRatingDefaultText } from '../lib/greekCompliance';
@@ -246,6 +247,8 @@ let feedbackUnlisten: (() => void) | null = null;
 let tickUnlisten: (() => void) | null = null;
 let advanceUnlisten: (() => void) | null = null;
 let confirmUnlisten: (() => void) | null = null;
+let positionConfirmUnlisten: (() => void) | null = null;
+let prematureTransitionUnlisten: (() => void) | null = null;
 let templateDeployedUnlisten: (() => void) | null = null;
 let lastAppliedComplianceItem: PlayoutItem | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -292,7 +295,25 @@ async function applyComplianceForPlayback(item: PlayoutItem, token: number): Pro
 
 /// Waiters for Rust's `caspar://foreground-confirmed` event (Phase 4).
 let confirmWaiters: Array<{ uuid: string; resolve: (ok: boolean) => void }> = [];
-function waitForForegroundConfirmation(uuid: string, timeoutMs: number): Promise<boolean> {
+/// Waiters for Rust's `caspar://foreground-position-confirmed` event: the new
+/// clip has reported a `/file/time` sample inside its post-take reset window,
+/// which CasparCG only publishes after the first frame is delivered.
+let positionConfirmWaiters: Array<{ uuid: string; resolve: (ok: boolean) => void }> = [];
+
+/// How long a take waits for first-frame proof before arming the next
+/// `LOADBG … AUTO` anyway. By then the just-PLAYed clip has rendered for well
+/// over a second, so the CasparCG first-tick AUTO race (see
+/// `is_premature_auto_switch` in caspar.rs) cannot occur.
+const PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS = 1500;
+
+type ConfirmationWaiter = { uuid: string; resolve: (ok: boolean) => void };
+
+function waitOnList(
+    list: () => ConfirmationWaiter[],
+    setList: (next: ConfirmationWaiter[]) => void,
+    uuid: string,
+    timeoutMs: number
+): Promise<boolean> {
     return new Promise((resolve) => {
         let settled = false;
         const finish = (ok: boolean) => {
@@ -301,14 +322,48 @@ function waitForForegroundConfirmation(uuid: string, timeoutMs: number): Promise
                 resolve(ok);
             }
         };
-        const entry = { uuid, resolve: finish };
-        confirmWaiters.push(entry);
+        const entry: ConfirmationWaiter = { uuid, resolve: finish };
+        setList([...list(), entry]);
         setTimeout(() => {
-            confirmWaiters = confirmWaiters.filter((w) => w !== entry);
+            setList(list().filter((w) => w !== entry));
             finish(false);
         }, timeoutMs);
     });
 }
+
+function resolveWaiters(list: ConfirmationWaiter[], uuid: string): ConfirmationWaiter[] {
+    const remaining: ConfirmationWaiter[] = [];
+    for (const waiter of list) {
+        if (waiter.uuid === uuid) {
+            waiter.resolve(true);
+        } else {
+            remaining.push(waiter);
+        }
+    }
+    return remaining;
+}
+
+function waitForForegroundConfirmation(uuid: string, timeoutMs: number): Promise<boolean> {
+    return waitOnList(() => confirmWaiters, (next) => { confirmWaiters = next; }, uuid, timeoutMs);
+}
+
+function waitForPositionConfirmation(uuid: string, timeoutMs: number): Promise<boolean> {
+    return waitOnList(() => positionConfirmWaiters, (next) => { positionConfirmWaiters = next; }, uuid, timeoutMs);
+}
+
+/// Test hooks for the first-frame gate (no Tauri event bus in vitest).
+export const __preloadGateTestHooks = {
+    waitForPositionConfirmation,
+    waitForForegroundConfirmation,
+    resolvePositionConfirmation(uuid: string) {
+        positionConfirmWaiters = resolveWaiters(positionConfirmWaiters, uuid);
+    },
+    resolveForegroundConfirmation(uuid: string) {
+        confirmWaiters = resolveWaiters(confirmWaiters, uuid);
+    },
+    pendingPositionWaiters: () => positionConfirmWaiters.length,
+    PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS,
+};
 
 const assertIngestorReady = (item: PlayoutItem) => {
     const status: IngestorStatus = (item as any).ingestorStatus || 'idle';
@@ -475,7 +530,16 @@ const disposeFeedbackListener = async () => {
         try { confirmUnlisten(); } catch { /* ignore */ }
         confirmUnlisten = null;
     }
+    if (positionConfirmUnlisten) {
+        try { positionConfirmUnlisten(); } catch { /* ignore */ }
+        positionConfirmUnlisten = null;
+    }
+    if (prematureTransitionUnlisten) {
+        try { prematureTransitionUnlisten(); } catch { /* ignore */ }
+        prematureTransitionUnlisten = null;
+    }
     confirmWaiters = [];
+    positionConfirmWaiters = [];
     // Release the ensureFeedbackListener singleton promise so a subsequent
     // connect() re-runs the listener setup. Without this, disconnect()→connect()
     // short-circuits in ensureFeedbackListener (feedbackListenerPromise != null)
@@ -1070,16 +1134,28 @@ const ensureFeedbackListener = async () => {
             confirmUnlisten = await listen<{ currentUuid: string | null }>('caspar://foreground-confirmed', (event) => {
                 const uuid = event.payload?.currentUuid;
                 if (!uuid || confirmWaiters.length === 0) return;
-                const remaining: typeof confirmWaiters = [];
-                for (const waiter of confirmWaiters) {
-                    if (waiter.uuid === uuid) {
-                        waiter.resolve(true);
-                    } else {
-                        remaining.push(waiter);
-                    }
-                }
-                confirmWaiters = remaining;
+                confirmWaiters = resolveWaiters(confirmWaiters, uuid);
             });
+        }
+
+        if (!positionConfirmUnlisten) {
+            positionConfirmUnlisten = await listen<{ currentUuid: string | null }>('caspar://foreground-position-confirmed', (event) => {
+                const uuid = event.payload?.currentUuid;
+                if (!uuid || positionConfirmWaiters.length === 0) return;
+                positionConfirmWaiters = resolveWaiters(positionConfirmWaiters, uuid);
+            });
+        }
+
+        if (!prematureTransitionUnlisten) {
+            prematureTransitionUnlisten = await listen<{ currentUuid: string | null; observedPath?: string; earlyByMs?: number; message?: string }>(
+                'caspar://premature-transition',
+                (event) => {
+                    const message = event.payload?.message
+                        || `CasparCG switched to the preloaded clip ${event.payload?.observedPath ?? ''} early; the rundown ON AIR marker is out of sync until the next transition.`;
+                    console.error('[CasparCG]', message);
+                    recordFrontendFault('caspar-playout', message);
+                }
+            );
         }
 
         if (!templateDeployedUnlisten) {
@@ -1650,6 +1726,11 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         currentCasparDurationMs.value = 0;
         store.stopPlaybackProgressTimer();
 
+        // Register the first-frame waiter BEFORE dispatch: Rust emits the
+        // confirmation once it sees a /file/time sample inside the new clip's
+        // reset window, which can happen during the registration IPC.
+        const firstFrameConfirmation = waitForPositionConfirmation(key, PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS);
+
         // Dispatch frame-accurate trim PLAY and register playback. On a
         // crash-resume the pending seek offset continues the clip where it
         // stopped (SEEK past the trim IN point, LENGTH = remaining frames).
@@ -1680,7 +1761,23 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         const progressStartTime = Date.now();
         store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, progressStartTime);
 
-        // Preload next item immediately
+        // Arm the next clip only after CasparCG proves the clip we just PLAYed
+        // has rendered a frame. Issuing LOADBG … AUTO earlier lets CasparCG's
+        // first-tick AUTO check fire against a producer whose frame counter has
+        // not started (SEEK > 0 makes it wrap around), which puts the NEXT clip
+        // on air instead of the one the operator took (incident 2026-09-18).
+        // A timeout still arms the preload: after 1.5 s of playback the race
+        // window is long closed and a missing preload would mean a cold cut.
+        const firstFrameConfirmed = await firstFrameConfirmation;
+        if (token !== playToken) return;
+        if (!firstFrameConfirmed) {
+            console.warn('[CasparCG] First-frame confirmation timed out; arming the next clip anyway.');
+            invoke('push_diagnostic_log', {
+                level: 'warn',
+                scope: 'caspar-playout',
+                message: `First-frame confirmation for ${key} not received within ${PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS} ms; LOADBG AUTO armed on timeout`
+            }).catch(() => {});
+        }
         await preloadNextItemAt(index + 1, token);
 
         // Late-resolve duration if still unknown and re-register the deadline.
@@ -1914,6 +2011,7 @@ async function advanceToNext(token: number, natural: boolean) {
                 // the next clip is already on air, and its confirmation event
                 // may be emitted during the registration IPC round-trip.
                 const foregroundConfirmation = waitForForegroundConfirmation(key, 1500);
+                const firstFrameConfirmation = waitForPositionConfirmation(key, PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS);
                 await invoke('caspar_register_playback', {
                     uuid: key,
                     durationMs: durationMs,
@@ -1938,7 +2036,14 @@ async function advanceToNext(token: number, natural: boolean) {
                 // background would replace B and skip it entirely. A timeout
                 // leaves the next transition to the guarded hard-PLAY fallback
                 // rather than guessing that it is safe to overwrite hardware.
-                if (await foregroundConfirmation && transitionToken === playToken) {
+                // Prefer first-frame proof (a /file/time sample inside the new
+                // clip's window) over the path-only confirmation, so the next
+                // LOADBG cannot land in CasparCG's first-tick AUTO window either.
+                // The path confirmation stays as the fallback, preserving the
+                // previous behaviour when the position window is never seen.
+                const firstFrameConfirmed = await firstFrameConfirmation;
+                const safeToArm = firstFrameConfirmed || await foregroundConfirmation;
+                if (safeToArm && transitionToken === playToken) {
                     await preloadNextItemAt(nextIndex + 1, transitionToken);
                 } else if (transitionToken === playToken) {
                     console.warn('[CasparCG] Foreground confirmation timed out; AUTO preload remains disarmed until the next verified transition.');
