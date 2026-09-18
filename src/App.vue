@@ -7,8 +7,14 @@ import { message } from '@tauri-apps/plugin-dialog';
 import MediaLibrary from './components/MediaLibrary.vue';
 import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
-import SettingsModal from './components/SettingsModal.vue';
+import { lazyComponent } from './lib/lazyComponent';
 import CommandPaletteModal from './components/CommandPaletteModal.vue';
+// PERF F-14: Settings is 1.8k lines and opened rarely; load it on demand and
+// mount it only while open so its watchers/listeners do not run at startup.
+const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponent(
+  'SettingsModal',
+  () => import('./components/SettingsModal.vue'),
+);
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
@@ -503,11 +509,34 @@ const handleInspectorOpenEvent = (event: any) => {
   openInspectorModal(event.detail);
 };
 
+const revealWindow = () => {
+  // PERF F-16: the window is created hidden (tauri.conf.json `visible: false`)
+  // so the operator never sees a white unstyled frame. Reveal after Vue's first
+  // DOM commit; Rust also reveals it after a timeout as a fail-safe.
+  invoke('frontend_ready').catch(() => { /* dev server / tests */ });
+  if (settings.debugMode) {
+    invoke('push_diagnostic_log', {
+      level: 'info',
+      scope: 'frontend:startup',
+      message: `App mounted ${Math.round(performance.now())} ms after navigation start`,
+    }).catch(() => {});
+  }
+};
+
 onMounted(async () => {
   window.addEventListener('pointerdown', handleGlobalPointerDown);
   window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
-  try {
-    unlistenHeartbeat = await listen('ingestor-heartbeat',
+  revealWindow();
+  if (settings.debugMode) {
+    startJankMonitor();
+  }
+
+  // PERF F-17: independent listeners and IPC start concurrently instead of
+  // one `await` after another. The Studio preset hydration is fired first and
+  // consumed last; it is not on the connect path.
+  const studioPresetPromise = invoke<any>('get_studio_default_preset').catch(() => null);
+  const [heartbeatUnlisten, haltedUnlisten] = await Promise.all([
+    listen('ingestor-heartbeat',
       (event: { payload: { online: boolean; last_seen_at: number; error?: string; auth_rejected?: boolean } }) => {
         const payload = event.payload;
         ingestorStatus.setOnline(payload.online, payload.last_seen_at);
@@ -516,26 +545,22 @@ onMounted(async () => {
           ingestorStatus.logWarning('ingestor-heartbeat', `Connection lost: ${payload.error}`);
         }
       }
-    );
-  } catch (err) {
-    console.error('[Heartbeat] Failed to listen to heartbeat events:', err);
-  }
-  try {
-    unlistenHalted = await listen('playout://halted', () => {
+    ).catch((err) => {
+      console.error('[Heartbeat] Failed to listen to heartbeat events:', err);
+      return null;
+    }),
+    listen('playout://halted', () => {
       playoutHalted.value = true;
-    });
-  } catch (err) {
-    console.error('[Playout] Failed to listen to playout://halted event:', err);
-  }
-  if (settings.debugMode) {
-    startJankMonitor();
-  }
-
-  try {
-    await initCasparProcessListener();
-  } catch (err) {
-    console.warn('[CasparProcess] Listener init failed:', err);
-  }
+    }).catch((err) => {
+      console.error('[Playout] Failed to listen to playout://halted event:', err);
+      return null;
+    }),
+    initCasparProcessListener().catch((err) => {
+      console.warn('[CasparProcess] Listener init failed:', err);
+    }),
+  ]);
+  unlistenHeartbeat = heartbeatUnlisten;
+  unlistenHalted = haltedUnlisten;
 
   // Restore connection and playback state on F5 refresh / launch
   if (settings.playoutEngine === 'casparcg') {
@@ -568,12 +593,10 @@ onMounted(async () => {
   }
 
   // Hydrate deployed Studio preset into Pinia on application boot
-  try {
-    const defaultPreset = await invoke<any>('get_studio_default_preset');
-    if (defaultPreset) {
-      settings.updateCgAdvisoryFromDeployedPreset(defaultPreset);
-    }
-  } catch (_) {}
+  const defaultPreset = await studioPresetPromise;
+  if (defaultPreset) {
+    settings.updateCgAdvisoryFromDeployedPreset(defaultPreset);
+  }
 });
 
 onUnmounted(() => {
@@ -772,7 +795,7 @@ onUnmounted(() => {
 
       <IngestorStatusLight />
 
-      <button class="ctrl-btn" style="font-size:0.78rem;" @click="showSettings = true">⚙ Settings</button>
+      <button class="ctrl-btn" style="font-size:0.78rem;" @pointerenter="preloadSettingsModal()" @focus="preloadSettingsModal()" @click="showSettings = true">⚙ Settings</button>
 
       <div class="ctrl-meta-dock" ref="footerMetaRef">
         <button
@@ -831,7 +854,7 @@ onUnmounted(() => {
     </footer>
 
     <MediaInspector :is-open="activeModalName === 'inspector'" :target-item="activeInspectorItem" @close="closeInspectorModal" />
-    <SettingsModal :is-open="showSettings" @close="showSettings = false" />
+    <SettingsModal v-if="showSettings" :is-open="showSettings" @close="showSettings = false" />
     <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
   </main>
 </template>
@@ -915,15 +938,41 @@ onUnmounted(() => {
 .btn-play:hover:not(:disabled) { background:#45d4e3; box-shadow:0 0 18px rgba(51,190,204,0.6); }
 
 .btn-stop {
+  position: relative;
   background:#e63946; border-color:#e63946;
   color:#fff; font-size:0.88rem; font-weight:800;
   padding:6px 20px; letter-spacing:1px;
-  box-shadow:0 0 12px rgba(230,57,70,0.35);
-  animation:pulse-stop 1.5s ease-in-out infinite;
+  box-shadow:0 0 12px rgba(230,57,70,0.4);
+}
+/* PERF F-22: STOP is visible for the whole playing session; its glow pulse
+   used to repaint the button every frame (box-shadow keyframe). The peak
+   glow now sits on an overlay whose opacity pulses on the compositor. */
+.btn-stop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 28px rgba(230,57,70,0.8);
+  animation: pulse-stop 1.5s ease-in-out infinite;
+  will-change: opacity;
 }
 @keyframes pulse-stop {
-  0%,100% { box-shadow:0 0 12px rgba(230,57,70,0.4); }
-  50%      { box-shadow:0 0 28px rgba(230,57,70,0.8); }
+  0%,100% { opacity: 0; }
+  50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-stop::after,
+  .btn-live-now,
+  .btn-live-active,
+  .btn-live-armed,
+  .ctrl-nextup-dock.is-imminent,
+  .nextup-header,
+  .status-dot.pulse,
+  .halt-icon {
+    animation: none !important;
+  }
+  .btn-stop::after { opacity: 0.5; }
 }
 
 .btn-live { background:rgba(230,57,70,0.2); border-color:rgba(230,57,70,0.5); color:#e63946; }
@@ -1041,7 +1090,7 @@ onUnmounted(() => {
   border-radius: 6px;
   letter-spacing: 0.5px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
   user-select: none;
 }
 
@@ -1140,7 +1189,8 @@ onUnmounted(() => {
   max-width: 195px;
   height: 32px;
   box-sizing: border-box;
-  transition: all 0.2s ease;
+  /* PERF F-23: `all` also animated the dock width every time the label changed. */
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .ctrl-nextup-dock.is-imminent {
@@ -1217,7 +1267,7 @@ onUnmounted(() => {
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--border-strong);
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 .status-dot.connected,
 .status-dot.tone-ready {
@@ -1275,7 +1325,7 @@ onUnmounted(() => {
   background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ctrl-meta-btn:hover,

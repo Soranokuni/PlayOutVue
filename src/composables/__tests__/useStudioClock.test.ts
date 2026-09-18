@@ -38,4 +38,31 @@ describe('useStudioClock composable', () => {
     expect(clock.timecode.value).toBe('23:59:59:24');
     clock.stop();
   });
+
+  // PERF F-18: the loop is a frame-aligned timer, not a 60 Hz rAF loop.
+  it('advances one frame per 40 ms wake-up at 25 fps and stops cleanly', () => {
+    vi.stubGlobal('window', {});
+    try {
+      const date = new Date(2026, 8, 14, 10, 0, 0, 0);
+      vi.setSystemTime(date);
+
+      const clock = useStudioClock(25);
+      expect(clock.timecode.value).toBe('10:00:00:00');
+
+      vi.advanceTimersByTime(41);
+      expect(clock.timecode.value).toBe('10:00:00:01');
+
+      vi.advanceTimersByTime(40 * 23);
+      expect(clock.timecode.value).toBe('10:00:00:24');
+
+      vi.advanceTimersByTime(40);
+      expect(clock.timecode.value).toBe('10:00:01:00');
+
+      expect(vi.getTimerCount()).toBe(1);
+      clock.stop();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

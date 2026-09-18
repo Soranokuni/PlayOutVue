@@ -346,6 +346,12 @@ const itemTooltip = computed(() => {
   0%, 100% { background: color-mix(in srgb, var(--accent-yellow) 10%, var(--bg-secondary)); box-shadow: 0 0 0 0 transparent; }
   50% { background: color-mix(in srgb, var(--accent-yellow) 22%, var(--bg-secondary)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-yellow) 40%, transparent), 0 0 16px color-mix(in srgb, var(--accent-yellow) 25%, transparent); }
 }
+@media (prefers-reduced-motion: reduce) {
+  .rw-row.next-up-imminent {
+    animation: none;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-yellow) 40%, transparent);
+  }
+}
 
 .rw-handle { color: var(--text-muted); cursor: grab; font-size: 0.92rem; width: 18px; text-align: center; flex-shrink: 0; }
 .rw-num     { width: 22px; text-align: center; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); flex-shrink: 0; font-family: var(--font-mono); }
