@@ -14,14 +14,23 @@ import { beginLibraryDrag, didCompletePointerDrag } from '../composables/useDrag
 import { activeScope, activeLibraryContext } from '../composables/useOperatorShortcuts';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
-import FolderPickerModal from './FolderPickerModal.vue';
-import RecycleBinModal from './RecycleBinModal.vue';
+import { lazyComponent } from '../lib/lazyComponent';
 import StatusIndicator from './StatusIndicator.vue';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaLibrary';
+
+// PERF F-14: pickers/bin are opened rarely; fetch on first open, mount only while open.
+const { component: FolderPickerModal } = lazyComponent(
+  'FolderPickerModal',
+  () => import('./FolderPickerModal.vue'),
+);
+const { component: RecycleBinModal, preload: preloadRecycleBinModal } = lazyComponent(
+  'RecycleBinModal',
+  () => import('./RecycleBinModal.vue'),
+);
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -2087,6 +2096,7 @@ const menuItems = computed<MenuItem[]>(() => {
         class="system-node-recycle-bin"
         :class="{ 'is-drag-target': isTrashDragOver }"
         title="Recycle Bin (Drag assets here to delete)"
+        @pointerenter="preloadRecycleBinModal()"
         @click="showRecycleBin = true"
         @dragover.prevent="isTrashDragOver = true"
         @dragleave="isTrashDragOver = false"
@@ -2200,6 +2210,7 @@ const menuItems = computed<MenuItem[]>(() => {
 
     <!-- Folder Picker Modal -->
     <FolderPickerModal
+      v-if="showFolderPicker"
       :is-open="showFolderPicker"
       :title="folderPickerTitle"
       :current-path="folderPickerCurrentPath"

@@ -7,8 +7,14 @@ import { message } from '@tauri-apps/plugin-dialog';
 import MediaLibrary from './components/MediaLibrary.vue';
 import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
-import SettingsModal from './components/SettingsModal.vue';
+import { lazyComponent } from './lib/lazyComponent';
 import CommandPaletteModal from './components/CommandPaletteModal.vue';
+// PERF F-14: Settings is 1.8k lines and opened rarely; load it on demand and
+// mount it only while open so its watchers/listeners do not run at startup.
+const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponent(
+  'SettingsModal',
+  () => import('./components/SettingsModal.vue'),
+);
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
@@ -772,7 +778,7 @@ onUnmounted(() => {
 
       <IngestorStatusLight />
 
-      <button class="ctrl-btn" style="font-size:0.78rem;" @click="showSettings = true">⚙ Settings</button>
+      <button class="ctrl-btn" style="font-size:0.78rem;" @pointerenter="preloadSettingsModal()" @focus="preloadSettingsModal()" @click="showSettings = true">⚙ Settings</button>
 
       <div class="ctrl-meta-dock" ref="footerMetaRef">
         <button
@@ -831,7 +837,7 @@ onUnmounted(() => {
     </footer>
 
     <MediaInspector :is-open="activeModalName === 'inspector'" :target-item="activeInspectorItem" @close="closeInspectorModal" />
-    <SettingsModal :is-open="showSettings" @close="showSettings = false" />
+    <SettingsModal v-if="showSettings" :is-open="showSettings" @close="showSettings = false" />
     <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
   </main>
 </template>
