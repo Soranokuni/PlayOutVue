@@ -509,11 +509,34 @@ const handleInspectorOpenEvent = (event: any) => {
   openInspectorModal(event.detail);
 };
 
+const revealWindow = () => {
+  // PERF F-16: the window is created hidden (tauri.conf.json `visible: false`)
+  // so the operator never sees a white unstyled frame. Reveal after Vue's first
+  // DOM commit; Rust also reveals it after a timeout as a fail-safe.
+  invoke('frontend_ready').catch(() => { /* dev server / tests */ });
+  if (settings.debugMode) {
+    invoke('push_diagnostic_log', {
+      level: 'info',
+      scope: 'frontend:startup',
+      message: `App mounted ${Math.round(performance.now())} ms after navigation start`,
+    }).catch(() => {});
+  }
+};
+
 onMounted(async () => {
   window.addEventListener('pointerdown', handleGlobalPointerDown);
   window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
-  try {
-    unlistenHeartbeat = await listen('ingestor-heartbeat',
+  revealWindow();
+  if (settings.debugMode) {
+    startJankMonitor();
+  }
+
+  // PERF F-17: independent listeners and IPC start concurrently instead of
+  // one `await` after another. The Studio preset hydration is fired first and
+  // consumed last; it is not on the connect path.
+  const studioPresetPromise = invoke<any>('get_studio_default_preset').catch(() => null);
+  const [heartbeatUnlisten, haltedUnlisten] = await Promise.all([
+    listen('ingestor-heartbeat',
       (event: { payload: { online: boolean; last_seen_at: number; error?: string; auth_rejected?: boolean } }) => {
         const payload = event.payload;
         ingestorStatus.setOnline(payload.online, payload.last_seen_at);
@@ -522,26 +545,22 @@ onMounted(async () => {
           ingestorStatus.logWarning('ingestor-heartbeat', `Connection lost: ${payload.error}`);
         }
       }
-    );
-  } catch (err) {
-    console.error('[Heartbeat] Failed to listen to heartbeat events:', err);
-  }
-  try {
-    unlistenHalted = await listen('playout://halted', () => {
+    ).catch((err) => {
+      console.error('[Heartbeat] Failed to listen to heartbeat events:', err);
+      return null;
+    }),
+    listen('playout://halted', () => {
       playoutHalted.value = true;
-    });
-  } catch (err) {
-    console.error('[Playout] Failed to listen to playout://halted event:', err);
-  }
-  if (settings.debugMode) {
-    startJankMonitor();
-  }
-
-  try {
-    await initCasparProcessListener();
-  } catch (err) {
-    console.warn('[CasparProcess] Listener init failed:', err);
-  }
+    }).catch((err) => {
+      console.error('[Playout] Failed to listen to playout://halted event:', err);
+      return null;
+    }),
+    initCasparProcessListener().catch((err) => {
+      console.warn('[CasparProcess] Listener init failed:', err);
+    }),
+  ]);
+  unlistenHeartbeat = heartbeatUnlisten;
+  unlistenHalted = haltedUnlisten;
 
   // Restore connection and playback state on F5 refresh / launch
   if (settings.playoutEngine === 'casparcg') {
@@ -574,12 +593,10 @@ onMounted(async () => {
   }
 
   // Hydrate deployed Studio preset into Pinia on application boot
-  try {
-    const defaultPreset = await invoke<any>('get_studio_default_preset');
-    if (defaultPreset) {
-      settings.updateCgAdvisoryFromDeployedPreset(defaultPreset);
-    }
-  } catch (_) {}
+  const defaultPreset = await studioPresetPromise;
+  if (defaultPreset) {
+    settings.updateCgAdvisoryFromDeployedPreset(defaultPreset);
+  }
 });
 
 onUnmounted(() => {
