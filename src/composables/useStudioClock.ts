@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted, onScopeDispose, getCurrentScope } from 'vue';
+import { ref, onScopeDispose, getCurrentScope } from 'vue';
 
 export interface StudioClockOptions {
   fps?: number;
@@ -6,15 +6,23 @@ export interface StudioClockOptions {
 
 /**
  * Decoupled Time-of-Day studio wall clock providing frame-accurate
- * timecode (HH:MM:SS:FF) driven at high frequency via requestAnimationFrame,
- * completely isolated from Pinia store reactivity cascades.
+ * timecode (HH:MM:SS:FF), completely isolated from Pinia store reactivity
+ * cascades.
+ *
+ * PERF F-18: this used to be a requestAnimationFrame loop, i.e. 60 wake-ups
+ * per second (and a compositor kept awake) to advance a display that only
+ * changes `fps` times per second. The loop is now a timer aligned to the
+ * next frame boundary within the current second (25 wake-ups/s at 25 fps),
+ * and it sleeps entirely while the document is hidden, catching up on the
+ * next visibility change. The value written to `timecode` is identical.
  */
 export function useStudioClock(fpsInput: number = 25) {
   const fps = ref(fpsInput > 0 ? fpsInput : 25);
   const timecode = ref('00:00:00:00');
   const isNtpLocked = ref(true);
 
-  let animFrameId: number | null = null;
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+  let running = false;
   let lastFormatted = '';
 
   const updateClock = () => {
@@ -34,22 +42,59 @@ export function useStudioClock(fpsInput: number = 25) {
       lastFormatted = formatted;
       timecode.value = formatted;
     }
+  };
 
-    if (typeof requestAnimationFrame !== 'undefined') {
-      animFrameId = requestAnimationFrame(updateClock);
+  const isHidden = () => typeof document !== 'undefined' && document.hidden === true;
+
+  const clearTimer = () => {
+    if (timerId !== null) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+  };
+
+  /** Sleep until just after the next frame boundary of the current second. */
+  const scheduleNext = () => {
+    if (!running || isHidden()) return;
+    const periodMs = 1000 / fps.value;
+    const withinSecond = Date.now() % 1000;
+    const untilBoundary = periodMs - (withinSecond % periodMs);
+    // +1 ms guard so a slightly-early wake-up does not land in the same frame.
+    const delay = Math.max(1, Math.ceil(untilBoundary) + 1);
+    timerId = setTimeout(tick, delay);
+  };
+
+  const tick = () => {
+    timerId = null;
+    updateClock();
+    scheduleNext();
+  };
+
+  const onVisibilityChange = () => {
+    if (!running) return;
+    if (isHidden()) {
+      clearTimer();
+    } else if (timerId === null) {
+      updateClock();
+      scheduleNext();
     }
   };
 
   const start = () => {
-    if (animFrameId === null && typeof requestAnimationFrame !== 'undefined') {
-      animFrameId = requestAnimationFrame(updateClock);
+    if (running) return;
+    running = true;
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
     }
+    updateClock();
+    scheduleNext();
   };
 
   const stop = () => {
-    if (animFrameId !== null && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(animFrameId);
-      animFrameId = null;
+    running = false;
+    clearTimer();
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     }
   };
 

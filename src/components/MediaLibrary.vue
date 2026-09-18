@@ -1417,15 +1417,32 @@ onMounted(() => {
         }
     }, 300000);
     libraryPollTimer = setInterval(() => {
-        if (isScanning.value) return;
-        if (!ingestorStatus.isIngestorOnline) return;
-        fetchAssets().catch(() => {});
-        mediaLibrary.fetchRecycleBin().catch(() => {});
+        // PERF F-11 (lite): a hidden window cannot show a fresher library, so
+        // skip the 30 s full refetch while hidden and catch up once visible.
+        if (document.hidden) {
+            libraryPollMissedWhileHidden = true;
+            return;
+        }
+        runLibraryPoll();
     }, 30000);
+    document.addEventListener('visibilitychange', onLibraryVisibilityChange);
     mediaLibrary.fetchFolderColors();
     mediaLibrary.fetchRecycleBin().catch(() => {});
     window.addEventListener('click', onGlobalClick);
 });
+
+let libraryPollMissedWhileHidden = false;
+function runLibraryPoll() {
+    if (isScanning.value) return;
+    if (!ingestorStatus.isIngestorOnline) return;
+    fetchAssets().catch(() => {});
+    mediaLibrary.fetchRecycleBin().catch(() => {});
+}
+function onLibraryVisibilityChange() {
+    if (document.hidden || !libraryPollMissedWhileHidden) return;
+    libraryPollMissedWhileHidden = false;
+    runLibraryPoll();
+}
 
 onUnmounted(() => {
     activeLibraryContext.value = null;
@@ -1438,6 +1455,7 @@ onUnmounted(() => {
         libraryPollTimer = null;
     }
     clearScheduledWarmup();
+    document.removeEventListener('visibilitychange', onLibraryVisibilityChange);
     window.removeEventListener('click', onGlobalClick);
 });
 
