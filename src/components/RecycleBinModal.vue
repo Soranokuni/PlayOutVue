@@ -198,7 +198,9 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { message } from '@tauri-apps/plugin-dialog';
 import { useMediaLibraryStore, type LibraryAsset } from '../stores/mediaLibrary';
+import { describePurgeOutcome } from '../lib/ingestorFeedback';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -271,6 +273,16 @@ function formatDeletedAt(isoString?: string): string {
   }
 }
 
+// Native dialogs are unavailable under unit tests; never let a failed
+// notification mask the operation's own outcome.
+async function notify(text: string, title: string, kind: 'info' | 'warning' | 'error') {
+  try {
+    await message(text, { title, kind });
+  } catch {
+    console.warn(`[RecycleBin] ${title}: ${text}`);
+  }
+}
+
 async function doRestoreAsset(asset: LibraryAsset) {
   isOperating.value = true;
   try {
@@ -279,6 +291,7 @@ async function doRestoreAsset(asset: LibraryAsset) {
     await libraryStore.restoreAsset(asset.uuid, target);
   } catch (e) {
     console.error('Failed to restore asset:', e);
+    await notify(`Failed to restore "${asset.display_name || getFileName(asset.current_path)}": ${e}`, 'Restore Error', 'error');
   } finally {
     isOperating.value = false;
   }
@@ -312,14 +325,21 @@ function cancelPurgeModal() {
 
 async function executePurgeConfirmed() {
   isOperating.value = true;
+  const target = purgeConfirmModal.value.targetAsset;
+  const subject = target ? (target.display_name || getFileName(target.current_path)) : 'the Recycle Bin';
   try {
-    if (purgeConfirmModal.value.targetType === 'single_asset' && purgeConfirmModal.value.targetAsset) {
-      await libraryStore.purgeAsset(purgeConfirmModal.value.targetAsset.uuid);
+    let note: string | null = null;
+    if (purgeConfirmModal.value.targetType === 'single_asset' && target) {
+      note = describePurgeOutcome(await libraryStore.purgeAsset(target.uuid), subject);
     } else if (purgeConfirmModal.value.targetType === 'empty_all') {
-      await libraryStore.emptyRecycleBin();
+      note = describePurgeOutcome(await libraryStore.emptyRecycleBin(), subject);
+    }
+    if (note) {
+      await notify(note, 'Purge completed with warnings', 'warning');
     }
   } catch (e) {
     console.error('Purge operation failed:', e);
+    await notify(`Failed to purge ${subject}: ${e}`, 'Purge Error', 'error');
   } finally {
     isOperating.value = false;
     cancelPurgeModal();

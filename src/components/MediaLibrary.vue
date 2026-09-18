@@ -3,6 +3,7 @@ import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { refDebounced } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { ask, save, message } from '@tauri-apps/plugin-dialog';
+import { describePurgeOutcome } from '../lib/ingestorFeedback';
 import { useRundownStore, parseBroadcastRating, serializeBroadcastRating, getMetadataFromAssetResponse, type ComplianceRating, type InsertionTarget } from '../stores/rundown';
 import { useSettingsStore } from '../stores/settings';
 import { useMediaDefaultsStore, type LibraryIndicator } from '../stores/mediaDefaults';
@@ -1115,15 +1116,17 @@ function promptPurgeFolder(folderPath: string) {
 }
 
 async function executePurgeAlert() {
-    const { isFolder, targetPathOrUuid } = purgeAlertModal.value;
+    const { isFolder, targetPathOrUuid, displayName } = purgeAlertModal.value;
     purgeAlertModal.value.show = false;
     try {
-        if (isFolder) {
-            await mediaLibrary.purgeFolder(targetPathOrUuid);
-        } else {
-            await mediaLibrary.purgeAsset(targetPathOrUuid);
-        }
+        const outcome = isFolder
+            ? await mediaLibrary.purgeFolder(targetPathOrUuid)
+            : await mediaLibrary.purgeAsset(targetPathOrUuid);
         await fetchAssets({ force: true });
+        const note = describePurgeOutcome(outcome, displayName || targetPathOrUuid);
+        if (note) {
+            await message(note, { title: 'Purge completed with warnings', kind: 'warning' });
+        }
     } catch (e) {
         await message(`Failed to purge: ${e}`, { title: 'Purge Error', kind: 'error' });
     }
