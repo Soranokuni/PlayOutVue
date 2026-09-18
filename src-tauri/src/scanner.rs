@@ -1170,6 +1170,10 @@ pub async fn scan_directory<R: Runtime>(
             let entries = std::fs::read_dir(dir)
                 .map_err(|e| format!("Failed to read directory '{}': {}", dir.to_string_lossy(), e))?;
 
+            // PERF R-2: collect this directory's cache writes and commit them
+            // in one transaction instead of one autocommit per write site.
+            let mut pending_upserts: Vec<CachedMediaEntry> = Vec::new();
+
             for entry in entries.flatten() {
                 let file_path = entry.path();
 
@@ -1252,10 +1256,12 @@ pub async fn scan_directory<R: Runtime>(
                     qc_warnings: String::new(),
                 });
 
+                let mut cache_dirty = false;
+
                 if entry_meta.duration_ms <= 0 {
                     let index_root = media_index::find_media_root_for_path(&file_path).unwrap_or_else(|| root.clone());
                     if let Ok(Some(indexed_entry)) = media_index::hydrate_entry_from_index(index_root.as_path(), &file_path) {
-                        let _ = db.upsert(&indexed_entry);
+                        cache_dirty = true;
                         entry_meta = indexed_entry;
                     }
                 }
@@ -1265,7 +1271,6 @@ pub async fn scan_directory<R: Runtime>(
                 if let Some(ref sc) = sidecar {
                     if entry_meta.duration_ms <= 0 {
                         entry_meta = transcoder_sidecar::sidecar_to_cached_entry(sc, &path_str);
-                        let _ = db.upsert(&entry_meta);
                     }
                     // Always refresh QC fields from the sidecar
                     entry_meta.mezzanine_ok = sc.mezzanine_ok;
@@ -1276,14 +1281,20 @@ pub async fn scan_directory<R: Runtime>(
                     if entry_meta.playoutvue_id.is_empty() && !sc.playoutvue_id.is_empty() {
                         entry_meta.playoutvue_id = sc.playoutvue_id.clone();
                     }
-                    let _ = db.upsert(&entry_meta);
+                    cache_dirty = true;
                 }
 
                 let index_root = media_index::find_media_root_for_path(&file_path).unwrap_or_else(|| root.clone());
                 if let Ok(changed) = media_index::enrich_entry_from_index_by_alias(index_root.as_path(), &file_path, &mut entry_meta) {
                     if changed {
-                        let _ = db.upsert(&entry_meta);
+                        cache_dirty = true;
                     }
+                }
+
+                // Every write site above replaced the whole row for this path, so
+                // the final entry_meta is exactly what the last autocommit wrote.
+                if cache_dirty {
+                    pending_upserts.push(entry_meta.clone());
                 }
 
                 results.push(DiscoveredMedia {
@@ -1310,6 +1321,8 @@ pub async fn scan_directory<R: Runtime>(
                     has_sidecar:  sidecar.is_some(),
                 });
             }
+
+            let _ = db.upsert_many(&pending_upserts);
 
             Ok(())
         }
