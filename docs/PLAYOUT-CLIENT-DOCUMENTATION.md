@@ -15,6 +15,18 @@ A security and reliability remediation landed on the whole of PlayoutTranscode.
 None of it was done in the PlayOut repository. This document tells you exactly
 what to change and what happens if you do not.
 
+> **Update, 2026-09-18 — a second change set has landed.** It was speed and
+> UI/UX work on PlayoutTranscode, and almost none of it reaches you. Two items
+> do, and both are new in this document:
+>
+> - **§8.7 — a newly ingested asset is now unrated (`NONE`), not `K`.** A
+>   behaviour change, not a wire change; nothing you parse moves. It does make
+>   one existing PlayOut bug matter a great deal more, and that bug loses
+>   operator data today: **§7.2.1**.
+> - **§4.1 — `GET /api/assets` now carries an `ETag`.** Entirely optional.
+>
+> Items 1–6 in the table below are unchanged and still outstanding.
+
 **The short version.** There are **two mandatory one-line changes**, both in
 `src-tauri/src/ingestor_api.rs`. Everything else is optional, informational, or
 a mapping table. The document is long because it explains *why*, not because
@@ -37,9 +49,14 @@ Two facts that bound the scope, both verified against your source:
 | 4 | Map four new `error_category` values | A match arm | A skipped duplicate is shown as a red failure |
 | 5 | Handle the `skipped` and `resync` SSE events | ~6 lines | Stale job list after a dropped connection |
 | 6 | Handle 503 from regenerate-sidecar | error branch | A confusing error message |
+| 7 | Send the **whole** rating string, not just the age token (§7.2.1) | ~3 lines, 3 call sites | Content type and the advisory timeline are silently lost on every save — **already happening** |
+| 8 | Show "unrated" in the library (§8.7) | UI | Nobody can see which new ingests still need classifying |
+| 9 | Patch one asset after a mutation instead of refetching the library (§4.1) | ~10 lines | ~1 MB re-downloaded per trim/rating/rename |
 
 Changes 1 and 2 are the mandatory ones. Change 3 becomes mandatory the day a
-station's library passes 1000 assets.
+station's library passes 1000 assets. **Change 7 is a data-loss bug and is the
+most urgent thing in this table** — it predates both change sets, but §8.7 turns
+it from rare into routine.
 
 ---
 
@@ -50,8 +67,8 @@ From `src-tauri/src/ingestor_api.rs`:
 | Endpoint | Method | Changed? |
 |---|---|---|
 | `/api/health` | GET | No. Still cheap, still exempt from auth |
-| `/api/assets` | GET | **Yes — now paginated (§4)** |
-| `/api/assets/{uuid}` | GET | No |
+| `/api/assets` | GET | **Yes — now paginated (§4)**; optional `ETag` (§4.1) |
+| `/api/assets/{uuid}` | GET | No; optional `ETag` (§4.1) |
 | `/api/assets/batch` | POST | No |
 | `/api/assets/{uuid}/rating` | PUT | Bounded at 4 KiB (§7.2) |
 | `/api/assets/{uuid}/tp` | PUT | Grammar-checked (§7.1) |
@@ -254,6 +271,28 @@ Out-of-range and unparseable values clamp rather than erroring: `?limit=0`
 becomes 1, `?limit=999999` becomes 5000, `?limit=abc` becomes the default. A
 request always returns data.
 
+### 4.1 Optional: `ETag` and `If-None-Match`
+
+`GET /api/assets` and `GET /api/assets/{uuid}` now send a weak `ETag` and
+`Cache-Control: no-cache`. **Nothing is required of a client.** Ignore the
+header and you get the same 200 and the same body as before.
+
+If you do use it: keep the last `ETag` per request URL, send it back as
+`If-None-Match`, and on `304 Not Modified` reuse the page you already have. The
+304 carries no body but does carry `X-Total-Count`, `X-Limit` and `X-Offset`,
+so paging still works from a cached page.
+
+The validator is derived from the response body itself, so it changes exactly
+when the bytes change -- a rating, trim, rename, move, trash or a finished
+ingest all produce a new one. A different `limit`/`offset`/`status`/`fields`
+combination is a different resource with its own validator; do not share one
+across URLs.
+
+This is worth wiring up where PlayOut force-refetches the whole library after
+every single-asset mutation (`MediaLibrary.vue`, after trim/rating/rename/move).
+Better still, patch that one asset from `GET /api/assets/{uuid}` and leave the
+library listing alone.
+
 ---
 
 ## 5. Job records and `error_category`
@@ -289,7 +328,19 @@ Four of these are new. Map them to operator-facing wording:
 | `db_mark_ready_failed` | Encoded successfully, registry would not record it; **the mezzanine is in `<target>\quarantine\`** | "Transcode finished but could not be saved — see quarantine" |
 | `sidecar_write_failed` | Encoded successfully, sidecar could not be written; also quarantined | as above |
 | `io_disk_full` | Not enough free space | "Not enough disk space" |
+| `probe_failure` | ffprobe could not read the stream layout | "Could not probe the file" |
+| `audio_measurement_failure` | The loudness pass did not complete | "Audio measurement failed" |
+| `profile_disabled` | The profile this file maps to is turned off | "Profile disabled in configuration" |
+| `validation_failure` | The encode finished but failed output QC | "Failed quality checks" |
+| `transcode_failure` | FFmpeg exited with an error | "Encode failed" |
+| `publish_failure` | The encoded file could not be moved into the target folder | "Could not publish the encoded file" |
+| `retryable_error` | Transient; the job will be attempted again | "Retrying" |
+| `cancelled` | An operator cancelled the job; nothing was published | "Cancelled" |
 | `duplicate_skipped` | **Legacy — see 5.3.** No longer produced | — |
+
+The web UI renders this same table from `web-ui/src/lib/errorCategories.ts`.
+If a category is added on the server, update both in the same commit; an
+unknown token falls back to being shown raw in both places.
 
 The three `db_*` / `sidecar_*` categories mean an encoded file exists in
 `<target>\quarantine\` that nothing references. An operator needs to know that,
@@ -416,6 +467,80 @@ control characters. The broadcast-metadata tail after the first `|` is still
 free text, **except** that a tail beginning with `[` or `{` must be valid JSON.
 PlayOut already sends JSON there, so this should be a no-op.
 
+### 7.2.1 PlayOut is not actually sending that tail — and is losing data
+
+**This is a bug in PlayOut, it is live today, and it loses operator work.** We
+found it while checking what §8.7 would affect. It is not caused by anything on
+the server side; the server stores faithfully whatever it is given.
+
+> **On the line numbers below.** They come from the copy of PlayOut we hold for
+> reference, which is **older than your tree** — it still builds a `reqwest`
+> client per call and has no pagination in `list_ingestor_assets`, both of which
+> we understand you have since fixed. Grep for the symbol names rather than
+> trusting the line numbers, and confirm the bug is still present before
+> changing anything. If it is already fixed on your side, tell us and we will
+> strike this section.
+
+The rating column holds four `|`-separated fields:
+
+```
+age | TP or NONE | CONTENT TYPE | [advisory timeline JSON]
+16|NONE|MOVIE|[{"start":0,"end":120000,"text":"ΠΕΡΙΕΧΕΙ ΣΚΗΝΕΣ ΒΙΑΣ"}]
+```
+
+`serializeBroadcastRating` builds exactly that string, and
+`parseBroadcastRating` reads it back. But **no call site ever sends it.** All
+three rating writers build the full string and then hand the Tauri command only
+the bare age token:
+
+| Call site | Sends |
+|---|---|
+| `src/stores/mediaLibrary.ts:582` (`updateAssetMetadata`) | `rating: age` |
+| `src/stores/rundown.ts:1587` (`updateItemMetadata`) | `rating: age` |
+| `src/components/MediaInspector.vue:79` (`pushRatingToIngestor`) | `rating: rating.toUpperCase()` |
+
+`mediaLibrary.ts` is the clearest case. It computes
+
+```ts
+const serialized = serializeBroadcastRating({ ageRating: age, tpFlag: tp, contentType: content, timeline });
+```
+
+then sends `rating: age` to the server (line 582) and writes `serialized` into
+the **local** store (line 601). So the two disagree immediately: locally the
+asset is `16|NONE|MOVIE|[…]`, on the server it is `16`. The next
+`fetchAssets({ force: true })` — which runs after *every* mutation — overwrites
+local state with the server's value, and the content type and the advisory
+timeline are gone.
+
+The TP flag survives, but only by accident: it is pushed separately through
+`update_ingestor_tp` to its own column. Content type and timeline exist
+**only** in the rating tail, so they have nowhere else to survive.
+
+**The fix, in all three places:** send the serialised string.
+
+```ts
+await invoke('update_ingestor_rating', {
+    uuid,
+    rating: serializeBroadcastRating({ ageRating: age, tpFlag: tp, contentType: content, timeline }),
+    apiBaseUrlOverride: null,
+});
+```
+
+`MediaInspector.pushRatingToIngestor` needs the same treatment: read the current
+metadata with `parseBroadcastRating(asset.rating)`, replace the age, re-serialise.
+Changing an age rating must not clear a compliance banner.
+
+Two things to check while you are in there:
+
+- **`update_ingestor_rating` uppercases the whole value** (`ingestor_api.rs:314`,
+  `rating.to_ascii_uppercase()`). That is harmless for `16|NONE|MOVIE|[]` but it
+  will uppercase the JSON tail too — including Greek advisory text, which
+  `to_ascii_uppercase` leaves alone, but also any lowercase JSON keys you add
+  later. Uppercase the age token only.
+- **The server accepts all of this.** The whole value is capped at 4 KiB, control
+  characters are rejected, and a tail starting with `[` or `{` must be valid
+  JSON — which `JSON.stringify` guarantees. Nothing here needs a server change.
+
 ### 7.3 `folder_color` is an allow-list
 
 `PUT /api/folders/colors` accepts `#rrggbb` or one of: `default`, `red`,
@@ -517,6 +642,53 @@ metadata. None of that is recoverable from the source file.
 Subclips are now never touched by a re-ingest, and a `ready` parent whose
 mezzanine has vanished is demoted to `error` rather than deleted, so its
 metadata survives. Nothing to do on your side.
+
+### 8.7 A newly ingested asset is unrated, not `K`
+
+**What changed.** Ingest used to write `rating: "K"` on every newly transcoded
+file, because the database column defaulted to `'K'` and the insert did not name
+it. Ingest has no way to know a programme's NCRTV suitability mark, so it was
+asserting one it had no basis for: every file arrived in PlayOut already
+claiming it was suitable for all audiences, and somebody had to notice and
+correct it. Ingest now writes `NONE`.
+
+**Nothing you parse moves.**
+
+- `NONE` was already in the server's accepted set for this field, alongside
+  `K`, `8`, `12`, `16`, `18`, an optional `+`, and the empty string.
+  `PUT /api/assets/{uuid}/rating` accepts and rejects exactly what it did before.
+- `mapApiRatingToCompliance` lowercases and tests membership in
+  `['k','8','12','16','18']`, so `"NONE"` already falls through to `'none'` —
+  the value PlayOut uses for "unrated".
+- `applyComplianceForItem` plays no badge for `'none'`, so an unrated item has
+  no on-screen mark. That is the correct output for a file nobody has
+  classified.
+
+**Existing rows are untouched.** Everything already ingested keeps the rating it
+has, including the `K` it was given automatically. Expect a mixed library for a
+long time. Subclips still inherit their parent's rating.
+
+**What this asks of PlayOut.**
+
+1. **Fix §7.2.1 first.** Operators are about to set ratings far more often than
+   before, because files no longer arrive pre-rated. Every one of those saves
+   currently discards the content type and the advisory timeline.
+
+2. **Make "unrated" visible, not merely absent.** A `'none'` asset renders as
+   nothing almost everywhere in the UI. While the default was `K`, "no badge"
+   effectively never occurred; it is now the normal state of every fresh ingest.
+   An explicit "Unrated" chip in `MediaLibrary`, and a filter for it, turns
+   "nobody has classified this yet" into something an operator can see and work
+   through — rather than something they discover at transmission.
+
+3. **Consider a pre-transmission check.** `ageRating === 'none'` is now a
+   meaningful signal: *nobody has classified this item*, as distinct from
+   *somebody decided it is K*. That distinction did not previously exist. If
+   anything in PlayOut gates or warns before air, this is worth surfacing there.
+
+**No migration is needed or wanted.** If you want a particular import to carry
+`K`, set it explicitly through `PUT /api/assets/{uuid}/rating`; the server has
+no opinion about which mark is correct, only that ingest should not invent one.
 
 ---
 
@@ -698,6 +870,16 @@ startup instead of silence.
 Items 1–3 are worth doing in one pass through `ingestor_api.rs`; they all live
 in the same file and 1 and 2 are single lines.
 
+Added by the 2026-09-18 change set, in priority order:
+
+0. **Send the whole rating string** (§7.2.1). This is losing operator data right
+   now, and it is three call sites. It belongs *above* everything else in this
+   list, including the mandatory items, because those merely fail loudly.
+7. **Show "unrated" in the library** (§8.7), once §7.2.1 is fixed — otherwise
+   you are making a workflow visible that still corrupts data when used.
+8. **Patch one asset after a mutation** instead of `fetchAssets({ force: true })`
+   (§4.1), and optionally send `If-None-Match`. Pure optimisation; do it last.
+
 ## 12. Questions back to you
 
 1. **`tp` as a strict allow-list.** We can tighten the grammar to exactly
@@ -707,7 +889,13 @@ in the same file and 1 and 2 are single lines.
    `Completed` state to preserve the wire contract. If you would rather have a
    distinct `state`, say so and we will widen it — it is a breaking change, so
    it needs to be a decision rather than a default.
-3. **Does PlayOut want the job stream at all?** Several of the improvements
+3. **Was the rating tail ever meant to reach us?** §7.2.1 shows PlayOut builds
+   the four-field string and then sends only the age token. We have assumed the
+   tail is meant to be persisted and the omission is a bug. If instead the
+   content type and timeline are deliberately local-only state, tell us — we
+   would then document the rating field as age-only and you can stop
+   round-tripping the rest.
+4. **Does PlayOut want the job stream at all?** Several of the improvements
    above (SSE `resync`, `error_category`, the retry semantics) only pay off if
    PlayOut surfaces ingest progress. If it never will, we can stop documenting
    them for you.

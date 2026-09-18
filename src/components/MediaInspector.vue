@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { useRundownStore, type ComplianceRating } from '../stores/rundown';
+import { useRundownStore, parseBroadcastRating, serializeBroadcastRating, type ComplianceRating } from '../stores/rundown';
 import { useMediaLibraryStore } from '../stores/mediaLibrary';
 import ComplianceModule from './ComplianceModule.vue';
 import { getActivePlayoutService } from '../services/playout';
@@ -37,13 +37,34 @@ const isRundownItem = computed(() => {
     return store.activeItems.some(i => i.id === item.id);
 });
 
+/** Current broadcast metadata of the inspected item, whether it is a rundown
+ *  item (discrete compliance fields) or a library asset (serialised rating). */
+const currentBroadcastMeta = (item: any) => {
+    if (typeof item?.rating === 'string') {
+        return parseBroadcastRating(item.rating);
+    }
+    return {
+        ageRating: (item?.complianceRating || 'none') as ComplianceRating,
+        tpFlag: !!item?.tp_flag,
+        contentType: item?.content_type || 'none',
+        timeline: Array.isArray(item?.timeline) ? item.timeline : [],
+    };
+};
+
+const UNRATED_WARNING =
+    'Unrated: nobody has classified this item yet. Ingest no longer assigns a default age mark, so set one before air.';
+
 const warningsList = computed<string[]>(() => {
     const item = activeItem.value;
     if (!item) return [];
-    if (Array.isArray(item.warnings) && item.warnings.length > 0) {
-        return item.warnings;
+    const warnings: string[] = Array.isArray(item.warnings) ? [...item.warnings] : [];
+    // Since PlayoutTranscode 1.0.0 a fresh ingest is NONE, not K, so "no age
+    // mark" now means "nobody has looked at this" and is worth a pre-air flag.
+    const isMedia = item.type === undefined || item.type === 'video' || item.type === 'media';
+    if (isMedia && currentBroadcastMeta(item).ageRating === 'none') {
+        warnings.unshift(UNRATED_WARNING);
     }
-    return [];
+    return warnings;
 });
 
 const transcodeInfo = computed(() => {
@@ -128,11 +149,21 @@ const pushRatingToIngestor = async (rating: ComplianceRating) => {
 
     pushRatingInFlight.value = true;
     try {
+        // Send the whole four-field rating string, never the bare age token:
+        // content type and the advisory timeline live only in the tail and the
+        // server stores exactly what it is given (client guide §7.2.1).
+        const serialized = serializeBroadcastRating({
+            ...currentBroadcastMeta(item),
+            ageRating: rating,
+        });
         await invoke('update_ingestor_rating', {
             uuid,
-            rating: rating.toUpperCase(),
+            rating: serialized,
             apiBaseUrlOverride: null
         });
+        if (typeof item.rating === 'string') {
+            mediaLibrary.updateAsset(uuid, { rating: serialized });
+        }
     } catch (error) {
         console.error('[Inspector] Failed to push rating', error);
     } finally {
