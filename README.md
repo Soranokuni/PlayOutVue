@@ -192,7 +192,7 @@ PlayOut/
 2. **Rust**: `1.88+` (`rust-toolchain.toml` pins 1.92.0) with `rustup`
 3. **Microsoft C++ Build Tools**: Visual Studio 2022 C++ x64/x86 build tools
 4. **CasparCG Server**: Version 2.3+ (installed locally or reachable over the local network)
-5. **PlayoutTranscode**: Ingest service running on port `4353`
+5. **PlayoutTranscode**: Ingest service running on port `4353`. If the service has `server.api_token` set (`PlayoutTranscode gen-token`), enter the same token under Settings → PlayoutTranscode Ingestor API → API Token; without it every call except the health check is refused with HTTP 401.
 
 ### 1. Install Dependencies
 ```powershell

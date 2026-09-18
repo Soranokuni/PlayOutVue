@@ -167,6 +167,7 @@ watch(
     debugEnabled: settings.debugMode,
     ffmpegBinPath: settings.ffmpegBinPath,
     ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
+    ingestorApiToken: settings.ingestorApiToken,
     casparcgExecutablePath: settings.casparcgExecutablePath,
     casparcgConfigFilename: settings.casparcgConfigFilename,
     casparAutoStart: settings.casparAutoStart,
@@ -507,9 +508,10 @@ onMounted(async () => {
   window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
   try {
     unlistenHeartbeat = await listen('ingestor-heartbeat',
-      (event: { payload: { online: boolean; last_seen_at: number; error?: string } }) => {
+      (event: { payload: { online: boolean; last_seen_at: number; error?: string; auth_rejected?: boolean } }) => {
         const payload = event.payload;
         ingestorStatus.setOnline(payload.online, payload.last_seen_at);
+        ingestorStatus.setAuthRejected(payload.auth_rejected === true);
         if (!payload.online && payload.error) {
           ingestorStatus.logWarning('ingestor-heartbeat', `Connection lost: ${payload.error}`);
         }
