@@ -938,15 +938,41 @@ onUnmounted(() => {
 .btn-play:hover:not(:disabled) { background:#45d4e3; box-shadow:0 0 18px rgba(51,190,204,0.6); }
 
 .btn-stop {
+  position: relative;
   background:#e63946; border-color:#e63946;
   color:#fff; font-size:0.88rem; font-weight:800;
   padding:6px 20px; letter-spacing:1px;
-  box-shadow:0 0 12px rgba(230,57,70,0.35);
-  animation:pulse-stop 1.5s ease-in-out infinite;
+  box-shadow:0 0 12px rgba(230,57,70,0.4);
+}
+/* PERF F-22: STOP is visible for the whole playing session; its glow pulse
+   used to repaint the button every frame (box-shadow keyframe). The peak
+   glow now sits on an overlay whose opacity pulses on the compositor. */
+.btn-stop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 28px rgba(230,57,70,0.8);
+  animation: pulse-stop 1.5s ease-in-out infinite;
+  will-change: opacity;
 }
 @keyframes pulse-stop {
-  0%,100% { box-shadow:0 0 12px rgba(230,57,70,0.4); }
-  50%      { box-shadow:0 0 28px rgba(230,57,70,0.8); }
+  0%,100% { opacity: 0; }
+  50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-stop::after,
+  .btn-live-now,
+  .btn-live-active,
+  .btn-live-armed,
+  .ctrl-nextup-dock.is-imminent,
+  .nextup-header,
+  .status-dot.pulse,
+  .halt-icon {
+    animation: none !important;
+  }
+  .btn-stop::after { opacity: 0.5; }
 }
 
 .btn-live { background:rgba(230,57,70,0.2); border-color:rgba(230,57,70,0.5); color:#e63946; }
@@ -1064,7 +1090,7 @@ onUnmounted(() => {
   border-radius: 6px;
   letter-spacing: 0.5px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
   user-select: none;
 }
 
@@ -1163,7 +1189,8 @@ onUnmounted(() => {
   max-width: 195px;
   height: 32px;
   box-sizing: border-box;
-  transition: all 0.2s ease;
+  /* PERF F-23: `all` also animated the dock width every time the label changed. */
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .ctrl-nextup-dock.is-imminent {
@@ -1240,7 +1267,7 @@ onUnmounted(() => {
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--border-strong);
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 .status-dot.connected,
 .status-dot.tone-ready {
@@ -1298,7 +1325,7 @@ onUnmounted(() => {
   background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ctrl-meta-btn:hover,
