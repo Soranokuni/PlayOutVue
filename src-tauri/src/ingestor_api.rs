@@ -1002,6 +1002,20 @@ pub async fn update_ingestor_trim<R: Runtime>(
     Ok(())
 }
 
+/// Uppercase only the age token of a rating value.
+///
+/// The rating column holds `age|TP or NONE|CONTENT TYPE|[advisory timeline JSON]`.
+/// Everything after the first `|` is passed through untouched so JSON keys
+/// and Greek advisory text survive the round trip (client guide §7.2.1). A bare
+/// age token (no `|`) is uppercased as before.
+fn normalize_rating_value(rating: &str) -> String {
+    let trimmed = rating.trim();
+    match trimmed.split_once('|') {
+        Some((age, tail)) => format!("{}|{}", age.trim().to_ascii_uppercase(), tail),
+        None => trimmed.to_ascii_uppercase(),
+    }
+}
+
 #[tauri::command]
 pub async fn update_ingestor_rating<R: Runtime>(
     uuid: String,
@@ -1012,11 +1026,7 @@ pub async fn update_ingestor_rating<R: Runtime>(
 ) -> Result<(), String> {
     let uuid = validate_uuid(&uuid)?;
     let start_time = std::time::Instant::now();
-    let final_rating = if rating.contains('|') {
-        rating.trim().to_string()
-    } else {
-        rating.trim().to_ascii_uppercase()
-    };
+    let final_rating = normalize_rating_value(&rating);
 
     let ingestor = IngestorClient::connect(&app, api_base_url_override)?;
     let base_url = ingestor.base_url.clone();
@@ -2117,6 +2127,20 @@ mod tests {
         let anon = IngestorClient { token: String::new(), ..ingestor };
         let r = built(anon.get("http://127.0.0.1:4353/api/assets"));
         assert!(header(&r, API_TOKEN_HEADER).is_none());
+    }
+
+    #[test]
+    fn rating_value_uppercases_only_the_age_token() {
+        assert_eq!(normalize_rating_value(" 16 "), "16");
+        assert_eq!(normalize_rating_value("k"), "K");
+        assert_eq!(normalize_rating_value("none"), "NONE");
+        // The metadata tail is passed through byte-for-byte: lowercase JSON
+        // keys and Greek advisory text must not be touched.
+        let tail = r#"NONE|MOVIE|[{"start":0,"end":120000,"text":"Περιέχει σκηνές βίας"}]"#;
+        assert_eq!(
+            normalize_rating_value(&format!(" k |{}", tail)),
+            format!("K|{}", tail)
+        );
     }
 
     #[test]

@@ -205,12 +205,32 @@ const displayedFolderRows = computed<VisibleTreeRow[]>(() => {
     return rows;
 });
 
+// "Unrated" filter (client guide §8.7): since PlayoutTranscode 1.0.0 a fresh
+// ingest carries NONE instead of K, so "no age mark" is now the normal state of
+// every new file and operators need a way to list what still needs classifying.
+const showUnratedOnly = ref(false);
+
+function isUnrated(asset: LibraryAsset): boolean {
+    return cachedRatingMeta(asset).ageRating === 'none';
+}
+
+const unratedCount = computed(() => {
+    const deleted = new Set(mediaLibrary.deletedUuids);
+    let n = 0;
+    for (const a of mediaLibrary.assets) {
+        if (!deleted.has(a.uuid) && isUnrated(a)) n++;
+    }
+    return n;
+});
+
 const displayedAssets = computed<LibraryAsset[]>(() => {
     const deleted = new Set(mediaLibrary.deletedUuids);
     const query = mediaLibrary.searchQuery.trim().toLowerCase();
+    const unratedOnly = showUnratedOnly.value;
 
     return mediaLibrary.assets.filter(a => {
         if (deleted.has(a.uuid)) return false;
+        if (unratedOnly && !isUnrated(a)) return false;
 
         if (query) {
             const name = (a.display_name || a.current_path || '').toLowerCase();
@@ -1148,13 +1168,33 @@ function openTrimPanelForSelected() {
     showTrimPanel.value = true;
 }
 
+/**
+ * Re-hydrate one asset from `GET /api/assets/{uuid}` and patch it into the
+ * store. Returns false when the Ingestor could not answer, so the caller can
+ * fall back to a full listing (client guide §4.1).
+ */
+async function refreshAssetFromApi(uuid: string): Promise<boolean> {
+    if (!uuid || uuid.startsWith('local:')) return false;
+    const fresh = await ingestorInvoke<any>(
+        'resolve_ingestor_asset',
+        { uuid, apiBaseUrlOverride: null },
+        'ingestor-resolve'
+    );
+    if (!fresh || typeof fresh !== 'object' || !fresh.uuid) return false;
+    mediaLibrary.upsertAsset(libraryAssetFromApi(fresh));
+    return true;
+}
+
 const handleTrimSaved = async ({ uuid }: { uuid?: string }) => {
     if (!uuid) return;
-    // A subclip creation registers a brand-new asset in the Ingestor API.
-    // `updateAsset` only patches an existing entry, so the new subclip would
-    // never appear in the tree. Trigger a full forced re-fetch to pull the
-    // new asset (and any siblings) from the API.
-    await fetchAssets({ force: true });
+    // A trim edit changes one row; a subclip creation registers one brand-new
+    // asset. Either way a single `GET /api/assets/{uuid}` is enough - it also
+    // carries the full keyframe_offsets the listing no longer includes. Only
+    // fall back to re-downloading the whole library if that call fails.
+    const patched = await refreshAssetFromApi(uuid);
+    if (!patched) {
+        await fetchAssets({ force: true });
+    }
 };
 
 // --- Legacy local-file debug/probe panel (kept separate from client diagnostics) ---
@@ -1910,6 +1950,16 @@ const menuItems = computed<MenuItem[]>(() => {
         placeholder="Search assets…"
       >
       <button v-if="libraryQuery" class="icon-action" @click="libraryQuery = ''" title="Clear search">✕</button>
+      <button
+        class="icon-action lib-filter-unrated"
+        :class="{ active: showUnratedOnly }"
+        :aria-pressed="showUnratedOnly"
+        :title="showUnratedOnly ? 'Showing only unrated assets - click to show all' : 'Show only assets nobody has classified yet'"
+        data-testid="filter-unrated"
+        @click="showUnratedOnly = !showUnratedOnly"
+      >
+        Unrated<span v-if="unratedCount > 0" class="lib-filter-count">{{ unratedCount }}</span>
+      </button>
       <div class="toolbar-spacer" />
       <button
         class="icon-action"
@@ -2191,6 +2241,12 @@ const menuItems = computed<MenuItem[]>(() => {
                 <span v-if="cachedRatingMeta(asset).ageRating !== 'none'" data-testid="age-rating-badge" class="mcr-badge badge-age" :class="`age-${cachedRatingMeta(asset).ageRating}`">
                   {{ cachedRatingMeta(asset).ageRating.toUpperCase() }}
                 </span>
+                <span
+                  v-else
+                  data-testid="unrated-badge"
+                  class="mcr-badge badge-unrated"
+                  title="Unrated - nobody has classified this asset yet"
+                >Unrated</span>
                 <span v-if="cachedRatingMeta(asset).tpFlag" class="mcr-badge badge-tp">TP</span>
                 <span v-if="cachedRatingMeta(asset).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${cachedRatingMeta(asset).contentType}`">
                   {{ cachedRatingMeta(asset).contentType.toUpperCase() }}
@@ -2337,6 +2393,23 @@ const menuItems = computed<MenuItem[]>(() => {
   white-space: nowrap;
 }
 .toolbar-spacer { display: none; }
+.lib-filter-unrated.active {
+  background: color-mix(in srgb, var(--accent-blue) 22%, var(--bg-hover));
+  border-color: var(--accent-blue);
+}
+.lib-filter-count {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.lib-filter-unrated.active .lib-filter-count {
+  background: var(--accent-blue);
+  color: #fff;
+}
 
 .lib-debug-panel {
   padding: 8px;
@@ -2852,6 +2925,17 @@ const menuItems = computed<MenuItem[]>(() => {
   background: #ef4444;
   color: #fff;
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+/* Unrated: deliberately quiet (dashed outline, muted text) so it reads as
+   "nothing decided yet" rather than as a regulatory mark. */
+.badge-age.age-none,
+.badge-unrated {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-strong);
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .badge-tp {
