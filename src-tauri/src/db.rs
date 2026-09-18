@@ -56,10 +56,13 @@ impl MediaDb {
         }
         .with_init(|conn| {
             conn.busy_timeout(Duration::from_secs(5))?;
+            // PERF R-2: 8 MiB page cache per pooled connection (default is
+            // ~2 MiB) so directory scans and warm-ups stay in memory.
             conn.execute_batch(
                 "PRAGMA synchronous=NORMAL;
                  PRAGMA temp_store=MEMORY;
-                 PRAGMA foreign_keys=ON;",
+                 PRAGMA foreign_keys=ON;
+                 PRAGMA cache_size=-8192;",
             )?;
             Ok(())
         });
@@ -221,37 +224,69 @@ impl MediaDb {
     }
 
     pub fn upsert(&self, entry: &CachedMediaEntry) -> Result<(), String> {
-        let normalized_path = normalize_cache_path(&entry.path);
-        let (mtime, filesize) = file_identity(&entry.path).unwrap_or((0, 0));
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+        let now = unix_now_secs();
+        self.with_connection(|conn| upsert_with_connection(conn, entry, now))
+    }
 
+    /// PERF R-2: write a batch of entries in ONE transaction with a cached
+    /// prepared statement. Autocommit-per-row appended a WAL frame and took a
+    /// pool connection for every file during directory scans; a scan of N
+    /// files now costs one commit. All-or-nothing per batch (cache only, the
+    /// next scan repairs anything lost).
+    pub fn upsert_many(&self, entries: &[CachedMediaEntry]) -> Result<(), String> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let now = unix_now_secs();
         self.with_connection(|conn| {
-            conn.execute(
-                "INSERT OR REPLACE INTO media_cache
-                 (path, mtime, filesize, duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
-                  display_aspect_ratio, field_order, timecode_start, playoutvue_id,
-                  transcode_profile, transcoded_at, original_source_path, mezzanine_ok, qc_warnings, scanned_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
-                params![
-                    normalized_path, mtime as i64, filesize as i64,
-                    entry.duration_ms, entry.trim_in_ms, entry.trim_out_ms,
-                    entry.width, entry.height,
-                    entry.codec, entry.fps_num, entry.fps_den,
-                    entry.display_aspect_ratio, entry.field_order,
-                    entry.timecode_start, entry.playoutvue_id,
-                    entry.transcode_profile, entry.transcoded_at, entry.original_source_path,
-                    entry.mezzanine_ok, entry.qc_warnings,
-                    now
-                ],
-            )
-            .map_err(|e| format!("DB upsert failed: {}", e))?;
-
+            conn.execute_batch("BEGIN IMMEDIATE;")
+                .map_err(|e| format!("DB batch begin failed: {}", e))?;
+            for entry in entries {
+                if let Err(error) = upsert_with_connection(conn, entry, now) {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                    return Err(error);
+                }
+            }
+            conn.execute_batch("COMMIT;")
+                .map_err(|e| format!("DB batch commit failed: {}", e))?;
             Ok(())
         })
     }
+}
+
+const UPSERT_SQL: &str = "INSERT OR REPLACE INTO media_cache
+     (path, mtime, filesize, duration_ms, trim_in_ms, trim_out_ms, width, height, codec, fps_num, fps_den,
+      display_aspect_ratio, field_order, timecode_start, playoutvue_id,
+      transcode_profile, transcoded_at, original_source_path, mezzanine_ok, qc_warnings, scanned_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)";
+
+fn unix_now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn upsert_with_connection(conn: &Connection, entry: &CachedMediaEntry, now: i64) -> Result<(), String> {
+    let normalized_path = normalize_cache_path(&entry.path);
+    let (mtime, filesize) = file_identity(&entry.path).unwrap_or((0, 0));
+    let mut statement = conn
+        .prepare_cached(UPSERT_SQL)
+        .map_err(|e| format!("DB upsert prepare failed: {}", e))?;
+    statement
+        .execute(params![
+            normalized_path, mtime as i64, filesize as i64,
+            entry.duration_ms, entry.trim_in_ms, entry.trim_out_ms,
+            entry.width, entry.height,
+            entry.codec, entry.fps_num, entry.fps_den,
+            entry.display_aspect_ratio, entry.field_order,
+            entry.timecode_start, entry.playoutvue_id,
+            entry.transcode_profile, entry.transcoded_at, entry.original_source_path,
+            entry.mezzanine_ok, entry.qc_warnings,
+            now
+        ])
+        .map_err(|e| format!("DB upsert failed: {}", e))?;
+    Ok(())
 }
 
 fn initialize_media_cache_schema(conn: &Connection) -> Result<(), String> {
@@ -376,6 +411,91 @@ pub fn default_db_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_entry(path: &str, duration_ms: i64) -> CachedMediaEntry {
+        CachedMediaEntry {
+            path: path.to_string(),
+            duration_ms,
+            trim_in_ms: 0,
+            trim_out_ms: 0,
+            width: 1920,
+            height: 1080,
+            codec: "h264".to_string(),
+            fps_num: 25,
+            fps_den: 1,
+            timecode_start: "00:00:00:00".to_string(),
+            playoutvue_id: String::new(),
+            display_aspect_ratio: "16:9".to_string(),
+            field_order: "progressive".to_string(),
+            transcode_profile: String::new(),
+            transcoded_at: String::new(),
+            original_source_path: String::new(),
+            mezzanine_ok: true,
+            qc_warnings: String::new(),
+        }
+    }
+
+    /// PERF R-2: a batch commits every row in one transaction, the last
+    /// write for a path wins (same as N autocommits did), an empty batch is a
+    /// no-op and the single-row path keeps working via the cached statement.
+    #[test]
+    fn test_upsert_many_commits_batch_with_last_write_wins() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "playout_test_db_batch_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let db_path = temp_dir.join("batch_media_cache.db");
+        let db = MediaDb::open(&db_path).expect("Failed to open file-backed DB");
+
+        assert!(db.upsert_many(&[]).is_ok(), "empty batch must be a no-op");
+
+        let batch = vec![
+            sample_entry("C:\\media\\a.mxf", 1000),
+            sample_entry("C:/media/b.mxf", 2000),
+            sample_entry("C:/media/a.mxf", 3000),
+        ];
+        db.upsert_many(&batch).expect("batch upsert should succeed");
+        db.upsert(&sample_entry("C:/media/c.mxf", 4000)).expect("single upsert should succeed");
+
+        db.with_connection(|conn| {
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM media_cache", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(count, 3, "paths are normalised so a.mxf is one row");
+
+            let duration_a: i64 = conn
+                .query_row(
+                    "SELECT duration_ms FROM media_cache WHERE path = 'C:/media/a.mxf'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(duration_a, 3000, "last write in the batch wins");
+
+            let duration_c: i64 = conn
+                .query_row(
+                    "SELECT duration_ms FROM media_cache WHERE path = 'C:/media/c.mxf'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(duration_c, 4000);
+
+            let cache_size: i64 = conn
+                .query_row("PRAGMA cache_size", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(cache_size, -8192);
+            Ok(())
+        })
+        .unwrap();
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 
     #[test]
     fn test_media_db_memory_init_and_checkpoint() {

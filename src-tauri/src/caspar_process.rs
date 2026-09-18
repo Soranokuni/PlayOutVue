@@ -579,6 +579,16 @@ pub fn resolve_caspar_cwd(exe_path: &Path) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// PERF R-1: the Toolhelp snapshot walk is a blocking Win32 call; keep it
+/// off the async runtime worker so a slow process table cannot stall AMCP or
+/// OSC handling that shares the executor.
+pub async fn find_caspar_process_pid_async() -> Option<u32> {
+    match tauri::async_runtime::spawn_blocking(find_caspar_process_pid).await {
+        Ok(pid) => pid,
+        Err(_) => find_caspar_process_pid(),
+    }
+}
+
 pub async fn is_port_listening(port: u16) -> bool {
     tokio::time::timeout(
         Duration::from_millis(500),
@@ -649,10 +659,21 @@ impl CasparProcessSupervisor {
     }
 
     pub async fn get_status(&self, settings: &RuntimeSettings) -> CasparProcessStatus {
+        let port_open = is_port_listening(self.amcp_port).await;
+        let detected_pid = find_caspar_process_pid_async().await;
+        self.get_status_with(settings, port_open, detected_pid).await
+    }
+
+    /// Build the status from probe results the caller already has, so a
+    /// command that probed the port/process table does not repeat the walk.
+    pub async fn get_status_with(
+        &self,
+        settings: &RuntimeSettings,
+        port_open: bool,
+        detected_pid: Option<u32>,
+    ) -> CasparProcessStatus {
         let resolved = resolve_caspar_executable(&settings.casparcg_executable_path);
         let port = self.amcp_port;
-        let port_open = is_port_listening(port).await;
-        let detected_pid = find_caspar_process_pid();
 
         let mut inner = self.inner.lock().await;
 
@@ -764,7 +785,7 @@ impl CasparProcessSupervisor {
 
         let port = self.amcp_port;
         let port_open = is_port_listening(port).await;
-        let detected_pid = find_caspar_process_pid();
+        let detected_pid = find_caspar_process_pid_async().await;
 
         // If port is listening or process is already running, adopt it seamlessly
         if port_open || detected_pid.is_some() {
@@ -1375,11 +1396,11 @@ pub async fn caspar_process_get_status<R: Runtime>(
     let settings = settings_state.snapshot();
     let port = supervisor.amcp_port;
     let port_open = is_port_listening(port).await;
-    let detected_pid = find_caspar_process_pid();
+    let detected_pid = find_caspar_process_pid_async().await;
     if (port_open || detected_pid.is_some()) && supervisor.is_primary() {
         supervisor.ensure_adopted_watchdog(&app, &settings, port, detected_pid).await;
     }
-    Ok(supervisor.get_status(&settings).await)
+    Ok(supervisor.get_status_with(&settings, port_open, detected_pid).await)
 }
 
 #[tauri::command]
@@ -1391,7 +1412,7 @@ pub async fn caspar_process_adopt<R: Runtime>(
     let settings = settings_state.snapshot();
     let port = supervisor.amcp_port;
     let port_open = is_port_listening(port).await;
-    let detected_pid = find_caspar_process_pid();
+    let detected_pid = find_caspar_process_pid_async().await;
     if port_open || detected_pid.is_some() {
         {
             let mut inner = supervisor.inner.lock().await;
@@ -1410,7 +1431,7 @@ pub async fn caspar_process_adopt<R: Runtime>(
         }
         emit_state_change(&app, &supervisor, &settings).await;
     }
-    Ok(supervisor.get_status(&settings).await)
+    Ok(supervisor.get_status_with(&settings, port_open, detected_pid).await)
 }
 
 #[tauri::command]

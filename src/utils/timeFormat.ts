@@ -24,8 +24,24 @@ export const parseClockAnchor = (timeText: string, fallbackMs: number) => {
   return anchor.getTime();
 };
 
-export const formatClockTime = (epochMs: number) =>
-  clockFormatter.format(new Date(epochMs));
+// PERF F-01: these two run twice per rundown row on every clock tick
+// (activeItemsETAs). Intl formatting costs tens of microseconds per call;
+// the manual versions below produce byte-identical output for every valid
+// epoch (asserted against the Intl formatters in timeFormat.test.ts) and
+// keep the Intl path for invalid dates so error behaviour is unchanged.
+const pad2 = (value: number) => (value < 10 ? `0${value}` : String(value));
 
-export const weekdayLabel = (epochMs: number) =>
-  weekdayFormatter.format(new Date(epochMs)).toLowerCase();
+// en-GB short weekday names, lowercased, indexed by Date#getDay().
+const WEEKDAY_SHORT = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+
+export const formatClockTime = (epochMs: number) => {
+  const date = new Date(epochMs);
+  if (Number.isNaN(date.getTime())) return clockFormatter.format(date);
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+};
+
+export const weekdayLabel = (epochMs: number) => {
+  const date = new Date(epochMs);
+  if (Number.isNaN(date.getTime())) return weekdayFormatter.format(date).toLowerCase();
+  return WEEKDAY_SHORT[date.getDay()] ?? weekdayFormatter.format(date).toLowerCase();
+};
