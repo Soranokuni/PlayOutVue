@@ -34,8 +34,8 @@ export default defineConfig(({ command }) => ({
         // First matching group wins.
         advancedChunks: {
           groups: [
-            { name: 'vue', test: /[\/]node_modules[\/](@vue|vue|pinia|pinia-plugin-persistedstate)[\/]/ },
-            { name: 'vendor', test: /[\/]node_modules[\/]/ },
+            { name: 'vue', test: /[\\/]node_modules[\\/](@vue|vue|pinia|pinia-plugin-persistedstate)[\\/]/ },
+            { name: 'vendor', test: /[\\/]node_modules[\\/]/ },
           ],
         },
       },
