@@ -2362,6 +2362,8 @@ export const useRundownStore = defineStore('rundown', () => {
             'currentPlayingInstanceId',
             'isRundownLocked'
         ],
-        storage: createGuardedStorage()
+        // PERF F-08: coalesce the whole-playlists serialisation that every
+        // structural mutation triggers; flushed on hide/unload.
+        storage: createGuardedStorage(undefined, { debounceMs: 250 })
     }
 });
