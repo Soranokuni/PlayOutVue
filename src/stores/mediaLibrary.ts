@@ -6,6 +6,7 @@ import type { ComplianceRating } from './rundown';
 import type { ContentDescriptorId } from '../lib/greekCompliance';
 import { invoke } from '@tauri-apps/api/core';
 import { message } from '@tauri-apps/plugin-dialog';
+import { normalizePurgeOutcome, type PurgeOutcome } from '../lib/ingestorFeedback';
 
 export interface QcFinding {
     severity: 'info' | 'warning' | 'error' | string;
@@ -1059,9 +1060,15 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             await fetchRecycleBin();
         }
 
-        async function purgeAsset(uuid: string) {
+        // Purge commands return what the Ingestor actually did (remediation
+        // §8.2): a non-`ready` row is removed from the registry but its file is
+        // kept, so callers read `media_removed` instead of assuming.
+        async function purgeAsset(uuid: string): Promise<PurgeOutcome> {
+            let outcome: PurgeOutcome;
             try {
-                await invoke('purge_ingestor_asset', { uuid, apiBaseUrlOverride: null });
+                outcome = normalizePurgeOutcome(
+                    await invoke<unknown>('purge_ingestor_asset', { uuid, apiBaseUrlOverride: null })
+                );
             } catch (error) {
                 console.error('[LibraryStore] Failed to purge asset:', error);
                 throw error;
@@ -1069,29 +1076,38 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
 
             assets.value = assets.value.filter(a => a.uuid !== uuid);
             recycleBinAssets.value = recycleBinAssets.value.filter(a => a.uuid !== uuid);
+            return outcome;
         }
 
-        async function purgeFolder(folderPath: string) {
+        async function purgeFolder(folderPath: string): Promise<PurgeOutcome> {
             const norm = normalizeVirtualFolder(folderPath);
+            let outcome: PurgeOutcome;
             try {
-                await invoke('purge_ingestor_folder', { folderPath: norm, apiBaseUrlOverride: null });
+                outcome = normalizePurgeOutcome(
+                    await invoke<unknown>('purge_ingestor_folder', { folderPath: norm, apiBaseUrlOverride: null })
+                );
             } catch (error) {
                 console.error('[LibraryStore] Failed to purge folder:', error);
                 throw error;
             }
 
             await fetchRecycleBin();
+            return outcome;
         }
 
-        async function emptyRecycleBin() {
+        async function emptyRecycleBin(): Promise<PurgeOutcome> {
+            let outcome: PurgeOutcome;
             try {
-                await invoke('purge_ingestor_recycle_bin', { apiBaseUrlOverride: null });
+                outcome = normalizePurgeOutcome(
+                    await invoke<unknown>('purge_ingestor_recycle_bin', { apiBaseUrlOverride: null })
+                );
             } catch (error) {
                 console.error('[LibraryStore] Failed to empty recycle bin:', error);
                 throw error;
             }
 
             recycleBinAssets.value = [];
+            return outcome;
         }
 
         async function checkAndTriggerAutoPurge(policy: string) {
