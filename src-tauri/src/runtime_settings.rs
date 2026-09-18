@@ -3,12 +3,17 @@ use parking_lot::Mutex;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime, State};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeSettings {
     pub debug_enabled: bool,
     pub ffmpeg_bin_path: String,
     pub ingestor_api_base_url: String,
+    /// PlayoutTranscode `server.api_token`. Empty means the service runs
+    /// unauthenticated (its default). Sent as `X-Api-Token` on every Ingestor
+    /// call; never written to any log.
+    #[serde(default)]
+    pub ingestor_api_token: String,
     #[serde(default)]
     pub casparcg_executable_path: String,
     #[serde(default = "default_casparcg_config_filename")]
@@ -35,12 +40,34 @@ impl Default for RuntimeSettings {
             debug_enabled: false,
             ffmpeg_bin_path: String::new(),
             ingestor_api_base_url: "http://127.0.0.1:4353".to_string(),
+            ingestor_api_token: String::new(),
             casparcg_executable_path: String::new(),
             casparcg_config_filename: default_casparcg_config_filename(),
             caspar_auto_start: false,
             caspar_keep_alive_on_exit: true,
             caspar_auto_relaunch_on_crash: true,
         }
+    }
+}
+
+/// `Debug` is implemented by hand so the API token can never leak through a
+/// `{:?}` in a log line or a panic message.
+impl std::fmt::Debug for RuntimeSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuntimeSettings")
+            .field("debug_enabled", &self.debug_enabled)
+            .field("ffmpeg_bin_path", &self.ffmpeg_bin_path)
+            .field("ingestor_api_base_url", &self.ingestor_api_base_url)
+            .field(
+                "ingestor_api_token",
+                &if self.ingestor_api_token.is_empty() { "<unset>" } else { "<redacted>" },
+            )
+            .field("casparcg_executable_path", &self.casparcg_executable_path)
+            .field("casparcg_config_filename", &self.casparcg_config_filename)
+            .field("caspar_auto_start", &self.caspar_auto_start)
+            .field("caspar_keep_alive_on_exit", &self.caspar_keep_alive_on_exit)
+            .field("caspar_auto_relaunch_on_crash", &self.caspar_auto_relaunch_on_crash)
+            .finish()
     }
 }
 
@@ -74,6 +101,8 @@ pub fn apply_runtime_settings(
     state: State<'_, RuntimeSettingsState>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
 ) -> Result<(), String> {
+    let mut settings = settings;
+    settings.ingestor_api_token = settings.ingestor_api_token.trim().to_string();
     if let Err(error) = save_settings_to_disk(&settings) {
         log::error!("{}", error);
         return Err(error);
@@ -87,6 +116,13 @@ pub fn get_ingestor_api_base_url<R: Runtime>(app: &AppHandle<R>) -> String {
     app.try_state::<RuntimeSettingsState>()
         .map(|s| s.snapshot().ingestor_api_base_url)
         .unwrap_or_else(|| RuntimeSettings::default().ingestor_api_base_url)
+}
+
+/// The configured Ingestor API token, trimmed. Empty when none is set.
+pub fn get_ingestor_api_token<R: Runtime>(app: &AppHandle<R>) -> String {
+    app.try_state::<RuntimeSettingsState>()
+        .map(|s| s.snapshot().ingestor_api_token.trim().to_string())
+        .unwrap_or_default()
 }
 
 fn config_path() -> PathBuf {

@@ -101,6 +101,13 @@ const POSITION_FIELDS = ['cgStationLogoPos', 'cgRatingBadgePos', 'cgTPPos', 'cgE
 /** A single token of the AMCP grammar: letters, digits, `_`, `-`, `.` */
 const AMCP_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
 
+/**
+ * PlayoutTranscode API token: `gen-token` emits 43 URL-safe base64 chars, but
+ * an operator may paste any hand-set value. Accept printable ASCII without
+ * whitespace, or empty (unset).
+ */
+export const INGESTOR_TOKEN = /^[\x21-\x7e]{0,256}$/;
+
 export function sanitizeSettingsState<T extends Record<string, any>>(state: T, defaults: Record<string, any>): T {
     for (const [key, allowed] of Object.entries(ENUM_FIELDS)) {
         if (!allowed.includes(state[key])) {
@@ -149,6 +156,14 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
     if (typeof state.ingestorApiBaseUrl !== 'string' || !/^https?:\/\/[^\s]+$/i.test(state.ingestorApiBaseUrl)) {
         (state as any).ingestorApiBaseUrl = defaults.ingestorApiBaseUrl;
     }
+    // The API token travels in an HTTP header: it must be a single token with
+    // no whitespace or control characters. Anything else is dropped rather
+    // than sent (a malformed header would fail every Ingestor call).
+    if (typeof state.ingestorApiToken !== 'string' || !INGESTOR_TOKEN.test(state.ingestorApiToken.trim())) {
+        (state as any).ingestorApiToken = '';
+    } else {
+        (state as any).ingestorApiToken = state.ingestorApiToken.trim();
+    }
     return state;
 }
 
@@ -158,6 +173,9 @@ export const useSettingsStore = defineStore('settings', {
 
         // Ingestor API
         ingestorApiBaseUrl: 'http://127.0.0.1:4353',
+        // PlayoutTranscode `server.api_token` (empty = service unauthenticated).
+        // Sent by the Rust backend as `X-Api-Token`; treated as a secret.
+        ingestorApiToken: '',
 
         // Media Paths
         localMediaPath: '',

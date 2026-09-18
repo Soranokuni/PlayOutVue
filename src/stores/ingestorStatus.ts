@@ -20,8 +20,12 @@ export const useIngestorStatusStore = defineStore(
         const isIngestorOnline = ref(false);
         const lastSeenAt = ref<number | null>(null);
         const logEntries = ref<IngestorLogEntry[]>([]);
+        // The health endpoint is exempt from the API token, so "online" alone
+        // cannot tell the operator that every real call is being answered 401.
+        const authRejected = ref(false);
 
         const isOffline = computed(() => !isIngestorOnline.value);
+        const isAuthRejected = computed(() => isIngestorOnline.value && authRejected.value);
 
         function setOnline(online: boolean, seenAt?: number) {
             isIngestorOnline.value = online;
@@ -29,6 +33,18 @@ export const useIngestorStatusStore = defineStore(
                 lastSeenAt.value = seenAt;
             } else {
                 lastSeenAt.value = Date.now();
+            }
+        }
+
+        function setAuthRejected(rejected: boolean) {
+            if (rejected === authRejected.value) return;
+            authRejected.value = rejected;
+            if (rejected) {
+                log(
+                    'ingestor-auth',
+                    'Ingestor rejected the API token (HTTP 401). Set the token from `PlayoutTranscode gen-token` under Settings > PlayoutTranscode Ingestor API.',
+                    'error'
+                );
             }
         }
 
@@ -70,8 +86,11 @@ export const useIngestorStatusStore = defineStore(
             isIngestorOnline,
             lastSeenAt,
             logEntries,
+            authRejected,
             isOffline,
+            isAuthRejected,
             setOnline,
+            setAuthRejected,
             log,
             logWarning,
             logError,

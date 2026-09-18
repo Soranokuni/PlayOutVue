@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore, DEFAULT_CG_ADVISORY_CONFIG, type CgAdvisoryTemplateConfig } from '../stores/settings';
+import { describePurgeOutcome, normalizePurgeOutcome } from '../lib/ingestorFeedback';
 import CasparConfigModal from './CasparConfigModal.vue';
 import DeckLinkWizard from './DeckLinkWizard.vue';
 import {
@@ -116,6 +117,9 @@ async function launchBrowserStudio() {
     }
 }
 
+// The Ingestor API token is a secret: masked by default, revealed on demand.
+const showIngestorToken = ref(false);
+
 // Local shadow state so we don't mutate Pinia instantly on every keystroke
 const localState = ref({
     localMediaPath: '',
@@ -142,6 +146,7 @@ const localState = ref({
     prerollFrames: 2,
     autoResumeAfterRestart: true,
     ingestorApiBaseUrl: '',
+    ingestorApiToken: '',
     recycleBinAutoPurge: 'disabled' as 'disabled' | '1week' | '2weeks' | '3weeks' | '1month',
     
     // CG settings
@@ -244,6 +249,7 @@ const mapLocalState = () => {
         prerollFrames: settings.prerollFrames,
         autoResumeAfterRestart: settings.autoResumeAfterRestart !== false,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
+        ingestorApiToken: settings.ingestorApiToken || '',
         recycleBinAutoPurge: settings.recycleBinAutoPurge || 'disabled',
         casparcgExecutablePath: settings.casparcgExecutablePath || '',
         casparcgConfigFilename: settings.casparcgConfigFilename || 'casparcg.config',
@@ -480,11 +486,21 @@ const emptyBinFromSettings = async () => {
     });
     if (!confirmed) return;
     try {
-        await invoke('purge_ingestor_recycle_bin', { apiBaseUrlOverride: null });
-        await message("Recycle Bin successfully emptied.", {
-            title: 'Recycle Bin',
-            kind: 'info'
-        });
+        const outcome = normalizePurgeOutcome(
+            await invoke<unknown>('purge_ingestor_recycle_bin', { apiBaseUrlOverride: null })
+        );
+        const note = describePurgeOutcome(outcome, 'the Recycle Bin');
+        if (note) {
+            await message(`Recycle Bin emptied with warnings.\n\n${note}`, {
+                title: 'Recycle Bin',
+                kind: 'warning'
+            });
+        } else {
+            await message("Recycle Bin successfully emptied.", {
+                title: 'Recycle Bin',
+                kind: 'info'
+            });
+        }
     } catch (e) {
         await message(`Failed to empty Recycle Bin: ${e}`, {
             title: 'Recycle Bin Error',
@@ -832,6 +848,30 @@ const openTemplateDir = async () => {
                       <label>API Base URL</label>
                       <input type="text" class="glass-input" v-model="localState.ingestorApiBaseUrl" placeholder="http://127.0.0.1:4353">
                       <span class="hint-text">Base URL of the PlayoutTranscode Ingestor REST API for asset metadata, mezzanine validation, and virtual subclip persistence.</span>
+                  </div>
+                  <div class="form-group">
+                      <label>API Token</label>
+                      <div class="input-with-button">
+                          <input
+                            :type="showIngestorToken ? 'text' : 'password'"
+                            class="glass-input"
+                            v-model.trim="localState.ingestorApiToken"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="Leave empty unless the service has server.api_token set"
+                            data-testid="ingestor-api-token"
+                          >
+                          <button
+                            type="button"
+                            class="glass-btn"
+                            style="flex-shrink: 0;"
+                            :title="showIngestorToken ? 'Hide token' : 'Show token'"
+                            @click="showIngestorToken = !showIngestorToken"
+                          >{{ showIngestorToken ? 'Hide' : 'Show' }}</button>
+                      </div>
+                      <span class="hint-text">
+                        Required once the ingest service has a token configured (generate one with <code>PlayoutTranscode gen-token</code>); every call except the health check is refused with HTTP 401 without it. Stored locally and sent as an <code>X-Api-Token</code> header; never written to logs.
+                      </span>
                   </div>
               </section>
 
