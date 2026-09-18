@@ -575,6 +575,23 @@ export const useRundownStore = defineStore('rundown', () => {
         }
     });
 
+    // PERF F-04: O(1) id -> index for the active playlist. `activeItems` only
+    // yields a new array on structural mutations (updatePlaylistState +
+    // triggerRef), so this rebuilds at most once per mutation instead of a
+    // linear scan per keypress/drag step. First occurrence wins, matching
+    // Array#findIndex should an id ever be duplicated.
+    const activeIndexById = computed(() => {
+        const map = new Map<string, number>();
+        const items = activeItems.value;
+        for (let i = 0; i < items.length; i++) {
+            const id = items[i]!.id;
+            if (!map.has(id)) map.set(id, i);
+        }
+        return map;
+    });
+    const indexOfActiveItem = (id: string | null | undefined): number =>
+        id ? (activeIndexById.value.get(id) ?? -1) : -1;
+
     const isCurrentPlaylistOnAir = computed(() => !!currentPlaylist.value && currentPlaylist.value.id === onAirPlaylistId.value);
     const canScheduleCurrentPlaylist = computed(() => !isCurrentPlaylistOnAir.value);
 
@@ -1987,8 +2004,8 @@ export const useRundownStore = defineStore('rundown', () => {
             if (!selectionAnchorId.value) {
                 selectionAnchorId.value = anchorId;
             }
-            const idx1 = activeItems.value.findIndex(i => i.id === anchorId);
-            const idx2 = activeItems.value.findIndex(i => i.id === id);
+            const idx1 = indexOfActiveItem(anchorId);
+            const idx2 = indexOfActiveItem(id);
             if (idx1 >= 0 && idx2 >= 0) {
                 const start = Math.min(idx1, idx2);
                 const end = Math.max(idx1, idx2);
@@ -2010,7 +2027,7 @@ export const useRundownStore = defineStore('rundown', () => {
     const moveSelectionDelta = (delta: number) => {
         const items = activeItems.value;
         if (!items.length) return;
-        const cur = selectedItemId.value ? items.findIndex(i => i.id === selectedItemId.value) : -1;
+        const cur = indexOfActiveItem(selectedItemId.value);
         let next: number;
         if (cur === -1) {
             next = delta > 0 ? 0 : items.length - 1;
@@ -2029,7 +2046,7 @@ export const useRundownStore = defineStore('rundown', () => {
     const extendSelectionDelta = (delta: number) => {
         const items = activeItems.value;
         if (!items.length) return;
-        const cur = selectedItemId.value ? items.findIndex(i => i.id === selectedItemId.value) : -1;
+        const cur = indexOfActiveItem(selectedItemId.value);
         if (cur === -1) {
             if (items[0]) selectItem(items[0].id);
             return;
@@ -2046,7 +2063,7 @@ export const useRundownStore = defineStore('rundown', () => {
         const ids = selectedItemIds.value.length > 0 ? selectedItemIds.value : (selectedItemId.value ? [selectedItemId.value] : []);
         if (!ids.length) return;
 
-        const indices = ids.map(id => items.findIndex(i => i.id === id)).filter(idx => idx >= 0).sort((a, b) => a - b);
+        const indices = ids.map(id => indexOfActiveItem(id)).filter(idx => idx >= 0).sort((a, b) => a - b);
         if (!indices.length) return;
 
         if (delta < 0 && indices[0]! <= 0) return;
@@ -2320,6 +2337,7 @@ export const useRundownStore = defineStore('rundown', () => {
         restorePlaybackState,
         clockMs,
         activeItemsETAs,
+        indexOfActiveItem,
         nowDisplayTime,
         nowDisplayDay,
         updateItemMetadata,

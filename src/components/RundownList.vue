@@ -35,7 +35,7 @@ const indicatorTarget = computed(() => {
   if (target.kind === 'append') {
     return { index: store.activeItems.length, side: 'after' as const };
   }
-  const idx = store.activeItems.findIndex(item => item.id === target.targetItemId);
+  const idx = store.indexOfActiveItem(target.targetItemId);
   if (idx < 0) return null;
   return {
     index: target.kind === 'after' ? idx + 1 : idx,
@@ -356,7 +356,7 @@ const ctxDelete = async () => {
       return;
     }
 
-    const itemIndex = store.activeItems.findIndex(i => i.id === item.id);
+    const itemIndex = store.indexOfActiveItem(item.id);
     const targetIndex = itemIndex >= 0 ? itemIndex : index;
     const remaining = store.activeItems.filter(i => i.id !== item.id);
     store.removeItem(item.id);
@@ -793,7 +793,7 @@ const deleteRowItem = async (item: RundownItem, index: number) => {
     return;
   }
 
-  const itemIndex = store.activeItems.findIndex(i => i.id === item.id);
+  const itemIndex = store.indexOfActiveItem(item.id);
   const targetIndex = itemIndex >= 0 ? itemIndex : index;
   const remaining = store.activeItems.filter(i => i.id !== item.id);
   store.removeItem(item.id);
@@ -909,8 +909,10 @@ const onRowHandlePointerDown = (event: PointerEvent, item: RundownItem) => {
     ? store.selectedItemIds
     : (store.selectedItemId ? [store.selectedItemId] : []);
 
-  const movingItemIds = selected.includes(item.id)
-    ? store.activeItems.filter(i => selected.includes(i.id)).map(i => i.id)
+  // PERF F-04: Set lookups instead of O(n*m) includes() per item.
+  const selectedSet = new Set(selected);
+  const movingItemIds = selectedSet.has(item.id)
+    ? store.activeItems.filter(i => selectedSet.has(i.id)).map(i => i.id)
     : [item.id];
 
   beginRundownDrag({
