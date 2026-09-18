@@ -5,8 +5,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore, DEFAULT_CG_ADVISORY_CONFIG, type CgAdvisoryTemplateConfig } from '../stores/settings';
 import { describePurgeOutcome, normalizePurgeOutcome } from '../lib/ingestorFeedback';
-import CasparConfigModal from './CasparConfigModal.vue';
-import DeckLinkWizard from './DeckLinkWizard.vue';
+import { lazyComponent } from '../lib/lazyComponent';
 import {
     processStatus,
     processState,
@@ -20,6 +19,16 @@ import {
     type CasparValidationInfo
 } from '../services/casparProcess';
 import { getActivePlayoutService } from '../services/playout';
+
+// PERF F-14: both tools are large, rarely used and already `v-if` guarded.
+const { component: CasparConfigModal, preload: preloadCasparConfigModal } = lazyComponent(
+    'CasparConfigModal',
+    () => import('./CasparConfigModal.vue'),
+);
+const { component: DeckLinkWizard, preload: preloadDeckLinkWizard } = lazyComponent(
+    'DeckLinkWizard',
+    () => import('./DeckLinkWizard.vue'),
+);
 
 const props = defineProps({
   isOpen: Boolean
@@ -943,7 +952,7 @@ const openTemplateDir = async () => {
               <section class="settings-section">
                   <h3 class="text-secondary section-title" style="display:flex; justify-content:space-between; align-items:center;">
                       <span>Playout Hardware & DeckLink I/O</span>
-                      <button class="glass-btn btn-primary" style="padding: 5px 14px; font-size: 0.78rem;" @click="showDecklinkWizard = true">
+                      <button class="glass-btn btn-primary" style="padding: 5px 14px; font-size: 0.78rem;" @pointerenter="preloadDeckLinkWizard()" @click="showDecklinkWizard = true">
                           ⚡ Launch Hardware Setup Wizard
                       </button>
                   </h3>
@@ -1124,8 +1133,8 @@ const openTemplateDir = async () => {
                   </div>
 
                   <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;">
-                       <button class="glass-btn btn-primary" @click="showDecklinkWizard = true">Open Setup Wizard</button>
-                       <button class="glass-btn" @click="showCasparConfigurator = true">Advanced XML Configurator</button>
+                       <button class="glass-btn btn-primary" @pointerenter="preloadDeckLinkWizard()" @click="showDecklinkWizard = true">Open Setup Wizard</button>
+                       <button class="glass-btn" @pointerenter="preloadCasparConfigModal()" @click="showCasparConfigurator = true">Advanced XML Configurator</button>
                   </div>
               </section>
 
