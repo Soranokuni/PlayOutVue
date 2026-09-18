@@ -430,6 +430,30 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             assets.value.splice(0, assets.value.length, ...processed);
         }
 
+        /**
+         * Insert or replace one asset as fetched from `GET /api/assets/{uuid}`.
+         * Lets a trim, rating or subclip save patch a single row instead of
+         * re-downloading the whole library (client guide §4.1). Applies the
+         * same client-side folder overrides as `setAssets`.
+         */
+        function upsertAsset(asset: LibraryAsset) {
+            if (asset.deleted_at) {
+                assets.value = assets.value.filter((a) => a.uuid !== asset.uuid);
+                return;
+            }
+            const override = folderOverrides.value[asset.uuid] ?? localVirtualFolders.value[asset.current_path];
+            const next: LibraryAsset = {
+                ...asset,
+                virtual_folder: normalizeVirtualFolder(override ?? asset.virtual_folder),
+            };
+            const index = assets.value.findIndex((a) => a.uuid === asset.uuid);
+            if (index >= 0) {
+                assets.value.splice(index, 1, next);
+            } else {
+                assets.value.push(next);
+            }
+        }
+
         function updateAsset(uuid: string, patch: Partial<LibraryAsset>) {
             const index = assets.value.findIndex((a) => a.uuid === uuid);
             if (index >= 0) {
@@ -1147,6 +1171,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             extendSelection,
             clearSelection,
             setAssets,
+            upsertAsset,
             updateAsset,
             navigateTo,
             toggleFolder,
