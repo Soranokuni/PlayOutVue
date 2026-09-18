@@ -1424,7 +1424,8 @@ onUnmounted(() => {
   cursor: pointer;
   flex-shrink: 0;
   min-width: 140px;
-  transition: all 0.15s ease;
+  /* PERF F-23: explicit list; `all` also animated width/padding on label changes. */
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .playlist-tab:hover {
   background: var(--bg-surface-elevated);
@@ -1435,13 +1436,42 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent-blue) 14%, var(--bg-secondary));
 }
 .playlist-tab.is-onair {
+  position: relative;
   border-color: var(--accent-red);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-red) 25%, transparent), 0 0 16px color-mix(in srgb, var(--accent-red) 20%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-red) 25%, transparent), 0 0 10px color-mix(in srgb, var(--accent-red) 15%, transparent);
   animation: pulseOnAir 1.5s ease-in-out infinite;
 }
+/* PERF F-06: the glow used to be a box-shadow keyframe on the tab itself,
+   which repaints the tab every frame for the whole on-air session. The tab
+   now only animates transform (compositor) and the peak glow lives on an
+   overlay whose opacity pulses (compositor). Same rest/peak look. */
+.playlist-tab.is-onair::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px var(--accent-red), 0 0 18px color-mix(in srgb, var(--accent-red) 35%, transparent);
+  animation: pulseOnAirGlow 1.5s ease-in-out infinite;
+  will-change: opacity;
+}
 @keyframes pulseOnAir {
-  0%, 100% { transform: translateY(0); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-red) 25%, transparent), 0 0 10px color-mix(in srgb, var(--accent-red) 15%, transparent); }
-  50% { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--accent-red), 0 0 18px color-mix(in srgb, var(--accent-red) 35%, transparent); }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+@keyframes pulseOnAirGlow {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .playlist-tab.is-onair,
+  .playlist-tab.is-onair::after,
+  .crawl-btn.is-active .crawl-btn-dot,
+  .crawl-active-dot,
+  .playing-badge {
+    animation: none !important;
+  }
+  .playlist-tab.is-onair::after { opacity: 1; }
 }
 .playlist-tab-name {
   font-size: 0.82rem;
@@ -1479,7 +1509,7 @@ onUnmounted(() => {
   font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .playlist-add-btn:hover {
   background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
@@ -1534,7 +1564,7 @@ onUnmounted(() => {
   padding: 5px 12px;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
   white-space: nowrap;
 }
 .crawl-btn:hover {
@@ -1553,7 +1583,7 @@ onUnmounted(() => {
   height: 6px;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 .crawl-btn:hover .crawl-btn-dot {
   background: var(--text-primary);
@@ -1586,7 +1616,7 @@ onUnmounted(() => {
   color: var(--text-muted);
   font-size: 0.8rem;
   font-weight: 600;
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
   user-select: none;
 }
 
