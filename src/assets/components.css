@@ -1,0 +1,202 @@
+/* ==========================================================================
+   SHARED CONTROL SURFACES (UI/UX plan §3.2, perf backlog F-24)
+
+   Buttons, inputs and toolbars were re-implemented per component: 40+ button
+   class families with paddings from 4 to 10px, radii from 4px to fully round,
+   four different hover treatments and disabled opacities from .3 to .6, and
+   `.glass-input` defined eight separate times with eight different results.
+
+   These are the shared definitions. They are global (imported once from
+   main.ts) rather than scoped, because their whole purpose is that a control
+   looks the same wherever it appears. Components opt in by class; the
+   `BaseButton` / `Chip` / `Kbd` / `EmptyState` primitives wrap them.
+   ========================================================================== */
+
+/* --- Buttons ------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: var(--control-h-md);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  /* PERF: explicit property list. `transition: all` animated width and
+     box-shadow on every label change. */
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  border-color: var(--border-strong);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* One disabled treatment, everywhere. */
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn--sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--fs-xs);
+}
+
+.btn--primary {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: var(--text-on-accent);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-blue) 85%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--accent-blue) 85%, var(--text-primary));
+}
+
+.btn--secondary {
+  background: var(--bg-hover);
+  border-color: var(--border-medium);
+}
+
+.btn--danger {
+  background: var(--status-error);
+  border-color: var(--status-error);
+  color: var(--text-on-danger);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-error) 85%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--status-error) 85%, var(--text-primary));
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: transparent;
+  color: var(--text-primary);
+}
+
+/* Square, label-less. Requires an aria-label — see BaseButton. */
+.btn--icon {
+  width: var(--control-h-md);
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.btn--icon:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn--icon.btn--sm {
+  width: var(--control-h-sm);
+}
+
+/* --- Fields -------------------------------------------------------------- */
+
+.input,
+.select {
+  width: 100%;
+  height: var(--control-h-md);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+.input:hover:not(:disabled),
+.select:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: var(--focus-ring);
+}
+
+.input:disabled,
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.input--invalid {
+  border-color: var(--status-error);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.field-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.field-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.field-error {
+  font-size: var(--fs-xs);
+  color: var(--status-error);
+}
+
+/* --- Toolbar ------------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-md);
+  min-width: 0;
+}
+
+.toolbar-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
