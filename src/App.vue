@@ -966,12 +966,12 @@ onUnmounted(() => {
       <div v-if="activePlayoutCapabilities.streaming" class="ctrl-section">
         <div class="status-dot" :class="{ connected: isStreaming }"></div>
         <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
-        <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream" style="font-size:0.7rem;">
+        <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream" style="font-size:var(--fs-xs);">
           <AppIcon :name="isStreaming ? 'stop' : 'live'" :size="14" />
           <span>{{ isStreaming ? 'Stop' : 'Stream' }}</span>
         </button>
 
-        <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleSdi" style="font-size:0.7rem; margin-left:12px;">
+        <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleSdi" style="font-size:var(--fs-xs); margin-left:12px;">
           <AppIcon :name="isSdiActive ? 'stop' : 'live'" :size="14" />
           <span>{{ isSdiActive ? 'SDI Stop' : 'SDI OUT' }}</span>
         </button>
@@ -1188,7 +1188,7 @@ onUnmounted(() => {
   background:var(--bg-hover);
   color:var(--text-secondary);
   padding:6px 10px;
-  font-size:0.75rem;
+  font-size:var(--fs-xs);
   font-weight:700;
   cursor:pointer;
 }
@@ -1200,16 +1200,16 @@ onUnmounted(() => {
 }
 
 .ctrl-section    { display:flex; align-items:center; gap:6px; }
-.ctrl-label      { font-size:0.72rem; color:var(--text-muted); letter-spacing:0.5px; font-weight:700; white-space:nowrap; }
+.ctrl-label      { font-size:var(--fs-xs); color:var(--text-muted); letter-spacing:0.5px; font-weight:700; white-space:nowrap; }
 .ctrl-ingest { display:inline-flex; align-items:center; gap:4px; }
 .ctrl-ingest .ctrl-label { font-size: var(--fs-xs); }
 .ctrl-value      {
-  font-size:0.82rem; color:var(--text-primary); font-weight:600; white-space:nowrap;
+  font-size:var(--fs-md); color:var(--text-primary); font-weight:600; white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; max-width:260px;
 }
 .ctrl-divider    { width:1px; height:26px; background:var(--border-subtle); flex-shrink:0; }
 .ctrl-play-wrap  { flex:0 0 auto; }
-.take-failure { display:flex; align-items:center; gap:5px; color:var(--accent-red); font-size:0.75rem; font-weight:700; white-space:nowrap; }
+.take-failure { display:flex; align-items:center; gap:5px; color:var(--accent-red); font-size:var(--fs-xs); font-weight:700; white-space:nowrap; }
 
 .ctrl-btn {
   background:var(--bg-hover); border:1px solid var(--border-medium);
@@ -1336,7 +1336,7 @@ onUnmounted(() => {
   align-items:center;
   gap:6px;
   font-weight:700;
-  font-size:0.75rem;
+  font-size:var(--fs-xs);
   padding:5px 12px;
   border-radius:6px;
   transition:all 0.15s;
@@ -1362,7 +1362,7 @@ onUnmounted(() => {
 /* §7.1: the timecode sits in a well, so the one number that is read from
    across the room has an edge of its own rather than floating on the strip. */
 .timecode {
-  font-size: 1.75rem;
+  font-size: var(--fs-tc-hero);
   font-weight: 700;
   letter-spacing: 2.5px;
   font-variant-numeric: tabular-nums;
@@ -1395,7 +1395,7 @@ onUnmounted(() => {
 }
 
 .routing-fence-label {
-  font-size: 0.6rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--status-error);
@@ -1476,7 +1476,7 @@ onUnmounted(() => {
 }
 
 .conn-popover-title {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -1486,11 +1486,11 @@ onUnmounted(() => {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 
 .conn-popover-body {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1576,7 +1576,7 @@ onUnmounted(() => {
 }
 
 .nextup-title {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -1702,7 +1702,7 @@ onUnmounted(() => {
 .ctrl-meta-help {
   width: var(--btn-h-compact, 30px);
   padding: 0;
-  font-size: 0.88rem;
+  font-size: var(--fs-lg);
   font-weight: 800;
 }
 
@@ -1741,14 +1741,14 @@ onUnmounted(() => {
 
 .ctrl-meta-title {
   margin-top: 4px;
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .ctrl-meta-copy {
   margin: 10px 0 0;
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   line-height: 1.45;
   color: var(--text-secondary);
 }
@@ -1770,7 +1770,7 @@ onUnmounted(() => {
 }
 
 .ctrl-meta-list li {
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   line-height: 1.42;
   color: var(--text-secondary);
 }
@@ -1783,7 +1783,7 @@ onUnmounted(() => {
   background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: var(--fs-lg);
 }
 
 .ctrl-meta-close:hover {
@@ -2033,7 +2033,7 @@ onUnmounted(() => {
 }
 
 .halt-text {
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -2044,7 +2044,7 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   padding: 6px 12px;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   cursor: pointer;
   transition: background 0.2s, transform 0.1s;

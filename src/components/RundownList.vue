@@ -1336,7 +1336,7 @@ onUnmounted(() => {
     <!-- Header with clock -->
     <div class="rw-header">
       <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
-        <h2 class="text-warning" style="margin:0; font-size:0.9rem;">{{ store.currentPlaylistName }}</h2>
+        <h2 class="text-warning" style="margin:0; font-size:var(--fs-lg);">{{ store.currentPlaylistName }}</h2>
         <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge"><AppIcon name="play" :size="12" /> ON AIR</span>
       </div>
 
@@ -1737,7 +1737,7 @@ onUnmounted(() => {
 }
 .trim-warning-banner {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px; font-size: 0.82rem; color: var(--accent-yellow);
+  padding: 6px 12px; font-size: var(--fs-md); color: var(--accent-yellow);
   background: color-mix(in srgb, var(--accent-yellow) 15%, var(--bg-secondary));
   border-bottom: 1px solid color-mix(in srgb, var(--accent-yellow) 35%, transparent);
   flex-shrink: 0; animation: fadeIn 0.2s ease-out;
@@ -1747,7 +1747,7 @@ onUnmounted(() => {
 .tw-neg { color: var(--accent-red); font-weight: 700; }
 .tw-dismiss {
   background: transparent; border: none; color: var(--accent-yellow);
-  font-size: 1.1rem; cursor: pointer; padding: 0 4px; border-radius: 3px;
+  font-size: var(--fs-xl); cursor: pointer; padding: 0 4px; border-radius: 3px;
   line-height: 1;
 }
 .tw-dismiss:hover { background: var(--bg-hover); }
@@ -1761,7 +1761,7 @@ onUnmounted(() => {
   border: 1px solid var(--border-medium);
 }
 .clock-display {
-  font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700;
+  font-family: var(--font-mono); font-size: var(--fs-tc); font-weight: 700;
   letter-spacing: 1px; color: var(--text-primary); text-shadow: 0 0 10px var(--glass-border);
   font-variant-numeric: tabular-nums;
 }
@@ -1789,7 +1789,7 @@ onUnmounted(() => {
   width: 100%;
 }
 .graphics-drawer-badge {
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.5px;
   color: var(--accent-blue);
@@ -1800,7 +1800,7 @@ onUnmounted(() => {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: var(--fs-xl);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -1813,7 +1813,7 @@ onUnmounted(() => {
   border: 1px solid var(--accent-blue);
   border-radius: 4px;
   color: var(--text-primary);
-  font-size: 0.82rem;
+  font-size: var(--fs-md);
   font-weight: 700;
   padding: 1px 4px;
   outline: none;
@@ -1988,7 +1988,7 @@ onUnmounted(() => {
   .playlist-tab.is-onair::after { opacity: 1; }
 }
 .playlist-tab-name {
-  font-size: 0.82rem;
+  font-size: var(--fs-md);
   font-weight: 700;
   max-width: 150px;
   overflow: hidden;
@@ -2124,7 +2124,7 @@ onUnmounted(() => {
 
 .rw-empty {
   display: flex; align-items: center; justify-content: center;
-  height: 80px; color: var(--text-muted); font-size: 0.85rem; font-weight: 600;
+  height: 80px; color: var(--text-muted); font-size: var(--fs-md); font-weight: 600;
   border: 2px dashed var(--border-medium); border-radius: 6px; margin: 4px;
   opacity: 0.7;
 }
@@ -2137,7 +2137,7 @@ onUnmounted(() => {
   color: var(--text-primary);
   padding: 5px 10px;
   border-radius: 6px;
-  font-size: 0.84rem;
+  font-size: var(--fs-md);
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
   min-width: 120px;
@@ -2153,7 +2153,7 @@ onUnmounted(() => {
   background: var(--bg-hover);
   border: 1px solid var(--border-medium);
   color: var(--text-secondary);
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   letter-spacing: 0.5px;
   padding: 5px 12px;
@@ -2209,7 +2209,7 @@ onUnmounted(() => {
   border: 1px dashed var(--border-medium);
   border-radius: 6px;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
   transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
   user-select: none;
@@ -2269,7 +2269,7 @@ onUnmounted(() => {
   right: 0;
   background: var(--accent-cyan);
   color: var(--text-inverse);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   padding: 2px 7px;
   border-radius: 4px;

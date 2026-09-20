@@ -478,7 +478,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   border: 1px solid var(--border-medium);
   padding: 4px 8px;
   border-radius: 4px;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   white-space: nowrap;
   opacity: 0;

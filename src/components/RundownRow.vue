@@ -479,8 +479,8 @@ const itemTooltip = computed(() => {
   }
 }
 
-.rw-handle { color: var(--text-muted); cursor: grab; font-size: 0.92rem; width: 18px; text-align: center; flex-shrink: 0; }
-.rw-num     { width: 22px; text-align: center; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); flex-shrink: 0; font-family: var(--font-mono); }
+.rw-handle { color: var(--text-muted); cursor: grab; font-size: var(--fs-lg); width: 18px; text-align: center; flex-shrink: 0; }
+.rw-num     { width: 22px; text-align: center; font-size: var(--fs-sm); font-weight: 700; color: var(--text-secondary); flex-shrink: 0; font-family: var(--font-mono); }
 .rw-status { width: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .rw-signal {
   width: 5px;
@@ -491,7 +491,7 @@ const itemTooltip = computed(() => {
 }
 .rw-type-icon { width: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 /* F-03: the one flexible column, and the only one allowed to shrink. */
-.rw-name    { flex: 1 1 auto; min-width: 180px; font-size: 0.92rem; font-weight: 600; letter-spacing: 0.01em; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rw-name    { flex: 1 1 auto; min-width: 180px; font-size: var(--fs-lg); font-weight: 600; letter-spacing: 0.01em; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rw-flags   { width: 88px; display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-shrink: 0; overflow: hidden; }
 .rw-rating-badge {
   display: inline-flex; align-items: center; justify-content: center;
@@ -513,7 +513,7 @@ const itemTooltip = computed(() => {
   border: 1px solid var(--border-medium);
   text-transform: uppercase;
 }
-.rw-rating-empty { color: var(--text-muted); font-size: 0.8rem; }
+.rw-rating-empty { color: var(--text-muted); font-size: var(--fs-sm); }
 .rw-rating-badge.rating-k, .rw-signal.tone-rating-k { color: var(--rating-k); background: color-mix(in srgb, var(--rating-k) 16%, transparent); border-color: color-mix(in srgb, var(--rating-k) 40%, transparent); }
 .rw-rating-badge.rating-8, .rw-signal.tone-rating-8 { color: var(--rating-8); background: color-mix(in srgb, var(--rating-8) 16%, transparent); border-color: color-mix(in srgb, var(--rating-8) 40%, transparent); }
 .rw-rating-badge.rating-12, .rw-signal.tone-rating-12 { color: var(--rating-12); background: color-mix(in srgb, var(--rating-12) 18%, transparent); border-color: color-mix(in srgb, var(--rating-12) 45%, transparent); }
@@ -531,7 +531,7 @@ const itemTooltip = computed(() => {
 }
 /* Both timing columns are right-aligned to the same edge, 12 px apart, so the
    header can no longer read "DURATION AT" as one word. */
-.rw-dur     { width: 112px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 1px; text-align: right; font-size: 0.86rem; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: 0.02em; }
+.rw-dur     { width: 112px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 1px; text-align: right; font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: 0.02em; }
 .rw-at      { width: 84px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-shrink: 0; margin-left: 6px; text-align: right; }
 .rw-actions { width: 56px; display: flex; gap: 4px; flex-shrink: 0; justify-content: flex-end; }
 
@@ -554,9 +554,9 @@ const itemTooltip = computed(() => {
 }
 
 .tc-day   { display: inline-block; min-width: 2.2em; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.08em; text-align: left; }
-.tc-sched { font-size: 0.78rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; font-family: var(--font-mono); text-align: left; }
-.tc-done  { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; }
-.tc-gap   { font-size: 0.76rem; color: var(--accent-orange); font-family: var(--font-mono); text-align: left; font-weight: 600; }
+.tc-sched { font-size: var(--fs-sm); color: var(--text-secondary); font-variant-numeric: tabular-nums; font-family: var(--font-mono); text-align: left; }
+.tc-done  { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; }
+.tc-gap   { font-size: var(--fs-sm); color: var(--accent-orange); font-family: var(--font-mono); text-align: left; font-weight: 600; }
 /* §3.2: a mark, not a sentence. The dot reuses the row's existing pulse
    overlay treatment -- opacity only, gated by prefers-reduced-motion. */
 .rw-onair-pill {
@@ -589,7 +589,7 @@ const itemTooltip = computed(() => {
 
 .row-btn {
   background: var(--bg-hover); border: 1px solid var(--border-medium); color: var(--text-secondary);
-  border-radius: 4px; cursor: pointer; width: 26px; height: 26px; font-size: 0.8rem;
+  border-radius: 4px; cursor: pointer; width: 26px; height: 26px; font-size: var(--fs-sm);
   display: flex; align-items: center; justify-content: center; transition: 0.12s; padding: 0;
 }
 .row-btn:hover { background: var(--bg-surface-elevated); color: var(--text-primary); border-color: var(--border-strong); }
