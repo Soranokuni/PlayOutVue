@@ -5,6 +5,7 @@ import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useRundownStore, type PlaylistFile, type AnyPlaylistFile } from '../stores/rundown';
 import { isPlayoutPlaying } from '../services/playout';
+import AppIcon from './ui/AppIcon.vue';
 import { describeErrorMessage } from '../lib/describeError';
 
 const store = useRundownStore();
@@ -280,7 +281,7 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
         @blur="commitStartFrom"
         @keydown.enter.prevent="commitStartFrom"
       >
-      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" :disabled="!store.canScheduleCurrentPlaylist" title="Insert offline gap line">⏱</button>
+      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" :disabled="!store.canScheduleCurrentPlaylist" title="Insert offline gap line" aria-label="Insert offline gap line"><AppIcon name="gap" /></button>
       <template v-else>
         <input
           v-model="gapTimeDraft"
@@ -294,16 +295,16 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
           @keydown.enter.prevent="commitGapLine"
           @keydown.esc.prevent="cancelGapLine"
         >
-        <button class="pl-btn" @click="commitGapLine" title="Insert gap line at this time">✔</button>
-        <button class="pl-btn" @click="cancelGapLine" title="Cancel">✖</button>
+        <button class="pl-btn" @click="commitGapLine" title="Insert gap line at this time" aria-label="Insert gap line at this time"><AppIcon name="check" /></button>
+        <button class="pl-btn" @click="cancelGapLine" title="Cancel" aria-label="Cancel"><AppIcon name="close" /></button>
       </template>
     </div>
 
     <div class="pl-buttons">
-      <button class="pl-btn" @click="pickPlaylistPath('save')" :disabled="isSaving" title="Save Playlist">💾</button>
-      <button class="pl-btn" @click="pickPlaylistPath('load')" :disabled="isLoading" title="Load Playlist">📂</button>
-      <button class="pl-btn" @click="pickPlaylistPath('append')" :disabled="isLoading" title="Append Playlist">➕</button>
-      <button class="pl-btn btn-danger" @click="clearRundown" title="Clear Rundown">🗑</button>
+      <button class="pl-btn" @click="pickPlaylistPath('save')" :disabled="isSaving" title="Save playlist" aria-label="Save playlist"><AppIcon name="save" /></button>
+      <button class="pl-btn" @click="pickPlaylistPath('load')" :disabled="isLoading" title="Load playlist" aria-label="Load playlist"><AppIcon name="folder-open" /></button>
+      <button class="pl-btn" @click="pickPlaylistPath('append')" :disabled="isLoading" title="Append playlist" aria-label="Append playlist"><AppIcon name="plus" /></button>
+      <button class="pl-btn btn-danger" @click="clearRundown" title="Clear rundown" aria-label="Clear rundown"><AppIcon name="trash" /></button>
     </div>
   </div>
 </template>

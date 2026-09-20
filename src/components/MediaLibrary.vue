@@ -16,6 +16,8 @@ import { type LibraryCommandContext, type LibraryInsertResult } from '../service
 import TrimPanel from './TrimPanel.vue';
 import { lazyComponent } from '../lib/lazyComponent';
 import StatusIndicator from './StatusIndicator.vue';
+import AppIcon from './ui/AppIcon.vue';
+import type { IconName } from './ui/icons';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
@@ -1566,23 +1568,25 @@ const contentTypeOptions = [
 ] as const;
 
 interface AgeRatingOption {
+  /** Distinguishes "with explanation" from "badge only" in the menu (F-10). */
+  icon?: IconName;
   id: ComplianceRating;
   label: string;
   logoOnly?: boolean;
 }
 
 const ageRatingOptions: AgeRatingOption[] = [
-  { id: 'k', label: '🔘 Κ — Κατάλληλο για όλους (με επεξήγηση)' },
-  { id: '8', label: '🔘 8 — Κατάλληλο άνω των 8 (με επεξήγηση)' },
-  { id: '12', label: '🔘 12 — Κατάλληλο άνω των 12 (με επεξήγηση)' },
-  { id: '16', label: '🔘 16 — Κατάλληλο άνω των 16 (με επεξήγηση)' },
-  { id: '18', label: '🔘 18 — Κατάλληλο άνω των 18 (με επεξήγηση)' },
-  { id: 'k', label: '🏷️ Κ — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '8', label: '🏷️ 8 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '12', label: '🏷️ 12 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '16', label: '🏷️ 16 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '18', label: '🏷️ 18 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: 'none', label: '❌ Χωρίς Σήμανση (None)' }
+  { id: 'k', label: 'Κ — Κατάλληλο για όλους (με επεξήγηση)', icon: 'radio-on' },
+  { id: '8', label: '8 — Κατάλληλο άνω των 8 (με επεξήγηση)', icon: 'radio-on' },
+  { id: '12', label: '12 — Κατάλληλο άνω των 12 (με επεξήγηση)', icon: 'radio-on' },
+  { id: '16', label: '16 — Κατάλληλο άνω των 16 (με επεξήγηση)', icon: 'radio-on' },
+  { id: '18', label: '18 — Κατάλληλο άνω των 18 (με επεξήγηση)', icon: 'radio-on' },
+  { id: 'k', label: 'Κ — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: '8', label: '8 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: '12', label: '12 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: '16', label: '16 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: '18', label: '18 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: 'none', label: 'Χωρίς Σήμανση (none)', icon: 'close' }
 ];
 
 async function ctxSetAgeRating(opt: AgeRatingOption) {
@@ -1714,7 +1718,7 @@ const topActionItems = computed<TopAction[]>(() => {
     },
     {
       id: 'delete',
-      tooltip: 'Hide Asset',
+      tooltip: 'Move to Recycle Bin',
       action: ctxDelete,
       disabled: false
     }
@@ -1732,18 +1736,21 @@ const menuItems = computed<MenuItem[]>(() => {
     return [
       {
         type: 'action',
-        label: '🔍 Inspect Clip (Ctrl+I)',
+        icon: 'inspect',
+        label: 'Inspect clip (Ctrl+I)',
         action: ctxInspect
       },
       {
         type: 'action',
-        label: 'Append to Rundown',
+        icon: 'plus',
+        label: 'Add to end',
         disabled: store.isRundownLocked,
         action: ctxAppend
       },
       {
         type: 'action',
-        label: 'Insert After Selected',
+        icon: 'plus',
+        label: 'Insert after selection',
         disabled: store.isRundownLocked,
         action: ctxInsertAfter
       },
@@ -1751,7 +1758,8 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'compliance-rating',
-        label: '🇬🇷 Σήματα Καταλληλότητας (Ηλικία)',
+        icon: 'tag',
+        label: 'Σήματα καταλληλότητας (age rating)',
         children: ageRatingOptions.map(r => {
           const itemRating = ratingMeta.ageRating || 'none';
           const itemIsLogoOnly = ratingMeta.advisoryText === '__LOGO_ONLY__';
@@ -1765,6 +1773,7 @@ const menuItems = computed<MenuItem[]>(() => {
           }
           return {
             type: 'action' as const,
+            icon: r.icon,
             label: r.label,
             checked: isChecked,
             action: () => ctxSetAgeRating(r)
@@ -1774,20 +1783,23 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'compliance-descriptors',
-        label: '⚠️ Προειδοποιήσεις Περιεχομένου (ΕΣΡ)',
+        icon: 'alert',
+        label: 'Προειδοποιήσεις περιεχομένου (content warnings)',
         children: [
           ...GREEK_CONTENT_DESCRIPTORS.map(d => {
             const isChecked = Array.isArray(ratingMeta.descriptors) && ratingMeta.descriptors.includes(d.id);
             return {
               type: 'action' as const,
-              label: `${isChecked ? '☑' : '☐'} ${d.icon} ${d.label}`,
+              icon: (isChecked ? 'square-check' : 'square') as IconName,
+              label: d.label,
               checked: isChecked,
               action: () => ctxToggleDescriptor(d.id)
             };
           }),
           {
             type: 'action' as const,
-            label: '🧹 Καθαρισμός Προειδοποιήσεων',
+            icon: 'broom' as IconName,
+            label: 'Καθαρισμός προειδοποιήσεων',
             disabled: !ratingMeta.descriptors || ratingMeta.descriptors.length === 0,
             action: ctxClearDescriptors
           }
@@ -1796,7 +1808,8 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'toggle',
-        label: ratingMeta.tpFlag ? '✓ TP (Active)' : '□ TP (None)',
+        icon: ratingMeta.tpFlag ? 'square-check' : 'square',
+        label: 'Προβολή προϊόντος (product placement, TP)',
         checked: ratingMeta.tpFlag,
         action: ctxToggleTP
       },
@@ -1804,7 +1817,7 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'content-type',
-        label: 'Categories/Tags',
+        label: 'Content type',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
           label: ct.label,
@@ -1815,18 +1828,21 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'action',
-        label: '➡️ Move to…',
+        icon: 'folder-open',
+        label: 'Move to…',
         action: () => openMoveAssetModal(asset)
       },
       { type: 'divider' },
       {
         type: 'action',
-        label: '🗑 Move to Recycle Bin',
+        icon: 'trash',
+        label: 'Move to Recycle Bin',
         action: () => doTrashAsset(asset.uuid)
       },
       {
         type: 'action',
-        label: '💥 Delete & Purge…',
+        icon: 'trash',
+        label: 'Delete permanently…',
         action: () => promptPurgeAsset(asset)
       }
     ];
@@ -1835,7 +1851,8 @@ const menuItems = computed<MenuItem[]>(() => {
     const folderItems: MenuItem[] = [
       {
         type: 'action',
-        label: '📁+ New Subfolder here',
+        icon: 'folder-plus',
+        label: 'New subfolder here',
         action: () => doNewVirtualFolder(node.virtualFolder)
       }
     ];
@@ -1843,23 +1860,27 @@ const menuItems = computed<MenuItem[]>(() => {
     if (!isRoot) {
       folderItems.push({
         type: 'action',
-        label: '➡️ Move Folder to…',
+        icon: 'folder-open',
+        label: 'Move folder to…',
         action: () => openMoveFolderModal(node.virtualFolder)
       });
       folderItems.push({
         type: 'action',
-        label: '✏️ Rename folder',
+        icon: 'rename',
+        label: 'Rename folder',
         action: doRenameFolder
       });
       folderItems.push({ type: 'divider' });
       folderItems.push({
         type: 'action',
-        label: '🗑 Move Folder to Recycle Bin',
+        icon: 'trash',
+        label: 'Move folder to Recycle Bin',
         action: () => doTrashFolder(node.virtualFolder)
       });
       folderItems.push({
         type: 'action',
-        label: '💥 Delete & Purge Folder…',
+        icon: 'trash',
+        label: 'Delete folder permanently…',
         action: () => promptPurgeFolder(node.virtualFolder)
       });
     }
@@ -1940,7 +1961,7 @@ const menuItems = computed<MenuItem[]>(() => {
           :title="isScanning ? 'Refreshing…' : 'Refresh from Ingestor'"
           @click="fetchAssets({ force: true })"
         >
-          {{ isScanning ? '⌛' : '↻' }}
+          <AppIcon name="refresh" :size="16" :spin="isScanning" />
         </button>
       </div>
     </div>
@@ -1953,7 +1974,9 @@ const menuItems = computed<MenuItem[]>(() => {
         type="search"
         placeholder="Search assets…"
       >
-      <button v-if="libraryQuery" class="icon-action" @click="libraryQuery = ''" title="Clear search">✕</button>
+      <button v-if="libraryQuery" class="icon-action" @click="libraryQuery = ''" title="Clear search" aria-label="Clear search">
+        <AppIcon name="close" :size="14" />
+      </button>
       <button
         class="icon-action lib-filter-unrated"
         :class="{ active: showUnratedOnly }"
@@ -1971,7 +1994,8 @@ const menuItems = computed<MenuItem[]>(() => {
         :disabled="!mediaLibrary.currentFolderPath"
         @click="() => doNewVirtualFolder()"
       >
-        📁 New
+        <AppIcon name="folder-plus" :size="14" />
+        <span>New</span>
       </button>
 
       <!-- Actions Dropdown -->
@@ -1989,21 +2013,24 @@ const menuItems = computed<MenuItem[]>(() => {
             :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
             @click="doRenameSelected(); showActionsMenu = false"
           >
-            ✏️ Rename
+            <AppIcon name="rename" :size="14" />
+            <span>Rename</span>
           </button>
           <button
             class="lib-actions-item"
             :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
             @click="doMoveSelected(); showActionsMenu = false"
           >
-            ➡️ Move
+            <AppIcon name="folder-open" :size="14" />
+            <span>Move</span>
           </button>
           <button
             class="lib-actions-item lib-action-danger"
             :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
             @click="doDeleteSelected(); showActionsMenu = false"
           >
-            🗑 Delete
+            <AppIcon name="trash" :size="14" />
+            <span>Delete</span>
           </button>
         </div>
       </div>
@@ -2052,7 +2079,7 @@ const menuItems = computed<MenuItem[]>(() => {
 
     <!-- Active Path Breadcrumb Bar -->
     <div class="lib-breadcrumb-bar">
-      <span class="breadcrumb-icon">📁</span>
+      <AppIcon class="breadcrumb-icon" name="folder" :size="14" />
       <div class="breadcrumb-trail custom-scroll">
         <span
           v-for="(crumb, idx) in currentBreadcrumbs"
@@ -2070,7 +2097,10 @@ const menuItems = computed<MenuItem[]>(() => {
     <!-- Two-Pane Explorer Split -->
     <!-- Top Pane: Folder Tree & Navigation -->
     <div class="lib-folder-pane custom-scroll">
-      <div v-if="isScanning && !displayedFolderRows.length" class="lib-empty">⌛ Loading…</div>
+      <div v-if="isScanning && !displayedFolderRows.length" class="lib-empty">
+        <AppIcon name="processing" :size="16" spin />
+        <span>Loading…</span>
+      </div>
       <div v-else-if="displayedFolderRows.length === 0" class="lib-empty">No folders</div>
       <div v-else class="lib-folder-tree">
         <div
@@ -2108,7 +2138,7 @@ const menuItems = computed<MenuItem[]>(() => {
             :class="{ 'is-expanded': row.isExpanded }"
             @click.stop="expandedFolders[row.path] = !row.isExpanded"
           >
-            ▶
+            <AppIcon name="chevron-right" :size="14" :stroke-width="2.5" />
           </span>
           <span v-else class="chevron-spacer"></span>
 
@@ -2149,7 +2179,7 @@ const menuItems = computed<MenuItem[]>(() => {
           :style="{ paddingLeft: '26px' }"
         >
           <span class="chevron-spacer"></span>
-          <span class="lib-icon">📁</span>
+          <span class="lib-icon"><AppIcon name="folder" :size="16" /></span>
           <input
             v-model="newFolderNameValue"
             class="lib-inline-rename lib-new-folder-input"
@@ -2174,7 +2204,7 @@ const menuItems = computed<MenuItem[]>(() => {
         @dragleave="isTrashDragOver = false"
         @drop.prevent="onTrashDrop($event)"
       >
-        <span class="lib-icon">🗑️</span>
+        <span class="lib-icon"><AppIcon name="trash" :size="16" /></span>
         <span class="lib-text">Recycle Bin</span>
         <span v-if="mediaLibrary.recycleBinAssets.length > 0" class="recycle-bin-count-badge">
           {{ mediaLibrary.recycleBinAssets.length }}
@@ -2197,9 +2227,12 @@ const menuItems = computed<MenuItem[]>(() => {
       @focus="activeScope = 'library'"
       @contextmenu.prevent
     >
-      <div v-if="isScanning && !displayedAssets.length" class="lib-empty">⌛ Loading…</div>
+      <div v-if="isScanning && !displayedAssets.length" class="lib-empty">
+        <AppIcon name="processing" :size="16" spin />
+        <span>Loading…</span>
+      </div>
       <div v-else-if="displayedAssets.length === 0" class="lib-empty">
-        {{ libraryQuery ? 'No matching assets found.' : '📂 No media in folder.\nSet the Ingestor API or media folder in ⚙️ Settings.' }}
+        {{ libraryQuery ? 'No matching assets found.' : 'No media in this folder. Set the Ingestor API or media folder in Settings.' }}
       </div>
       <div v-else class="lib-asset-list">
         <div
@@ -2225,7 +2258,7 @@ const menuItems = computed<MenuItem[]>(() => {
               variant="dot"
               :tooltip="getAssetTooltip(asset)"
             />
-            <span>🎬</span>
+            <AppIcon name="film" :size="16" />
           </span>
 
           <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">

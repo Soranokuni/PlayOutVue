@@ -10,6 +10,8 @@ import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPla
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
+import AppIcon from './ui/AppIcon.vue';
+import type { IconName } from './ui/icons';
 import RundownRow from './RundownRow.vue';
 import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
@@ -401,20 +403,22 @@ interface AgeRatingOption {
   id: ComplianceRating;
   label: string;
   logoOnly?: boolean;
+  /** Distinguishes "with explanation" from "badge only" in the menu (F-10). */
+  icon?: IconName;
 }
 
 const ageRatingOptions: AgeRatingOption[] = [
-  { id: 'k', label: '🔘 Κ — Κατάλληλο για όλους (με επεξήγηση)' },
-  { id: '8', label: '🔘 8 — Κατάλληλο άνω των 8 (με επεξήγηση)' },
-  { id: '12', label: '🔘 12 — Κατάλληλο άνω των 12 (με επεξήγηση)' },
-  { id: '16', label: '🔘 16 — Κατάλληλο άνω των 16 (με επεξήγηση)' },
-  { id: '18', label: '🔘 18 — Κατάλληλο άνω των 18 (με επεξήγηση)' },
-  { id: 'k', label: '🏷️ Κ — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '8', label: '🏷️ 8 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '12', label: '🏷️ 12 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '16', label: '🏷️ 16 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '18', label: '🏷️ 18 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: 'none', label: '❌ Χωρίς Σήμανση (None)' }
+  { id: 'k', label: 'Κ — Κατάλληλο για όλους (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: '8', label: '8 — Κατάλληλο άνω των 8 (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: '12', label: '12 — Κατάλληλο άνω των 12 (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: '16', label: '16 — Κατάλληλο άνω των 16 (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: '18', label: '18 — Κατάλληλο άνω των 18 (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: 'k', label: 'Κ — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: '8', label: '8 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: '12', label: '12 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: '16', label: '16 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: '18', label: '18 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: 'none', label: 'Χωρίς Σήμανση (none)', icon: 'close' as const }
 ];
 
 const ctxSetAgeRating = async (opt: AgeRatingOption) => {
@@ -543,18 +547,21 @@ const menuItems = computed<MenuItem[]>(() => {
   const list: MenuItem[] = [
     {
       type: 'action',
-      label: '🔍 Inspect Clip (Ctrl+I)',
+      icon: 'inspect',
+      label: 'Inspect clip (Ctrl+I)',
       action: ctxInspect
     },
     {
       type: 'action',
-      label: '▶ Play from here',
+      icon: 'play',
+      label: 'Play from here',
       disabled: store.isRundownLocked,
       action: ctxPlayFrom
     },
     {
       type: 'action',
-      label: '⧉ Duplicate',
+      icon: 'file',
+      label: 'Duplicate',
       disabled: store.isRundownLocked,
       action: ctxDuplicate
     }
@@ -566,7 +573,8 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'compliance-rating',
-        label: '🇬🇷 Σήματα Καταλληλότητας (Ηλικία)',
+        icon: 'tag',
+        label: 'Σήματα καταλληλότητας (age rating)',
         children: ageRatingOptions.map(r => {
           const itemRating = item.complianceRating || 'none';
           const itemIsLogoOnly = item.complianceText === '__LOGO_ONLY__';
@@ -581,6 +589,7 @@ const menuItems = computed<MenuItem[]>(() => {
           return {
             type: 'action' as const,
             label: r.label,
+            icon: r.icon,
             checked: isChecked,
             action: () => ctxSetAgeRating(r)
           };
@@ -589,20 +598,23 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'compliance-descriptors',
-        label: '⚠️ Προειδοποιήσεις Περιεχομένου (ΕΣΡ)',
+        icon: 'alert',
+        label: 'Προειδοποιήσεις περιεχομένου (content warnings)',
         children: [
           ...GREEK_CONTENT_DESCRIPTORS.map(d => {
             const isChecked = Array.isArray(item.complianceDescriptors) && item.complianceDescriptors.includes(d.id);
             return {
               type: 'action' as const,
-              label: `${isChecked ? '☑' : '☐'} ${d.icon} ${d.label}`,
+              icon: (isChecked ? 'square-check' : 'square') as IconName,
+              label: d.label,
               checked: isChecked,
               action: () => ctxToggleDescriptor(d.id)
             };
           }),
           {
             type: 'action' as const,
-            label: '🧹 Καθαρισμός Προειδοποιήσεων',
+            icon: 'broom' as IconName,
+            label: 'Καθαρισμός προειδοποιήσεων',
             disabled: !item.complianceDescriptors || item.complianceDescriptors.length === 0,
             action: ctxClearDescriptors
           }
@@ -611,7 +623,8 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'toggle',
-        label: item.tp_flag ? '✓ TP (Active)' : '□ TP (None)',
+        icon: item.tp_flag ? 'square-check' : 'square',
+        label: 'Προβολή προϊόντος (product placement, TP)',
         checked: item.tp_flag,
         action: ctxToggleTP
       },
@@ -619,7 +632,7 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'content-type',
-        label: 'Categories/Tags',
+        label: 'Content type',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
           label: ct.label,
@@ -630,8 +643,8 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'submenu',
-        id: 'legacy-tags',
-        label: 'Legacy Tags',
+        id: 'commercial-tag',
+        label: 'Commercial tag',
         children: indicatorOptions.map(ind => ({
           type: 'action',
           label: ind.label,
@@ -1041,7 +1054,7 @@ onUnmounted(() => {
     <div class="rw-header">
       <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
         <h2 class="text-warning" style="margin:0; font-size:0.9rem;">{{ store.currentPlaylistName }}</h2>
-        <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge">▶ ON AIR</span>
+        <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge"><AppIcon name="play" :size="12" /> ON AIR</span>
       </div>
 
       <div style="flex:1;"></div>
@@ -1054,8 +1067,9 @@ onUnmounted(() => {
           @click="showGraphicsDrawer = !showGraphicsDrawer"
           title="Toggle On-Demand News Ticker & Graphics Drawer"
         >
-          📰 Ticker
-          <span v-if="settings.cgCrawlActive" class="crawl-active-dot">●</span>
+          <AppIcon name="ticker" :size="14" />
+          <span>Ticker</span>
+          <span v-if="settings.cgCrawlActive" class="crawl-active-dot" title="Crawl is on air"></span>
         </button>
 
 <!-- UI F-14: the NTP lock dot was hard-coded to "synchronized" and
@@ -1066,14 +1080,17 @@ onUnmounted(() => {
         </div>
 
         <button class="icon-action" @click="showLiveDialog = true" title="Insert Live Item / Studio Block into Rundown">+ Live Block</button>
-        <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">■ Stop</button>
+        <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">
+          <AppIcon name="stop" :size="14" />
+          <span>Stop</span>
+        </button>
       </div>
     </div>
 
     <!-- Collapsible Secondary Graphics Drawer -->
     <div v-if="showGraphicsDrawer" class="rw-graphics-drawer">
       <div class="graphics-drawer-content">
-        <span class="graphics-drawer-badge">📰 TICKER</span>
+        <span class="graphics-drawer-badge"><AppIcon name="ticker" :size="12" /> TICKER</span>
         <input 
           type="text" 
           v-model="settings.cgCrawlText" 
@@ -1091,13 +1108,15 @@ onUnmounted(() => {
           <span class="crawl-btn-dot"></span>
           {{ settings.cgCrawlActive ? 'CRAWL ON AIR' : 'START CRAWL' }}
         </button>
-        <button class="drawer-close-btn" @click="showGraphicsDrawer = false" title="Close ticker drawer">✕</button>
+        <button class="drawer-close-btn" @click="showGraphicsDrawer = false" title="Close ticker drawer" aria-label="Close ticker drawer">
+          <AppIcon name="close" :size="14" />
+        </button>
       </div>
     </div>
 
     <!-- Trim Duration Warning Banner -->
     <div v-if="store.lastTrimWarning" class="trim-warning-banner" role="status">
-      <span class="tw-icon">⚠️</span>
+      <AppIcon class="tw-icon" name="alert" :size="16" />
       <span class="tw-msg">
         Duration updated for <strong>{{ store.lastTrimWarning.filename }}</strong>: 
         Playlist total time adjusted by 
@@ -1229,11 +1248,11 @@ onUnmounted(() => {
         aria-hidden="true"
       >
         <div class="end-drop-indicator-line"></div>
-        <span class="end-drop-badge">Append to end</span>
+        <span class="end-drop-badge">Add to end</span>
       </div>
 
       <div v-if="store.activeItems.length === 0" class="rw-empty">
-        Drop media here or click 📹 Live
+        Drop media here, or add a live block
       </div>
     </div>
 
@@ -1315,11 +1334,6 @@ onUnmounted(() => {
 .rw-ticker-toggle-btn.is-active {
   background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
   border-color: var(--accent-blue);
-}
-.crawl-active-dot {
-  color: var(--status-error);
-  font-size: 0.7rem;
-  animation: blink 1s step-end infinite;
 }
 .rw-graphics-drawer {
   display: flex;
@@ -1661,5 +1675,14 @@ onUnmounted(() => {
 }
 .rw-fixed-drop-indicator.is-append .rw-indicator-badge {
   background: var(--accent-blue);
+}
+/* The crawl indicator is a dot, so it is drawn rather than typed. */
+.crawl-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-onair);
+  display: inline-block;
+  flex-shrink: 0;
 }
 </style>

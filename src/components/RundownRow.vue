@@ -3,6 +3,8 @@ import { computed } from 'vue';
 import type { RundownItem } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
 import StatusIndicator from './StatusIndicator.vue';
+import AppIcon from './ui/AppIcon.vue';
+import type { IconName } from './ui/icons';
 import { resolveRundownStatusTone } from '../lib/statusResolver';
 
 import { useRundownStore } from '../stores/rundown';
@@ -52,7 +54,8 @@ const emit = defineEmits<{
 
 
 
-const typeIcon = (type: RundownItem['type']) => ({ video: '🎬', live: '📹', graphic: '🎨', gap: '⏱' }[type] || '📄');
+const typeIcon = (type: RundownItem['type']): IconName =>
+  ({ video: 'film', live: 'live', graphic: 'graphic', gap: 'gap' } as const)[type] || 'file';
 // Resolved through theme tokens so the glyphs stay legible on a white panel.
 const typeColor = (type: RundownItem['type']) =>
   ({
@@ -199,12 +202,17 @@ const itemTooltip = computed(() => {
       :title="item.type === 'gap' ? 'Drag to move gap line' : 'Drag to reorder'"
       @pointerdown="emit('pointerdown-handle', $event)"
     >⋮⋮</div>
-    <div class="rw-num">{{ item.type === 'gap' ? '⏱' : index + 1 }}</div>
+    <div class="rw-num">
+      <AppIcon v-if="item.type === 'gap'" name="gap" :size="14" />
+      <template v-else>{{ index + 1 }}</template>
+    </div>
     <div class="rw-signals">
       <StatusIndicator :tone="itemStatusTone" variant="dot" :tooltip="itemTooltip" />
       <span v-for="signal in rowSignals(item)" :key="signal.key" class="rw-signal" :class="signal.className" :title="signal.title"></span>
     </div>
-    <div class="rw-type-icon" :style="{ color: typeColor(item.type) }">{{ typeIcon(item.type) }}</div>
+    <div class="rw-type-icon" :style="{ color: typeColor(item.type) }">
+      <AppIcon :name="typeIcon(item.type)" :size="16" />
+    </div>
     <div class="rw-name" :title="getDisplayName(item)">
       <span class="rw-name-text">{{ getDisplayName(item) }}</span>
       <span class="rw-meta-badges">
@@ -253,8 +261,18 @@ const itemTooltip = computed(() => {
         :disabled="rundown.isRundownLocked"
         :title="rundown.isRundownLocked ? 'Rundown is Locked' : (item.type === 'gap' ? 'Play next content after this gap line' : `Play from #${index+1}`)"
         @click.stop="!rundown.isRundownLocked && emit('play')"
-      >▶</button>
-      <button v-if="!playProtected && !rundown.isRundownLocked" class="row-btn row-btn-del" title="Remove (Del)" @click.stop="emit('delete')">✕</button>
+      >
+        <AppIcon name="play" :size="12" :stroke-width="2.5" />
+      </button>
+      <button
+        v-if="!playProtected && !rundown.isRundownLocked"
+        class="row-btn row-btn-del"
+        title="Remove (Del)"
+        aria-label="Remove item"
+        @click.stop="emit('delete')"
+      >
+        <AppIcon name="close" :size="12" :stroke-width="2.5" />
+      </button>
     </div>
   </div>
 </template>

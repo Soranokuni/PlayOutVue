@@ -16,6 +16,7 @@ const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponen
   () => import('./components/SettingsModal.vue'),
 );
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
+import AppIcon from './components/ui/AppIcon.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
@@ -669,7 +670,7 @@ onUnmounted(() => {
     <!-- Persistent Playout Halted Banner -->
     <div v-if="playoutHalted" class="halt-banner">
       <div class="halt-content">
-        <span class="halt-icon">⚠️</span>
+        <AppIcon class="halt-icon" name="alert" :size="20" />
         <span class="halt-text">Playout halted after 3 consecutive errors — operator intervention required.</span>
       </div>
       <button class="halt-dismiss-btn" @click="playoutHalted = false">Dismiss</button>
@@ -678,7 +679,7 @@ onUnmounted(() => {
     <!-- Audit T1-8: rundown changes are not reaching localStorage -->
     <div v-if="persistenceFault" class="halt-banner persist-banner" role="alert">
       <div class="halt-content">
-        <span class="halt-icon">💾</span>
+        <AppIcon class="halt-icon" name="save" :size="20" />
         <span class="halt-text">{{ persistenceFault.message }} Save the rundown to a file now.</span>
       </div>
       <button class="halt-dismiss-btn" @click="clearPersistenceFault()">Dismiss</button>
@@ -690,7 +691,9 @@ onUnmounted(() => {
         <span class="fault-source">{{ fault.source }}</span>
         <span class="fault-message">{{ fault.message }}</span>
         <span v-if="fault.count > 1" class="fault-count">×{{ fault.count }}</span>
-        <button class="fault-dismiss" title="Dismiss" @click="dismissFrontendFault(fault.id)">✕</button>
+        <button class="fault-dismiss" title="Dismiss" aria-label="Dismiss fault" @click="dismissFrontendFault(fault.id)">
+          <AppIcon name="close" :size="14" />
+        </button>
       </div>
     </div>
     
@@ -737,7 +740,8 @@ onUnmounted(() => {
           @click="playSelected"
           :title="!isPrimaryInstance ? 'Disabled in Monitor Mode (Read-Only)' : (rundown.isRundownLocked ? 'Rundown is Locked (Unlock to Play)' : 'Play playlist from selected item (or beginning)')"
         >
-          ▶ PLAY
+          <AppIcon name="play" :size="16" :stroke-width="2.5" />
+          <span>PLAY</span>
         </button>
         <button
           v-else
@@ -746,7 +750,8 @@ onUnmounted(() => {
           @click="stopPlayback"
           title="Stop playback"
         >
-          ■ STOP
+          <AppIcon name="stop" :size="16" :stroke-width="2.5" />
+          <span>STOP</span>
         </button>
       </div>
 
@@ -763,7 +768,7 @@ onUnmounted(() => {
           @click="cutToLive"
           :title="!isLiveCutArmed ? 'Arm Cut to Live (First Click to Arm)' : 'Click Again to Execute Hardware Cut to Live'"
         >
-          <span class="ctrl-btn-glyph" aria-hidden="true">{{ isLiveCutArmed ? '⚠️' : '🔴' }}</span>
+          <AppIcon class="ctrl-btn-glyph" :name="isLiveCutArmed ? 'alert' : 'live'" :size="14" :stroke-width="2.5" />
           <span class="ctrl-btn-label">{{ isLiveCutArmed ? 'CONFIRM CUT (ARMED)' : 'CUT TO LIVE' }}</span>
           <span class="ctrl-btn-label-short" aria-hidden="true">{{ isLiveCutArmed ? 'CONFIRM' : 'LIVE' }}</span>
         </button>
@@ -774,7 +779,7 @@ onUnmounted(() => {
           @click="returnFromLive"
           title="Live Broadcast Active — Click to Return to Rundown Playlist"
         >
-          <span class="ctrl-btn-glyph" aria-hidden="true">🔴</span>
+          <AppIcon class="ctrl-btn-glyph" name="live" :size="14" :stroke-width="2.5" />
           <span class="ctrl-btn-label">LIVE ON AIR (RETURN TO RUNDOWN)</span>
           <span class="ctrl-btn-label-short" aria-hidden="true">LIVE ON AIR</span>
         </button>
@@ -811,11 +816,13 @@ onUnmounted(() => {
         <div class="status-dot" :class="{ connected: isStreaming }"></div>
         <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
         <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream" style="font-size:0.7rem;">
-          {{ isStreaming ? '■ Stop' : '● Stream' }}
+          <AppIcon :name="isStreaming ? 'stop' : 'live'" :size="14" />
+          <span>{{ isStreaming ? 'Stop' : 'Stream' }}</span>
         </button>
 
         <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleSdi" style="font-size:0.7rem; margin-left:12px;">
-          {{ isSdiActive ? '■ SDI Stop' : '● SDI OUT' }}
+          <AppIcon :name="isSdiActive ? 'stop' : 'live'" :size="14" />
+          <span>{{ isSdiActive ? 'SDI Stop' : 'SDI OUT' }}</span>
         </button>
       </div>
 
@@ -835,7 +842,7 @@ onUnmounted(() => {
         @click="rundown.toggleRundownLock()"
         :title="rundown.isRundownLocked ? 'Rundown Locked: Accidental edits are protected. Click to Unlock.' : 'Rundown Unlocked: Free to edit, reorder, and delete items. Click to Lock.'"
       >
-        <span class="lock-icon">{{ rundown.isRundownLocked ? '🔒' : '🔓' }}</span>
+        <AppIcon class="lock-icon" :name="rundown.isRundownLocked ? 'lock' : 'unlock'" :size="14" />
         <span class="lock-text">{{ rundown.isRundownLocked ? 'LOCKED' : 'UNLOCKED' }}</span>
       </button>
 
@@ -849,7 +856,7 @@ onUnmounted(() => {
         @focus="preloadSettingsModal()"
         @click="showSettings = true"
       >
-        <span class="ctrl-btn-glyph" aria-hidden="true">⚙</span>
+        <AppIcon class="ctrl-btn-glyph" name="settings" :size="16" />
         <span class="ctrl-btn-label">Settings</span>
       </button>
 
@@ -1708,8 +1715,12 @@ onUnmounted(() => {
 }
 
 .halt-icon {
-  font-size: 1.15rem;
+  color: var(--status-error);
   animation: pulseWarning 1.5s infinite ease-in-out;
+}
+
+.persist-banner .halt-icon {
+  color: var(--status-warning);
 }
 
 .halt-text {
