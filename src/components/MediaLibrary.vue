@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { refDebounced } from '@vueuse/core';
+import { refDebounced, useStorage } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { ask, save, message } from '@tauri-apps/plugin-dialog';
 import { describePurgeOutcome } from '../lib/ingestorFeedback';
@@ -213,6 +213,11 @@ const displayedFolderRows = computed<VisibleTreeRow[]>(() => {
 // ingest carries NONE instead of K, so "no age mark" is now the normal state of
 // every new file and operators need a way to list what still needs classifying.
 const showUnratedOnly = ref(false);
+
+// §5.2: single-line is the default because the operator scans this list for a
+// name; the two-line mode is opt-in for the sessions where "which folder is
+// this in" is the question, and it is persisted per workstation.
+const libraryRowMode = useStorage<'single' | 'two-line'>('layout.libraryRowMode', 'single');
 
 function isUnrated(asset: LibraryAsset): boolean {
     return cachedRatingMeta(asset).ageRating === 'none';
@@ -659,6 +664,36 @@ function isAssetSelected(uuid: string): boolean {
 
 function isAssetPrimarySelected(uuid: string): boolean {
     return mediaLibrary.selectedNodeId === `asset:${uuid}`;
+}
+
+/**
+ * §5.2: the content type left-bar and the two-line subline need the word, not
+ * the enum. One map, so the rows, the tooltip and the subline never disagree.
+ */
+const CONTENT_TYPE_LABELS: Record<string, string> = {
+    movie: 'Movie',
+    show: 'Show',
+    documentary: 'Documentary',
+    news: 'News',
+};
+
+function contentTypeLabel(contentType: string): string {
+    return CONTENT_TYPE_LABELS[contentType] ?? contentType.toUpperCase();
+}
+
+/** The rating chip carries TP as a dot; the tooltip is what spells it out. */
+function assetFlagTooltip(asset: LibraryAsset): string {
+    const meta = cachedRatingMeta(asset);
+    const parts = [`Age rating ${meta.ageRating.toUpperCase()}`];
+    if (meta.tpFlag) parts.push('Product placement (TP)');
+    if (meta.contentType !== 'none') parts.push(contentTypeLabel(meta.contentType));
+    return parts.join(' · ');
+}
+
+/** Second line of the two-line row: where the asset actually lives. */
+function assetFolderLabel(asset: LibraryAsset): string {
+    const folder = normalizeVirtualFolder(asset.virtual_folder);
+    return folder === '/' ? 'All media' : folder.replace(/^\//, '').split('/').join(' › ');
 }
 
 function getAssetTooltip(asset: LibraryAsset): string | undefined {
@@ -2026,6 +2061,17 @@ const menuItems = computed<MenuItem[]>(() => {
       </button>
       <div class="toolbar-spacer" />
       <button
+        class="icon-action lib-row-mode-toggle"
+        :class="{ active: libraryRowMode === 'two-line' }"
+        :aria-pressed="libraryRowMode === 'two-line'"
+        :title="libraryRowMode === 'two-line' ? 'Two-line rows — click for compact rows' : 'Compact rows — click to show the folder path under each name'"
+        aria-label="Toggle row density"
+        data-testid="toggle-row-mode"
+        @click="libraryRowMode = libraryRowMode === 'two-line' ? 'single' : 'two-line'"
+      >
+        <AppIcon :name="libraryRowMode === 'two-line' ? 'rows-two' : 'rows-one'" :size="14" />
+      </button>
+      <button
         class="icon-action"
         :title="mediaLibrary.currentFolderPath ? 'New virtual folder in the current folder' : 'Open a folder first — a new folder is created inside the one you are in'"
         :disabled="!mediaLibrary.currentFolderPath"
@@ -2040,9 +2086,10 @@ const menuItems = computed<MenuItem[]>(() => {
         <button
           class="icon-action lib-actions-trigger"
           :title="showActionsMenu ? 'Close actions menu' : 'Asset and folder actions'"
+          aria-label="Asset and folder actions"
           @click.stop="showActionsMenu = !showActionsMenu"
         >
-          ⋮
+          <AppIcon name="more-vertical" :size="16" />
         </button>
         <div v-if="showActionsMenu" class="lib-actions-menu" @click.stop>
           <button
@@ -2295,16 +2342,18 @@ const menuItems = computed<MenuItem[]>(() => {
         :title="libraryQuery ? 'No matching assets' : 'No media in this folder'"
         :hint="libraryQuery ? 'Try a shorter search, or clear it to browse folders again.' : 'Point Settings › Media & ingest at the Ingestor API or a media folder.'"
       />
-      <div v-else class="lib-asset-list">
+      <div v-else class="lib-asset-list" :class="`row-mode-${libraryRowMode}`">
         <div
           v-for="asset in displayedAssets"
           :key="asset.uuid"
           class="lib-row is-asset"
           :class="{
-            'is-selected': isAssetSelected(asset.uuid)
+            'is-selected': isAssetSelected(asset.uuid),
+            'is-two-line': libraryRowMode === 'two-line'
           }"
           role="option"
           :data-asset-id="asset.uuid"
+          :data-content-type="cachedRatingMeta(asset).contentType"
           :aria-selected="isAssetSelected(asset.uuid)"
           :tabindex="isAssetPrimarySelected(asset.uuid) ? 0 : -1"
           @click="onAssetClick(asset, $event)"
@@ -2312,6 +2361,16 @@ const menuItems = computed<MenuItem[]>(() => {
           @contextmenu.prevent="onAssetContextMenu($event, asset)"
           @pointerdown="onAssetPointerDown($event, asset)"
         >
+          <!-- §5.2: content type is a 3 px left tint bar, not a chip. A chip
+               competed with the rating for the width the title needed; the bar
+               costs nothing and the tooltip carries the word. -->
+          <span
+            v-if="cachedRatingMeta(asset).contentType !== 'none'"
+            class="lib-type-bar"
+            :title="contentTypeLabel(cachedRatingMeta(asset).contentType)"
+            aria-hidden="true"
+          />
+
           <span class="lib-icon" @click.stop="onAssetClick(asset)">
             <StatusIndicator
               v-if="resolveLibraryStatusTone(asset, settings.qcSensitivity) !== 'ready'"
@@ -2334,21 +2393,39 @@ const menuItems = computed<MenuItem[]>(() => {
                 @keydown.esc.stop="cancelInlineRenameAsset"
                 @blur="commitInlineRenameAsset"
               />
-              <span v-else class="lib-name">{{ asset.display_name }}</span>
+              <span v-else class="lib-name" :title="asset.display_name">{{ asset.display_name }}</span>
               <span class="mcr-badges">
-                <span v-if="cachedRatingMeta(asset).ageRating !== 'none'" data-testid="age-rating-badge" class="mcr-badge badge-age" :class="`age-${cachedRatingMeta(asset).ageRating}`">
-                  {{ cachedRatingMeta(asset).ageRating.toUpperCase() }}
-                </span>
                 <span
-                  v-else
+                  v-if="cachedRatingMeta(asset).ageRating !== 'none'"
+                  data-testid="age-rating-badge"
+                  class="mcr-badge badge-age"
+                  :class="[`age-${cachedRatingMeta(asset).ageRating}`, { 'has-tp': cachedRatingMeta(asset).tpFlag }]"
+                  :title="assetFlagTooltip(asset)"
+                >
+                  {{ cachedRatingMeta(asset).ageRating.toUpperCase() }}
+                  <!-- §5.2: TP rides the rating chip as a dot rather than
+                       spending a second chip's width on two letters. -->
+                  <span v-if="cachedRatingMeta(asset).tpFlag" class="badge-tp-dot" aria-hidden="true" />
+                </span>
+                <!-- §5.2: with the Unrated filter on, every row is unrated, so
+                     the chip says nothing and only costs title width. -->
+                <span
+                  v-else-if="!showUnratedOnly"
                   data-testid="unrated-badge"
                   class="mcr-badge badge-unrated"
                   title="Unrated - nobody has classified this asset yet"
                 >Unrated</span>
-                <span v-if="cachedRatingMeta(asset).tpFlag" class="mcr-badge badge-tp">TP</span>
-                <span v-if="cachedRatingMeta(asset).contentType !== 'none'" class="mcr-badge badge-content" :class="`content-${cachedRatingMeta(asset).contentType}`">
-                  {{ cachedRatingMeta(asset).contentType.toUpperCase() }}
-                </span>
+                <span
+                  v-if="cachedRatingMeta(asset).tpFlag && cachedRatingMeta(asset).ageRating === 'none'"
+                  class="mcr-badge badge-tp"
+                  title="Product placement (TP)"
+                >TP</span>
+              </span>
+            </span>
+            <span v-if="libraryRowMode === 'two-line'" class="lib-subline">
+              <span class="lib-subline-path">{{ assetFolderLabel(asset) }}</span>
+              <span v-if="cachedRatingMeta(asset).contentType !== 'none'" class="lib-subline-type">
+                {{ contentTypeLabel(cachedRatingMeta(asset).contentType) }}
               </span>
             </span>
           </span>
@@ -2360,9 +2437,10 @@ const menuItems = computed<MenuItem[]>(() => {
           <button
             class="lib-row-action-btn"
             title="Asset actions"
+            aria-label="Asset actions"
             @click.stop="onAssetContextMenu($event, asset)"
           >
-            ⋮
+            <AppIcon name="more-vertical" :size="16" />
           </button>
         </div>
       </div>
@@ -3040,6 +3118,80 @@ const menuItems = computed<MenuItem[]>(() => {
 .badge-content.content-show { background: var(--type-show); color: var(--text-on-accent); }
 .badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: 800; }
 .badge-content.content-news { background: var(--type-news); color: var(--text-on-success); }
+
+/* §5.2: the content-type tint bar. 3 px of colour on the leading edge reads as
+   fast as a chip at a fraction of the width, and it never truncates a title. */
+.lib-type-bar {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  pointer-events: auto;
+  background: var(--text-muted);
+}
+.lib-row[data-content-type='movie'] .lib-type-bar { background: var(--type-movie); }
+.lib-row[data-content-type='show'] .lib-type-bar { background: var(--type-show); }
+.lib-row[data-content-type='documentary'] .lib-type-bar { background: var(--type-documentary); }
+.lib-row[data-content-type='news'] .lib-type-bar { background: var(--type-news); }
+
+/* TP as a dot on the rating chip (§5.2). The ring is the chip's own background
+   so the dot reads as applied *to* the rating rather than floating near it. */
+.mcr-badge.badge-age.has-tp {
+  position: relative;
+  overflow: visible;
+}
+.badge-tp-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--rating-tp);
+  box-shadow: 0 0 0 1.5px var(--bg-secondary);
+}
+
+/* Two-line opt-in (§5.2). The row grows; nothing else about it changes. */
+.lib-row.is-two-line {
+  height: auto;
+  min-height: calc(var(--row-h-library, 38px) * 1.45);
+  align-items: center;
+}
+.lib-row.is-two-line .lib-text {
+  gap: 1px;
+}
+.lib-subline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lib-subline-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lib-subline-type {
+  flex-shrink: 0;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.lib-asset-list.row-mode-two-line .lib-row.is-asset {
+  contain-intrinsic-size: 55px;
+}
+.lib-row-mode-toggle.active {
+  border-color: color-mix(in srgb, var(--accent-blue) 55%, transparent);
+  color: var(--accent-blue);
+  background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
+}
 
 .chevron-icon {
   font-size: var(--fs-xs);
