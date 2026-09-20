@@ -30,6 +30,9 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Alex Fountas (Soranokuni)",
+    "copyright": "Copyright (c) 2026 Alex Fountas (Soranokuni)",
+    "licenseFile": "../LICENSE",
     "targets": [
       "nsis"
     ],

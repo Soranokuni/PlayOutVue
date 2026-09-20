@@ -1,6 +1,6 @@
 # PlayOut (PlayOutVue)
 
-[![Author](https://img.shields.io/badge/author-Soranokuni-blue.svg)](https://github.com/Soranokuni)
+[![Author](https://img.shields.io/badge/author-Alex%20Fountas-blue.svg)](https://github.com/Soranokuni)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24c8db?logo=tauri&logoColor=white)](https://tauri.app/)
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
@@ -8,7 +8,7 @@
 [![CasparCG](https://img.shields.io/badge/CasparCG-2.3%2B-orange.svg)](https://casparcg.com/)
 [![Blackmagic](https://img.shields.io/badge/Blackmagic-DeckLink-black.svg)](https://www.blackmagicdesign.com/)
 
-**PlayOut** (PlayOutVue) is a Windows-first, broadcast-grade Master Control Room (MCR) playout automation controller developed by **[Soranokuni](https://github.com/Soranokuni)**. Engineered using **Vue 3, Vite, Tauri v2, and Rust**, PlayOut delivers deterministic, frame-accurate playout automation, non-destructive trimming, downstream keyer (DSK) graphics, Greek NCRTV compliance automation, and real-time CasparCG playback synchronization.
+**PlayOut** (PlayOutVue) is a Windows-first, broadcast-grade Master Control Room (MCR) playout automation controller developed by **Alex Fountas** ([Soranokuni](https://github.com/Soranokuni)). Engineered using **Vue 3, Vite, Tauri v2, and Rust**, PlayOut delivers deterministic, frame-accurate playout automation, non-destructive trimming, downstream keyer (DSK) graphics, Greek NCRTV compliance automation, and real-time CasparCG playback synchronization.
 
 PlayOut operates in synergy with **[PlayoutTranscode](https://github.com/Soranokuni/PlayoutTranscode)** (its companion media ingestion engine) to ingest, validate, and broadcast frame-accurate progressive and interlaced mezzanine assets.
 
@@ -226,12 +226,14 @@ The NSIS installer (`.exe`) is generated in `src-tauri/target/x86_64-pc-windows-
 
 ## Author & Project Information
 
-- **Author**: **[Soranokuni](https://github.com/Soranokuni)** (Alex Fountas)
-- **Email**: [shadowsora13@hotmail.gr](mailto:shadowsora13@hotmail.gr)
+- **Author**: **Alex Fountas** — [@Soranokuni](https://github.com/Soranokuni)
+- **Email**: [fountasalexandros@gmail.com](mailto:fountasalexandros@gmail.com) · [afountas@cretetv.gr](mailto:afountas@cretetv.gr)
 - **Repository**: [https://github.com/Soranokuni/PlayOutVue](https://github.com/Soranokuni/PlayOutVue)
 
 ---
 
 ## License
 
-This project is licensed under the **MIT License**.
+Copyright © 2026 Alex Fountas (Soranokuni).
+
+This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for the full text.

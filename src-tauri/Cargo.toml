@@ -2,7 +2,7 @@
 name = "playout_app"
 version = "3.0.0"
 description = "Aether Broadcast Master Control Playout"
-authors = ["Soranokuni <shadowsora13@hotmail.gr>"]
+authors = ["Alex Fountas (Soranokuni) <fountasalexandros@gmail.com>"]
 repository = "https://github.com/Soranokuni/PlayOutVue"
 license = "MIT"
 edition = "2021"

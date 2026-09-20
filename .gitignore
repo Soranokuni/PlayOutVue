@@ -56,24 +56,39 @@ __screenshots__/
 *.timestamp-*-*.mjs
 
 # ==============================================================================
-# AI Agent Instructions, Handoffs, and Planning Documents
+# Local Tooling State, Handoffs, and Planning Documents
 # ==============================================================================
-.agents/*
-!.agents/skills/
+# Editor and assistant scratch state, plus internal notes. These live on disk
+# for local work and are never published: they are authoring aids, not part of
+# what builds or ships the application. Patterns are tool directory names only.
+.agents/
 .kilo/
 .gemini/
 .cursor/
+.claude/
+.aider*
+.continue/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
 *HANDOFF*.md
 *handoff*.md
 *revamp*.md
 *walkthrough*.md
 *-plan*.md
 *-PLAN*.md
+*-AUDIT*.md
 session-*.md
+NOTEBOOKLM_*.md
 docs/*-HANDOFF.md
 docs/*-PLAN.md
 docs/*-RECONCILIATION.md
 docs/*-DESIGN.md
+docs/*-BACKLOG.md
+docs/TEST_INFRA.md
+docs/PLAYOUT-CLIENT-DOCUMENTATION.md
+docs/PLAYOUTTRANSCODE-INTERFACE-CHANGES.md
+docs/advisory_and_settings_streamline.md
 
 # ==============================================================================
 # Scratch Scripts & Local Test Artifacts
@@ -83,6 +98,12 @@ list_media.rs
 test_color.mp4
 test_stderr.txt
 test_stdout.txt
+compile_err.txt
+src-tauri/compile_err.txt
+Transcoder DB EXAMPLES/
+Recording*.mp4
+*.mkv
+*.mov
 
 # ==============================================================================
 # SQLite Databases

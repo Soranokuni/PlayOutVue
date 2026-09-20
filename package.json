@@ -2,7 +2,11 @@
   "name": "aether-playout",
   "version": "3.0.0",
   "description": "Professional Master Control Playout & Automation Client for CasparCG and PlayoutTranscode",
-  "author": "Soranokuni <shadowsora13@hotmail.gr> (https://github.com/Soranokuni)",
+  "author": "Alex Fountas (Soranokuni) <fountasalexandros@gmail.com> (https://github.com/Soranokuni)",
+  "contributors": [
+    "Alex Fountas <afountas@cretetv.gr>"
+  ],
+  "license": "MIT",
   "homepage": "https://github.com/Soranokuni/PlayOutVue",
   "repository": {
     "type": "git",
