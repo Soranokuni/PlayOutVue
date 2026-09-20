@@ -312,6 +312,8 @@ watch(
 
           <!-- Arbitrary N-Level Recursive Tree View -->
           <div v-else class="tree-container">
+            <!-- F-17: the indent step matches the library tree. It was 20px
+                 here and 18px there, for the same folders. -->
             <div
               v-for="folder in visiblePickerRows"
               :key="folder.path"
@@ -321,7 +323,7 @@ watch(
                 'is-disabled': folder.isForbidden,
                 'is-root': folder.depth === 0,
               }"
-              :style="{ paddingLeft: `${folder.depth * 20 + 8}px` }"
+              :style="{ paddingLeft: `${folder.depth * 18 + 8}px` }"
               @click="selectFolder(folder.path)"
               @dblclick="selectFolder(folder.path); confirmMove();"
             >

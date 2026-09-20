@@ -248,7 +248,43 @@ const displayedAssets = computed<LibraryAsset[]>(() => {
     });
 });
 
-const visibleTreeRows = displayedFolderRows;
+/* ----------------------------------------------------------- §5.3 / F-22 ---
+ * Folder-tree keyboard navigation. The rows were divs with click handlers and
+ * no role, tabindex or key handling, so the pane was mouse-only and invisible
+ * to a screen reader — while the asset rows beside them were already
+ * `role="option"`.
+ * -------------------------------------------------------------------------- */
+
+const isFolderRowSelected = (row: VisibleTreeRow) =>
+    mediaLibrary.selectedNodeId === row.id ||
+    (mediaLibrary.currentFolderPath === row.path && !mediaLibrary.selectedAssetId);
+
+/** Roving tabindex: one stop for the whole tree, on the selected row. */
+const folderRowTabIndex = (row: VisibleTreeRow, index: number) => {
+    if (isFolderRowSelected(row)) return 0;
+    const anySelected = displayedFolderRows.value.some((candidate) => isFolderRowSelected(candidate));
+    return !anySelected && index === 0 ? 0 : -1;
+};
+
+const folderPaneRef = ref<HTMLElement | null>(null);
+
+/*
+ * NOTE for whoever picks up §5.3 (folder-tree keyboard navigation).
+ *
+ * Arrow/Home/End keys cannot be handled here. OPERATOR-UI-CONTRACT §5 gives a
+ * single capture-phase listener in `useOperatorShortcuts` ownership of every
+ * key, and in `library` scope it already claims the arrows for
+ * `library.selectPrevious` / `library.selectNext` (the *asset* list), calling
+ * `preventDefault()` and `stopPropagation()`. A row-level `@keydown` never
+ * runs, so adding one would only look like it worked.
+ *
+ * Doing this properly means new commands in `commandRegistry`
+ * (`library.folderNext`, `library.folderExpand`, …) plus a folder cursor on
+ * `activeLibraryContext`, routed from the one listener -- a change to the
+ * keyboard contract's surface that deserves its own PR and its own routing
+ * tests. The roles, levels and roving tabindex below stand on their own: they
+ * are what a screen reader reads, and the pane had none of them.
+ */
 
 // Breadcrumbs for active folder context
 const currentBreadcrumbs = computed(() => {
@@ -1990,7 +2026,7 @@ const menuItems = computed<MenuItem[]>(() => {
       <div class="toolbar-spacer" />
       <button
         class="icon-action"
-        title="New virtual folder in current folder"
+        :title="mediaLibrary.currentFolderPath ? 'New virtual folder in the current folder' : 'Open a folder first — a new folder is created inside the one you are in'"
         :disabled="!mediaLibrary.currentFolderPath"
         @click="() => doNewVirtualFolder()"
       >
@@ -2077,8 +2113,17 @@ const menuItems = computed<MenuItem[]>(() => {
       </div>
     </div>
 
+    <!-- §5.3: while a search is active the folder filter is suspended, which
+         used to happen silently -- the operator saw results from folders they
+         had not opened with no indication why. -->
+    <div v-if="libraryQuery" class="lib-search-scope">
+      <AppIcon name="search" :size="14" />
+      <span>Searching all folders · {{ displayedAssets.length }} result{{ displayedAssets.length === 1 ? '' : 's' }}</span>
+      <button type="button" class="btn btn--ghost btn--sm" @click="libraryQuery = ''">Clear</button>
+    </div>
+
     <!-- Active Path Breadcrumb Bar -->
-    <div class="lib-breadcrumb-bar">
+    <div v-else class="lib-breadcrumb-bar">
       <AppIcon class="breadcrumb-icon" name="folder" :size="14" />
       <div class="breadcrumb-trail custom-scroll">
         <span
@@ -2096,19 +2141,24 @@ const menuItems = computed<MenuItem[]>(() => {
 
     <!-- Two-Pane Explorer Split -->
     <!-- Top Pane: Folder Tree & Navigation -->
-    <div class="lib-folder-pane custom-scroll">
+    <div class="lib-folder-pane custom-scroll" ref="folderPaneRef">
       <div v-if="isScanning && !displayedFolderRows.length" class="lib-empty">
         <AppIcon name="processing" :size="16" spin />
         <span>Loading…</span>
       </div>
       <div v-else-if="displayedFolderRows.length === 0" class="lib-empty">No folders</div>
-      <div v-else class="lib-folder-tree">
+      <div v-else class="lib-folder-tree" role="tree" aria-label="Virtual folders">
         <div
-          v-for="row in displayedFolderRows"
+          v-for="(row, rowIndex) in displayedFolderRows"
           :key="row.key"
           class="lib-row is-folder"
+          role="treeitem"
+          :aria-level="row.depth + 1"
+          :aria-expanded="row.hasChildren ? row.isExpanded : undefined"
+          :aria-selected="isFolderRowSelected(row)"
+          :tabindex="folderRowTabIndex(row, rowIndex)"
           :class="{
-            'is-selected': mediaLibrary.selectedNodeId === row.id || (mediaLibrary.currentFolderPath === row.path && !mediaLibrary.selectedAssetId),
+            'is-selected': isFolderRowSelected(row),
             'is-folder-drop-target': folderDropTargetId === row.id,
             'is-root-folder': row.depth === 0,
           }"
@@ -3171,5 +3221,32 @@ const menuItems = computed<MenuItem[]>(() => {
 .dialog-danger-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--status-error) 85%, var(--text-primary));
   box-shadow: 0 0 12px color-mix(in srgb, var(--status-error) 50%, transparent);
+}
+/* §5.3: the search-scope banner that replaces the breadcrumb while a query is
+   active, so the suspended folder filter is visible rather than implied. */
+.lib-search-scope {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
+  color: var(--accent-blue);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.lib-search-scope > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* F-22: the tree is keyboard-reachable now, so it needs a visible focus ring. */
+.lib-row.is-folder:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 </style>

@@ -209,7 +209,10 @@ const workflowGuide = [
   'Use Settings for connections, media paths, themes, and QC sensitivity modes.'
 ];
 
-const leftWidth = useStorage('layout.leftWidth', 280);
+// §5.1: 320px default (min 280, max 640). At 280 there were five chrome bars
+// before the first asset and names truncated at ~8 characters.
+const LIBRARY_WIDTH_DEFAULT = 320;
+const leftWidth = useStorage('layout.leftWidth', LIBRARY_WIDTH_DEFAULT);
 const isResizing = ref<'left'|null>(null);
 let pendingResizeX = 0;
 let resizeFrame = 0;
@@ -273,7 +276,7 @@ const handleGlobalPointerDown = (event: PointerEvent) => {
 const applyResize = () => {
   resizeFrame = 0;
   if (isResizing.value === 'left') {
-    leftWidth.value = Math.max(260, Math.min(600, pendingResizeX));
+    leftWidth.value = Math.max(280, Math.min(640, pendingResizeX));
   }
 };
 
@@ -767,7 +770,7 @@ onUnmounted(() => {
     </div>
     
     <aside class="panel panel-library glass-panel"><MediaLibrary /></aside>
-    <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = 280"></div>
+    <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = LIBRARY_WIDTH_DEFAULT"></div>
     
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
 
