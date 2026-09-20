@@ -71,7 +71,7 @@ const indicatorOptions: Array<{ id: LibraryIndicator; label: string }> = [
   { id: 'telemarketing', label: 'Telemarketing' }
 ];
 
-const { timecode: studioClockTimecode, isNtpLocked } = useStudioClock();
+const { timecode: studioClockTimecode } = useStudioClock();
 const showGraphicsDrawer = ref(false);
 const clockStr = computed(() => formatClockTime(store.clockMs));
 
@@ -523,25 +523,10 @@ const topActionItems = computed<TopAction[]>(() => {
 
   const isDeleteDisabled = isProtectedPlayingRow(contextMenu.value.index) || store.isRundownLocked;
   
+  // UI F-05: trim / rename / purge were permanently disabled stubs on every
+  // rundown row -- three dead controls above the only live one. A top action
+  // that can never apply to this node type is not rendered at all.
   return [
-    {
-      id: 'trim',
-      tooltip: 'Trim (Unavailable)',
-      action: () => {},
-      disabled: true
-    },
-    {
-      id: 'rename',
-      tooltip: 'Rename (Unavailable)',
-      action: () => {},
-      disabled: true
-    },
-    {
-      id: 'purge',
-      tooltip: 'Purge (Unavailable)',
-      action: () => {},
-      disabled: true
-    },
     {
       id: 'delete',
       tooltip: store.isRundownLocked ? 'Rundown Locked' : (isDeleteDisabled ? 'Delete (Protected)' : 'Delete Item'),
@@ -1073,9 +1058,10 @@ onUnmounted(() => {
           <span v-if="settings.cgCrawlActive" class="crawl-active-dot">●</span>
         </button>
 
-        <!-- Precision Studio Wall Clock with NTP Lock Dot -->
-        <div class="studio-clock-wrap" title="Studio Wall Clock · System Clock Locked (NTP Synchronized)">
-          <span class="ntp-lock-dot" :class="{ 'is-locked': isNtpLocked }" title="System Clock Locked (NTP Synchronized)"></span>
+<!-- UI F-14: the NTP lock dot was hard-coded to "synchronized" and
+             nothing could ever turn it off, so it claimed a clock-sync state the
+             app does not observe. Dropped until a real source exists. -->
+        <div class="studio-clock-wrap" title="Studio wall clock (system time)">
           <span class="clock-display">{{ studioClockTimecode }}</span>
         </div>
 
@@ -1315,18 +1301,6 @@ onUnmounted(() => {
   padding: 2px 8px;
   border-radius: 6px;
   border: 1px solid var(--border-medium);
-}
-.ntp-lock-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #64748b;
-  flex-shrink: 0;
-  transition: background 0.2s ease, box-shadow 0.2s ease;
-}
-.ntp-lock-dot.is-locked {
-  background: #22c55e;
-  box-shadow: 0 0 6px #22c55e;
 }
 .clock-display {
   font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700;

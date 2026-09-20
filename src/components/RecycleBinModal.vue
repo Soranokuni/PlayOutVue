@@ -201,6 +201,7 @@ import { ref, computed, onMounted } from 'vue';
 import { message } from '@tauri-apps/plugin-dialog';
 import { useMediaLibraryStore, type LibraryAsset } from '../stores/mediaLibrary';
 import { describePurgeOutcome } from '../lib/ingestorFeedback';
+import { describeErrorMessage } from '../lib/describeError';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -291,7 +292,7 @@ async function doRestoreAsset(asset: LibraryAsset) {
     await libraryStore.restoreAsset(asset.uuid, target);
   } catch (e) {
     console.error('Failed to restore asset:', e);
-    await notify(`Failed to restore "${asset.display_name || getFileName(asset.current_path)}": ${e}`, 'Restore Error', 'error');
+    await notify(describeErrorMessage(e, `Could not restore "${asset.display_name || getFileName(asset.current_path)}".`), 'Restore Error', 'error');
   } finally {
     isOperating.value = false;
   }
@@ -339,7 +340,7 @@ async function executePurgeConfirmed() {
     }
   } catch (e) {
     console.error('Purge operation failed:', e);
-    await notify(`Failed to purge ${subject}: ${e}`, 'Purge Error', 'error');
+    await notify(describeErrorMessage(e, `Could not permanently delete ${subject}.`), 'Purge Error', 'error');
   } finally {
     isOperating.value = false;
     cancelPurgeModal();

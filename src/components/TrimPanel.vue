@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { msToTimecode, parseTimecode, snapMsToFrame, getFrameRate, isDropFrameSupported } from '../lib/timecode';
 import { activeTrimmerContext } from '../composables/useOperatorShortcuts';
 import { createVirtualSubclip } from '../services/virtualSubclipService';
+import { describeErrorMessage } from '../lib/describeError';
 import {
   createTrimDraft,
   setInAt,
@@ -95,7 +96,7 @@ const loadProxyPreview = async (path: string | undefined, reason: string) => {
   try {
     videoSrc.value = await invoke<string>('get_media_preview_url', { inputPath: path });
   } catch (error) {
-    previewError.value = `Preview proxy failed: ${error}`;
+    previewError.value = describeErrorMessage(error, 'Could not load the preview proxy.');
   } finally {
     isGeneratingProxy.value = false;
   }
@@ -648,7 +649,7 @@ const saveNonDestructive = () => {
     };
 
     saveTask().catch((error) => {
-      trimStatus.value = `❌ ${error}`;
+      trimStatus.value = `❌ ${describeErrorMessage(error, 'The trim could not be applied.')}`;
     });
 };
 

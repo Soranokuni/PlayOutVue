@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { claimContextMenu, releaseContextMenu } from '../lib/activeContextMenu';
 
 export interface MenuItem {
   type: 'action' | 'divider' | 'submenu' | 'label' | 'toggle';
@@ -48,7 +49,46 @@ const activeSubmenu = ref<ActiveSubmenuState | null>(null);
 const currentHoveredParentId = ref<string | number | null>(null);
 let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
+// UI F-05: the menu owns its own dismissal. Previously each parent closed it on
+// a window `click`, which never fired for a right-click in another panel, and
+// nothing at all handled Escape.
+const requestClose = () => emit('close');
+
+const onDocumentKeyDown = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape') return;
+  // Take the event before the global operator router sees it, so Escape closes
+  // the menu rather than clearing the rundown selection underneath it.
+  event.preventDefault();
+  event.stopPropagation();
+  requestClose();
+};
+
+const isInsideMenu = (target: EventTarget | null) => {
+  const node = target as Node | null;
+  if (!node) return false;
+  return !!menuRef.value?.contains(node) || !!submenuRef.value?.contains(node);
+};
+
+const onPointerDownOutside = (event: PointerEvent | MouseEvent) => {
+  if (isInsideMenu(event.target)) return;
+  requestClose();
+};
+
+// A right-click elsewhere must close this menu before the new one opens; the
+// singleton covers menus, this covers a right-click on inert background.
+const onContextMenuOutside = (event: MouseEvent) => {
+  if (isInsideMenu(event.target)) return;
+  requestClose();
+};
+
 onMounted(() => {
+  claimContextMenu(requestClose);
+  window.addEventListener('keydown', onDocumentKeyDown, true);
+  window.addEventListener('pointerdown', onPointerDownOutside, true);
+  window.addEventListener('contextmenu', onContextMenuOutside, true);
+  window.addEventListener('blur', requestClose);
+  window.addEventListener('resize', requestClose);
+
   // Give Vue a moment to render and get actual dimensions
   setTimeout(() => {
     if (menuRef.value) {
@@ -81,6 +121,12 @@ onUnmounted(() => {
   if (closeTimeout) {
     clearTimeout(closeTimeout);
   }
+  releaseContextMenu(requestClose);
+  window.removeEventListener('keydown', onDocumentKeyDown, true);
+  window.removeEventListener('pointerdown', onPointerDownOutside, true);
+  window.removeEventListener('contextmenu', onContextMenuOutside, true);
+  window.removeEventListener('blur', requestClose);
+  window.removeEventListener('resize', requestClose);
 });
 
 // Open submenu with hover bridge and viewport boundary check

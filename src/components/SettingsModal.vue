@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
@@ -19,6 +19,7 @@ import {
     type CasparValidationInfo
 } from '../services/casparProcess';
 import { getActivePlayoutService } from '../services/playout';
+import { describeErrorMessage } from '../lib/describeError';
 
 // PERF F-14: both tools are large, rarely used and already `v-if` guarded.
 const { component: CasparConfigModal, preload: preloadCasparConfigModal } = lazyComponent(
@@ -39,6 +40,15 @@ const settings = useSettingsStore();
 const showCasparConfigurator = ref(false);
 const showDecklinkWizard = ref(false);
 const activeTab = ref<'general' | 'playout' | 'cg'>('general');
+const modalBodyRef = ref<HTMLElement | null>(null);
+
+// UI F-07: the panes share one scroll container, so switching tabs carried the
+// previous tab's offset over -- the Playout tab opened scrolled to its bottom.
+watch(activeTab, () => {
+    nextTick(() => {
+        if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
+    });
+});
 const validationInfo = ref<CasparValidationInfo | null>(null);
 const isValidating = ref(false);
 
@@ -228,7 +238,7 @@ const deployTemplatesFromSettings = async () => {
         });
     } catch (e: any) {
         console.error('Failed to deploy templates:', e);
-        await message(`Failed to deploy templates: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not deploy the CG templates.'), {
             title: 'Template Deployment Error',
             kind: 'error'
         });
@@ -337,7 +347,7 @@ const handleStartServerFromSettings = async () => {
         await startCasparServer();
         await getActivePlayoutService().connect().catch(() => {});
     } catch (e) {
-        await message(`Failed to start CasparCG server: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not start the CasparCG server.'), {
             title: 'CasparCG Server Error',
             kind: 'error'
         });
@@ -354,7 +364,7 @@ const handleStopServerFromSettings = async () => {
         await getActivePlayoutService().disconnect().catch(() => {});
         await stopCasparServer(true);
     } catch (e) {
-        await message(`Failed to stop CasparCG server: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not stop the CasparCG server.'), {
             title: 'CasparCG Server Error',
             kind: 'error'
         });
@@ -372,7 +382,7 @@ const handleRestartServerFromSettings = async () => {
         const service = getActivePlayoutService();
         await service.connect().catch((err) => console.warn('[Settings] Connect after restart:', err));
     } catch (e) {
-        await message(`Failed to restart CasparCG server: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not restart the CasparCG server.'), {
             title: 'CasparCG Server Error',
             kind: 'error'
         });
@@ -511,7 +521,7 @@ const emptyBinFromSettings = async () => {
             });
         }
     } catch (e) {
-        await message(`Failed to empty Recycle Bin: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not empty the Recycle Bin.'), {
             title: 'Recycle Bin Error',
             kind: 'error'
         });
@@ -620,7 +630,7 @@ const openTemplateDir = async () => {
         });
         console.info('[Settings] Opened template directory:', path);
     } catch (e) {
-        await message(`Failed to open directory: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not open that folder.'), {
             title: 'Open Directory Error',
             kind: 'error'
         });
@@ -652,7 +662,7 @@ const openTemplateDir = async () => {
           </button>
         </div>
 
-        <div class="modal-body custom-scroll">
+        <div class="modal-body custom-scroll" ref="modalBodyRef">
           <!-- General & QC Tab -->
           <div v-if="activeTab === 'general'">
 

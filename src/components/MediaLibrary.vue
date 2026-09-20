@@ -21,6 +21,7 @@ import { resolveLibraryStatusTone } from '../lib/statusResolver';
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaLibrary';
+import { describeErrorMessage, rawErrorText } from '../lib/describeError';
 
 // PERF F-14: pickers/bin are opened rarely; fetch on first open, mount only while open.
 const { component: FolderPickerModal } = lazyComponent(
@@ -429,7 +430,7 @@ async function fetchAssetsFromLocalFallback(): Promise<LibraryAsset[]> {
                 codec: f.codec,
             }));
     } catch (error) {
-        logIngestor('ingestor-list', `Local fallback scan failed: ${error}`, 'error');
+        logIngestor('ingestor-list', `Local fallback scan failed: ${rawErrorText(error)}`, 'error');
         return [];
     }
 }
@@ -1103,7 +1104,7 @@ async function doTrashAsset(uuid: string, alreadyConfirmed = false) {
     try {
         await mediaLibrary.trashAsset(uuid);
     } catch (e) {
-        await message(`Failed to move asset to Recycle Bin: ${e}`, { title: 'Recycle Bin Error', kind: 'error' });
+        await message(describeErrorMessage(e, 'Could not move the asset to the Recycle Bin.'), { title: 'Recycle Bin Error', kind: 'error' });
     }
 }
 
@@ -1114,7 +1115,7 @@ async function doTrashFolder(folderPath: string, alreadyConfirmed = false) {
     try {
         await mediaLibrary.trashFolder(folderPath);
     } catch (e) {
-        await message(`Failed to move folder to Recycle Bin: ${e}`, { title: 'Recycle Bin Error', kind: 'error' });
+        await message(describeErrorMessage(e, 'Could not move the folder to the Recycle Bin.'), { title: 'Recycle Bin Error', kind: 'error' });
     }
 }
 
@@ -1157,7 +1158,7 @@ async function executePurgeAlert() {
             await message(note, { title: 'Purge completed with warnings', kind: 'warning' });
         }
     } catch (e) {
-        await message(`Failed to purge: ${e}`, { title: 'Purge Error', kind: 'error' });
+        await message(describeErrorMessage(e, 'Could not delete the item permanently.'), { title: 'Purge Error', kind: 'error' });
     }
 }
 

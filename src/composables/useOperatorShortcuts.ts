@@ -228,6 +228,23 @@ export function useOperatorShortcuts() {
       return;
     }
 
+    // 3b. Inspector (Ctrl/Cmd+I). UI F-04: the quick guide, both context menus
+    //     and the command palette all advertised this shortcut while nothing
+    //     bound it. The command only dispatches `playout:open-inspector`, so it
+    //     is safe in every non-text scope. Text inputs returned above, which
+    //     keeps native behaviour per OPERATOR-UI-CONTRACT §6.
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'i' || event.key === 'I')) {
+      if (scope === 'rundown' || scope === 'library' || scope === 'global') {
+        const inspect = commandRegistry.get('global.inspectSelected');
+        if (inspect?.isEnabled(ctx)) {
+          event.preventDefault();
+          event.stopPropagation();
+          await commandRegistry.execute('global.inspectSelected', ctx);
+          return;
+        }
+      }
+    }
+
     // Explicit Action Key Guard for Playback Take: Enter and Space are ignored (no playback)
     if (
       event.key === 'Enter' ||

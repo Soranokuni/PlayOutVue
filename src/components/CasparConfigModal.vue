@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { describeErrorMessage } from '../lib/describeError';
 
 type ScreenConsumer = {
   device: number;
@@ -461,8 +462,11 @@ function removeChannel(index: number) {
   if (!structuredConfig.value.channels.length) addChannel();
 }
 
+// UI F-15: this used to hand the raw throwable straight to the status card,
+// which is how "Cannot read properties of undefined (reading 'invoke')" reached
+// the operator. describeError keeps the raw text in `detail` for diagnostics.
 function formatError(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : String(error || fallback);
+  return describeErrorMessage(error, fallback);
 }
 </script>
 

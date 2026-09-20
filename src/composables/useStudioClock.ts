@@ -19,7 +19,6 @@ export interface StudioClockOptions {
 export function useStudioClock(fpsInput: number = 25) {
   const fps = ref(fpsInput > 0 ? fpsInput : 25);
   const timecode = ref('00:00:00:00');
-  const isNtpLocked = ref(true);
 
   let timerId: ReturnType<typeof setTimeout> | null = null;
   let running = false;
@@ -119,7 +118,6 @@ export function useStudioClock(fpsInput: number = 25) {
 
   return {
     timecode,
-    isNtpLocked,
     fps,
     start,
     stop

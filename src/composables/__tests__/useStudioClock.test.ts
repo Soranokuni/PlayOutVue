@@ -16,7 +16,8 @@ describe('useStudioClock composable', () => {
 
     const clock = useStudioClock(25);
     expect(clock.timecode.value).toBe('15:30:45:12');
-    expect(clock.isNtpLocked.value).toBe(true);
+    // UI F-14: `isNtpLocked` is gone -- it was hard-coded true and backed nothing.
+    expect('isNtpLocked' in clock).toBe(false);
     expect(clock.fps.value).toBe(25);
     clock.stop();
   });
