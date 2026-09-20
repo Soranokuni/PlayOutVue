@@ -413,7 +413,7 @@ const itemTooltip = computed(() => {
 .rw-rating-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 34px; padding: 3px 8px; border-radius: 999px;
-  font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em;
+  font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.08em;
   border: 1px solid var(--border-medium);
   box-shadow: var(--shadow-1);
 }
@@ -424,7 +424,7 @@ const itemTooltip = computed(() => {
   min-width: 44px;
   padding: 3px 8px;
   border-radius: 999px;
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 900;
   letter-spacing: 0.08em;
   border: 1px solid var(--border-medium);
@@ -464,7 +464,7 @@ const itemTooltip = computed(() => {
   .rw-actions .row-btn-del { opacity: 1; }
 }
 
-.tc-day   { display: inline-block; min-width: 2.2em; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.08em; text-align: left; }
+.tc-day   { display: inline-block; min-width: 2.2em; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.08em; text-align: left; }
 .tc-sched { font-size: 0.78rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; font-family: var(--font-mono); text-align: left; }
 .tc-done  { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; }
 .tc-gap   { font-size: 0.76rem; color: var(--accent-orange); font-family: var(--font-mono); text-align: left; font-weight: 600; }
@@ -532,7 +532,7 @@ const itemTooltip = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   padding: 2px 5px;
   border-radius: 3px;

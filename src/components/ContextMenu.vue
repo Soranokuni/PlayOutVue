@@ -497,7 +497,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 /* Vertical Menu Items list */
 .menu-label {
   padding: 6px 12px 3px;
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;

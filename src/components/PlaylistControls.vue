@@ -339,7 +339,7 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
 }
 
 .pl-state-pill {
-  font-size: 0.64rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   padding: 2px 6px;

@@ -431,7 +431,7 @@ const runSelected = () => {
 }
 
 .palette-item-scope {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 9999px;

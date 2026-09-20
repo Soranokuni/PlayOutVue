@@ -1006,7 +1006,7 @@ const saveAsSubclip = () => {
 }
 
 .trim-badge {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   padding: 2px 7px;
@@ -1289,7 +1289,7 @@ const saveAsSubclip = () => {
 .dot-emerald { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
 
 .metric-label {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-muted);
   letter-spacing: 0.06em;
@@ -1653,7 +1653,7 @@ const saveAsSubclip = () => {
 }
 
 .modal-badge {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   padding: 2px 6px;
   border-radius: 4px;

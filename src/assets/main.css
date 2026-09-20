@@ -29,7 +29,9 @@
   /* Text */
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  /* §10: was #64748b, ~4.1:1 on --bg-secondary — below the 4.5:1 floor, and
+     this is the token every micro-label uses. */
+  --text-muted: #7c8aa5;
   --text-inverse: #0f172a;
 
   /* Borders & Glass */
@@ -87,7 +89,8 @@
   --bg-active: rgba(2, 132, 199, 0.14);
   --bg-input: #ffffff;
 
-  --accent-blue: #0284c7;
+  /* §10: white on #0284c7 is 4.10:1; #0369a1 is 5.93:1. */
+  --accent-blue: #0369a1;
   --accent-cyan: #0891b2;
   --accent-red: #dc2626;
   --accent-green: #16a34a;
@@ -131,9 +134,12 @@
   --status-ready: #2ecc71;
   --status-processing: #38bdf8;
   --status-warning: #fbbf24;
-  --status-error: #f43f5e;
+  /* §10: 3.67:1 against --text-on-danger at #f43f5e; 4.70:1 here. */
+  --status-error: #e11d48;
   --status-offline: #64748b;
-  --status-onair: #f43f5e;
+  /* §10: #f43f5e carried only 3.67:1 against --text-on-danger, and this is
+     the STOP button and the LIVE ON AIR pill. Darkened to 4.70:1. */
+  --status-onair: #e11d48;
   --status-armed: #f97316;
   --status-cued: #00e5ff;
   --status-unsaved: #fbbf24;
@@ -148,9 +154,10 @@
   --rating-12-fg: #1a1602;
   --rating-16: #f97316;
   --rating-16-fg: #1c0c02;
-  --rating-18: #ef4444;
+  /* §10: white on #ef4444 was 3.76:1 and on #a855f7 was 3.96:1. */
+  --rating-18: #dc2626;
   --rating-18-fg: #ffffff;
-  --rating-tp: #a855f7;
+  --rating-tp: #9333ea;
   --rating-tp-fg: #ffffff;
 
   /* Content type */
@@ -177,7 +184,8 @@
 
 .monokai-theme {
   --text-on-accent: #181915;
-  --text-on-danger: #ffffff;
+  /* Same reasoning as --rating-18-fg above: Monokai's magenta needs dark type. */
+  --text-on-danger: #181915;
   --text-on-warning: #181915;
   --text-on-success: #181915;
 
@@ -200,7 +208,9 @@
   --rating-16: #fd971f;
   --rating-16-fg: #181915;
   --rating-18: #f92672;
-  --rating-18-fg: #ffffff;
+  /* §10: white on Monokai's magenta is 3.79:1; the dark foreground is 4.67:1,
+     and keeps the theme's signature colour. */
+  --rating-18-fg: #181915;
   --rating-tp: #ae81ff;
   --rating-tp-fg: #181915;
 
@@ -225,7 +235,9 @@
 .light-theme {
   --text-on-accent: #ffffff;
   --text-on-danger: #ffffff;
-  --text-on-warning: #1a1206;
+  /* §10: near-black on the light theme's #c2410c is only 3.58:1; white is
+     5.18:1. The light theme's warning surfaces are dark enough for white. */
+  --text-on-warning: #ffffff;
   --text-on-success: #ffffff;
 
   /* Light themes need darker, more saturated status colours to keep filled

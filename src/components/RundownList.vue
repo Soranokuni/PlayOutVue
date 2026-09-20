@@ -1400,7 +1400,7 @@ onUnmounted(() => {
 }
 .playing-badge {
   background: color-mix(in srgb, var(--accent-red) 18%, transparent); border: 1px solid color-mix(in srgb, var(--accent-red) 50%, transparent);
-  color: var(--accent-red); font-size: 0.68rem; font-weight: 800; letter-spacing: 1px;
+  color: var(--accent-red); font-size: var(--fs-xs); font-weight: 800; letter-spacing: 1px;
   padding: 2px 8px; border-radius: 4px; animation: blink 1.2s step-end infinite;
 }
 @keyframes blink { 50% { opacity: 0.4; } }
@@ -1490,7 +1490,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .playlist-tab-state {
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--text-muted);
@@ -1526,7 +1526,7 @@ onUnmounted(() => {
 
 .rw-cols-label {
   display: flex; align-items: center; gap: 6px; padding: 6px 8px;
-  font-size: 0.68rem; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; text-transform: uppercase;
+  font-size: var(--fs-xs); letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; text-transform: uppercase;
   border-bottom: 1px solid var(--border-subtle); background: var(--bg-tertiary); flex-shrink: 0;
 }
 .rw-list { flex: 1; overflow-y: auto; padding: 6px 5px 10px; min-height: 0; transition: background 0.15s; contain: strict; }

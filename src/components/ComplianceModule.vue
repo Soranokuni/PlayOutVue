@@ -546,7 +546,7 @@ const clearComplianceOverlay = async () => {
 .preview-header {
   display: flex;
   justify-content: space-between;
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--text-secondary);

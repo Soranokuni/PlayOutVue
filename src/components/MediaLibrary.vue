@@ -2886,7 +2886,7 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 
 .folder-count-badge {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
@@ -2973,7 +2973,7 @@ const menuItems = computed<MenuItem[]>(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   padding: 2px 5px;
   border-radius: 3px;
@@ -3031,7 +3031,7 @@ const menuItems = computed<MenuItem[]>(() => {
 .badge-content.content-news { background: var(--type-news); color: var(--text-on-success); }
 
 .chevron-icon {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   width: 16px;
   height: 16px;

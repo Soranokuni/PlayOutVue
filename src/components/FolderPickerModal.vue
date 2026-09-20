@@ -522,7 +522,7 @@ watch(
 }
 
 .chevron {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   width: 16px;
   height: 16px;
@@ -574,7 +574,7 @@ watch(
 }
 
 .asset-count-pill {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
@@ -584,7 +584,7 @@ watch(
 }
 
 .forbidden-pill {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   color: var(--accent-red);
   background: color-mix(in srgb, var(--accent-red) 15%, transparent);

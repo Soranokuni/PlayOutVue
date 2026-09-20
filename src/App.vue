@@ -740,7 +740,10 @@ onUnmounted(() => {
     cursor: isResizing ? 'ew-resize' : 'default'
   }">
     <!-- Persistent Playout Halted Banner -->
-    <div v-if="playoutHalted" class="halt-banner">
+    <!-- §10: playout halting is the one thing that must interrupt whatever a
+         screen-reader user is reading, so this is `assertive`. Toasts stay
+         `polite`; clocks and timecodes announce nothing. -->
+    <div v-if="playoutHalted" class="halt-banner" role="alert" aria-live="assertive">
       <div class="halt-content">
         <AppIcon class="halt-icon" name="alert" :size="20" />
         <span class="halt-text">Playout halted after 3 consecutive errors — operator intervention required.</span>
@@ -1401,14 +1404,14 @@ onUnmounted(() => {
 }
 
 .nextup-kicker {
-  font-size: 0.55rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--text-muted);
 }
 
 .nextup-imminent-pill {
-  font-size: 0.52rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   color: var(--text-on-warning);
   background: var(--status-armed);
@@ -1438,7 +1441,7 @@ onUnmounted(() => {
 
 .nextup-duration-pill {
   font-family: var(--font-mono);
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--accent-blue);
   font-variant-numeric: tabular-nums;
@@ -1486,7 +1489,7 @@ onUnmounted(() => {
 }
 
 .monitor-badge {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1583,7 +1586,7 @@ onUnmounted(() => {
 }
 
 .ctrl-meta-kicker {
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1606,7 +1609,7 @@ onUnmounted(() => {
 
 .ctrl-meta-section-label {
   margin-top: 12px;
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1757,7 +1760,7 @@ onUnmounted(() => {
   font-weight: 700;
   opacity: 0.85;
   text-transform: uppercase;
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   letter-spacing: 0.04em;
 }
 

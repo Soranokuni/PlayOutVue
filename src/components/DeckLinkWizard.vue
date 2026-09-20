@@ -796,7 +796,7 @@ watch(
 }
 
 .step-badge {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   color: var(--accent-blue);
   letter-spacing: 0.08em;
@@ -1018,7 +1018,7 @@ watch(
 }
 
 .mode-badge {
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
   color: var(--accent-blue);
@@ -1135,7 +1135,7 @@ watch(
 }
 
 .routing-badge {
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   background: var(--accent-blue);
   color: var(--text-on-accent);
@@ -1150,7 +1150,7 @@ watch(
 }
 
 .routing-cmd-label {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-secondary);
 }
