@@ -695,7 +695,7 @@ function formatError(error: unknown, fallback: string) {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 11000;
+  z-index: var(--z-modal);
 }
 
 .modal-content {

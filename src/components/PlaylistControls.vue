@@ -318,7 +318,7 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
   border-bottom: 1px solid var(--border-subtle);
   pointer-events: auto;
   position: relative;
-  z-index: 10;
+  z-index: var(--z-panel);
   flex-shrink: 0;
 }
 

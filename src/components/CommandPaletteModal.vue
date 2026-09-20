@@ -303,7 +303,7 @@ const runSelected = () => {
 .command-palette-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20000;
+  z-index: var(--z-palette);
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(6px);
   display: flex;

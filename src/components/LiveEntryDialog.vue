@@ -61,7 +61,7 @@ const confirm = () => {
 <style scoped>
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(6px);
-  display: flex; justify-content: center; align-items: center; z-index: 9999;
+  display: flex; justify-content: center; align-items: center; z-index: var(--z-modal);
 }
 .live-dialog {
   width: 420px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;

@@ -135,7 +135,7 @@ const localState = ref({
     ffmpegBinPath: '',
     debugMode: false,
     logosPath: '',
-    theme: 'dark' as 'dark' | 'monokai' | 'light' | 'soft-slate' | 'periwinkle',
+    theme: 'dark' as 'dark' | 'monokai' | 'light',
     uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',
     qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
     decklinkOutputName: '',
@@ -762,37 +762,6 @@ const openTemplateDir = async () => {
                         </p>
                       </div>
 
-                      <!-- Soft Slate Neumorphic (Images 1, 3, 5) -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.theme === 'soft-slate' }"
-                        @click="localState.theme = 'soft-slate'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge" style="background: rgba(37, 99, 235, 0.15); color: #2563eb; border-color: rgba(37, 99, 235, 0.3);">🪨 SOFT SLATE NEUMORPHIC</span>
-                          <input type="radio" value="soft-slate" v-model="localState.theme">
-                        </div>
-                        <div class="qc-card-title">Soft Slate Clay</div>
-                        <p class="qc-desc">
-                          Tactile clay neumorphism with soft dual-shadow extrusion, sunken inputs, and steel blue accents.
-                        </p>
-                      </div>
-
-                      <!-- Periwinkle Studio Glow (Images 2, 4) -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.theme === 'periwinkle' }"
-                        @click="localState.theme = 'periwinkle'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge" style="background: rgba(124, 105, 239, 0.15); color: #7c69ef; border-color: rgba(124, 105, 239, 0.3);">💜 PERIWINKLE STUDIO</span>
-                          <input type="radio" value="periwinkle" v-model="localState.theme">
-                        </div>
-                        <div class="qc-card-title">Lavender / Periwinkle Glow</div>
-                        <p class="qc-desc">
-                          Music &amp; entertainment neumorphic theme with soft lilac surfaces, pill controls, and periwinkle glow.
-                        </p>
-                      </div>
                   </div>
               </section>
 
@@ -1351,7 +1320,7 @@ const openTemplateDir = async () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 9999;
+    z-index: var(--z-modal);
 }
 
 .modal-content {

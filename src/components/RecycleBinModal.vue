@@ -356,7 +356,7 @@ async function executePurgeConfirmed() {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  z-index: var(--z-modal);
 }
 
 .recycle-bin-modal {
@@ -727,7 +727,7 @@ async function executePurgeConfirmed() {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: var(--z-modal-nested);
 }
 
 .danger-pulse-box {

@@ -121,6 +121,48 @@ const footerMetaRef = ref<HTMLElement | null>(null);
 const showProductInfo = ref(false);
 const showQuickGuide = ref(false);
 
+// UI F-01: the control bar used to wrap below 1280px, and the wrapped second
+// row fell outside the fixed 58px grid row — Settings and Lock became
+// unreachable at the app's own 1100px minimum width. The bar now never wraps;
+// it sheds content by priority instead. The tier is driven by a ResizeObserver
+// on the bar itself (not a viewport media query) so the library split width is
+// accounted for: dragging the resizer wider collapses the bar too.
+type ControlBarTier = 'full' | 'compact' | 'minimal';
+const controlBarRef = ref<HTMLElement | null>(null);
+const controlBarTier = ref<ControlBarTier>('full');
+let controlBarObserver: ResizeObserver | null = null;
+
+const applyControlBarTier = (width: number) => {
+  // Thresholds are the measured widths at which the bar's own content stops
+  // fitting on one line, not device breakpoints.
+  const next: ControlBarTier = width < 980 ? 'minimal' : width < 1180 ? 'compact' : 'full';
+  if (next !== controlBarTier.value) controlBarTier.value = next;
+};
+
+const startControlBarObserver = () => {
+  const el = controlBarRef.value;
+  if (!el || typeof ResizeObserver === 'undefined') return;
+  controlBarObserver = new ResizeObserver((entries) => {
+    const entry = entries[0];
+    if (entry) applyControlBarTier(entry.contentRect.width);
+  });
+  controlBarObserver.observe(el);
+  applyControlBarTier(el.getBoundingClientRect().width);
+};
+
+const stopControlBarObserver = () => {
+  controlBarObserver?.disconnect();
+  controlBarObserver = null;
+};
+
+// The TAKE HELD alert is injected into the same row and is wide; while it is up
+// the bar behaves as if it were one tier tighter so the alert never pushes
+// Settings or Lock past the edge.
+const effectiveControlBarTier = computed<ControlBarTier>(() => {
+  if (!manualTakeFailure.value) return controlBarTier.value;
+  return controlBarTier.value === 'full' ? 'compact' : 'minimal';
+});
+
 const APP_NAME = 'Aether';
 const APP_VERSION = '3.0';
 
@@ -155,11 +197,9 @@ let resizeFrame = 0;
 
 // Theme and Scale watchers
 watch(() => settings.theme, (theme) => {
-    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme', 'soft-slate-theme', 'periwinkle-theme');
+    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme');
     if (theme === 'light') document.body.classList.add('light-theme');
     else if (theme === 'monokai') document.body.classList.add('monokai-theme');
-    else if (theme === 'soft-slate') document.body.classList.add('soft-slate-theme');
-    else if (theme === 'periwinkle') document.body.classList.add('periwinkle-theme');
     else document.body.classList.add('dark-theme');
 }, { immediate: true });
 
@@ -526,6 +566,7 @@ const revealWindow = () => {
 onMounted(async () => {
   window.addEventListener('pointerdown', handleGlobalPointerDown);
   window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
+  startControlBarObserver();
   revealWindow();
   if (settings.debugMode) {
     startJankMonitor();
@@ -607,6 +648,7 @@ onUnmounted(() => {
   }
   window.removeEventListener('pointerdown', handleGlobalPointerDown);
   window.removeEventListener('playout:open-inspector', handleInspectorOpenEvent);
+  stopControlBarObserver();
   if (unlistenHeartbeat) {
     unlistenHeartbeat();
     unlistenHeartbeat = null;
@@ -658,7 +700,7 @@ onUnmounted(() => {
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
 
     <!-- Simplified Master Control Bar -->
-    <footer class="control-bar glass-panel">
+    <footer class="control-bar glass-panel" ref="controlBarRef" :class="`tier-${effectiveControlBarTier}`">
 
       <!-- Connection Indicator & Control in One Field -->
       <div class="ctrl-section">
@@ -721,7 +763,9 @@ onUnmounted(() => {
           @click="cutToLive"
           :title="!isLiveCutArmed ? 'Arm Cut to Live (First Click to Arm)' : 'Click Again to Execute Hardware Cut to Live'"
         >
-          {{ isLiveCutArmed ? '⚠️ CONFIRM CUT (ARMED)' : '🔴 CUT TO LIVE' }}
+          <span class="ctrl-btn-glyph" aria-hidden="true">{{ isLiveCutArmed ? '⚠️' : '🔴' }}</span>
+          <span class="ctrl-btn-label">{{ isLiveCutArmed ? 'CONFIRM CUT (ARMED)' : 'CUT TO LIVE' }}</span>
+          <span class="ctrl-btn-label-short" aria-hidden="true">{{ isLiveCutArmed ? 'CONFIRM' : 'LIVE' }}</span>
         </button>
         <button
           v-else
@@ -730,7 +774,9 @@ onUnmounted(() => {
           @click="returnFromLive"
           title="Live Broadcast Active — Click to Return to Rundown Playlist"
         >
-          🔴 LIVE ON AIR (RETURN TO RUNDOWN)
+          <span class="ctrl-btn-glyph" aria-hidden="true">🔴</span>
+          <span class="ctrl-btn-label">LIVE ON AIR (RETURN TO RUNDOWN)</span>
+          <span class="ctrl-btn-label-short" aria-hidden="true">LIVE ON AIR</span>
         </button>
       </div>
 
@@ -762,7 +808,7 @@ onUnmounted(() => {
 
       <!-- Broadcast Stream & SDI -->
       <div v-if="activePlayoutCapabilities.streaming" class="ctrl-section">
-        <div class="status-dot" :class="{ connected: isStreaming }" style="--dot-color:#e63946;"></div>
+        <div class="status-dot" :class="{ connected: isStreaming }"></div>
         <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
         <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream" style="font-size:0.7rem;">
           {{ isStreaming ? '■ Stop' : '● Stream' }}
@@ -795,7 +841,17 @@ onUnmounted(() => {
 
       <IngestorStatusLight />
 
-      <button class="ctrl-btn" style="font-size:0.78rem;" @pointerenter="preloadSettingsModal()" @focus="preloadSettingsModal()" @click="showSettings = true">⚙ Settings</button>
+      <button
+        class="ctrl-btn ctrl-settings-btn"
+        aria-label="Settings"
+        title="Settings"
+        @pointerenter="preloadSettingsModal()"
+        @focus="preloadSettingsModal()"
+        @click="showSettings = true"
+      >
+        <span class="ctrl-btn-glyph" aria-hidden="true">⚙</span>
+        <span class="ctrl-btn-label">Settings</span>
+      </button>
 
       <div class="ctrl-meta-dock" ref="footerMetaRef">
         <button
@@ -875,7 +931,13 @@ onUnmounted(() => {
 }
 .panel-library  { grid-area: library; overflow:hidden; }
 .panel-rundown  { grid-area: rundown; overflow:hidden; }
-.control-bar    { grid-area: ctrl; display:flex; align-items:center; gap:8px; padding:0 12px; margin-top:5px; position:relative; overflow:visible; }
+/* UI F-01: `flex-wrap: nowrap` is load-bearing. The shell's `ctrl` grid row is
+   a fixed 58px and the shell is `overflow: hidden`, so any wrapped second row
+   is clipped out of reach. Collapse tiers below shed content instead. */
+.control-bar    { grid-area: ctrl; display:flex; flex-wrap:nowrap; align-items:center; gap:8px; padding:0 12px; margin-top:5px; position:relative; overflow:visible; min-width:0; }
+
+.ctrl-btn-glyph { flex-shrink:0; }
+.ctrl-btn-label-short { display:none; }
 
 .resizer {
   cursor: ew-resize;
@@ -922,27 +984,32 @@ onUnmounted(() => {
 .ctrl-btn {
   background:var(--bg-hover); border:1px solid var(--border-medium);
   color:var(--text-primary); border-radius:6px; cursor:pointer;
-  padding:6px 14px; font-size:0.82rem; font-weight:600; transition:all 0.15s; white-space:nowrap;
+  padding:6px 14px; font-size:var(--fs-sm); font-weight:600; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:6px;
+  /* PERF: explicit property list, never `all`. */
+  transition:background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.ctrl-btn:hover { background:color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover)); border-color:var(--border-strong); }
-.ctrl-btn:disabled { opacity:0.35; cursor:not-allowed; }
-.ctrl-btn:hover { background:rgba(255,255,255,0.12); }
+.ctrl-btn:hover:not(:disabled) { background:color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover)); border-color:var(--border-strong); }
 .ctrl-btn:disabled { opacity:0.35; cursor:not-allowed; }
 
 .btn-play {
-  background:#33becc; border-color:#33becc;
-  color:#000; font-size:0.88rem; font-weight:800;
+  background:var(--accent-cyan); border-color:var(--accent-cyan);
+  color:var(--text-on-accent); font-size:var(--fs-md); font-weight:800;
   padding:6px 20px; letter-spacing:1px;
-  box-shadow:0 0 12px rgba(51,190,204,0.35);
+  box-shadow:0 0 12px color-mix(in srgb, var(--accent-cyan) 35%, transparent);
 }
-.btn-play:hover:not(:disabled) { background:#45d4e3; box-shadow:0 0 18px rgba(51,190,204,0.6); }
+.btn-play:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--accent-cyan) 88%, var(--text-primary));
+  border-color:color-mix(in srgb, var(--accent-cyan) 88%, var(--text-primary));
+  box-shadow:0 0 18px color-mix(in srgb, var(--accent-cyan) 60%, transparent);
+}
 
 .btn-stop {
   position: relative;
-  background:#e63946; border-color:#e63946;
-  color:#fff; font-size:0.88rem; font-weight:800;
+  background:var(--status-onair); border-color:var(--status-onair);
+  color:var(--text-on-danger); font-size:var(--fs-md); font-weight:800;
   padding:6px 20px; letter-spacing:1px;
-  box-shadow:0 0 12px rgba(230,57,70,0.4);
+  box-shadow:0 0 12px color-mix(in srgb, var(--status-onair) 40%, transparent);
 }
 /* PERF F-22: STOP is visible for the whole playing session; its glow pulse
    used to repaint the button every frame (box-shadow keyframe). The peak
@@ -953,7 +1020,7 @@ onUnmounted(() => {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 28px rgba(230,57,70,0.8);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--status-onair) 80%, transparent);
   animation: pulse-stop 1.5s ease-in-out infinite;
   will-change: opacity;
 }
@@ -975,26 +1042,63 @@ onUnmounted(() => {
   .btn-stop::after { opacity: 0.5; }
 }
 
-.btn-live { background:rgba(230,57,70,0.2); border-color:rgba(230,57,70,0.5); color:#e63946; }
-
-.btn-live-now {
-  background:rgba(230,57,70,0.1); border-color:#e63946;
-  color:#fff; font-size:0.8rem; font-weight:800;
-  padding:5px 12px; letter-spacing:0.5px; margin-left:0;
-  animation:pulse-live 2s infinite;
+.btn-live {
+  background:color-mix(in srgb, var(--status-onair) 20%, transparent);
+  border-color:color-mix(in srgb, var(--status-onair) 50%, transparent);
+  color:var(--status-onair);
 }
-.btn-live-now:hover { background:rgba(230,57,70,0.3); border-color:#fca5a5; box-shadow:0 0 12px rgba(230,57,70,0.4); }
+
+/* UI F-02: the resting CUT TO LIVE pill is a tint, so its label must be the
+   status colour, not white — white on a 10% tint was unreadable in the light
+   theme. Only the filled armed/active states carry --text-on-danger. */
+.btn-live-now {
+  position:relative;
+  background:color-mix(in srgb, var(--status-onair) 12%, var(--bg-hover));
+  border-color:var(--status-onair);
+  color:var(--status-onair); font-size:var(--fs-sm); font-weight:800;
+  padding:5px 12px; letter-spacing:0.5px; margin-left:0;
+}
+/* PERF: the pill is on screen for the whole session, so the breathing glow
+   lives on an overlay whose opacity animates on the compositor rather than a
+   box-shadow keyframe that repaints the button every frame. */
+.btn-live-now::after {
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  pointer-events:none;
+  box-shadow:0 0 16px color-mix(in srgb, var(--status-onair) 50%, transparent);
+  animation:pulse-live-glow 2s ease-in-out infinite;
+  will-change:opacity;
+}
+.btn-live-now:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--status-onair) 26%, var(--bg-hover));
+  border-color:var(--status-onair);
+}
 
 .btn-live-active {
-  background:#ef4444; border-color:#f87171;
-  color:#fff; font-size:0.8rem; font-weight:800;
+  position:relative;
+  background:var(--status-onair); border-color:var(--status-onair);
+  color:var(--text-on-danger); font-size:var(--fs-sm); font-weight:800;
   padding:5px 12px; letter-spacing:0.5px; margin-left:0;
-  box-shadow:0 0 16px rgba(239,68,68,0.7);
-  animation:pulse-live 1s infinite;
 }
-.btn-live-active:hover {
-  background:#dc2626; border-color:#fca5a5;
-  box-shadow:0 0 24px rgba(239,68,68,0.9);
+.btn-live-active::after {
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  pointer-events:none;
+  box-shadow:0 0 24px color-mix(in srgb, var(--status-onair) 90%, transparent);
+  animation:pulse-live-glow 1s ease-in-out infinite;
+  will-change:opacity;
+}
+.btn-live-active:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--status-onair) 85%, var(--text-primary));
+}
+
+@keyframes pulse-live-glow {
+  0%,100% { opacity:0.25; }
+  50%     { opacity:1; }
 }
 
 .lock-toggle-btn {
@@ -1007,28 +1111,22 @@ onUnmounted(() => {
   border-radius:6px;
   transition:all 0.15s;
   user-select:none;
-  background:rgba(16,185,129,0.12);
-  border:1px solid rgba(16,185,129,0.4);
-  color:#10b981;
+  background:color-mix(in srgb, var(--status-ready) 12%, transparent);
+  border:1px solid color-mix(in srgb, var(--status-ready) 40%, transparent);
+  color:var(--status-ready);
 }
-.lock-toggle-btn:hover {
-  background:rgba(16,185,129,0.22);
-  border-color:rgba(16,185,129,0.6);
+.lock-toggle-btn:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--status-ready) 22%, transparent);
+  border-color:color-mix(in srgb, var(--status-ready) 60%, transparent);
 }
 .lock-toggle-btn.is-locked {
-  background:rgba(239,68,68,0.15);
-  border-color:rgba(239,68,68,0.5);
-  color:#ef4444;
-  box-shadow:0 0 10px rgba(239,68,68,0.25);
+  background:color-mix(in srgb, var(--status-error) 15%, transparent);
+  border-color:color-mix(in srgb, var(--status-error) 50%, transparent);
+  color:var(--status-error);
 }
-.lock-toggle-btn.is-locked:hover {
-  background:rgba(239,68,68,0.25);
-  border-color:rgba(239,68,68,0.7);
-}
-
-@keyframes pulse-live {
-  0%,100% { box-shadow:0 0 8px rgba(230,57,70,0.2); }
-  50% { box-shadow:0 0 16px rgba(230,57,70,0.5); border-color:#fca5a5; }
+.lock-toggle-btn.is-locked:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--status-error) 25%, transparent);
+  border-color:color-mix(in srgb, var(--status-error) 70%, transparent);
 }
 
 .timecode {
@@ -1045,7 +1143,7 @@ onUnmounted(() => {
 .barrier-fence-divider {
   width: 2px !important;
   height: 32px !important;
-  background: var(--border-strong, #475569) !important;
+  background: var(--border-strong);
   margin: 0 10px !important;
 }
 
@@ -1053,31 +1151,31 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid color-mix(in srgb, var(--status-error) 35%, transparent);
   border-radius: 6px;
   padding: 2px 8px;
-  background: rgba(239, 68, 68, 0.06);
+  background: color-mix(in srgb, var(--status-error) 6%, transparent);
 }
 
 .routing-fence-label {
   font-size: 0.6rem;
   font-weight: 800;
   letter-spacing: 0.08em;
-  color: var(--accent-red, #ef4444);
+  color: var(--status-error);
   white-space: nowrap;
 }
 
-.btn-live-armed {
-  background: #d97706 !important;
-  border-color: #f59e0b !important;
-  color: #fff !important;
-  box-shadow: 0 0 16px rgba(217, 119, 6, 0.8) !important;
-  animation: pulse-armed 0.6s infinite alternate !important;
+/* Armed is the one state that must read as "about to cut": a filled warning
+   surface, not a tint. The `!important`s are gone — the selector is more
+   specific than .btn-live-now on its own. */
+.control-bar .btn-live-now.btn-live-armed {
+  background: var(--status-armed);
+  border-color: var(--status-armed);
+  color: var(--text-on-warning);
 }
-
-@keyframes pulse-armed {
-  0% { background: #d97706; box-shadow: 0 0 10px #d97706; }
-  100% { background: #dc2626; box-shadow: 0 0 25px #dc2626; }
+.control-bar .btn-live-now.btn-live-armed::after {
+  box-shadow: 0 0 22px color-mix(in srgb, var(--status-armed) 90%, transparent);
+  animation: pulse-live-glow 0.6s ease-in-out infinite;
 }
 
 .conn-toggle-btn {
@@ -1095,15 +1193,15 @@ onUnmounted(() => {
 }
 
 .conn-toggle-btn.is-connected {
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.4);
-  color: #22c55e;
+  background: color-mix(in srgb, var(--status-ready) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-ready) 40%, transparent);
+  color: var(--status-ready);
 }
 
 .conn-toggle-btn.is-connected:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #f87171;
+  background: color-mix(in srgb, var(--status-error) 15%, transparent);
+  border-color: color-mix(in srgb, var(--status-error) 50%, transparent);
+  color: var(--status-error);
 }
 
 .conn-toggle-btn:not(.is-connected) {
@@ -1127,8 +1225,8 @@ onUnmounted(() => {
   border-radius: 8px;
   border: 1px solid var(--border-medium);
   background: var(--bg-secondary);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
-  z-index: 40;
+  box-shadow: var(--shadow-3);
+  z-index: var(--z-popover);
 }
 
 .conn-popover-header {
@@ -1183,7 +1281,7 @@ onUnmounted(() => {
   gap: 1px;
   padding: 2px 8px;
   border-radius: 6px;
-  background: var(--bg-surface-elevated, rgba(0, 0, 0, 0.25));
+  background: var(--bg-surface-elevated);
   border: 1px solid var(--border-subtle);
   min-width: 140px;
   max-width: 195px;
@@ -1194,14 +1292,14 @@ onUnmounted(() => {
 }
 
 .ctrl-nextup-dock.is-imminent {
-  border-color: #f59e0b;
-  background: rgba(245, 158, 11, 0.15);
+  border-color: var(--status-cued);
+  background: color-mix(in srgb, var(--status-cued) 15%, transparent);
   animation: pulse-imminent 1s infinite alternate;
 }
 
 @keyframes pulse-imminent {
-  0% { box-shadow: 0 0 6px rgba(245, 158, 11, 0.4); }
-  100% { box-shadow: 0 0 16px rgba(245, 158, 11, 0.8); }
+  0% { opacity: 0.35; }
+  100% { opacity: 1; }
 }
 
 .nextup-header {
@@ -1222,8 +1320,8 @@ onUnmounted(() => {
 .nextup-imminent-pill {
   font-size: 0.52rem;
   font-weight: 800;
-  color: #fff;
-  background: #d97706;
+  color: var(--text-on-warning);
+  background: var(--status-armed);
   padding: 0 3px;
   border-radius: 2px;
   line-height: 1.2;
@@ -1254,15 +1352,14 @@ onUnmounted(() => {
   font-weight: 700;
   color: var(--accent-blue);
   font-variant-numeric: tabular-nums;
-  background: rgba(56, 189, 248, 0.1);
+  background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
   padding: 0 4px;
   border-radius: 3px;
   white-space: nowrap;
 }
 
 .brand-play-icon {
-  fill: #c084fc !important;
-  filter: drop-shadow(0 0 3px rgba(192, 132, 252, 0.6));
+  fill: var(--accent-purple);
 }
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -1271,24 +1368,24 @@ onUnmounted(() => {
 }
 .status-dot.connected,
 .status-dot.tone-ready {
-  background: var(--accent-green);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-green) 60%, transparent);
+  background: var(--status-ready);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--status-ready) 60%, transparent);
 }
 .status-dot.tone-warning {
-  background: #f59e0b;
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+  background: var(--status-warning);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--status-warning) 60%, transparent);
 }
 .status-dot.tone-error {
-  background: #ef4444;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
+  background: var(--status-error);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--status-error) 70%, transparent);
 }
 .status-dot.tone-processing {
-  background: #38bdf8;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.7);
+  background: var(--status-processing);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--status-processing) 70%, transparent);
 }
 .status-dot.tone-idle {
-  background: #c084fc;
-  box-shadow: 0 0 8px rgba(192, 132, 252, 0.6);
+  background: var(--accent-purple);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-purple) 60%, transparent);
 }
 .status-dot.pulse {
   animation: status-dot-pulse 1.4s ease-in-out infinite;
@@ -1305,9 +1402,9 @@ onUnmounted(() => {
   letter-spacing: 0.05em;
   padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(168, 85, 247, 0.2);
-  border: 1px solid rgba(168, 85, 247, 0.5);
-  color: #c084fc;
+  background: color-mix(in srgb, var(--accent-purple) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-purple) 50%, transparent);
+  color: var(--accent-purple);
 }
 
 .ctrl-meta-dock {
@@ -1341,27 +1438,26 @@ onUnmounted(() => {
   height: 28px;
   min-width: 28px;
   padding: 0;
-  border-radius: 50% !important;
+  border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(168, 85, 247, 0.15) !important;
-  border: 1px solid rgba(168, 85, 247, 0.45) !important;
-  color: #c084fc !important;
+  background: color-mix(in srgb, var(--accent-purple) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-purple) 45%, transparent);
+  color: var(--accent-purple);
 }
 
 .ctrl-meta-brand:hover,
 .ctrl-meta-brand.is-open {
-  background: rgba(168, 85, 247, 0.28) !important;
-  border-color: rgba(168, 85, 247, 0.75) !important;
-  box-shadow: 0 0 12px rgba(168, 85, 247, 0.45) !important;
-  color: #d8b4fe !important;
+  background: color-mix(in srgb, var(--accent-purple) 28%, transparent);
+  border-color: color-mix(in srgb, var(--accent-purple) 75%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-purple) 45%, transparent);
+  color: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
 }
 
 .ctrl-meta-brand:hover .brand-play-icon,
 .ctrl-meta-brand.is-open .brand-play-icon {
-  fill: #d8b4fe !important;
-  filter: drop-shadow(0 0 5px rgba(192, 132, 252, 0.8));
+  fill: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
 }
 
 .ctrl-meta-help {
@@ -1380,9 +1476,9 @@ onUnmounted(() => {
   border-radius: 14px;
   border: 1px solid var(--border-medium);
   background: var(--bg-secondary);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+  box-shadow: var(--shadow-3);
   backdrop-filter: blur(18px);
-  z-index: 30;
+  z-index: var(--z-popover);
 }
 
 .ctrl-meta-popover-guide {
@@ -1456,31 +1552,65 @@ onUnmounted(() => {
   color: var(--text-primary);
 }
 
-@media (max-width: 1280px) {
-  .control-bar {
-    flex-wrap: wrap;
-    justify-content: center;
-    padding-block: 8px;
-  }
+/* UI F-01: priority collapse instead of wrapping. The bar is a single
+   non-wrapping row at every width the app allows (min 1100px); when it runs
+   out of room it drops content in priority order, lowest value first.
+   Transport and the routing fence are never collapsed. */
+.control-bar.tier-compact .ctrl-summary,
+.control-bar.tier-compact .ctrl-summary + .ctrl-divider,
+.control-bar.tier-minimal .ctrl-summary,
+.control-bar.tier-minimal .ctrl-summary + .ctrl-divider {
+  display: none;
+}
 
-  .ctrl-divider {
-    display: none;
-  }
+.control-bar.tier-compact .routing-fence-label,
+.control-bar.tier-minimal .routing-fence-label {
+  display: none;
+}
 
-  .ctrl-value {
-    max-width: none;
-  }
+.control-bar.tier-compact .ctrl-value {
+  max-width: 140px;
+}
 
-  .ctrl-meta-dock {
-    margin-left:0;
-  }
+/* Tightest tier: labels become icons, long button texts become short ones.
+   Every control stays present and clickable — nothing leaves the bar. */
+.control-bar.tier-minimal .ctrl-divider {
+  display: none;
+}
 
-  .ctrl-meta-popover,
-  .ctrl-meta-popover-guide {
-    right:auto;
-    left:0;
-    width:min(380px, calc(100vw - 24px));
-  }
+.control-bar.tier-minimal .lock-text,
+.control-bar.tier-minimal .ctrl-settings-btn .ctrl-btn-label {
+  display: none;
+}
+
+.control-bar.tier-minimal .ctrl-settings-btn {
+  padding-inline: 10px;
+}
+
+.control-bar.tier-minimal .btn-live-now .ctrl-btn-label,
+.control-bar.tier-minimal .btn-live-active .ctrl-btn-label {
+  display: none;
+}
+
+.control-bar.tier-minimal .btn-live-now .ctrl-btn-label-short,
+.control-bar.tier-minimal .btn-live-active .ctrl-btn-label-short {
+  display: inline;
+}
+
+.control-bar.tier-minimal .ctrl-nextup-dock {
+  min-width: 108px;
+  max-width: 128px;
+}
+
+.control-bar.tier-minimal .nextup-title {
+  max-width: 90px;
+}
+
+/* The popovers anchor to the right edge of the dock by default; at the tight
+   tier the dock can sit close enough to the left that they would overflow. */
+.control-bar.tier-minimal .ctrl-meta-popover,
+.control-bar.tier-minimal .ctrl-meta-popover-guide {
+  width: min(380px, calc(100vw - 24px));
 }
 
 .halt-banner {
@@ -1488,17 +1618,17 @@ onUnmounted(() => {
   top: 16px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 9999;
+  z-index: var(--z-banner);
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 12px 20px;
-  background: rgba(230, 57, 70, 0.15);
-  border: 1px solid rgba(230, 57, 70, 0.45);
+  background: color-mix(in srgb, var(--status-error) 15%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--status-error) 45%, transparent);
   backdrop-filter: blur(12px);
   border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(230, 57, 70, 0.2), 0 0 1px 1px rgba(230, 57, 70, 0.3) inset;
-  color: #fff;
+  box-shadow: var(--shadow-2);
+  color: var(--text-primary);
   font-family: Inter, system-ui, sans-serif;
   animation: slideDownFade 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -1511,16 +1641,16 @@ onUnmounted(() => {
 
 .persist-banner {
   top: 72px;
-  background: rgba(245, 158, 11, 0.16);
-  border-color: rgba(245, 158, 11, 0.5);
-  box-shadow: 0 8px 32px rgba(245, 158, 11, 0.2);
+  background: color-mix(in srgb, var(--status-warning) 16%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--status-warning) 50%, transparent);
+  box-shadow: var(--shadow-2);
 }
 
 .fault-toasts {
   position: absolute;
   right: 16px;
   bottom: 92px;
-  z-index: 9998;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1534,11 +1664,11 @@ onUnmounted(() => {
   gap: 8px;
   padding: 8px 12px;
   border-radius: 6px;
-  background: rgba(230, 57, 70, 0.14);
-  border: 1px solid rgba(230, 57, 70, 0.4);
+  background: color-mix(in srgb, var(--status-error) 14%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--status-error) 40%, transparent);
   backdrop-filter: blur(10px);
-  color: #fff;
-  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
   font-family: Inter, system-ui, sans-serif;
   pointer-events: auto;
   animation: slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1586,14 +1716,13 @@ onUnmounted(() => {
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 .halt-dismiss-btn {
-  background: rgba(255, 255, 255, 0.12);
-  border: none;
-  border-radius: 4px;
-  color: #fff;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
   padding: 6px 12px;
   font-size: 0.75rem;
   font-weight: 700;
@@ -1604,7 +1733,7 @@ onUnmounted(() => {
 }
 
 .halt-dismiss-btn:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: var(--bg-active);
 }
 
 .halt-dismiss-btn:active {
@@ -1624,6 +1753,6 @@ onUnmounted(() => {
 
 @keyframes pulseWarning {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); filter: drop-shadow(0 0 6px rgba(230, 57, 70, 0.8)); }
+  50% { transform: scale(1.15); }
 }
 </style>

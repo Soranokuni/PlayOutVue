@@ -966,7 +966,7 @@ const saveAsSubclip = () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 10000;
+  z-index: var(--z-modal);
 }
 
 .trim-panel {
@@ -1624,7 +1624,7 @@ const saveAsSubclip = () => {
 .subclip-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10001;
+  z-index: var(--z-modal-nested);
   background: rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(8px);
   display: flex;

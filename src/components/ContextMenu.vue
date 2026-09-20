@@ -340,7 +340,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 /* Main Context Menu Styling */
 .win11-context-menu {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--z-context-menu);
   min-width: 220px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
@@ -455,7 +455,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   pointer-events: none;
   transition: opacity 0.12s ease, transform 0.12s ease;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-  z-index: 10010;
+  z-index: calc(var(--z-context-menu) + 10);
 }
 
 .action-btn:hover::after {
@@ -546,7 +546,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   min-width: 220px;
   max-height: 50vh;
   overflow-y: auto;
-  z-index: 10005;
+  z-index: calc(var(--z-context-menu) + 5);
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 0.6rem;

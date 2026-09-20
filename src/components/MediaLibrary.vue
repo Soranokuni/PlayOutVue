@@ -2566,7 +2566,7 @@ const menuItems = computed<MenuItem[]>(() => {
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  z-index: 50;
+  z-index: var(--z-popover);
   min-width: 140px;
   display: flex;
   flex-direction: column;
@@ -2842,7 +2842,7 @@ const menuItems = computed<MenuItem[]>(() => {
   border: 1px solid var(--border-medium);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  z-index: 20;
+  z-index: var(--z-popover);
 }
 .debug-menu-item {
   background: transparent;
@@ -3056,7 +3056,7 @@ const menuItems = computed<MenuItem[]>(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: var(--z-modal-nested);
 }
 
 .danger-pulse-box {

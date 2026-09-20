@@ -74,7 +74,7 @@ export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
  */
 const ENUM_FIELDS: Record<string, readonly string[]> = {
     playoutEngine: ['casparcg', 'obs'],
-    theme: ['dark', 'monokai', 'light', 'soft-slate', 'periwinkle'],
+    theme: ['dark', 'monokai', 'light'],
     uiScale: ['standard', 'comfortable', 'large'],
     recycleBinAutoPurge: ['disabled', '1week', '2weeks', '3weeks', '1month'],
     qcSensitivity: ['strict', 'production', 'lenient'],
@@ -108,7 +108,21 @@ const AMCP_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
  */
 export const INGESTOR_TOKEN = /^[\x21-\x7e]{0,256}$/;
 
+/**
+ * Themes removed in the UI/UX plan (§12.2): both were tinted copies of `light`
+ * that advertised neumorphism no component implemented. Operators who had one
+ * selected land on `light` rather than being reset to the `dark` default by the
+ * enum coercion below.
+ */
+const REMOVED_THEME_ALIASES: Record<string, string> = {
+    'soft-slate': 'light',
+    periwinkle: 'light',
+};
+
 export function sanitizeSettingsState<T extends Record<string, any>>(state: T, defaults: Record<string, any>): T {
+    const aliasedTheme = REMOVED_THEME_ALIASES[state.theme as string];
+    if (aliasedTheme) (state as any).theme = aliasedTheme;
+
     for (const [key, allowed] of Object.entries(ENUM_FIELDS)) {
         if (!allowed.includes(state[key])) {
             (state as any)[key] = defaults[key];
@@ -185,8 +199,8 @@ export const useSettingsStore = defineStore('settings', {
         // Local logo and ratings asset folder
         logosPath: '',
 
-        // Visual Theme ('dark' | 'monokai' | 'light' | 'soft-slate' | 'periwinkle')
-        theme: 'dark' as 'dark' | 'monokai' | 'light' | 'soft-slate' | 'periwinkle',
+        // Visual Theme ('dark' | 'monokai' | 'light')
+        theme: 'dark' as 'dark' | 'monokai' | 'light',
 
         // UI Scale ('standard' | 'comfortable' | 'large')
         uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',

@@ -1647,7 +1647,7 @@ onUnmounted(() => {
   position: fixed;
   pointer-events: none;
   user-select: none;
-  z-index: 9999;
+  z-index: var(--z-drawer);
   height: 0;
   transition: none;
 }
