@@ -240,7 +240,8 @@ const getDisplayName = (item: any) => {
                 <div class="meta-row">
                   <span class="meta-label">Mezzanine Valid</span>
                   <span class="meta-val" :class="activeItem.mezzanine_ok ? 'text-green' : 'text-orange'">
-                    {{ activeItem.mezzanine_ok ? '✓ Frame-Accurate Playable' : '⚠ Non-Standard / Pass-Through' }}
+                    <AppIcon :name="activeItem.mezzanine_ok ? 'check' : 'alert'" :size="12" />
+              <span>{{ activeItem.mezzanine_ok ? 'Frame-accurate playable' : 'Non-standard / pass-through' }}</span>
                   </span>
                 </div>
                 <div class="meta-row">
@@ -303,7 +304,7 @@ const getDisplayName = (item: any) => {
                   @click="pushTrimToIngestor"
                   title="Save current trim points to Ingestor backend"
                 >
-                  {{ pushTrimInFlight ? 'Pushing...' : '💾 Push Trim Points' }}
+                  {{ pushTrimInFlight ? 'Pushing…' : 'Push trim points' }}
                 </button>
               </div>
             </div>

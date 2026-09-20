@@ -9,7 +9,9 @@ import { registerRundownDropSurface, beginRundownDrag, indicatorGeometry, active
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
-import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
+import { usePlaylistFile } from '../composables/usePlaylistFile';
+import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
+import { commercialTagBadge, commercialTagTone, contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
 import AppIcon from './ui/AppIcon.vue';
 import type { IconName } from './ui/icons';
 import RundownRow from './RundownRow.vue';
@@ -30,6 +32,29 @@ const focusList = () => rundownListRef.value?.focus({ preventScroll: true });
 
 const isDragOver = ref(false);
 const showLiveDialog = ref(false);
+
+// §6.3: the header overflow that now owns Save / Load / Append / Clear.
+const showPlaylistMenu = ref(false);
+const {
+  isSaving: isSavingPlaylist,
+  isLoading: isLoadingPlaylist,
+  pickPlaylistPath,
+  clearRundown: clearPlaylistFile,
+} = usePlaylistFile();
+
+const runPlaylistFileAction = (action: 'save' | 'load' | 'append') => {
+  showPlaylistMenu.value = false;
+  void pickPlaylistPath(action);
+};
+
+const closePlaylistMenu = () => {
+  showPlaylistMenu.value = false;
+};
+
+const runClearRundown = () => {
+  showPlaylistMenu.value = false;
+  void clearPlaylistFile();
+};
 const activeDropTarget = ref<ActiveDropTarget>({ kind: 'none' });
 
 const indicatorTarget = computed(() => {
@@ -534,6 +559,7 @@ const topActionItems = computed<TopAction[]>(() => {
   return [
     {
       id: 'delete',
+      tone: 'danger',
       tooltip: store.isRundownLocked ? 'Rundown Locked' : (isDeleteDisabled ? 'Delete (Protected)' : 'Delete Item'),
       action: ctxDelete,
       disabled: isDeleteDisabled
@@ -547,21 +573,29 @@ const menuItems = computed<MenuItem[]>(() => {
   
   const list: MenuItem[] = [
     {
+      type: 'label',
+      label: 'Clip'
+    },
+    {
       type: 'action',
       icon: 'inspect',
+      tone: 'accent',
       label: 'Inspect clip (Ctrl+I)',
       action: ctxInspect
     },
     {
+      // Green is "go" on a broadcast desk, and this is the only row in the
+      // menu that puts something on air.
       type: 'action',
       icon: 'play',
+      tone: 'success',
       label: 'Play from here',
       disabled: store.isRundownLocked,
       action: ctxPlayFrom
     },
     {
       type: 'action',
-      icon: 'file',
+      icon: 'copy',
       label: 'Duplicate',
       disabled: store.isRundownLocked,
       action: ctxDuplicate
@@ -569,12 +603,22 @@ const menuItems = computed<MenuItem[]>(() => {
   ];
   
   if (item.type !== 'gap') {
+    const currentRating = item.complianceRating || 'none';
+    const descriptorCount = Array.isArray(item.complianceDescriptors) ? item.complianceDescriptors.length : 0;
+    const currentType = item.content_type || 'none';
+    const currentTag = item.libraryIndicator || 'none';
+
     list.push(
       { type: 'divider' },
+      { type: 'label', label: 'Compliance' },
       {
+        // The submenu parent wears the clip's *current* rating, so the menu
+        // answers "what is this rated" before it is even opened.
         type: 'submenu',
         id: 'compliance-rating',
-        icon: 'tag',
+        icon: 'shield',
+        tone: ratingTone(currentRating),
+        badge: ratingBadge(currentRating),
         label: 'Σήματα καταλληλότητας (age rating)',
         children: ageRatingOptions.map(r => {
           const itemRating = item.complianceRating || 'none';
@@ -591,6 +635,8 @@ const menuItems = computed<MenuItem[]>(() => {
             type: 'action' as const,
             label: r.label,
             icon: r.icon,
+            tone: ratingTone(r.id),
+            badge: r.id === 'none' ? undefined : ratingBadge(r.id),
             checked: isChecked,
             action: () => ctxSetAgeRating(r)
           };
@@ -600,6 +646,8 @@ const menuItems = computed<MenuItem[]>(() => {
         type: 'submenu',
         id: 'compliance-descriptors',
         icon: 'alert',
+        tone: descriptorCount > 0 ? 'warning' : 'neutral',
+        badge: descriptorCount > 0 ? String(descriptorCount) : undefined,
         label: 'Προειδοποιήσεις περιεχομένου (content warnings)',
         children: [
           ...GREEK_CONTENT_DESCRIPTORS.map(d => {
@@ -607,6 +655,7 @@ const menuItems = computed<MenuItem[]>(() => {
             return {
               type: 'action' as const,
               icon: (isChecked ? 'square-check' : 'square') as IconName,
+              tone: (isChecked ? 'warning' : 'neutral') as MenuTone,
               label: d.label,
               checked: isChecked,
               action: () => ctxToggleDescriptor(d.id)
@@ -615,39 +664,51 @@ const menuItems = computed<MenuItem[]>(() => {
           {
             type: 'action' as const,
             icon: 'broom' as IconName,
+            tone: 'danger' as MenuTone,
             label: 'Καθαρισμός προειδοποιήσεων',
             disabled: !item.complianceDescriptors || item.complianceDescriptors.length === 0,
             action: ctxClearDescriptors
           }
         ]
       },
-      { type: 'divider' },
       {
         type: 'toggle',
         icon: item.tp_flag ? 'square-check' : 'square',
+        tone: item.tp_flag ? 'rating-tp' : 'neutral',
+        badge: item.tp_flag ? 'TP' : undefined,
         label: 'Προβολή προϊόντος (product placement, TP)',
         checked: item.tp_flag,
         action: ctxToggleTP
       },
       { type: 'divider' },
+      { type: 'label', label: 'Classification' },
       {
         type: 'submenu',
         id: 'content-type',
+        icon: 'layers',
+        tone: contentTypeTone(currentType),
         label: 'Content type',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
+          icon: ((item.content_type || 'none') === ct.id ? 'radio-on' : 'radio-off') as IconName,
+          tone: contentTypeTone(ct.id),
           label: ct.label,
           checked: (item.content_type || 'none') === ct.id,
           action: () => ctxSetContentType(ct.id)
         }))
       },
-      { type: 'divider' },
       {
         type: 'submenu',
         id: 'commercial-tag',
+        icon: 'tag',
+        tone: commercialTagTone(currentTag),
+        badge: commercialTagBadge(currentTag),
         label: 'Commercial tag',
         children: indicatorOptions.map(ind => ({
           type: 'action',
+          icon: ((item.libraryIndicator || 'none') === ind.id ? 'radio-on' : 'radio-off') as IconName,
+          tone: commercialTagTone(ind.id),
+          badge: commercialTagBadge(ind.id),
           label: ind.label,
           checked: (item.libraryIndicator || 'none') === ind.id,
           action: () => ctxSetIndicator(ind.id)
@@ -994,6 +1055,7 @@ onMounted(() => {
     console.warn('[Rundown] Initial duration hydration failed', error);
   });
   window.addEventListener('click', closeContextMenu);
+  window.addEventListener('click', closePlaylistMenu);
 
   unregisterSurface = registerRundownDropSurface({
     getSnapshot() {
@@ -1059,6 +1121,7 @@ onUnmounted(() => {
   }
   if (crawlDebounceTimer) clearTimeout(crawlDebounceTimer);
   window.removeEventListener('click', closeContextMenu);
+  window.removeEventListener('click', closePlaylistMenu);
 });
 
 </script>
@@ -1094,11 +1157,50 @@ onUnmounted(() => {
           <span class="clock-display">{{ studioClockTimecode }}</span>
         </div>
 
-        <button class="icon-action" @click="showLiveDialog = true" title="Insert Live Item / Studio Block into Rundown">+ Live Block</button>
+        <button class="icon-action" @click="showLiveDialog = true" title="Insert Live Item / Studio Block into Rundown">
+          <AppIcon name="live" :size="14" />
+          <span>Live block</span>
+        </button>
         <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">
           <AppIcon name="stop" :size="14" />
           <span>Stop</span>
         </button>
+
+        <!-- §6.3: Save / Load / Append / Clear moved up here from the bottom
+             bar. They are file management, used once a session, and they were
+             occupying prime width beside the controls used every minute. -->
+        <div class="rw-overflow-wrap">
+          <button
+            class="icon-action rw-overflow-trigger"
+            :class="{ 'is-open': showPlaylistMenu }"
+            :title="showPlaylistMenu ? 'Close playlist file menu' : 'Playlist file actions'"
+            aria-label="Playlist file actions"
+            :aria-expanded="showPlaylistMenu"
+            data-testid="rundown-overflow"
+            @click.stop="showPlaylistMenu = !showPlaylistMenu"
+          >
+            <AppIcon name="more-vertical" :size="16" />
+          </button>
+          <div v-if="showPlaylistMenu" class="rw-overflow-menu popover-surface" role="menu" @click.stop>
+            <button class="rw-overflow-item popover-item" role="menuitem" :disabled="isSavingPlaylist" @click="runPlaylistFileAction('save')">
+              <AppIcon class="rw-overflow-icon tone-accent" name="save" :size="14" />
+              <span>Save playlist…</span>
+            </button>
+            <button class="rw-overflow-item popover-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('load')">
+              <AppIcon class="rw-overflow-icon tone-accent" name="folder-open" :size="14" />
+              <span>Load playlist…</span>
+            </button>
+            <button class="rw-overflow-item popover-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('append')">
+              <AppIcon class="rw-overflow-icon tone-accent" name="plus" :size="14" />
+              <span>Append playlist…</span>
+            </button>
+            <div class="popover-divider" role="separator" />
+            <button class="rw-overflow-item popover-item popover-item--danger" role="menuitem" @click="runClearRundown">
+              <AppIcon class="rw-overflow-icon" name="trash" :size="14" />
+              <span>Clear playlist…</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1162,18 +1264,30 @@ onUnmounted(() => {
           autofocus
         />
         <span v-else class="playlist-tab-name">{{ playlist.name }}</span>
-        <span class="playlist-tab-state">{{ playlist.id === store.onAirPlaylistId ? 'ON AIR' : 'OFFLINE' }}</span>
-        <button
+        <!-- §6.3: "OFFLINE" on every tab was noise — offline is the normal
+             state. Only the exception gets a word; the rest get their count. -->
+        <span v-if="playlist.id === store.onAirPlaylistId" class="playlist-tab-state">ON AIR</span>
+        <span v-else class="playlist-tab-count tabular-nums">{{ playlist.items.length }}</span>
+        <span
           v-if="store.playlists.length > 1 && playlist.id !== store.onAirPlaylistId"
           class="playlist-tab-close"
-          @click.stop="closePlaylistTab(playlist as RundownPlaylist)"
+          role="button"
+          tabindex="-1"
+          :aria-label="`Close ${playlist.name}`"
           title="Close playlist"
+          @click.stop="closePlaylistTab(playlist as RundownPlaylist)"
         >
-          ×
-        </button>
+          <AppIcon name="close" :size="12" :stroke-width="2.5" />
+        </span>
       </button>
-      <button class="playlist-add-btn" @click="createPlaylistTab" title="Create new offline playlist">+</button>
+      <button class="playlist-add-btn" @click="createPlaylistTab" title="Create new offline playlist" aria-label="Create new offline playlist">
+        <AppIcon name="plus" :size="14" />
+      </button>
     </div>
+
+    <!-- §6.3: the schedule row belongs with the tabs it describes, not stranded
+         at the bottom of the panel below the rundown it does not control. -->
+    <PlaylistControls />
 
     <!-- Column labels -->
     <div class="rw-cols-label" aria-hidden="true">
@@ -1306,8 +1420,6 @@ onUnmounted(() => {
       />
     </Teleport>
 
-    <PlaylistControls />
-
     <LiveEntryDialog v-if="showLiveDialog" @close="showLiveDialog = false" />
   </div>
 </template>
@@ -1410,11 +1522,43 @@ onUnmounted(() => {
 }
 @keyframes blink { 50% { opacity: 0.4; } }
 .icon-action {
+  display: inline-flex; align-items: center; gap: var(--space-1);
   background: var(--bg-hover); border: 1px solid var(--border-medium);
   color: var(--text-primary); border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
 }
 .icon-action:hover { background: var(--bg-surface-elevated); border-color: var(--border-strong); }
 .btn-stop { border-color: color-mix(in srgb, var(--accent-red) 45%, transparent); color: var(--accent-red); }
+
+/* §6.3: the header overflow. Same visual language as the library's actions
+   dropdown so the two "⋮" menus in the app are one pattern, not two. */
+.rw-overflow-wrap {
+  position: relative;
+}
+.rw-overflow-trigger.is-open {
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
+}
+/* Everything but position comes from `.popover-surface` / `.popover-item`. */
+.rw-overflow-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: var(--z-popover);
+}
+.rw-overflow-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+.rw-overflow-icon.tone-accent {
+  color: var(--accent-blue);
+}
+.popover-item--danger .rw-overflow-icon {
+  color: var(--status-error);
+}
 
 .playlist-tabs-row {
   display: flex;
@@ -1494,32 +1638,61 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* §6.3: the on-air tab is the only one that says anything; it says the one
+   word that matters, as a filled pill rather than a grey caption. */
 .playlist-tab-state {
+  margin-left: auto;
   font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: var(--text-on-danger);
+  background: var(--status-onair);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-2);
+  line-height: 1.4;
 }
-.playlist-tab-close {
+.playlist-tab-count {
   margin-left: auto;
-  background: transparent;
-  border: none;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  min-width: 14px;
+  text-align: right;
+}
+/* §6.3: the close affordance appears on hover or keyboard focus. A permanent
+   × on every tab is a permanent invitation to close the wrong playlist. */
+.playlist-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.95rem;
-  line-height: 1;
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+.playlist-tab:hover .playlist-tab-close,
+.playlist-tab:focus-within .playlist-tab-close {
+  opacity: 1;
 }
 .playlist-tab-close:hover {
-  color: var(--accent-red);
+  color: var(--status-error);
+  background: color-mix(in srgb, var(--status-error) 16%, transparent);
 }
 .playlist-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 34px;
   border-radius: 8px;
   border: 1px dashed color-mix(in srgb, var(--accent-blue) 40%, transparent);
   background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
   color: var(--accent-blue);
-  font-size: 1.1rem;
-  font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
   transition: background-color 0.15s ease, border-color 0.15s ease;

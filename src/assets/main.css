@@ -177,6 +177,15 @@
 
   --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-blue);
 
+  /* Floating surfaces (menus, popovers, dropdowns).
+
+     These used --bg-secondary, which is also the panel background, so a menu
+     opened over a panel was the same colour as the thing it floated above and
+     read as a hole rather than a layer. A popover is one step lighter than the
+     surface under it in every theme, with its own border and shadow. */
+  --surface-popover: #16203a;
+  --surface-popover-border: rgba(255, 255, 255, 0.14);
+
   /* Modal / overlay scrim */
   --backdrop: rgba(0, 0, 0, 0.72);
   --backdrop-strong: rgba(0, 0, 0, 0.86);
@@ -228,6 +237,9 @@
 
   --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-blue);
 
+  --surface-popover: #2c2e26;
+  --surface-popover-border: rgba(255, 255, 255, 0.18);
+
   --backdrop: rgba(0, 0, 0, 0.72);
   --backdrop-strong: rgba(0, 0, 0, 0.86);
 }
@@ -278,6 +290,11 @@
   --shadow-3: 0 12px 32px rgba(15, 23, 42, 0.18);
 
   --focus-ring: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--accent-blue);
+
+  /* A light popover cannot go lighter than white, so it separates by border
+     and shadow instead. */
+  --surface-popover: #ffffff;
+  --surface-popover-border: rgba(15, 23, 42, 0.16);
 
   /* A light theme needs a lighter scrim: pure black at 72% reads as a fault. */
   --backdrop: rgba(15, 23, 42, 0.42);

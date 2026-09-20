@@ -6,6 +6,7 @@ import { msToTimecode, parseTimecode, snapMsToFrame, getFrameRate, isDropFrameSu
 import { activeTrimmerContext } from '../composables/useOperatorShortcuts';
 import { createVirtualSubclip } from '../services/virtualSubclipService';
 import { describeErrorMessage } from '../lib/describeError';
+import AppIcon from './ui/AppIcon.vue';
 import {
   createTrimDraft,
   setInAt,
@@ -131,6 +132,18 @@ const isProbing  = ref(false);
 const isTrimming = ref(false);
 const isSmartTrimming = ref(false);
 const trimStatus = ref('');
+/**
+ * §8: the status line used to prefix itself with a cross or a tick. A glyph
+ * inside a sentence is unthemeable, is not announced as a state by a screen
+ * reader, and does not translate. The state is a sibling ref instead, and the
+ * line renders it as colour plus an icon in its own slot.
+ */
+const trimStatusTone = ref<'info' | 'error' | 'success'>('info');
+
+const setTrimStatus = (text: string, tone: 'info' | 'error' | 'success' = 'info') => {
+  trimStatus.value = text;
+  trimStatusTone.value = tone;
+};
 const speed = ref(0); // for JKL display badge
 const FRAME_MS = computed(() => {
     const fps = item.value?.fps && item.value.fps > 0 ? item.value.fps : 25;
@@ -340,7 +353,7 @@ watch([item, () => props.isOpen], ([val, open]) => {
     outMs.value = val.outPoint || fileDurationMs;
     totalDurationMs.value = fileDurationMs;
     viewTrimmed.value = false;
-  trimStatus.value = '';
+  setTrimStatus('');
   speed.value = 0;
   isVideoPlaying.value = false;
   pendingSeekMs = null;
@@ -420,7 +433,7 @@ const revertDraft = () => {
     inMs.value = initialInMs.value;
     outMs.value = initialOutMs.value;
     tcError.value = '';
-    trimStatus.value = 'Reverted to initial trim state';
+    setTrimStatus('Reverted to initial trim state');
 };
 
 const trimmedDuration = computed(() => {
@@ -476,7 +489,7 @@ const setInPoint = (ms = Math.round(currentVideoMs())) => {
   inMs.value = updated.inMs;
   if (inMs.value > outMs.value) outMs.value = inMs.value;
   const val = validateTrim(updated);
-  trimStatus.value = val.valid ? `IN: ${msToTC(inMs.value)}` : `❌ ${val.errors.join(', ')}`;
+  val.valid ? setTrimStatus(`IN: ${msToTC(inMs.value)}`) : setTrimStatus(val.errors.join(', '), 'error');
 };
 
 const setOutPoint = (ms = Math.round(currentVideoMs())) => {
@@ -484,7 +497,7 @@ const setOutPoint = (ms = Math.round(currentVideoMs())) => {
   outMs.value = updated.outMs;
   if (outMs.value < inMs.value) inMs.value = outMs.value;
   const val = validateTrim(updated);
-  trimStatus.value = val.valid ? `OUT: ${msToTC(outMs.value)}` : `❌ ${val.errors.join(', ')}`;
+  val.valid ? setTrimStatus(`OUT: ${msToTC(outMs.value)}`) : setTrimStatus(val.errors.join(', '), 'error');
 };
 
 const nudgeMarkerBoundary = (boundary: 'in' | 'out', deltaFrames: number) => {
@@ -503,7 +516,7 @@ const revertTrimToBaseline = () => {
   const reverted = revertTrim(trimDraft.value, { inMs: baselineIn, outMs: baselineOut });
   inMs.value = reverted.inMs;
   outMs.value = reverted.outMs;
-  trimStatus.value = 'Reverted trim points to baseline.';
+  setTrimStatus('Reverted trim points to baseline.');
 };
 
 const jumpToMarker = (marker: 'start' | 'in' | 'out' | 'end') => {
@@ -612,7 +625,7 @@ onUnmounted(() => {
 const saveNonDestructive = () => {
     if (!item.value) return;
     if (outMs.value > 0 && outMs.value <= inMs.value) {
-      trimStatus.value = '❌ OUT point must be greater than IN point.';
+      setTrimStatus('OUT point must be greater than IN point.', 'error');
       return;
     }
 
@@ -640,7 +653,7 @@ const saveNonDestructive = () => {
         });
       }
 
-      trimStatus.value = '✅ Trim saved.';
+      setTrimStatus('Trim saved.', 'success');
 
       if (item.value?.path) {
         emit('saved', { uuid: item.value.uuid, outputPath: item.value.path });
@@ -649,7 +662,7 @@ const saveNonDestructive = () => {
     };
 
     saveTask().catch((error) => {
-      trimStatus.value = `❌ ${describeErrorMessage(error, 'The trim could not be applied.')}`;
+      setTrimStatus(describeErrorMessage(error, 'The trim could not be applied.'), 'error');
     });
 };
 
@@ -660,20 +673,20 @@ export type SubclipCapability =
 
 const subclipCapability = computed<SubclipCapability>(() => {
   if (!item.value) {
-    return { state: 'unavailable', label: '🎬 Save Sub-clip', reason: 'No item selected' };
+    return { state: 'unavailable', label: 'Save sub-clip', reason: 'No item selected' };
   }
   if (!item.value.path) {
-    return { state: 'unavailable', label: '🎬 Save Sub-clip', reason: 'Missing source path' };
+    return { state: 'unavailable', label: 'Save sub-clip', reason: 'Missing source path' };
   }
   if (outMs.value > 0 && outMs.value <= inMs.value) {
-    return { state: 'unavailable', label: '🎬 Save Sub-clip', reason: 'OUT point must be greater than IN point' };
+    return { state: 'unavailable', label: 'Save sub-clip', reason: 'OUT point must be greater than IN point' };
   }
   if (item.value.uuid && !item.value.uuid.startsWith('local:')) {
-    return { state: 'available', label: '🎬 Save Virtual Sub-clip' };
+    return { state: 'available', label: 'Save virtual sub-clip' };
   }
   return {
     state: 'local-fallback',
-    label: '🎬 Save Local Sub-clip',
+    label: 'Save local sub-clip',
     reason: 'Local asset without server identity. Sub-clip will be stored in playlist only.'
   };
 });
@@ -685,7 +698,7 @@ const openSubclipDialog = () => {
   const currentItem = item.value;
   if (!currentItem) return;
   if (outMs.value > 0 && outMs.value <= inMs.value) {
-    trimStatus.value = '❌ OUT point must be greater than IN point.';
+    setTrimStatus('OUT point must be greater than IN point.', 'error');
     return;
   }
   subclipNameInput.value = `${currentItem.filename} (Sub-clip)`;
@@ -701,12 +714,12 @@ const confirmSubclipDialog = async () => {
   if (!currentItem) return;
   const name = subclipNameInput.value.trim();
   if (!name) {
-    trimStatus.value = '❌ Display name must not be empty.';
+    setTrimStatus('Display name must not be empty.', 'error');
     return;
   }
 
   showSubclipModal.value = false;
-  trimStatus.value = 'Processing sub-clip...';
+  setTrimStatus('Processing sub-clip…');
 
   const result = await createVirtualSubclip({
     item: currentItem as any,
@@ -716,15 +729,18 @@ const confirmSubclipDialog = async () => {
   });
 
   if (result.state === 'failed') {
-    trimStatus.value = `❌ Sub-clip failed: ${result.error}`;
+    setTrimStatus(`Sub-clip failed: ${result.error}`, 'error');
     return;
   }
 
   if (result.item) {
     store.addItem(result.item);
-    trimStatus.value = result.state === 'persisted' 
-      ? '✅ Virtual sub-clip created and persisted successfully!' 
-      : '✅ Local virtual sub-clip created (playlist only).';
+    setTrimStatus(
+      result.state === 'persisted'
+        ? 'Virtual sub-clip created and saved.'
+        : 'Local virtual sub-clip created (playlist only).',
+      'success'
+    );
     emit('saved', { uuid: result.item.playoutvueId, outputPath: result.item.path });
     setTimeout(() => emit('close'), 800);
   }
@@ -779,7 +795,8 @@ const saveAsSubclip = () => {
             @click="toggleViewTrimmed"
             :title="viewTrimmed ? 'Show Full File' : 'Show Trimmed Range'"
           >
-            {{ viewTrimmed ? '🔍 Trimmed' : '📁 Full File' }}
+            <AppIcon :name="viewTrimmed ? 'scissors' : 'film'" :size="14" />
+        <span>{{ viewTrimmed ? 'Trimmed' : 'Full file' }}</span>
           </button>
           <button class="close-btn" @click="$emit('close')" title="Close Trimmer">✕</button>
         </div>
@@ -794,22 +811,25 @@ const saveAsSubclip = () => {
             <video v-if="videoSrc" ref="videoRef" :src="videoSrc" class="trim-video"
               muted preload="metadata" @loadedmetadata="onVideoLoaded" @error="onVideoError" @timeupdate="onTimeUpdate" @play="syncPlaybackState" @pause="syncPlaybackState"></video>
             <div v-else-if="item.type === 'live' || item.path?.startsWith('http')" class="video-placeholder">
-              <div class="placeholder-icon">{{ item.type === 'live' ? '📹' : '🌐' }}</div>
+              <div class="placeholder-icon"><AppIcon :name="item.type === 'live' ? 'live' : 'graphic'" :size="24" /></div>
               <small class="text-secondary">No local preview</small>
             </div>
             <div v-else-if="isGeneratingProxy" class="video-placeholder">
-              <div class="placeholder-icon">🎞️</div>
+              <div class="placeholder-icon"><AppIcon name="film" :size="24" /></div>
               <small class="text-secondary">Generating proxy preview…</small>
             </div>
             <div v-else-if="previewError" class="video-placeholder">
-              <div class="placeholder-icon">⚠</div>
+              <div class="placeholder-icon"><AppIcon name="alert" :size="24" /></div>
               <small class="text-secondary">{{ previewError }}</small>
             </div>
             <div v-else class="video-placeholder">
               <div class="placeholder-icon">⌛</div>
               <small class="text-secondary">Loading preview…</small>
             </div>
-            <div v-if="speed !== 0" class="speed-badge">{{ speed < 0 ? '◀◀' : '▶▶' }} {{ Math.abs(speed) === 2 ? '×4' : '×1' }}</div>
+            <div v-if="speed !== 0" class="speed-badge">
+          <AppIcon :name="speed < 0 ? 'rewind' : 'fast-forward'" :size="12" />
+          <span>{{ Math.abs(speed) === 2 ? '×4' : '×1' }}</span>
+        </div>
           </div>
 
           <!-- Transport Dock (Cleanly below video, never covering frames) -->
@@ -818,7 +838,7 @@ const saveAsSubclip = () => {
             <button class="t-btn t-btn-step" @click="nudge(-10)" title="Back 10 frames [Shift+Left]">-10f</button>
             <button class="t-btn t-btn-step" @click="nudge(-1)" title="Back 1 frame [Left]">-1f</button>
             <button class="t-btn t-btn-play" :class="{ 'is-playing': isVideoPlaying }" @click="togglePlayback" title="Play / Pause [Space / K]">
-              <span class="play-icon">{{ isVideoPlaying ? '⏸' : '▶' }}</span>
+              <span class="play-icon"><AppIcon :name="isVideoPlaying ? 'pause' : 'play'" :size="16" /></span>
               <span class="play-text">{{ isVideoPlaying ? 'PAUSE' : 'PLAY' }}</span>
             </button>
             <button class="t-btn t-btn-step" @click="nudge(1)" title="Forward 1 frame [Right]">+1f</button>
@@ -916,7 +936,7 @@ const saveAsSubclip = () => {
           <!-- Actions Bar -->
           <div class="trim-actions">
             <button class="action-btn btn-save" @click="saveNonDestructive">
-              <span class="btn-icon">💾</span> Save Trim Points
+              <AppIcon name="save" :size="14" /> Save Trim Points
             </button>
             <button
               class="action-btn btn-subclip"
@@ -928,7 +948,14 @@ const saveAsSubclip = () => {
             </button>
             <button class="action-btn btn-cancel" @click="$emit('close')">Cancel</button>
           </div>
-          <div v-if="trimStatus" class="trim-status">{{ trimStatus }}</div>
+          <div v-if="trimStatus" class="trim-status" :class="`is-${trimStatusTone}`" role="status">
+            <AppIcon
+              v-if="trimStatusTone !== 'info'"
+              :name="trimStatusTone === 'error' ? 'error' : 'check'"
+              :size="12"
+            />
+            <span>{{ trimStatus }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1166,10 +1193,16 @@ const saveAsSubclip = () => {
 }
 
 .placeholder-icon {
-  font-size: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
 }
 
 .speed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   position: absolute;
   top: 10px;
   right: 12px;
@@ -1241,7 +1274,8 @@ const saveAsSubclip = () => {
 }
 
 .play-icon {
-  font-size: 0.88rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .play-text {
@@ -1613,12 +1647,30 @@ const saveAsSubclip = () => {
 }
 
 .trim-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: 0.78rem;
   padding: 6px 10px;
   background: var(--bg-tertiary);
   border-radius: 6px;
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
+}
+
+/* The state that used to be a glyph inside the sentence. */
+.trim-status.is-error {
+  border-color: color-mix(in srgb, var(--status-error) 55%, transparent);
+  background: color-mix(in srgb, var(--status-error) 12%, var(--bg-tertiary));
+  color: var(--status-error);
+  font-weight: 700;
+}
+
+.trim-status.is-success {
+  border-color: color-mix(in srgb, var(--status-ready) 50%, transparent);
+  background: color-mix(in srgb, var(--status-ready) 10%, var(--bg-tertiary));
+  color: var(--status-ready);
+  font-weight: 700;
 }
 
 /* Subclip Dialog */

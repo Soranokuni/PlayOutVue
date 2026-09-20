@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick } from 'vue';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { commandRegistry, type CommandDefinition, type CommandSafety } from '../services/commandRegistry';
 import { searchCommands } from '../lib/commandSearch';
+import AppIcon from './ui/AppIcon.vue';
 import {
   createCurrentCommandContext,
   closeCommandPalette
@@ -242,7 +243,7 @@ const runSelected = () => {
         tabindex="-1"
       >
         <div class="palette-input-wrapper">
-          <span class="palette-search-icon">🔍</span>
+          <span class="palette-search-icon"><AppIcon name="search" :size="16" /></span>
           <input
             ref="inputRef"
             v-model="query"
@@ -259,7 +260,8 @@ const runSelected = () => {
         </div>
 
         <div v-if="executionError" class="palette-error-banner" role="alert">
-          ⚠️ {{ executionError }}
+          <AppIcon name="alert" :size="14" />
+        <span>{{ executionError }}</span>
         </div>
 
         <div :id="resultsId" class="palette-list" role="listbox" aria-label="Available commands">

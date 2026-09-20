@@ -200,3 +200,71 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* --- Popovers ------------------------------------------------------------
+
+   Three floating menus (the context menu, the library's actions dropdown and
+   the rundown header's overflow) had three separate definitions of the same
+   surface: three radii, three borders, three shadows and three hover
+   treatments. They are one pattern, so they are one definition. A popover is
+   one elevation step above whatever it floats over -- `--surface-popover`,
+   not `--bg-secondary`, which is also the panel background and made a menu
+   read as a hole rather than a layer.
+   ------------------------------------------------------------------------- */
+
+.popover-surface {
+  background: var(--surface-popover);
+  border: 1px solid var(--surface-popover-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  padding: var(--space-1);
+  color: var(--text-primary);
+}
+
+.popover-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.popover-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
+}
+
+.popover-item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.popover-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.popover-item--danger {
+  color: var(--status-error);
+}
+
+.popover-item--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-error) 16%, transparent);
+}
+
+.popover-divider {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border-subtle);
+}

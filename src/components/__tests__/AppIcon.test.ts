@@ -57,6 +57,11 @@ describe('UI F-10 · AppIcon', () => {
       'components/RundownRow.vue',
       'components/PlaylistControls.vue',
       'components/ContextMenu.vue',
+      'components/TrimPanel.vue',
+      'components/ComplianceModule.vue',
+      'components/MediaInspector.vue',
+      'components/CommandPaletteModal.vue',
+      'components/FolderPickerModal.vue',
       'components/ui/AppIcon.vue',
     ]
       .map((f) => readFileSync(join(process.cwd(), 'src', f), 'utf8'))
@@ -67,21 +72,9 @@ describe('UI F-10 · AppIcon', () => {
     // Phase 1.3 covers these five files; later phases migrate the dialogs and
     // will consume the rest. Any icon still unused when Phase 7 lands should be
     // deleted rather than carried.
-    const expectedPending = [
-      'more-vertical',
-      'chevron-down',
-      'search',
-      'help',
-      'info',
-      'arrow-right',
-      'arrow-up',
-      'clock',
-      'error',
-      'restore',
-      'radio-off',
-      'folder-open',
-      'file',
-    ];
+    // Shrinks as the phases land; it may never grow. These three are consumed
+    // by dialogs the migration has not reached yet.
+    const expectedPending = ['chevron-down', 'help', 'arrow-up'];
 
     expect(unused.filter((n) => !expectedPending.includes(n))).toEqual([]);
   });
