@@ -26,6 +26,7 @@ import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisory
 import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaLibrary';
 import { describeErrorMessage, rawErrorText } from '../lib/describeError';
 import EmptyState from './ui/EmptyState.vue';
+import BaseButton from './ui/BaseButton.vue';
 
 // PERF F-14: pickers/bin are opened rarely; fetch on first open, mount only while open.
 const { component: FolderPickerModal } = lazyComponent(
@@ -1044,6 +1045,13 @@ function cancelInlineRenameFolder() {
     inlineEditingFolderPath.value = null;
 }
 
+const newFolderTooltip = computed(() => {
+    const path = mediaLibrary.currentFolderPath;
+    if (!path || path === '/') return 'New folder at root';
+    const name = path.split('/').filter(Boolean).pop() ?? path;
+    return `New folder in "${name}"`;
+});
+
 const isCreatingFolder = ref(false);
 const newFolderNameValue = ref('');
 const newFolderParentPath = ref('/');
@@ -2058,9 +2066,14 @@ const menuItems = computed<MenuItem[]>(() => {
       </div>
       <div class="lib-header-actions">
         <div v-if="settings.debugMode" class="debug-menu-wrap">
-          <button class="icon-action" @click.stop="showDebugMenu = !showDebugMenu" :title="showDebugMenu ? 'Close debug menu' : 'Open debug menu'">
+          <BaseButton
+            variant="ghost"
+            size="sm"
+            :title="showDebugMenu ? 'Close debug menu' : 'Open debug menu'"
+            @click.stop="showDebugMenu = !showDebugMenu"
+          >
             Debug
-          </button>
+          </BaseButton>
           <div v-if="showDebugMenu" class="debug-menu">
             <button class="debug-menu-item" @click.stop="startBackgroundProbe('manual'); showDebugMenu = false" :disabled="isWarmingCatalog">
               {{ isWarmingCatalog ? 'Background probe running…' : 'Start background probe' }}
@@ -2076,14 +2089,16 @@ const menuItems = computed<MenuItem[]>(() => {
             </button>
           </div>
         </div>
-        <button
-          class="icon-action"
+        <BaseButton
+          variant="icon"
+          size="sm"
+          icon="refresh"
+          :class="{ 'is-spinning': isScanning }"
           :disabled="isScanning"
+          label="Refresh from Ingestor"
           :title="isScanning ? 'Refreshing…' : 'Refresh from Ingestor'"
           @click="fetchAssets({ force: true })"
-        >
-          <AppIcon name="refresh" :size="16" :spin="isScanning" />
-        </button>
+        />
       </div>
     </div>
 
@@ -2095,51 +2110,53 @@ const menuItems = computed<MenuItem[]>(() => {
         type="search"
         placeholder="Search assets…"
       >
-      <button v-if="libraryQuery" class="icon-action" @click="libraryQuery = ''" title="Clear search" aria-label="Clear search">
-        <AppIcon name="close" :size="14" />
-      </button>
-      <button
-        class="icon-action lib-filter-unrated"
+      <BaseButton
+        v-if="libraryQuery"
+        class="lib-search-clear"
+        variant="icon"
+        size="sm"
+        icon="close"
+        label="Clear search"
+        @click="libraryQuery = ''"
+      />
+      <BaseButton
+        class="lib-filter-unrated"
+        variant="ghost"
+        size="sm"
+        icon="shield"
         :class="{ active: showUnratedOnly }"
         :aria-pressed="showUnratedOnly"
-        :title="showUnratedOnly ? 'Showing only unrated assets - click to show all' : 'Show only assets nobody has classified yet'"
+        :title="showUnratedOnly ? 'Showing only unrated assets — click to show all' : 'Show only assets nobody has classified yet'"
         data-testid="filter-unrated"
         @click="showUnratedOnly = !showUnratedOnly"
       >
-        Unrated<span v-if="unratedCount > 0" class="lib-filter-count">{{ unratedCount }}</span>
-      </button>
-      <div class="toolbar-spacer" />
-      <button
-        class="icon-action lib-row-mode-toggle"
+        <span class="lib-filter-word">Unrated</span>
+        <span v-if="unratedCount > 0" class="lib-filter-count">{{ unratedCount }}</span>
+      </BaseButton>
+      <BaseButton
+        class="lib-row-mode-toggle"
+        variant="icon"
+        size="sm"
+        :icon="libraryRowMode === 'two-line' ? 'rows-two' : 'rows-one'"
         :class="{ active: libraryRowMode === 'two-line' }"
         :aria-pressed="libraryRowMode === 'two-line'"
+        label="Toggle row density"
         :title="libraryRowMode === 'two-line' ? 'Two-line rows — click for compact rows' : 'Compact rows — click to show the folder path under each name'"
-        aria-label="Toggle row density"
         data-testid="toggle-row-mode"
         @click="libraryRowMode = libraryRowMode === 'two-line' ? 'single' : 'two-line'"
-      >
-        <AppIcon :name="libraryRowMode === 'two-line' ? 'rows-two' : 'rows-one'" :size="14" />
-      </button>
-      <button
-        class="icon-action"
-        :title="mediaLibrary.currentFolderPath ? 'New virtual folder in the current folder' : 'Open a folder first — a new folder is created inside the one you are in'"
-        :disabled="!mediaLibrary.currentFolderPath"
-        @click="() => doNewVirtualFolder()"
-      >
-        <AppIcon name="folder-plus" :size="14" />
-        <span>New</span>
-      </button>
+      />
 
       <!-- Actions Dropdown -->
       <div class="lib-actions-dropdown-wrap">
-        <button
-          class="icon-action lib-actions-trigger"
+        <BaseButton
+          class="lib-actions-trigger"
+          variant="icon"
+          size="sm"
+          icon="more-vertical"
+          label="Asset and folder actions"
           :title="showActionsMenu ? 'Close actions menu' : 'Asset and folder actions'"
-          aria-label="Asset and folder actions"
           @click.stop="showActionsMenu = !showActionsMenu"
-        >
-          <AppIcon name="more-vertical" :size="16" />
-        </button>
+        />
         <div v-if="showActionsMenu" class="lib-actions-menu popover-surface" role="menu" @click.stop>
           <button
             class="lib-actions-item popover-item"
@@ -2180,10 +2197,10 @@ const menuItems = computed<MenuItem[]>(() => {
           </span>
         </div>
         <div class="debug-actions">
-          <button class="icon-action" @click="refreshDebugPanel">Refresh</button>
-          <button class="icon-action" @click="exportDiagnostics" :disabled="!diagnosticEntries.length">Export</button>
-          <button class="icon-action" @click="clearDiagnostics" :disabled="!diagnosticEntries.length">Clear</button>
-          <button class="icon-action" @click="showDebugPanel = false">Close</button>
+          <BaseButton variant="ghost" size="sm" @click="refreshDebugPanel">Refresh</BaseButton>
+          <BaseButton variant="ghost" size="sm" :disabled="!diagnosticEntries.length" @click="exportDiagnostics">Export</BaseButton>
+          <BaseButton variant="ghost" size="sm" :disabled="!diagnosticEntries.length" @click="clearDiagnostics">Clear</BaseButton>
+          <BaseButton variant="ghost" size="sm" @click="showDebugPanel = false">Close</BaseButton>
         </div>
       </div>
 
@@ -2216,7 +2233,17 @@ const menuItems = computed<MenuItem[]>(() => {
     <div v-if="libraryQuery" class="lib-search-scope">
       <AppIcon name="search" :size="14" />
       <span>Searching all folders · {{ displayedAssets.length }} result{{ displayedAssets.length === 1 ? '' : 's' }}</span>
-      <button type="button" class="btn btn--ghost btn--sm" @click="libraryQuery = ''">Clear</button>
+      <BaseButton variant="ghost" size="sm" @click="libraryQuery = ''">Clear</BaseButton>
+      <div class="lib-crumb-spacer" />
+      <BaseButton
+        class="lib-new-folder-btn"
+        variant="icon"
+        size="sm"
+        icon="folder-plus"
+        disabled
+        label="New folder"
+        title="Clear the search first — a new folder is created in the folder you are looking at"
+      />
     </div>
 
     <!-- Active Path Breadcrumb Bar -->
@@ -2234,6 +2261,16 @@ const menuItems = computed<MenuItem[]>(() => {
           <span v-if="idx < currentBreadcrumbs.length - 1" class="breadcrumb-sep">/</span>
         </span>
       </div>
+      <div class="lib-crumb-spacer" />
+      <BaseButton
+        class="lib-new-folder-btn"
+        variant="icon"
+        size="sm"
+        icon="folder-plus"
+        label="New folder"
+        :title="newFolderTooltip"
+        @click="() => doNewVirtualFolder()"
+      />
     </div>
 
     <!-- Two-Pane Explorer Split -->
@@ -2595,38 +2632,43 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-title { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
 .lib-subtitle { color: var(--text-secondary); font-size: 0.74rem; }
 
+/* §2.1: one row, fixed priority order, never wrapping. It used to be
+   `flex-wrap: wrap`, so at a narrow library width the `New` button dropped to
+   a second line and the toolbar silently grew 30 px taller. The only flexible
+   child is the search field; everything else is its natural width. */
 .lib-toolbar {
+  container: library-toolbar / inline-size;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-secondary);
+  background: var(--surface-panel-header);
+  box-shadow: inset 0 1px 0 var(--highlight-top);
   flex-shrink: 0;
-  min-width: 280px;
+  min-width: 0;
 }
 .lib-search {
   flex: 1 1 120px;
-  min-width: 90px;
+  min-width: 0;
 }
-.lib-toolbar .icon-action {
+.lib-toolbar > .btn {
   flex: 0 0 auto;
-  padding: 5px 8px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  white-space: nowrap;
 }
-.toolbar-spacer { display: none; }
 .lib-filter-unrated.active {
   background: color-mix(in srgb, var(--accent-blue) 22%, var(--bg-hover));
   border-color: var(--accent-blue);
+  color: var(--text-primary);
+}
+.lib-row-mode-toggle.active {
+  background: color-mix(in srgb, var(--accent-blue) 22%, var(--bg-hover));
+  color: var(--text-primary);
 }
 .lib-filter-count {
-  margin-left: 5px;
   padding: 0 5px;
-  border-radius: 8px;
-  font-size: 0.7rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
@@ -2634,6 +2676,14 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-filter-unrated.active .lib-filter-count {
   background: var(--accent-blue);
   color: var(--text-on-accent);
+}
+
+/* Below ~300 px of toolbar the word is the first thing to go: the shield glyph
+   and the count still say "n unrated", and the word stays in the tooltip. */
+@container library-toolbar (max-width: 300px) {
+  .lib-filter-word {
+    display: none;
+  }
 }
 
 .lib-debug-panel {
@@ -2847,19 +2897,13 @@ const menuItems = computed<MenuItem[]>(() => {
   box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
 }
 
-.icon-action {
-  background: var(--bg-hover); border: 1px solid var(--border-medium);
-  color: var(--text-primary); border-radius: 6px; cursor: pointer; padding: 5px 10px; font-size: 0.8rem; font-weight: 600; transition: 0.15s;
-}
-.icon-action:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover)); border-color: var(--border-strong); }
-.icon-action:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Breadcrumbs bar */
 .lib-breadcrumb-bar {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 4px 6px 4px 10px;
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-subtle);
   font-size: 0.78rem;
@@ -2870,10 +2914,20 @@ const menuItems = computed<MenuItem[]>(() => {
   color: var(--accent-blue);
   flex-shrink: 0;
 }
+/* §2.1: the trail yields its width to the New folder button rather than
+   pushing it off the end. */
+.lib-crumb-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.lib-new-folder-btn {
+  flex: 0 0 auto;
+}
 .breadcrumb-trail {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   overflow-x: auto;
   white-space: nowrap;
   color: var(--text-secondary);
@@ -3054,12 +3108,6 @@ const menuItems = computed<MenuItem[]>(() => {
   cursor: not-allowed;
 }
 
-@media (max-width: 1280px) {
-  .lib-toolbar {
-    flex-wrap: wrap;
-  }
-  .toolbar-spacer { display: none; }
-}
 
 .lib-name-wrap {
   display: flex;
@@ -3406,6 +3454,7 @@ const menuItems = computed<MenuItem[]>(() => {
 /* §5.3: the search-scope banner that replaces the breadcrumb while a query is
    active, so the suspended folder filter is visible rather than implied. */
 .lib-search-scope {
+  padding-right: 6px;
   display: flex;
   align-items: center;
   gap: var(--space-2);

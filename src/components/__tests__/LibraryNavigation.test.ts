@@ -216,7 +216,9 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
     wrapper.unmount();
   });
 
-  it('keeps New in toolbar and Rename, Move, and Delete in actions dropdown', async () => {
+  // Round 3 §2.1: `New folder` left the toolbar for the breadcrumb bar, beside
+  // the folder it creates into. The toolbar keeps the actions dropdown.
+  it('keeps New folder beside the crumbs and Rename, Move, Delete in the actions dropdown', async () => {
     const wrapper = mount(MediaLibrary, {
       global: {
         stubs: {
@@ -227,10 +229,11 @@ describe('PR 3A Library Keyboard Navigation & Selection State (Remediated)', () 
 
     const toolbar = wrapper.find('.lib-toolbar');
     expect(toolbar.exists()).toBe(true);
+    expect(toolbar.find('.lib-new-folder-btn').exists()).toBe(false);
 
-    const buttons = toolbar.findAll('button');
-    const buttonTexts = buttons.map(b => b.text());
-    expect(buttonTexts.some(t => t.includes('New'))).toBe(true);
+    const crumbBar = wrapper.find('.lib-breadcrumb-bar');
+    expect(crumbBar.exists()).toBe(true);
+    expect(crumbBar.find('.lib-new-folder-btn').exists()).toBe(true);
 
     const actionsTrigger = toolbar.find('.lib-actions-trigger');
     expect(actionsTrigger.exists()).toBe(true);

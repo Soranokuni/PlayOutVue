@@ -9,7 +9,7 @@ export type { MenuTone, MenuItem, TopAction } from './contextMenuTypes';
 </script>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { claimContextMenu, releaseContextMenu } from '../lib/activeContextMenu';
 import AppIcon from './ui/AppIcon.vue';
 import MenuRow from './MenuRow.vue';

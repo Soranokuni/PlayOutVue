@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import MediaLibrary from '../MediaLibrary.vue';
 import { useMediaLibraryStore } from '../../stores/mediaLibrary';
 
@@ -236,9 +237,9 @@ describe('Aether 3.0 MediaLibrary Ergonomics & Quiet UI', () => {
     });
 
     libraryStore.currentFolderPath = '/';
-    const newBtn = wrapper.findAll('.lib-toolbar button').find(b => b.text().includes('New'));
-    expect(newBtn).toBeDefined();
-    await newBtn!.trigger('click');
+    const newBtn = wrapper.find('.lib-breadcrumb-bar .lib-new-folder-btn');
+    expect(newBtn.exists()).toBe(true);
+    await newBtn.trigger('click');
 
     const input = wrapper.find('.lib-new-folder-input');
     expect(input.exists()).toBe(true);
@@ -277,6 +278,81 @@ describe('Aether 3.0 MediaLibrary Ergonomics & Quiet UI', () => {
 
     expect(moveBtn?.attributes('disabled')).toBeUndefined();
     expect(deleteBtn?.attributes('disabled')).toBeUndefined();
+    wrapper.unmount();
+  });
+});
+
+/**
+ * Round 3 §2 — the library toolbar.
+ *
+ * `New` was the only toolbar control mixing a glyph with a text label, it was
+ * disabled at root with the reason hidden in a tooltip, and the toolbar wrapped
+ * it onto a second line at a narrow library width. It moved to the breadcrumb
+ * bar, where the folder it creates into is on screen beside it, and root is now
+ * a valid parent — so the control is never disabled and never needs to explain
+ * itself.
+ */
+describe('Round 3 §2 · Library toolbar', () => {
+  let libraryStore: ReturnType<typeof useMediaLibraryStore>;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    libraryStore = useMediaLibraryStore();
+    document.body.innerHTML = '';
+  });
+
+  const mountLibrary = () =>
+    mount(MediaLibrary, {
+      global: {
+        stubs: { ContextMenu: true, FolderPickerModal: true, TrimPanel: true, RecycleBinModal: true }
+      }
+    });
+
+  it('keeps New folder out of the toolbar and in the breadcrumb bar', () => {
+    const wrapper = mountLibrary();
+    expect(wrapper.find('.lib-toolbar .lib-new-folder-btn').exists()).toBe(false);
+    expect(wrapper.find('.lib-breadcrumb-bar .lib-new-folder-btn').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('enables New folder at root and names the parent in its tooltip', async () => {
+    const wrapper = mountLibrary();
+
+    libraryStore.currentFolderPath = '';
+    await nextTick();
+    const atRoot = wrapper.get('.lib-breadcrumb-bar .lib-new-folder-btn');
+    expect(atRoot.attributes('disabled')).toBeUndefined();
+    expect(atRoot.attributes('title')).toBe('New folder at root');
+
+    libraryStore.currentFolderPath = '/Shows/Season 2';
+    await nextTick();
+    expect(wrapper.get('.lib-breadcrumb-bar .lib-new-folder-btn').attributes('title')).toBe(
+      'New folder in "Season 2"'
+    );
+    wrapper.unmount();
+  });
+
+  it('suspends New folder while a search is running, and says why', async () => {
+    const wrapper = mountLibrary();
+
+    const search = wrapper.get('.lib-search');
+    await search.setValue('anything');
+
+    // The crumb bar is replaced by the search-scope strip while searching.
+    expect(wrapper.find('.lib-breadcrumb-bar').exists()).toBe(false);
+    const btn = wrapper.get('.lib-search-scope .lib-new-folder-btn');
+    expect(btn.attributes('disabled')).toBeDefined();
+    expect(btn.attributes('title')).toContain('Clear the search first');
+    wrapper.unmount();
+  });
+
+  it('gives every toolbar control the one button family', () => {
+    const wrapper = mountLibrary();
+    const buttons = wrapper.findAll('.lib-toolbar button');
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const b of buttons) {
+      expect(b.classes()).toContain('btn');
+    }
     wrapper.unmount();
   });
 });
