@@ -393,7 +393,11 @@ body {
   /* Prevent text selection and context menus in the Tauri desktop app */
   user-select: none;
   -webkit-user-select: none;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  /* No transition here. A theme switch is a discrete change, and animating
+     `color` through a custom property left body's computed colour stuck on the
+     previous theme's value -- near-white text on a white page until something
+     forced a restyle. Animating `background-color` on the always-visible page
+     surface is a perf-backlog violation besides. */
 }
 
 html,

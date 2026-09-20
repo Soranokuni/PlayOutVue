@@ -26,8 +26,6 @@ const ALLOWLIST: Record<string, number> = {
   // swatch must look light while the dark theme is active -- so it cannot
   // follow the active theme's tokens.
   'components/SettingsModal.vue': 9,
-  // Phase 6.1 (light-theme audit) owns the wizard.
-  'components/DeckLinkWizard.vue': 89,
   // The `.mock-screen-crop` subtree simulates the on-air raster: its black
   // background and white type are content and must not follow the theme.
   'components/ComplianceModule.vue': 22,
