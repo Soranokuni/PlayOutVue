@@ -488,14 +488,25 @@ textarea {
   font-feature-settings: "tnum" 1, "zero" 1;
 }
 
-/* Glassmorphism Utilities */
+/* §7.1 / perf F-21: the panel surface.
+ *
+ * This used to be `backdrop-filter: blur(16px)` over a translucent background.
+ * A backdrop filter makes the compositor rasterise everything behind the
+ * element and blur it, every frame the element or anything under it changes --
+ * and there is nothing behind these panels but the page's own gradient. The
+ * app paid for a full-viewport blur to see a blurred picture of a static
+ * background.
+ *
+ * The panels are opaque surfaces now, with a 1 px inner top highlight for the
+ * edge the blur used to imply. Static shadows are fine: the perf rule is about
+ * animating them. */
 .glass-panel {
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--surface-panel);
   border: 1px solid var(--glass-border);
   border-radius: var(--border-radius-base);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  box-shadow:
+    inset 0 1px 0 var(--highlight-top),
+    0 12px 32px rgba(0, 0, 0, 0.18);
 }
 
 /* Base utility classes */

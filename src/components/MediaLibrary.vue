@@ -2279,9 +2279,15 @@ const menuItems = computed<MenuItem[]>(() => {
     <!-- Two-Pane Explorer Split -->
     <!-- Top Pane: Folder Tree & Navigation -->
     <div class="lib-folder-pane custom-scroll" ref="folderPaneRef">
-      <div v-if="isScanning && !displayedFolderRows.length" class="lib-empty">
-        <AppIcon name="processing" :size="16" spin />
-        <span>Loading…</span>
+      <!-- §7.7: a scan takes seconds against a cold Ingestor. Three ghost rows
+           say "results are coming, and they will look like this" where
+           "Loading…" said only that something was happening somewhere. -->
+      <div v-if="isScanning && !displayedFolderRows.length" class="lib-skeleton" aria-hidden="true">
+        <div v-for="n in 3" :key="n" class="lib-skeleton-row">
+          <span class="lib-skeleton-box lib-skeleton-icon"></span>
+          <span class="lib-skeleton-box lib-skeleton-name"></span>
+          <span class="lib-skeleton-box lib-skeleton-meta"></span>
+        </div>
       </div>
       <EmptyState
         v-else-if="displayedFolderRows.length === 0"
@@ -2420,9 +2426,15 @@ const menuItems = computed<MenuItem[]>(() => {
       @focus="activeScope = 'library'"
       @contextmenu.prevent
     >
-      <div v-if="isScanning && !displayedAssets.length" class="lib-empty">
-        <AppIcon name="processing" :size="16" spin />
-        <span>Loading…</span>
+      <!-- §7.7: a scan takes seconds against a cold Ingestor. Three ghost rows
+           say "results are coming, and they will look like this" where
+           "Loading…" said only that something was happening somewhere. -->
+      <div v-if="isScanning && !displayedAssets.length" class="lib-skeleton" aria-hidden="true">
+        <div v-for="n in 3" :key="n" class="lib-skeleton-row">
+          <span class="lib-skeleton-box lib-skeleton-icon"></span>
+          <span class="lib-skeleton-box lib-skeleton-name"></span>
+          <span class="lib-skeleton-box lib-skeleton-meta"></span>
+        </div>
       </div>
       <EmptyState
         v-else-if="displayedAssets.length === 0"
@@ -2889,7 +2901,56 @@ const menuItems = computed<MenuItem[]>(() => {
   letter-spacing: 0.04em;
 }
 
-.lib-empty { color: var(--text-muted); font-size: 0.82rem; text-align: center; padding: 20px 10px; line-height: 1.6; white-space: pre-line; }
+.lib-empty { color: var(--text-muted); font-size: var(--fs-md); text-align: center; padding: 20px 10px; line-height: 1.6; white-space: pre-line; }
+
+/* §7.7: the scanning skeleton. The shimmer is an overlay whose opacity
+   animates -- never the row's own background, which is a perf-backlog
+   violation on a surface that is on screen for the whole scan. */
+.lib-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+}
+.lib-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--row-h-library);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
+}
+.lib-skeleton-box {
+  position: relative;
+  overflow: hidden;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+}
+.lib-skeleton-icon { width: 14px; height: 14px; border-radius: var(--radius-sm); flex-shrink: 0; }
+.lib-skeleton-name { flex: 1 1 auto; max-width: 240px; }
+.lib-skeleton-meta { width: 48px; flex-shrink: 0; }
+
+.lib-skeleton-box::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--text-primary) 18%, transparent);
+  opacity: 0;
+  animation: libSkeletonShimmer 1.4s ease-in-out infinite;
+}
+.lib-skeleton-row:nth-child(2) .lib-skeleton-box::after { animation-delay: 0.15s; }
+.lib-skeleton-row:nth-child(3) .lib-skeleton-box::after { animation-delay: 0.3s; }
+
+@keyframes libSkeletonShimmer {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lib-skeleton-box::after { animation: none; }
+}
 
 .glass-input {
   background: var(--bg-input); border: 1px solid var(--border-medium);

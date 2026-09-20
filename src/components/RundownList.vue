@@ -1927,6 +1927,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .playlist-tab {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1948,6 +1949,37 @@ onUnmounted(() => {
 .playlist-tab.is-active {
   border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent);
   background: color-mix(in srgb, var(--accent-blue) 14%, var(--bg-secondary));
+}
+
+/* §7.4: the active tab's 2 px underline. It is one element per tab rather than
+   one that slides between them -- the tabs are a scrolling flex row of
+   variable width, so a single sliding element would need its position measured
+   and rewritten on every rename, count change and scroll. Same look, and the
+   transition is on `transform` so it still costs only the compositor. */
+.playlist-tab::before {
+  content: '';
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: 2px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-blue);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform var(--dur-base) var(--ease-out);
+  pointer-events: none;
+}
+.playlist-tab.is-active::before {
+  transform: scaleX(1);
+}
+.playlist-tab.is-onair::before {
+  background: var(--status-onair);
+}
+@media (prefers-reduced-motion: reduce) {
+  .playlist-tab::before {
+    transition: none;
+  }
 }
 .playlist-tab.is-onair {
   position: relative;
@@ -2122,11 +2154,12 @@ onUnmounted(() => {
 /* Sortable ghost clone of the row host wrapper */
 .rw-ghost { opacity: 0.3; background: var(--bg-hover); }
 
+/* §7.7: `EmptyState` landed here in §6.3 but kept the old dashed box's
+   styling on top of it, so the one shared empty state looked like a dropzone
+   in this panel and like an empty state everywhere else. The class stays as a
+   layout hook; the box is gone. */
 .rw-empty {
-  display: flex; align-items: center; justify-content: center;
-  height: 80px; color: var(--text-muted); font-size: var(--fs-md); font-weight: 600;
-  border: 2px dashed var(--border-medium); border-radius: 6px; margin: 4px;
-  opacity: 0.7;
+  margin: var(--space-4) 4px;
 }
 
 /* On-Demand Crawl Styling */
