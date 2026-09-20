@@ -146,15 +146,17 @@ graph TD
 
 | Shortcut | Action | Scope |
 |---|---|---|
-| <kbd>Enter</kbd> / <kbd>Space</kbd> | **Take / Play** selected rundown row immediately | Rundown |
-| <kbd>F8</kbd> | **Append** selected library item(s) after the active playing row | Media Library |
-| <kbd>Shift</kbd> + <kbd>F8</kbd> | **Prepend / Insert** selected item(s) directly before the active row | Media Library |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> | **Nothing.** Both are deliberately ignored so a stray press can never put a clip on air. Use the PLAY button or a row's play control. | Rundown |
+| <kbd>F8</kbd> | **Add** selected library item(s) to the end of the rundown | Media Library |
+| <kbd>Shift</kbd> + <kbd>F8</kbd> | **Insert** selected item(s) after the rundown selection | Media Library |
 | <kbd>Ctrl</kbd> + <kbd>↑</kbd> | Move selected rundown item(s) **Up** | Rundown |
 | <kbd>Ctrl</kbd> + <kbd>↓</kbd> | Move selected rundown item(s) **Down** | Rundown |
 | <kbd>Shift</kbd> + <kbd>↓</kbd> | **Duplicate** selected rundown row | Rundown |
 | <kbd>Delete</kbd> / <kbd>Backspace</kbd> | **Remove** item from rundown / Move library asset to Recycle Bin | Global |
 | <kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Ctrl</kbd> + <kbd>Y</kbd> | **Undo** / **Redo** last rundown modification | Rundown |
-| <kbd>Ctrl</kbd> + <kbd>K</kbd> | Open **Quick Command Palette** | Global |
+| <kbd>Ctrl</kbd> + <kbd>K</kbd> | Open the **command palette** | Global |
+| <kbd>Ctrl</kbd> + <kbd>I</kbd> | **Inspect** the selected clip — metadata and QC | Rundown / Media Library |
+| <kbd>Esc</kbd> | Close the top-most menu or dialog; in a text field, leave the field first | Global |
 
 ---
 

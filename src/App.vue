@@ -192,13 +192,19 @@ const appHighlights = [
   'Operator-first rundown editing with drag insert, gap markers, next-up warnings, and persistent selection.'
 ];
 
+// These are checked against useOperatorShortcuts: a guide that promises a key
+// nothing binds is how Ctrl+I went unbound for as long as it did (F-04). The
+// first line used to claim Enter or Space plays the selected row -- the
+// operator keyboard contract (§5) deliberately ignores both so a stray press
+// can never put something on air.
 const shortcutGuide = [
-  'Enter or Space: play from the selected rundown row.',
+  'Enter and Space never take a row on air — use the PLAY button or the row play control.',
   'Delete or Backspace: remove the selected row, except the one currently on air.',
   'Ctrl + Arrow Up or Arrow Down: move the selected row.',
   'Shift + Arrow Down: duplicate the selected row.',
-  'Ctrl + I: Inspect selected media clip metadata and QC probing.',
-  'F8 in the media library: append the selected library item after the selected rundown row.'
+  'Ctrl + I: inspect the selected clip — metadata and QC.',
+  'Ctrl + K: open the command palette.',
+  'F8 in the media library: add the selected item to the end of the rundown (Shift + F8 inserts after the selection).'
 ];
 
 const workflowGuide = [

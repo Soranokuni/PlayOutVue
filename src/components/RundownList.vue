@@ -20,6 +20,7 @@ import { useStudioClock } from '../composables/useStudioClock';
 import { activeScope } from '../composables/useOperatorShortcuts';
 import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget, type GeometrySnapshot } from '../lib/reorderHelper';
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
+import EmptyState from './ui/EmptyState.vue';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -1269,9 +1270,13 @@ onUnmounted(() => {
         <span class="end-drop-badge">Add to end</span>
       </div>
 
-      <div v-if="store.activeItems.length === 0" class="rw-empty">
-        Drop media here, or add a live block
-      </div>
+      <EmptyState
+        v-if="store.activeItems.length === 0"
+        class="rw-empty"
+        icon="film"
+        title="Nothing scheduled"
+        hint="Drag media from the library, or add a live block."
+      />
     </div>
 
     <!-- Fixed Overlay Drop Indicator -->

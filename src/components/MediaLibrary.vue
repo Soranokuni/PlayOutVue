@@ -24,6 +24,7 @@ import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaLibrary';
 import { describeErrorMessage, rawErrorText } from '../lib/describeError';
+import EmptyState from './ui/EmptyState.vue';
 
 // PERF F-14: pickers/bin are opened rarely; fetch on first open, mount only while open.
 const { component: FolderPickerModal } = lazyComponent(
@@ -2146,7 +2147,13 @@ const menuItems = computed<MenuItem[]>(() => {
         <AppIcon name="processing" :size="16" spin />
         <span>Loading…</span>
       </div>
-      <div v-else-if="displayedFolderRows.length === 0" class="lib-empty">No folders</div>
+      <EmptyState
+        v-else-if="displayedFolderRows.length === 0"
+        compact
+        icon="folder"
+        title="No folders yet"
+        hint="Folders appear once assets are filed into them."
+      />
       <div v-else class="lib-folder-tree" role="tree" aria-label="Virtual folders">
         <div
           v-for="(row, rowIndex) in displayedFolderRows"
@@ -2281,9 +2288,13 @@ const menuItems = computed<MenuItem[]>(() => {
         <AppIcon name="processing" :size="16" spin />
         <span>Loading…</span>
       </div>
-      <div v-else-if="displayedAssets.length === 0" class="lib-empty">
-        {{ libraryQuery ? 'No matching assets found.' : 'No media in this folder. Set the Ingestor API or media folder in Settings.' }}
-      </div>
+      <EmptyState
+        v-else-if="displayedAssets.length === 0"
+        compact
+        :icon="libraryQuery ? 'search' : 'film'"
+        :title="libraryQuery ? 'No matching assets' : 'No media in this folder'"
+        :hint="libraryQuery ? 'Try a shorter search, or clear it to browse folders again.' : 'Point Settings › Media & ingest at the Ingestor API or a media folder.'"
+      />
       <div v-else class="lib-asset-list">
         <div
           v-for="asset in displayedAssets"
