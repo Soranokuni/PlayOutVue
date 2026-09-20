@@ -9,6 +9,7 @@ import { registerRundownDropSurface, beginRundownDrag, indicatorGeometry, active
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
+import { usePlaylistFile } from '../composables/usePlaylistFile';
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 import AppIcon from './ui/AppIcon.vue';
 import type { IconName } from './ui/icons';
@@ -30,6 +31,29 @@ const focusList = () => rundownListRef.value?.focus({ preventScroll: true });
 
 const isDragOver = ref(false);
 const showLiveDialog = ref(false);
+
+// §6.3: the header overflow that now owns Save / Load / Append / Clear.
+const showPlaylistMenu = ref(false);
+const {
+  isSaving: isSavingPlaylist,
+  isLoading: isLoadingPlaylist,
+  pickPlaylistPath,
+  clearRundown: clearPlaylistFile,
+} = usePlaylistFile();
+
+const runPlaylistFileAction = (action: 'save' | 'load' | 'append') => {
+  showPlaylistMenu.value = false;
+  void pickPlaylistPath(action);
+};
+
+const closePlaylistMenu = () => {
+  showPlaylistMenu.value = false;
+};
+
+const runClearRundown = () => {
+  showPlaylistMenu.value = false;
+  void clearPlaylistFile();
+};
 const activeDropTarget = ref<ActiveDropTarget>({ kind: 'none' });
 
 const indicatorTarget = computed(() => {
@@ -994,6 +1018,7 @@ onMounted(() => {
     console.warn('[Rundown] Initial duration hydration failed', error);
   });
   window.addEventListener('click', closeContextMenu);
+  window.addEventListener('click', closePlaylistMenu);
 
   unregisterSurface = registerRundownDropSurface({
     getSnapshot() {
@@ -1059,6 +1084,7 @@ onUnmounted(() => {
   }
   if (crawlDebounceTimer) clearTimeout(crawlDebounceTimer);
   window.removeEventListener('click', closeContextMenu);
+  window.removeEventListener('click', closePlaylistMenu);
 });
 
 </script>
@@ -1094,11 +1120,50 @@ onUnmounted(() => {
           <span class="clock-display">{{ studioClockTimecode }}</span>
         </div>
 
-        <button class="icon-action" @click="showLiveDialog = true" title="Insert Live Item / Studio Block into Rundown">+ Live Block</button>
+        <button class="icon-action" @click="showLiveDialog = true" title="Insert Live Item / Studio Block into Rundown">
+          <AppIcon name="live" :size="14" />
+          <span>Live block</span>
+        </button>
         <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">
           <AppIcon name="stop" :size="14" />
           <span>Stop</span>
         </button>
+
+        <!-- §6.3: Save / Load / Append / Clear moved up here from the bottom
+             bar. They are file management, used once a session, and they were
+             occupying prime width beside the controls used every minute. -->
+        <div class="rw-overflow-wrap">
+          <button
+            class="icon-action rw-overflow-trigger"
+            :class="{ 'is-open': showPlaylistMenu }"
+            :title="showPlaylistMenu ? 'Close playlist file menu' : 'Playlist file actions'"
+            aria-label="Playlist file actions"
+            :aria-expanded="showPlaylistMenu"
+            data-testid="rundown-overflow"
+            @click.stop="showPlaylistMenu = !showPlaylistMenu"
+          >
+            <AppIcon name="more-vertical" :size="16" />
+          </button>
+          <div v-if="showPlaylistMenu" class="rw-overflow-menu" role="menu" @click.stop>
+            <button class="rw-overflow-item" role="menuitem" :disabled="isSavingPlaylist" @click="runPlaylistFileAction('save')">
+              <AppIcon class="rw-overflow-icon tone-accent" name="save" :size="14" />
+              <span>Save playlist…</span>
+            </button>
+            <button class="rw-overflow-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('load')">
+              <AppIcon class="rw-overflow-icon tone-accent" name="folder-open" :size="14" />
+              <span>Load playlist…</span>
+            </button>
+            <button class="rw-overflow-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('append')">
+              <AppIcon class="rw-overflow-icon tone-accent" name="plus" :size="14" />
+              <span>Append playlist…</span>
+            </button>
+            <div class="rw-overflow-divider" role="separator" />
+            <button class="rw-overflow-item is-danger" role="menuitem" @click="runClearRundown">
+              <AppIcon class="rw-overflow-icon" name="trash" :size="14" />
+              <span>Clear playlist…</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1162,18 +1227,30 @@ onUnmounted(() => {
           autofocus
         />
         <span v-else class="playlist-tab-name">{{ playlist.name }}</span>
-        <span class="playlist-tab-state">{{ playlist.id === store.onAirPlaylistId ? 'ON AIR' : 'OFFLINE' }}</span>
-        <button
+        <!-- §6.3: "OFFLINE" on every tab was noise — offline is the normal
+             state. Only the exception gets a word; the rest get their count. -->
+        <span v-if="playlist.id === store.onAirPlaylistId" class="playlist-tab-state">ON AIR</span>
+        <span v-else class="playlist-tab-count tabular-nums">{{ playlist.items.length }}</span>
+        <span
           v-if="store.playlists.length > 1 && playlist.id !== store.onAirPlaylistId"
           class="playlist-tab-close"
-          @click.stop="closePlaylistTab(playlist as RundownPlaylist)"
+          role="button"
+          tabindex="-1"
+          :aria-label="`Close ${playlist.name}`"
           title="Close playlist"
+          @click.stop="closePlaylistTab(playlist as RundownPlaylist)"
         >
-          ×
-        </button>
+          <AppIcon name="close" :size="12" :stroke-width="2.5" />
+        </span>
       </button>
-      <button class="playlist-add-btn" @click="createPlaylistTab" title="Create new offline playlist">+</button>
+      <button class="playlist-add-btn" @click="createPlaylistTab" title="Create new offline playlist" aria-label="Create new offline playlist">
+        <AppIcon name="plus" :size="14" />
+      </button>
     </div>
+
+    <!-- §6.3: the schedule row belongs with the tabs it describes, not stranded
+         at the bottom of the panel below the rundown it does not control. -->
+    <PlaylistControls />
 
     <!-- Column labels -->
     <div class="rw-cols-label" aria-hidden="true">
@@ -1306,8 +1383,6 @@ onUnmounted(() => {
       />
     </Teleport>
 
-    <PlaylistControls />
-
     <LiveEntryDialog v-if="showLiveDialog" @close="showLiveDialog = false" />
   </div>
 </template>
@@ -1410,11 +1485,81 @@ onUnmounted(() => {
 }
 @keyframes blink { 50% { opacity: 0.4; } }
 .icon-action {
+  display: inline-flex; align-items: center; gap: var(--space-1);
   background: var(--bg-hover); border: 1px solid var(--border-medium);
   color: var(--text-primary); border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
 }
 .icon-action:hover { background: var(--bg-surface-elevated); border-color: var(--border-strong); }
 .btn-stop { border-color: color-mix(in srgb, var(--accent-red) 45%, transparent); color: var(--accent-red); }
+
+/* §6.3: the header overflow. Same visual language as the library's actions
+   dropdown so the two "⋮" menus in the app are one pattern, not two. */
+.rw-overflow-wrap {
+  position: relative;
+}
+.rw-overflow-trigger.is-open {
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
+}
+.rw-overflow-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-popover);
+}
+.rw-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.rw-overflow-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
+}
+.rw-overflow-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.rw-overflow-item.is-danger {
+  color: var(--status-error);
+}
+.rw-overflow-item.is-danger:hover {
+  background: color-mix(in srgb, var(--status-error) 16%, transparent);
+}
+.rw-overflow-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+.rw-overflow-icon.tone-accent {
+  color: var(--accent-blue);
+}
+.rw-overflow-item.is-danger .rw-overflow-icon {
+  color: var(--status-error);
+}
+.rw-overflow-divider {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border-subtle);
+}
 
 .playlist-tabs-row {
   display: flex;
@@ -1494,32 +1639,61 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* §6.3: the on-air tab is the only one that says anything; it says the one
+   word that matters, as a filled pill rather than a grey caption. */
 .playlist-tab-state {
+  margin-left: auto;
   font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: var(--text-on-danger);
+  background: var(--status-onair);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-2);
+  line-height: 1.4;
 }
-.playlist-tab-close {
+.playlist-tab-count {
   margin-left: auto;
-  background: transparent;
-  border: none;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  min-width: 14px;
+  text-align: right;
+}
+/* §6.3: the close affordance appears on hover or keyboard focus. A permanent
+   × on every tab is a permanent invitation to close the wrong playlist. */
+.playlist-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.95rem;
-  line-height: 1;
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+.playlist-tab:hover .playlist-tab-close,
+.playlist-tab:focus-within .playlist-tab-close {
+  opacity: 1;
 }
 .playlist-tab-close:hover {
-  color: var(--accent-red);
+  color: var(--status-error);
+  background: color-mix(in srgb, var(--status-error) 16%, transparent);
 }
 .playlist-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 34px;
   border-radius: 8px;
   border: 1px dashed color-mix(in srgb, var(--accent-blue) 40%, transparent);
   background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
   color: var(--accent-blue);
-  font-size: 1.1rem;
-  font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
   transition: background-color 0.15s ease, border-color 0.15s ease;

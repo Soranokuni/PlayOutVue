@@ -1,20 +1,21 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useStorage } from '@vueuse/core';
-import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
-import { useRundownStore, type PlaylistFile, type AnyPlaylistFile } from '../stores/rundown';
-import { isPlayoutPlaying } from '../services/playout';
+import { useRundownStore } from '../stores/rundown';
+import { usePlaylistFile } from '../composables/usePlaylistFile';
 import AppIcon from './ui/AppIcon.vue';
-import { describeErrorMessage } from '../lib/describeError';
+
+/**
+ * UI/UX plan §6.3 — this used to be a second header: it repeated the playlist
+ * name, its ON AIR/OFFLINE pill and the item count that the tab and the rundown
+ * header already show, and it owned the four file buttons. The file actions
+ * moved to the header overflow (`usePlaylistFile`); what is left is the one
+ * thing that lives nowhere else — when an offline playlist is scheduled to
+ * start — plus the total it adds up to.
+ */
 
 const store = useRundownStore();
+const { statusMessage, statusTone, setStatus } = usePlaylistFile();
 
-const isSaving = ref(false);
-const isLoading = ref(false);
-const statusMessage = ref('');
-const statusTone = ref<'info' | 'error'>('info');
-const lastPlaylistDirectory = useStorage('playlist.lastDirectory', 'C:/Playlists');
 const startFromDraft = ref('');
 
 const weekdayOptions = [
@@ -27,15 +28,17 @@ const weekdayOptions = [
     { value: 0, label: 'Sun' }
 ];
 
-const suggestedName = computed(() => `${store.currentPlaylistName || 'rundown'}.plx`);
-const playlistStateLabel = computed(() => (store.isCurrentPlaylistOnAir ? 'ON AIR' : 'OFFLINE'));
-
 const totalStr = computed(() => {
     const total = store.totalDuration;
     const hours = Math.floor(total / 3600);
     const minutes = Math.floor((total % 3600) / 60);
     const seconds = Math.floor(total % 60);
     return `${hours ? `${hours}h ` : ''}${minutes ? `${minutes}m ` : ''}${seconds}s`;
+});
+
+const itemCountLabel = computed(() => {
+    const count = store.activeItems.length;
+    return `${count} item${count === 1 ? '' : 's'}`;
 });
 
 const weekdayProxy = computed({
@@ -47,11 +50,6 @@ const weekdayProxy = computed({
         setStatus(`Offline timing anchored to ${weekdayLabel}`);
     }
 });
-
-const setStatus = (message: string, tone: 'info' | 'error' = 'info') => {
-    statusMessage.value = message;
-    statusTone.value = tone;
-};
 
 watch(
     () => [store.activePlaylistId, store.currentPlaylistStartFrom],
@@ -74,126 +72,6 @@ const commitStartFrom = () => {
     if (store.currentPlaylistStartFrom !== previousValue || startFromDraft.value !== previousValue) {
         setStatus(`Offline timing starts at ${store.currentPlaylistStartFrom}`);
     }
-};
-
-const joinDialogPath = (base: string, fileName: string) => {
-    if (!base) return fileName;
-    const separator = /[\\/]$/.test(base) ? '' : '/';
-    return `${base}${separator}${fileName}`;
-};
-
-const ensurePlaylistExtension = (path: string) => (
-    /\.(plx|playout|json)$/i.test(path) ? path : `${path}.plx`
-);
-
-const parseLegacyPathList = (raw: string, fallbackName: string): PlaylistFile => {
-    const toFilename = (filepath: string) => {
-        const normalized = filepath.replace(/\\/g, '/');
-        return normalized.split('/').pop() || filepath;
-    };
-
-    const lines = raw
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => !!line && !line.startsWith('#') && !line.startsWith(';'));
-
-    return {
-        version: '1.1',
-        name: fallbackName,
-        created: Date.now(),
-        items: lines.map((path) => ({
-            type: 'video',
-            path,
-            shortPath: path,
-            filename: toFilename(path),
-            libraryIndicator: 'none',
-            duration: 0,
-            seek: 0,
-            length: 0,
-            inPoint: 0,
-            outPoint: 0,
-            plannedDuration: 0,
-            note: '',
-            complianceRating: 'none',
-            complianceDescriptors: [],
-            complianceText: ''
-        }))
-    };
-};
-
-const parsePlaylistPayload = (raw: string, path: string): AnyPlaylistFile => {
-    try {
-        return JSON.parse(raw) as AnyPlaylistFile;
-    } catch {
-        const fallbackName = path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') || 'Imported';
-        return parseLegacyPathList(raw, fallbackName);
-    }
-};
-
-const savePlaylist = async (path: string) => {
-    isSaving.value = true;
-    try {
-        const name = path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') || store.currentPlaylistName || 'Rundown';
-        const data = store.serializeRundown(name);
-        const json = JSON.stringify(data);
-        await invoke('save_playlist', { path, json });
-        lastPlaylistDirectory.value = path.replace(/[\\/][^\\/]+$/, '');
-        setStatus(`Saved ${store.currentPlaylistName} to ${path}`);
-    } catch (error) {
-        setStatus(describeErrorMessage(error, 'Could not save the playlist.'), 'error');
-    } finally {
-        isSaving.value = false;
-    }
-};
-
-const loadPlaylist = async (path: string, append = false) => {
-    // Audit T2-11: replacing the on-air playlist's items while a clip is
-    // playing orphans the on-air UUID (the same EOF-stop path as T0-3).
-    // Refuse a full load on the on-air tab while playing; appending is
-    // safe for playout but still asks, since it changes what plays next.
-    if (store.isCurrentPlaylistOnAir && isPlayoutPlaying.value) {
-        if (!append) {
-            await message(
-                'This playlist is ON AIR. Load the file into another tab, or stop playout first.',
-                { title: 'Load Playlist', kind: 'error' }
-            );
-            setStatus('Load refused: playlist is on air', 'error');
-            return;
-        }
-        const confirmed = await ask(
-            `Append the file's items to the ON AIR playlist "${store.currentPlaylistName}"?`,
-            { title: 'Append to On-Air Playlist', kind: 'warning' }
-        );
-        if (!confirmed) return;
-    }
-    isLoading.value = true;
-    try {
-        const json = await invoke<string>('load_playlist', { path });
-        const data = parsePlaylistPayload(json, path);
-        store.deserializeRundown(data, append);
-        lastPlaylistDirectory.value = path.replace(/[\\/][^\\/]+$/, '');
-        setStatus(`${append ? 'Appended' : 'Loaded'} playlist from ${path}`);
-    } catch (error) {
-        setStatus(describeErrorMessage(error, 'Could not load the playlist.'), 'error');
-    } finally {
-        isLoading.value = false;
-    }
-};
-
-const clearRundown = async () => {
-    if (!store.activeItems.length) {
-        setStatus('Playlist is already empty');
-        return;
-    }
-
-    const confirmed = await ask(
-        `Clear ${store.activeItems.length} item${store.activeItems.length === 1 ? '' : 's'} from ${store.currentPlaylistName}?`,
-        { title: 'Clear Playlist', kind: 'warning' }
-    );
-    if (!confirmed) return;
-
-    store.clearRundown();
-    setStatus(`Cleared ${store.currentPlaylistName}`);
 };
 
 // Audit T1-11: `window.prompt` is a browser dialog (forbidden by AGENTS.md
@@ -229,47 +107,18 @@ const commitGapLine = () => {
     setStatus(`Inserted gap line at ${value}`);
     cancelGapLine();
 };
-
-const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
-    if (action === 'save') {
-        const selection = await save({
-            title: 'Save Playlist',
-            defaultPath: joinDialogPath(lastPlaylistDirectory.value, suggestedName.value),
-            filters: [{ name: 'PlayOut Optimized Playlist', extensions: ['plx'] }]
-        });
-
-        if (!selection) return;
-        await savePlaylist(ensurePlaylistExtension(selection));
-        return;
-    }
-
-    const selection = await open({
-        title: action === 'append' ? 'Append Playlist' : 'Load Playlist',
-        multiple: false,
-        defaultPath: lastPlaylistDirectory.value || undefined,
-        filters: [{ name: 'PlayOut Playlists', extensions: ['plx', 'playout', 'json', 'txt', 'lst'] }]
-    });
-
-    if (!selection || Array.isArray(selection)) return;
-    await loadPlaylist(selection, action === 'append');
-};
 </script>
 
 <template>
-  <div class="playlist-bar">
-    <div class="pl-info">
-      <span class="pl-name">{{ store.currentPlaylistName }}</span>
-      <span class="pl-state-pill" :class="{ 'is-onair': store.isCurrentPlaylistOnAir }">{{ playlistStateLabel }}</span>
-      <span class="pl-meta-text">{{ store.activeItems.length }} items</span>
-      <span class="pl-meta-text tabular-nums">{{ totalStr }}</span>
-      <span v-if="statusMessage" class="pl-status" :class="{ 'is-error': statusTone === 'error' }">{{ statusMessage }}</span>
-    </div>
-
-    <div class="pl-planning" :class="{ 'is-disabled': !store.canScheduleCurrentPlaylist }">
-      <select v-model="weekdayProxy" class="pl-day-select" :disabled="!store.canScheduleCurrentPlaylist" title="Offline start day">
+  <div class="playlist-bar" :class="{ 'is-onair': !store.canScheduleCurrentPlaylist }">
+    <!-- §6.3: the schedule controls are meaningless on the on-air playlist,
+         which takes its timing from the transport, so they are not rendered
+         there at all rather than rendered greyed out. -->
+    <div v-if="store.canScheduleCurrentPlaylist" class="pl-schedule">
+      <span class="pl-label">Starts</span>
+      <select v-model="weekdayProxy" class="pl-day-select" title="Offline start day" aria-label="Offline start day">
         <option v-for="option in weekdayOptions" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
       </select>
-      <label class="pl-label">Start</label>
       <input
         v-model="startFromDraft"
         class="pl-time-input"
@@ -277,34 +126,42 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
         inputmode="numeric"
         placeholder="HH:MM[:SS]"
         maxlength="8"
-        :disabled="!store.canScheduleCurrentPlaylist"
+        aria-label="Offline start time"
         @blur="commitStartFrom"
         @keydown.enter.prevent="commitStartFrom"
       >
-      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" :disabled="!store.canScheduleCurrentPlaylist" title="Insert offline gap line" aria-label="Insert offline gap line"><AppIcon name="gap" /></button>
+      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" title="Insert a hard start line" aria-label="Insert a hard start line">
+        <AppIcon name="gap" :size="14" />
+        <span class="pl-btn-text">Hard start</span>
+      </button>
       <template v-else>
         <input
           v-model="gapTimeDraft"
-          class="pl-input pl-input--gap"
+          class="pl-time-input pl-input--gap"
           type="text"
           inputmode="numeric"
           placeholder="HH:MM[:SS]"
           maxlength="8"
-          aria-label="Gap line time"
+          aria-label="Hard start time"
           autofocus
           @keydown.enter.prevent="commitGapLine"
           @keydown.esc.prevent="cancelGapLine"
         >
-        <button class="pl-btn" @click="commitGapLine" title="Insert gap line at this time" aria-label="Insert gap line at this time"><AppIcon name="check" /></button>
-        <button class="pl-btn" @click="cancelGapLine" title="Cancel" aria-label="Cancel"><AppIcon name="close" /></button>
+        <button class="pl-btn is-confirm" @click="commitGapLine" title="Insert the hard start line at this time" aria-label="Insert the hard start line at this time"><AppIcon name="check" :size="14" /></button>
+        <button class="pl-btn" @click="cancelGapLine" title="Cancel" aria-label="Cancel"><AppIcon name="close" :size="14" /></button>
       </template>
     </div>
+    <div v-else class="pl-onair-note">
+      <AppIcon name="clock" :size="12" />
+      <span>Timing follows the transport while this playlist is on air.</span>
+    </div>
 
-    <div class="pl-buttons">
-      <button class="pl-btn" @click="pickPlaylistPath('save')" :disabled="isSaving" title="Save playlist" aria-label="Save playlist"><AppIcon name="save" /></button>
-      <button class="pl-btn" @click="pickPlaylistPath('load')" :disabled="isLoading" title="Load playlist" aria-label="Load playlist"><AppIcon name="folder-open" /></button>
-      <button class="pl-btn" @click="pickPlaylistPath('append')" :disabled="isLoading" title="Append playlist" aria-label="Append playlist"><AppIcon name="plus" /></button>
-      <button class="pl-btn btn-danger" @click="clearRundown" title="Clear rundown" aria-label="Clear rundown"><AppIcon name="trash" /></button>
+    <div class="pl-spacer" />
+
+    <div class="pl-totals">
+      <span v-if="statusMessage" class="pl-status" :class="{ 'is-error': statusTone === 'error' }">{{ statusMessage }}</span>
+      <span class="pl-meta-text">{{ itemCountLabel }}</span>
+      <span class="pl-meta-text pl-total tabular-nums">{{ totalStr }}</span>
     </div>
   </div>
 </template>
@@ -312,81 +169,72 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
 <style scoped>
 .playlist-bar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-subtle);
   pointer-events: auto;
   position: relative;
   z-index: var(--z-panel);
   flex-shrink: 0;
+  min-height: 32px;
 }
 
-.pl-info {
+.pl-schedule {
   display: flex;
-  gap: 10px;
-  min-width: 0;
-  flex-wrap: wrap;
   align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.pl-name {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--text-primary);
+.pl-spacer {
+  flex: 1;
+  min-width: var(--space-2);
 }
 
-.pl-state-pill {
+.pl-totals {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.pl-onair-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border-medium);
-  color: var(--text-secondary);
-}
-
-.pl-state-pill.is-onair {
-  background: color-mix(in srgb, var(--accent-red) 18%, transparent);
-  border-color: var(--accent-red);
-  color: var(--accent-red);
+  color: var(--text-muted);
 }
 
 .pl-meta-text {
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.pl-total {
+  font-family: var(--font-mono);
   color: var(--text-secondary);
+  font-weight: 600;
 }
 
 .pl-status {
-  color: var(--text-muted);
-  font-size: 0.76rem;
-  max-width: 220px;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  max-width: 320px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .pl-status.is-error {
-  color: var(--accent-red);
+  color: var(--status-error);
   font-weight: 700;
 }
 
-.pl-planning {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.pl-planning.is-disabled {
-  opacity: 0.55;
-}
-
 .pl-label {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   font-weight: 700;
@@ -398,46 +246,55 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
   background: var(--bg-input);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 0.82rem;
+  border-radius: var(--radius-md);
+  padding: 2px var(--space-2);
+  font-size: var(--fs-sm);
+  height: var(--control-h-sm);
 }
 
 .pl-day-select:focus,
 .pl-time-input:focus {
   border-color: var(--accent-blue);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-blue) 28%, transparent);
 }
 
-.pl-buttons {
-  display: flex;
-  gap: 4px;
+.pl-day-select {
+  min-width: 62px;
+}
+
+.pl-time-input {
+  width: 108px;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
 }
 
 .pl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   background: var(--bg-hover);
   border: 1px solid var(--border-medium);
-  color: var(--text-primary);
-  border-radius: 6px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  padding: 4px 10px;
-  font-size: 0.92rem;
-  transition: 0.15s;
+  padding: 0 var(--space-2);
+  height: var(--control-h-sm);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .pl-btn:hover {
   background: var(--bg-surface-elevated);
   border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
-.pl-day-select {
-  min-width: 68px;
-}
-
-.pl-time-input {
-  width: 96px;
-  font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono);
+.pl-btn.is-confirm {
+  color: var(--status-ready);
+  border-color: color-mix(in srgb, var(--status-ready) 45%, transparent);
 }
 
 .pl-btn:disabled {
@@ -445,13 +302,9 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
   cursor: not-allowed;
 }
 
-.btn-danger {
-  border-color: color-mix(in srgb, var(--accent-red) 40%, transparent);
-  color: var(--accent-red);
-}
-
-.btn-danger:hover {
-  background: color-mix(in srgb, var(--accent-red) 16%, transparent);
-  border-color: var(--accent-red);
+@media (max-width: 1280px) {
+  .pl-btn-text {
+    display: none;
+  }
 }
 </style>
