@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import BaseModal from './ui/BaseModal.vue';
+import BaseButton from './ui/BaseButton.vue';
+import ModalFooterActions from './ui/ModalFooterActions.vue';
+import AppIcon from './ui/AppIcon.vue';
 import { computed, ref, watch } from 'vue';
 import { useMediaLibraryStore, buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaLibrary';
 
@@ -226,38 +230,42 @@ watch(
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="isOpen" class="modal-backdrop" data-command-scope="modal" @click.self="$emit('close')">
-      <div class="glass-panel folder-picker-modal">
-        <!-- Modal Header -->
-        <div class="modal-header">
-          <div class="header-left">
-            <span class="header-badge">VIRTUAL FOLDER SYSTEM</span>
-            <h2 class="text-accent">{{ title }}</h2>
-          </div>
-          <button class="glass-btn btn-icon" @click="$emit('close')" title="Close">✕</button>
-        </div>
+  <BaseModal
+    :open="isOpen"
+    size="md"
+    :title="title"
+    subtitle="Choose the virtual folder to move into."
+    nested
+    @close="$emit('close')"
+  >
+    <template #header-actions>
+      <BaseButton variant="ghost" size="sm" icon="folder-plus" @click="startCreateSubfolder">New folder</BaseButton>
+    </template>
 
-        <!-- Search & Filter Bar -->
-        <div class="search-bar-row">
-          <div class="search-input-wrapper">
-            <span class="search-icon">🔍</span>
-            <input
-              v-model="searchQuery"
-              type="text"
-              class="glass-input search-input"
-              placeholder="Search destination folders..."
-              autofocus
-            />
-            <button v-if="searchQuery" class="clear-search-btn" @click="searchQuery = ''">✕</button>
-          </div>
-          <button class="glass-btn btn-new-folder" @click="startCreateSubfolder" title="Create a new subfolder in selected destination">
-            📁+ New Folder
-          </button>
-        </div>
+    <!-- Search & Filter Bar -->
+    <div class="search-bar-row">
+      <div class="search-input-wrapper">
+        <AppIcon class="search-icon" name="search" :size="14" />
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="input search-input"
+          placeholder="Search destination folders…"
+        />
+        <BaseButton
+          v-if="searchQuery"
+          class="clear-search-btn"
+          variant="icon"
+          size="sm"
+          icon="close"
+          label="Clear search"
+          @click="searchQuery = ''"
+        />
+      </div>
+    </div>
 
-        <!-- Inline Folder Creation Input -->
-        <div v-if="isCreatingSubfolder" class="inline-create-box">
+    <!-- Inline Folder Creation Input -->
+    <div v-if="isCreatingSubfolder" class="inline-create-box">
           <div class="create-prompt">
             Create new subfolder inside <code>{{ selectedFolder }}</code>:
           </div>
@@ -265,20 +273,20 @@ watch(
             <input
               v-model="newSubfolderName"
               type="text"
-              class="glass-input"
+              class="input"
               placeholder="Subfolder name (e.g. Season 1)"
               @keydown.enter="commitCreateSubfolder"
               @keydown.esc="cancelCreateSubfolder"
             />
-            <button class="glass-btn btn-primary" @click="commitCreateSubfolder" :disabled="!newSubfolderName.trim()">
+            <BaseButton variant="primary" :disabled="!newSubfolderName.trim()" @click="commitCreateSubfolder">
               Create
-            </button>
-            <button class="glass-btn" @click="cancelCreateSubfolder">Cancel</button>
+            </BaseButton>
+            <BaseButton variant="secondary" @click="cancelCreateSubfolder">Cancel</BaseButton>
           </div>
         </div>
 
-        <!-- Body: Tree or Filtered List -->
-        <div class="modal-body custom-scroll">
+    <!-- Body: Tree or Filtered List -->
+    <div class="picker-body">
           <!-- Filtered List (When searching) -->
           <div v-if="filteredFlatFolders !== null" class="filtered-list">
             <div v-if="filteredFlatFolders.length === 0" class="empty-results">
@@ -372,77 +380,22 @@ watch(
           </div>
         </div>
 
-        <!-- Footer -->
-        <div class="modal-footer">
-          <button class="glass-btn" @click="$emit('close')">Cancel</button>
-          <div class="footer-spacer"></div>
-          <button
-            class="glass-btn btn-primary"
-            :disabled="!canConfirm"
-            @click="confirmMove"
-          >
-            ✔ Move Here
-          </button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
+    <template #footer>
+      <ModalFooterActions>
+        <template #secondary>
+          <BaseButton variant="secondary" @click="$emit('close')">Cancel</BaseButton>
+        </template>
+        <template #primary>
+          <BaseButton variant="primary" icon="check" :disabled="!canConfirm" @click="confirmMove">
+            Move here
+          </BaseButton>
+        </template>
+      </ModalFooterActions>
+    </template>
+  </BaseModal>
 </template>
 
 <style scoped>
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--backdrop);
-  backdrop-filter: blur(6px);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: var(--z-modal-nested);
-}
-
-.folder-picker-modal {
-  width: 660px;
-  max-width: 94vw;
-  max-height: 88vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-medium);
-  border-radius: 12px;
-  box-shadow: var(--shadow-3);
-  overflow: hidden;
-}
-
-.modal-header {
-  padding: 1.1rem 1.4rem;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-tertiary);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.header-badge {
-  font-size: 0.68rem;
-  font-weight: 800;
-  color: var(--accent-blue);
-  letter-spacing: 0.08em;
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
 /* Search Bar */
 .search-bar-row {
   display: flex;
@@ -487,19 +440,6 @@ watch(
   color: var(--text-primary);
 }
 
-.btn-new-folder {
-  white-space: nowrap;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--accent-blue);
-  background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-blue) 35%, transparent);
-}
-
-.btn-new-folder:hover {
-  background: color-mix(in srgb, var(--accent-blue) 22%, transparent);
-}
-
 /* Inline Create Box */
 .inline-create-box {
   background: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-secondary));
@@ -525,19 +465,11 @@ watch(
   gap: 8px;
 }
 
-.create-input-row .glass-input {
+.create-input-row .input {
   flex: 1;
 }
 
 /* Body */
-.modal-body {
-  padding: 8px 12px;
-  overflow-y: auto;
-  min-height: 260px;
-  max-height: 400px;
-  background: var(--bg-primary);
-}
-
 .tree-container {
   display: flex;
   flex-direction: column;
@@ -711,69 +643,38 @@ watch(
 }
 
 /* Footer */
-.modal-footer {
-  padding: 12px 1.4rem;
-  border-top: 1px solid var(--border-subtle);
+/* The dialog shell (backdrop, header, body scroll, footer) is BaseModal's. */
+.picker-body {
+  min-height: 220px;
+}
+
+.search-bar-row {
   display: flex;
   align-items: center;
-  background: var(--bg-tertiary);
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
-.footer-spacer {
-  flex: 1;
+.search-input-wrapper {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
 }
 
-.glass-input {
-  background: var(--bg-input);
-  border: 1px solid var(--border-medium);
-  color: var(--text-primary);
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 0.84rem;
-  outline: none;
+.search-icon {
+  position: absolute;
+  left: var(--space-2);
+  color: var(--text-muted);
+  pointer-events: none;
 }
 
-.glass-input:focus {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
+.search-input {
+  padding-left: calc(var(--space-2) * 2 + 14px);
 }
 
-.glass-btn {
-  background: var(--bg-hover);
-  border: 1px solid var(--border-medium);
-  color: var(--text-primary);
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.glass-btn:hover:not(:disabled) {
-  background: var(--bg-surface-elevated);
-  border-color: var(--border-strong);
-}
-
-.glass-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
-  border-color: var(--accent-blue);
-  color: var(--accent-blue);
-  font-weight: 700;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-blue);
-  color: var(--text-on-accent);
-}
-
-.btn-icon {
-  padding: 3px 8px;
-  font-size: 1rem;
+.clear-search-btn {
+  position: absolute;
+  right: var(--space-1);
 }
 </style>

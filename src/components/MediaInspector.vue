@@ -6,6 +6,11 @@ import { useMediaLibraryStore } from '../stores/mediaLibrary';
 import ComplianceModule from './ComplianceModule.vue';
 import { getActivePlayoutService } from '../services/playout';
 import StatusIndicator from './StatusIndicator.vue';
+import BaseModal from './ui/BaseModal.vue';
+import BaseButton from './ui/BaseButton.vue';
+import ModalFooterActions from './ui/ModalFooterActions.vue';
+import EmptyState from './ui/EmptyState.vue';
+import AppIcon from './ui/AppIcon.vue';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 import { useSettingsStore } from '../stores/settings';
 
@@ -199,25 +204,19 @@ const getDisplayName = (item: any) => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="isOpen" class="modal-backdrop" data-command-scope="modal" @click.self="emit('close')">
-      <div class="glass-panel inspector-modal-content">
-        <!-- Modal Header -->
-        <div class="modal-header">
-          <div class="modal-title-row">
-            <span class="inspector-badge">INSPECTOR</span>
-            <h2 class="modal-title">{{ getDisplayName(activeItem) }}</h2>
-          </div>
-          <button class="glass-btn btn-icon" @click="emit('close')" title="Close Inspector (Esc)">✕</button>
-        </div>
-
-        <!-- Modal Body -->
-        <div v-if="activeItem" class="modal-body custom-scroll">
+  <BaseModal
+    :open="isOpen"
+    size="lg"
+    kicker="Inspector"
+    :title="getDisplayName(activeItem)"
+    @close="emit('close')"
+  >
+    <template v-if="activeItem">
           
           <!-- Warnings Box (if any) -->
           <div v-if="warningsList.length > 0" class="inspector-section warnings-box">
             <div class="warnings-header">
-              <span class="warn-icon">⚠️</span>
+              <AppIcon class="warn-icon" name="alert" :size="16" />
               <h4 class="warnings-title">QC Validation Advisories ({{ warningsList.length }})</h4>
             </div>
             <ul class="warnings-list">
@@ -339,96 +338,26 @@ const getDisplayName = (item: any) => {
 
           <!-- Compliance Metadata -->
           <ComplianceModule v-if="isRundownItem && activeItem.type !== 'gap'" />
+    </template>
 
-        </div>
+    <EmptyState
+      v-else
+      icon="inspect"
+      title="Nothing selected"
+      hint="Select a clip in the rundown or the library, then press Ctrl+I."
+    />
 
-        <div v-else class="modal-body custom-scroll empty-state">
-          <p class="text-secondary">No item selected to inspect.</p>
-        </div>
-
-        <!-- Modal Footer -->
-        <div class="modal-footer">
-          <button class="glass-btn" @click="emit('close')">Close</button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
+    <template #footer>
+      <ModalFooterActions>
+        <template #primary>
+          <BaseButton variant="secondary" @click="emit('close')">Close</BaseButton>
+        </template>
+      </ModalFooterActions>
+    </template>
+  </BaseModal>
 </template>
 
 <style scoped>
-.modal-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: var(--backdrop);
-  backdrop-filter: blur(12px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-}
-
-.inspector-modal-content {
-  width: 820px;
-  max-width: 95vw;
-  max-height: 86vh;
-  display: flex;
-  flex-direction: column;
-  background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  box-shadow: var(--shadow-3);
-  overflow: hidden;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.2rem 1.5rem;
-  border-bottom: 1px solid var(--glass-border);
-}
-
-.modal-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.inspector-badge {
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
-  color: var(--accent-blue);
-  border: 1px solid color-mix(in srgb, var(--accent-blue) 30%, transparent);
-  flex-shrink: 0;
-}
-
-.modal-title {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
 .inspector-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -573,48 +502,6 @@ const getDisplayName = (item: any) => {
   font-size: 0.82rem;
   min-width: 44px;
   text-align: center;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: 1rem 1.5rem;
-  border-top: 1px solid var(--glass-border);
-  background: var(--bg-input);
-}
-
-.glass-btn {
-  padding: 7px 14px;
-  border-radius: 6px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--glass-border);
-  color: var(--text-primary);
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.glass-btn:hover:not(:disabled) {
-  background: var(--bg-active);
-  border-color: var(--border-strong);
-}
-
-.glass-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.btn-icon {
-  padding: 4px 8px;
-  font-size: 1.1rem;
-  background: transparent;
-  border-color: transparent;
-}
-.btn-icon:hover {
-  background: color-mix(in srgb, var(--status-error) 15%, transparent);
-  color: var(--status-error);
 }
 
 @media (max-width: 768px) {

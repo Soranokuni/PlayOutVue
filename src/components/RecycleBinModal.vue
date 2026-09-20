@@ -1,29 +1,11 @@
 <template>
-  <div class="recycle-bin-overlay" @click.self="$emit('close')" @keydown.esc="$emit('close')">
-    <div class="recycle-bin-modal" role="dialog" aria-modal="true">
-      <!-- Modal Header -->
-      <div class="modal-header">
-        <div class="header-title-group">
-          <div class="trash-icon-pill">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              <line x1="10" y1="11" x2="10" y2="17"></line>
-              <line x1="14" y1="11" x2="14" y2="17"></line>
-            </svg>
-          </div>
-          <div>
-            <h2 class="modal-title">Recycle Bin</h2>
-            <p class="modal-subtitle">Manage soft-deleted media assets, restore to folders, or permanently purge storage</p>
-          </div>
-        </div>
-        <button class="close-btn" @click="$emit('close')" title="Close (Esc)">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
+  <BaseModal
+    :open="true"
+    size="xl"
+    title="Recycle Bin"
+    subtitle="Restore deleted media to a folder, or delete it permanently from storage."
+    @close="$emit('close')"
+  >
 
       <!-- Action & Filter Bar -->
       <div class="toolbar">
@@ -131,7 +113,7 @@
                       class="row-action-btn purge-btn"
                       :disabled="isOperating"
                       @click="promptPurgeAsset(asset)"
-                      title="Delete & Purge Mezzanine and DB Row"
+                      title="Delete permanently"
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -147,57 +129,41 @@
         </div>
       </div>
 
-      <!-- Footer Info -->
-      <div class="modal-footer">
-        <div class="footer-stats">
-          <span>{{ filteredAssets.length }} {{ filteredAssets.length === 1 ? 'item' : 'items' }} in Recycle Bin</span>
-        </div>
-        <button class="footer-close-btn" @click="$emit('close')">Close</button>
-      </div>
-    </div>
+    <template #footer>
+      <ModalFooterActions>
+        <template #destructive>
+          <span class="footer-stats">
+            {{ filteredAssets.length }} {{ filteredAssets.length === 1 ? 'item' : 'items' }} in the Recycle Bin
+          </span>
+        </template>
+        <template #primary>
+          <BaseButton variant="secondary" @click="$emit('close')">Close</BaseButton>
+        </template>
+      </ModalFooterActions>
+    </template>
 
-    <!-- Pulsing Alert Purge Confirmation Dialog -->
-    <div v-if="purgeConfirmModal.show" class="purge-dialog-backdrop" @click.self="cancelPurgeModal">
-      <div class="purge-dialog-box danger-pulse-box">
-        <div class="purge-icon-circle">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-            <line x1="12" y1="9" x2="12" y2="13"></line>
-            <line x1="12" y1="17" x2="12.01" y2="17"></line>
-          </svg>
-        </div>
+  </BaseModal>
 
-        <h3 class="purge-dialog-title">{{ purgeConfirmModal.title }}</h3>
-        
-        <p class="purge-dialog-text">
-          {{ purgeConfirmModal.message }}
-        </p>
-
-        <div class="purge-warning-callout">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="12"></line>
-            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-          </svg>
-          <span>This action is destructive and irreversible. Physical mezzanine files, sidecars, and database entries will be completely removed.</span>
-        </div>
-
-        <div class="purge-dialog-actions">
-          <button class="dialog-cancel-btn" :disabled="isOperating" @click="cancelPurgeModal">
-            Cancel
-          </button>
-          <button class="dialog-danger-btn" :disabled="isOperating" @click="executePurgeConfirmed">
-            <span v-if="isOperating">Purging...</span>
-            <span v-else>{{ purgeConfirmModal.confirmButtonText }}</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
+  <!-- UI F-11: the shared irreversible-action dialog. MediaLibrary carried a
+       second copy of this "pulsing danger box"; both now use DangerConfirm. -->
+  <DangerConfirm
+    :open="purgeConfirmModal.show"
+    :title="purgeConfirmModal.title"
+    :message="purgeConfirmModal.message"
+    warning="The mezzanine files, sidecars and database entries are removed from storage. This cannot be undone."
+    :confirm-label="purgeConfirmModal.confirmButtonText"
+    :busy="isOperating"
+    @confirm="executePurgeConfirmed"
+    @cancel="cancelPurgeModal"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import BaseModal from './ui/BaseModal.vue';
+import BaseButton from './ui/BaseButton.vue';
+import ModalFooterActions from './ui/ModalFooterActions.vue';
+import DangerConfirm from './ui/DangerConfirm.vue';
 import { message } from '@tauri-apps/plugin-dialog';
 import { useMediaLibraryStore, type LibraryAsset } from '../stores/mediaLibrary';
 import { describePurgeOutcome } from '../lib/ingestorFeedback';
@@ -301,9 +267,9 @@ async function doRestoreAsset(asset: LibraryAsset) {
 function promptPurgeAsset(asset: LibraryAsset) {
   purgeConfirmModal.value = {
     show: true,
-    title: 'Delete & Purge Asset',
+    title: 'Delete permanently',
     message: `Are you sure you want to permanently purge "${asset.display_name || getFileName(asset.current_path)}"?`,
-    confirmButtonText: 'Permanently Purge',
+    confirmButtonText: 'Delete permanently',
     targetType: 'single_asset',
     targetAsset: asset
   };
@@ -314,7 +280,7 @@ function promptEmptyBin() {
     show: true,
     title: 'Empty Recycle Bin',
     message: `Are you sure you want to permanently purge all ${libraryStore.recycleBinAssets.length} assets from the Recycle Bin?`,
-    confirmButtonText: 'Empty All Now',
+    confirmButtonText: 'Empty the bin',
     targetType: 'empty_all'
   };
 }
@@ -349,88 +315,6 @@ async function executePurgeConfirmed() {
 </script>
 
 <style scoped>
-.recycle-bin-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--backdrop);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-}
-
-.recycle-bin-modal {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-medium);
-  border-radius: 12px;
-  width: 900px;
-  max-width: 95vw;
-  height: 650px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow-3);
-  overflow: hidden;
-  color: var(--text-primary);
-}
-
-.modal-header {
-  padding: 16px 20px;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.header-title-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.trash-icon-pill {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
-  color: var(--accent-red);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--accent-red) 30%, transparent);
-}
-
-.modal-title {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  color: var(--text-primary);
-}
-
-.modal-subtitle {
-  margin: 2px 0 0;
-  font-size: 0.76rem;
-  color: var(--text-secondary);
-}
-
-.close-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 6px;
-  transition: all 0.15s ease;
-}
-
-.close-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
 .toolbar {
   padding: 12px 20px;
   background: var(--bg-secondary);
@@ -689,166 +573,12 @@ async function executePurgeConfirmed() {
   color: var(--text-on-accent);
 }
 
-.modal-footer {
-  padding: 12px 20px;
-  background: var(--bg-tertiary);
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .footer-stats {
   font-size: 0.78rem;
   color: var(--text-secondary);
 }
 
-.footer-close-btn {
-  padding: 6px 16px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border-medium);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.footer-close-btn:hover {
-  background: var(--bg-surface-elevated);
-  border-color: var(--border-strong);
-}
-
 /* Pulsing Danger Confirmation Modal */
-.purge-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--backdrop-strong);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal-nested);
-}
-
-.danger-pulse-box {
-  background: var(--bg-secondary);
-  border: 2px solid var(--accent-red);
-  border-radius: 12px;
-  width: 480px;
-  max-width: 90vw;
-  padding: 24px;
-  box-shadow: 0 0 35px color-mix(in srgb, var(--accent-red) 35%, transparent);
-  animation: danger-pulse 2s infinite ease-in-out;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-@keyframes danger-pulse {
-  0% {
-    box-shadow: 0 0 20px color-mix(in srgb, var(--accent-red) 30%, transparent);
-    border-color: var(--accent-red);
-  }
-  50% {
-    box-shadow: 0 0 45px color-mix(in srgb, var(--accent-red) 70%, transparent), 0 0 10px color-mix(in srgb, var(--accent-red) 50%, transparent);
-    border-color: var(--accent-red);
-  }
-  100% {
-    box-shadow: 0 0 20px color-mix(in srgb, var(--accent-red) 30%, transparent);
-    border-color: var(--accent-red);
-  }
-}
-
-.purge-icon-circle {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent-red) 20%, transparent);
-  color: var(--accent-red);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 16px;
-}
-
-.purge-dialog-title {
-  margin: 0 0 8px;
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.purge-dialog-text {
-  margin: 0 0 16px;
-  font-size: 0.85rem;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-
-.purge-warning-callout {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  background: color-mix(in srgb, var(--accent-red) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-red) 25%, transparent);
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 0.74rem;
-  color: var(--accent-red);
-  text-align: left;
-  margin-bottom: 20px;
-}
-
-.purge-warning-callout svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.purge-dialog-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  width: 100%;
-}
-
-.dialog-cancel-btn {
-  flex: 1;
-  padding: 9px 16px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border-medium);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.dialog-cancel-btn:hover:not(:disabled) {
-  background: var(--bg-surface-elevated);
-  border-color: var(--border-strong);
-}
-
-.dialog-danger-btn {
-  flex: 1;
-  padding: 9px 16px;
-  background: var(--accent-red);
-  border: 1px solid var(--accent-red);
-  border-radius: 6px;
-  color: var(--text-on-accent);
-  font-size: 0.85rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.dialog-danger-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-red) 85%, white);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-red) 50%, transparent);
-}
-
 .spin {
   animation: rotate-spin 1s linear infinite;
 }
@@ -866,5 +596,10 @@ async function executePurgeConfirmed() {
   border-radius: 50%;
   animation: rotate-spin 0.8s linear infinite;
   margin-bottom: 12px;
+}
+/* The dialog shell and the purge confirmation are BaseModal's / DangerConfirm's. */
+.footer-stats {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }
 </style>

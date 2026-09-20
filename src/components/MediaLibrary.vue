@@ -2769,9 +2769,13 @@ const menuItems = computed<MenuItem[]>(() => {
   background: var(--bg-hover);
   border-color: var(--border-medium);
 }
-.lib-row.is-selected {
-  background: var(--bg-active) !important;
-  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent) !important;
+/* Selection outranks hover by matching its specificity, not by !important. */
+.lib-row.is-asset.is-selected,
+.lib-row.is-folder.is-selected,
+.lib-row.is-asset.is-selected:hover,
+.lib-row.is-folder.is-selected:hover {
+  background: var(--bg-active);
+  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent);
 }
 
 /* Tree Indentation Guides */

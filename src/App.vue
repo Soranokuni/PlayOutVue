@@ -1147,11 +1147,12 @@ onUnmounted(() => {
   line-height: 1;
 }
 
-.barrier-fence-divider {
-  width: 2px !important;
-  height: 32px !important;
+/* A heavier rule than .ctrl-divider: specificity, not !important. */
+.control-bar .ctrl-divider.barrier-fence-divider {
+  width: 2px;
+  height: 32px;
   background: var(--border-strong);
-  margin: 0 10px !important;
+  margin: 0 10px;
 }
 
 .ctrl-routing-fence {
