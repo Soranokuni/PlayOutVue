@@ -362,7 +362,7 @@ const getDisplayName = (item: any) => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(10, 14, 23, 0.85);
+  background: var(--backdrop);
   backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
@@ -379,7 +379,7 @@ const getDisplayName = (item: any) => {
   background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
   border: 1px solid var(--glass-border);
   border-radius: 12px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+  box-shadow: var(--shadow-3);
   overflow: hidden;
 }
 
@@ -404,9 +404,9 @@ const getDisplayName = (item: any) => {
   letter-spacing: 0.08em;
   padding: 2px 7px;
   border-radius: 4px;
-  background: rgba(56, 189, 248, 0.15);
+  background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
   color: var(--accent-blue);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 30%, transparent);
   flex-shrink: 0;
 }
 
@@ -497,12 +497,12 @@ const getDisplayName = (item: any) => {
   line-height: 1.3;
 }
 
-.text-green { color: #10b981; font-weight: 600; }
-.text-orange { color: #f59e0b; font-weight: 600; }
+.text-green { color: var(--status-ready); font-weight: 600; }
+.text-orange { color: var(--status-warning); font-weight: 600; }
 
 .warnings-box {
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: color-mix(in srgb, var(--status-warning) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-warning) 35%, transparent);
   border-radius: 8px;
   padding: 1rem;
 }
@@ -517,14 +517,14 @@ const getDisplayName = (item: any) => {
 .warnings-title {
   font-size: 0.85rem;
   font-weight: 700;
-  color: #fbbf24;
+  color: var(--status-warning);
   margin: 0;
 }
 
 .warnings-list {
   margin: 0;
   padding-left: 1.25rem;
-  color: #fde68a;
+  color: var(--text-primary);
   font-size: 0.78rem;
   line-height: 1.45;
 }
@@ -565,7 +565,7 @@ const getDisplayName = (item: any) => {
 
 .nudge-display {
   padding: 4px 10px;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--bg-input);
   border: 1px solid var(--glass-border);
   border-radius: 4px;
   color: var(--text-primary);
@@ -581,7 +581,7 @@ const getDisplayName = (item: any) => {
   align-items: center;
   padding: 1rem 1.5rem;
   border-top: 1px solid var(--glass-border);
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--bg-input);
 }
 
 .glass-btn {
@@ -597,8 +597,8 @@ const getDisplayName = (item: any) => {
 }
 
 .glass-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.25);
+  background: var(--bg-active);
+  border-color: var(--border-strong);
 }
 
 .glass-btn:disabled {
@@ -613,8 +613,8 @@ const getDisplayName = (item: any) => {
   border-color: transparent;
 }
 .btn-icon:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: color-mix(in srgb, var(--status-error) 15%, transparent);
+  color: var(--status-error);
 }
 
 @media (max-width: 768px) {

@@ -169,6 +169,10 @@
   --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.55);
 
   --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-blue);
+
+  /* Modal / overlay scrim */
+  --backdrop: rgba(0, 0, 0, 0.72);
+  --backdrop-strong: rgba(0, 0, 0, 0.86);
 }
 
 .monokai-theme {
@@ -213,6 +217,9 @@
   --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.6);
 
   --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-blue);
+
+  --backdrop: rgba(0, 0, 0, 0.72);
+  --backdrop-strong: rgba(0, 0, 0, 0.86);
 }
 
 .light-theme {
@@ -259,6 +266,10 @@
   --shadow-3: 0 12px 32px rgba(15, 23, 42, 0.18);
 
   --focus-ring: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--accent-blue);
+
+  /* A light theme needs a lighter scrim: pure black at 72% reads as a fault. */
+  --backdrop: rgba(15, 23, 42, 0.42);
+  --backdrop-strong: rgba(15, 23, 42, 0.62);
 }
 
 /* Theme-independent scales. Layers replace the 13 ad-hoc z-index literals the

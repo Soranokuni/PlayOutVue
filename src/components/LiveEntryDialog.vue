@@ -60,7 +60,7 @@ const confirm = () => {
 
 <style scoped>
 .modal-backdrop {
-  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(6px);
+  position: fixed; inset: 0; background: var(--backdrop); backdrop-filter: blur(6px);
   display: flex; justify-content: center; align-items: center; z-index: var(--z-modal);
 }
 .live-dialog {
@@ -68,7 +68,7 @@ const confirm = () => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 12px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-3);
 }
 .dialog-header { display: flex; justify-content: space-between; align-items: center; }
 .icon-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem; }
@@ -106,6 +106,6 @@ const confirm = () => {
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-blue);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 </style>

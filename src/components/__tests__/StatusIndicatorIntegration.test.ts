@@ -106,8 +106,24 @@ describe('PR 6A StatusIndicator State Contract & Priority Resolution', () => {
           props: { tone, variant: 'dot' }
         });
         expect(wrapper.attributes('aria-label')).toBe(expected);
-        expect(wrapper.attributes('role')).toBe('status');
       });
+    });
+
+    // A11y §10: the bare dot repeats once per rundown row. As a live region it
+    // made a screen reader announce the whole 300-row list, so `role="status"`
+    // is now reserved for indicators that carry a label of their own.
+    it('is a live region only when it carries a label', () => {
+      const bareDot = mount(StatusIndicator, { props: { tone: 'ready', variant: 'dot' } });
+      expect(bareDot.attributes('role')).toBeUndefined();
+
+      const labelledDot = mount(StatusIndicator, { props: { tone: 'ready', variant: 'dot', label: 'Ingest' } });
+      expect(labelledDot.attributes('role')).toBe('status');
+
+      const pill = mount(StatusIndicator, { props: { tone: 'on-air', variant: 'pill' } });
+      expect(pill.attributes('role')).toBe('status');
+
+      const banner = mount(StatusIndicator, { props: { tone: 'error', variant: 'banner' } });
+      expect(banner.attributes('role')).toBe('status');
     });
   });
 

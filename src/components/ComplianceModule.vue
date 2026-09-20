@@ -326,8 +326,8 @@ const clearComplianceOverlay = async () => {
 
 <style scoped>
 .compliance-module {
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   padding: 1.15rem;
   margin-top: 1.5rem;
@@ -338,7 +338,7 @@ const clearComplianceOverlay = async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 0.65rem;
 }
 
@@ -356,15 +356,15 @@ const clearComplianceOverlay = async () => {
   margin: 0;
   font-size: 0.92rem;
   font-weight: 700;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .active-badge {
   font-size: 0.72rem;
   font-weight: 800;
   padding: 3px 8px;
-  border-radius: 4px;
-  color: #fff;
+  border-radius: var(--radius-sm);
+  color: var(--text-on-accent);
 }
 
 .form-group {
@@ -377,7 +377,7 @@ const clearComplianceOverlay = async () => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #94a3b8;
+  color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
@@ -389,9 +389,9 @@ const clearComplianceOverlay = async () => {
 }
 
 .rating-select-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #94a3b8;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
   padding: 8px 4px;
   border-radius: 6px;
   cursor: pointer;
@@ -401,24 +401,28 @@ const clearComplianceOverlay = async () => {
 }
 
 .rating-select-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: var(--bg-active);
+  color: var(--text-primary);
 }
 
-.rating-select-btn.active.btn-none { background: rgba(255, 255, 255, 0.2); color: #fff; border-color: #fff; }
-.rating-select-btn.active.btn-k { background: #166534; color: #fff; border-color: #22c55e; box-shadow: 0 0 10px rgba(34, 197, 94, 0.3); }
-.rating-select-btn.active.btn-8 { background: #1e40af; color: #fff; border-color: #3b82f6; box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
-.rating-select-btn.active.btn-12 { background: #9a3412; color: #fff; border-color: #f97316; box-shadow: 0 0 10px rgba(249, 115, 22, 0.3); }
-.rating-select-btn.active.btn-16 { background: #6b21a8; color: #fff; border-color: #a855f7; box-shadow: 0 0 10px rgba(168, 85, 247, 0.3); }
-.rating-select-btn.active.btn-18 { background: #991b1b; color: #fff; border-color: #ef4444; box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+/* The selected rating button now carries the same colour the rundown chip,
+   library chip and on-air badge use — these used to be a sixth, unrelated
+   palette (blue for 8, purple for 16) that contradicted the NCRTV semantics
+   everywhere else in the app. */
+.rating-select-btn.active.btn-none { background: var(--bg-active); color: var(--text-primary); border-color: var(--border-strong); }
+.rating-select-btn.active.btn-k { background: var(--rating-k); color: var(--rating-k-fg); border-color: var(--rating-k); }
+.rating-select-btn.active.btn-8 { background: var(--rating-8); color: var(--rating-8-fg); border-color: var(--rating-8); }
+.rating-select-btn.active.btn-12 { background: var(--rating-12); color: var(--rating-12-fg); border-color: var(--rating-12); }
+.rating-select-btn.active.btn-16 { background: var(--rating-16); color: var(--rating-16-fg); border-color: var(--rating-16); }
+.rating-select-btn.active.btn-18 { background: var(--rating-18); color: var(--rating-18-fg); border-color: var(--rating-18); }
 
 /* TP Toggle */
 .tp-toggle-row {
   margin: 0.75rem 0;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--bg-input);
   padding: 8px 12px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
 }
 
 .toggle-checkbox {
@@ -426,13 +430,13 @@ const clearComplianceOverlay = async () => {
   align-items: center;
   gap: 10px;
   cursor: pointer;
-  font-size: 0.8rem;
-  color: #cbd5e1;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
 }
 
 .tp-label strong {
-  background: #f59e0b;
-  color: #000;
+  background: var(--status-warning);
+  color: var(--text-on-warning);
   padding: 2px 6px;
   border-radius: 3px;
   font-size: 0.72rem;
@@ -447,9 +451,9 @@ const clearComplianceOverlay = async () => {
 }
 
 .preset-chip {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #cbd5e1;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
   padding: 5px 9px;
   border-radius: 4px;
   font-size: 0.75rem;
@@ -459,15 +463,15 @@ const clearComplianceOverlay = async () => {
 }
 
 .preset-chip:hover {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: rgba(56, 189, 248, 0.4);
-  color: #38bdf8;
+  background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  color: var(--accent-blue);
 }
 
 .preset-chip.active {
-  background: rgba(56, 189, 248, 0.2);
-  border-color: #38bdf8;
-  color: #38bdf8;
+  background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
 }
 
 /* Descriptor Buttons */
@@ -478,9 +482,9 @@ const clearComplianceOverlay = async () => {
 }
 
 .desc-toggle-btn {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #94a3b8;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
   padding: 8px 4px;
   border-radius: 6px;
   cursor: pointer;
@@ -494,14 +498,14 @@ const clearComplianceOverlay = async () => {
 }
 
 .desc-toggle-btn:hover {
-  border-color: rgba(255, 255, 255, 0.25);
-  color: #fff;
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .desc-toggle-btn.active {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #fca5a5;
+  background: color-mix(in srgb, var(--status-error) 15%, transparent);
+  border-color: color-mix(in srgb, var(--status-error) 50%, transparent);
+  color: var(--status-error);
 }
 
 .desc-icon {
@@ -514,9 +518,9 @@ const clearComplianceOverlay = async () => {
 }
 
 .glass-input {
-  background: #0b0f17;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #f1f5f9;
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
   padding: 8px 10px;
   border-radius: 6px;
   font-size: 0.82rem;
@@ -533,8 +537,8 @@ const clearComplianceOverlay = async () => {
 /* Live Preview Card */
 .live-preview-card {
   margin: 1rem 0;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 10px;
 }
@@ -545,14 +549,18 @@ const clearComplianceOverlay = async () => {
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.05em;
-  color: #94a3b8;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
 .preview-timer {
-  color: #38bdf8;
+  color: var(--accent-blue);
 }
 
+/* NOTE: everything from here to .preview-accent-line draws a miniature of
+   what CasparCG puts on air. Its black raster and white type are content, not
+   theme — they must look the same in every theme because the broadcast output
+   does. The lint guard whitelists this subtree. */
 .mock-screen-crop {
   background: #000;
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -657,17 +665,16 @@ const clearComplianceOverlay = async () => {
 }
 
 .btn-trigger-advisory {
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.3) 0%, rgba(14, 165, 233, 0.2) 100%);
-  color: #38bdf8;
-  border: 1.5px solid rgba(56, 189, 248, 0.6);
-  box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
+  background: color-mix(in srgb, var(--accent-blue) 24%, transparent);
+  color: var(--accent-blue);
+  border: 1.5px solid color-mix(in srgb, var(--accent-blue) 60%, transparent);
   font-weight: 800;
 }
 
 .btn-trigger-advisory:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.45) 0%, rgba(14, 165, 233, 0.35) 100%);
-  border-color: #38bdf8;
-  color: #ffffff;
+  background: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  border-color: var(--accent-blue);
+  color: var(--text-primary);
 }
 
 .btn-trigger-advisory:disabled {
@@ -676,22 +683,22 @@ const clearComplianceOverlay = async () => {
 }
 
 .btn-primary {
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
+  color: var(--accent-blue);
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 40%, transparent);
 }
 
 .btn-primary:hover {
-  background: rgba(56, 189, 248, 0.25);
+  background: color-mix(in srgb, var(--accent-blue) 25%, transparent);
 }
 
 .btn-danger {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: color-mix(in srgb, var(--status-error) 15%, transparent);
+  color: var(--status-error);
+  border: 1px solid color-mix(in srgb, var(--status-error) 40%, transparent);
 }
 
 .btn-danger:hover {
-  background: rgba(239, 68, 68, 0.25);
+  background: color-mix(in srgb, var(--status-error) 25%, transparent);
 }
 </style>

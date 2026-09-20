@@ -352,7 +352,7 @@ async function executePurgeConfirmed() {
 .recycle-bin-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--backdrop);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
@@ -370,7 +370,7 @@ async function executePurgeConfirmed() {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-3);
   overflow: hidden;
   color: var(--text-primary);
 }
@@ -674,7 +674,7 @@ async function executePurgeConfirmed() {
 .restore-btn:hover:not(:disabled) {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .purge-btn {
@@ -686,7 +686,7 @@ async function executePurgeConfirmed() {
 .purge-btn:hover:not(:disabled) {
   background: var(--accent-red);
   border-color: var(--accent-red);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .modal-footer {
@@ -723,7 +723,7 @@ async function executePurgeConfirmed() {
 .purge-dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.85);
+  background: var(--backdrop-strong);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
@@ -837,7 +837,7 @@ async function executePurgeConfirmed() {
   background: var(--accent-red);
   border: 1px solid var(--accent-red);
   border-radius: 6px;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 0.85rem;
   font-weight: 700;
   cursor: pointer;

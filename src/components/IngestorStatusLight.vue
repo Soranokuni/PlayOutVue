@@ -53,55 +53,60 @@ const tooltip = computed(() => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #7f5c58;
+  background: var(--status-offline);
   transition: background 0.2s;
 }
 
 .status-dot.online {
-  background: #10b981;
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-  animation: pulse-green 1.6s ease-out infinite;
+  background: var(--status-ready);
 }
 
 .status-dot.offline {
-  background: #ff6b6b;
-  box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.4);
+  background: var(--status-error);
 }
 
 /* Reachable, but every authenticated call is answered 401. */
 .status-dot.auth-rejected {
-  background: #f59e0b;
-  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6);
-  animation: pulse-amber 1.2s ease-out infinite;
+  background: var(--status-warning);
 }
 
-@keyframes pulse-amber {
-  0% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6);
-  }
-  70% {
-    transform: scale(1.05);
-    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
-  }
-  100% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
-  }
+/* PERF: this dot sits in the always-visible control bar. The ping used to
+   animate `box-shadow`, repainting it every frame for the whole session. The
+   expanding ring is now a sibling overlay whose opacity and transform animate
+   on the compositor instead. */
+.status-dot::after {
+  content: '';
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  color: inherit;
+  pointer-events: none;
+  opacity: 0;
 }
 
-@keyframes pulse-green {
-  0% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-  }
-  70% {
-    transform: scale(1.05);
-    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
-  }
-  100% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+.status-dot.online::after {
+  color: var(--status-ready);
+  animation: ping-ring 1.6s ease-out infinite;
+}
+
+.status-dot.auth-rejected::after {
+  color: var(--status-warning);
+  animation: ping-ring 1.2s ease-out infinite;
+}
+
+@keyframes ping-ring {
+  0%   { opacity: 0.7; transform: scale(1); }
+  70%  { opacity: 0; transform: scale(2.6); }
+  100% { opacity: 0; transform: scale(2.6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot::after {
+    animation: none;
   }
 }
 </style>

@@ -694,7 +694,7 @@ function formatError(error: unknown, fallback: string) {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.82);
+  background: var(--backdrop);
   backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
@@ -804,8 +804,8 @@ function formatError(error: unknown, fallback: string) {
 }
 
 .glass-btn {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
   color: var(--text-primary);
   border-radius: 6px;
   padding: 8px 12px;
@@ -813,13 +813,13 @@ function formatError(error: unknown, fallback: string) {
 }
 
 .glass-btn.danger {
-  color: #ff8d8d;
-  border-color: rgba(255, 141, 141, 0.28);
+  color: var(--status-error);
+  border-color: color-mix(in srgb, var(--status-error) 28%, transparent);
 }
 
 .glass-btn.btn-primary {
-  background: rgba(51, 190, 204, 0.14);
-  border-color: rgba(51, 190, 204, 0.35);
+  background: color-mix(in srgb, var(--accent-cyan) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent-cyan) 35%, transparent);
 }
 
 .tab-strip {
@@ -838,8 +838,8 @@ function formatError(error: unknown, fallback: string) {
 
 .tab-btn.active {
   color: var(--text-primary);
-  border-color: rgba(51, 190, 204, 0.4);
-  background: rgba(51, 190, 204, 0.12);
+  border-color: color-mix(in srgb, var(--accent-cyan) 40%, transparent);
+  background: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
 }
 
 .status-card {
@@ -849,13 +849,13 @@ function formatError(error: unknown, fallback: string) {
 }
 
 .status-card.ok {
-  background: rgba(29,185,84,0.12);
-  border: 1px solid rgba(29,185,84,0.26);
+  background: color-mix(in srgb, var(--status-ready) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-ready) 26%, transparent);
 }
 
 .status-card.error {
-  background: rgba(230,57,70,0.14);
-  border: 1px solid rgba(230,57,70,0.26);
+  background: color-mix(in srgb, var(--status-error) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-error) 26%, transparent);
 }
 
 .channel-card,
@@ -863,7 +863,7 @@ function formatError(error: unknown, fallback: string) {
   border: 1px solid var(--glass-border);
   border-radius: 10px;
   padding: 12px;
-  background: rgba(255,255,255,0.03);
+  background: var(--bg-hover);
 }
 
 .channel-card + .channel-card {

@@ -1666,6 +1666,9 @@ async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id'])
 }
 
 const folderColorsPreset = [
+  // Folder colours are operator data, not theme: the chosen hex is persisted
+  // per folder and must render identically in every theme. These are the only
+  // colour literals the lint guard allows in this file.
   { hex: '#e63946', label: 'Red' },
   { hex: '#f4a261', label: 'Orange' },
   { hex: '#e9c46a', label: 'Yellow' },
@@ -2113,7 +2116,7 @@ const menuItems = computed<MenuItem[]>(() => {
             <svg
               class="folder-svg"
               viewBox="0 0 24 24"
-              :style="{ fill: row.color || (row.depth === 0 ? '#38bdf8' : 'var(--accent-blue)') }"
+              :style="{ fill: row.color || 'var(--accent-blue)' }"
             >
               <path v-if="row.isExpanded" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
               <path v-else d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
@@ -2409,7 +2412,7 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 .lib-filter-unrated.active .lib-filter-count {
   background: var(--accent-blue);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .lib-debug-panel {
@@ -2566,7 +2569,7 @@ const menuItems = computed<MenuItem[]>(() => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-2);
   z-index: var(--z-popover);
   min-width: 140px;
   display: flex;
@@ -2643,13 +2646,6 @@ const menuItems = computed<MenuItem[]>(() => {
   letter-spacing: 0.04em;
 }
 
-.lib-tree {
-  flex: 1;
-  position: relative;
-  min-height: 0;
-  overflow: hidden;
-  padding: 4px 6px;
-}
 .lib-empty { color: var(--text-muted); font-size: 0.82rem; text-align: center; padding: 20px 10px; line-height: 1.6; white-space: pre-line; }
 
 .glass-input {
@@ -2842,7 +2838,7 @@ const menuItems = computed<MenuItem[]>(() => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  box-shadow: var(--shadow-2);
   z-index: var(--z-popover);
 }
 .debug-menu-item {
@@ -2901,31 +2897,28 @@ const menuItems = computed<MenuItem[]>(() => {
 
 /* Greek NCRTV Regulatory Color Codes */
 .badge-age.age-k {
-  background: #10b981;
-  color: #fff;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.25);
+  background: var(--rating-k);
+  color: var(--rating-k-fg);
 }
 .badge-age.age-8 {
-  background: #06b6d4;
-  color: #000;
+  background: var(--rating-8);
+  color: var(--rating-8-fg);
   font-weight: 900;
-  box-shadow: 0 0 6px rgba(6, 182, 212, 0.25);
+
 }
 .badge-age.age-12 {
-  background: #eab308;
-  color: #000;
+  background: var(--rating-12);
+  color: var(--rating-12-fg);
   font-weight: 900;
-  box-shadow: 0 0 6px rgba(234, 179, 8, 0.25);
+
 }
 .badge-age.age-16 {
-  background: #f97316;
-  color: #fff;
-  box-shadow: 0 0 6px rgba(249, 115, 22, 0.25);
+  background: var(--rating-16);
+  color: var(--rating-16-fg);
 }
 .badge-age.age-18 {
-  background: #ef4444;
-  color: #fff;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+  background: var(--rating-18);
+  color: var(--rating-18-fg);
 }
 
 /* Unrated: deliberately quiet (dashed outline, muted text) so it reads as
@@ -2940,16 +2933,15 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 
 .badge-tp {
-  background: #ec4899;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 0 6px rgba(236, 72, 153, 0.25);
+  background: var(--rating-tp);
+  color: var(--rating-tp-fg);
+  border: 1px solid var(--border-medium);
 }
 
-.badge-content.content-movie { background: #3b82f6; color: #fff; }
-.badge-content.content-show { background: #8b5cf6; color: #fff; }
-.badge-content.content-documentary { background: #f59e0b; color: #000; font-weight: 800; }
-.badge-content.content-news { background: #14b8a6; color: #fff; }
+.badge-content.content-movie { background: var(--type-movie); color: var(--text-on-danger); }
+.badge-content.content-show { background: var(--type-show); color: var(--text-on-accent); }
+.badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: 800; }
+.badge-content.content-news { background: var(--type-news); color: var(--text-on-success); }
 
 .chevron-icon {
   font-size: 0.65rem;
@@ -2991,59 +2983,15 @@ const menuItems = computed<MenuItem[]>(() => {
   gap: 6px;
   padding: 6px 12px;
 }
-.folder-color-tag {
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.65rem;
-  font-weight: bold;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  transition: transform 0.1s, border-color 0.1s;
-}
-.folder-color-tag:hover {
-  transform: scale(1.15);
-  border-color: rgba(255, 255, 255, 0.4);
-}
-.folder-color-tag.color-reset {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border-color: var(--glass-border);
-}
-.folder-color-tag.color-reset:hover {
-  color: var(--text-primary);
-}
-.color-check {
-  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
-}
 
-/* Recycle Bin Toggle & Badges */
-.recycle-bin-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(239, 68, 68, 0.1) !important;
-  border-color: rgba(239, 68, 68, 0.3) !important;
-  color: #fca5a5 !important;
-}
-
-.recycle-bin-toggle-btn:hover {
-  background: rgba(239, 68, 68, 0.2) !important;
-  border-color: #ef4444 !important;
-  color: #fff !important;
-}
-
+/* Recycle Bin badge */
 .recycle-bin-count-badge {
   display: inline-block;
   padding: 1px 5px;
-  border-radius: 9999px;
-  background: #ef4444;
-  color: #fff;
-  font-size: 0.65rem;
+  border-radius: var(--radius-pill);
+  background: var(--status-error);
+  color: var(--text-on-danger);
+  font-size: var(--fs-xs);
   font-weight: 800;
   line-height: 1;
 }
@@ -3052,7 +3000,7 @@ const menuItems = computed<MenuItem[]>(() => {
 .purge-dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.85);
+  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
@@ -3061,32 +3009,42 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 
 .danger-pulse-box {
-  background: #1c1315;
-  border: 2px solid #ef4444;
-  border-radius: 12px;
+  position: relative;
+  background: color-mix(in srgb, var(--status-error) 8%, var(--bg-secondary));
+  border: 2px solid var(--status-error);
+  border-radius: var(--radius-lg);
   width: 480px;
   max-width: 90vw;
-  padding: 24px;
-  box-shadow: 0 0 35px rgba(239, 68, 68, 0.35);
-  animation: danger-pulse 2s infinite ease-in-out;
+  padding: var(--space-6);
+  box-shadow: var(--shadow-3);
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
+/* PERF: the alarm glow was a box-shadow keyframe on the dialog itself. The
+   overlay pulses its opacity on the compositor instead. */
+.danger-pulse-box::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 45px color-mix(in srgb, var(--status-error) 70%, transparent);
+  animation: danger-pulse 2s ease-in-out infinite;
+  will-change: opacity;
+}
+
 @keyframes danger-pulse {
-  0% {
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
-    border-color: #ef4444;
-  }
-  50% {
-    box-shadow: 0 0 45px rgba(239, 68, 68, 0.7), 0 0 10px rgba(239, 68, 68, 0.5);
-    border-color: #f87171;
-  }
-  100% {
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
-    border-color: #ef4444;
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .danger-pulse-box::after {
+    animation: none;
+    opacity: 0.5;
   }
 }
 
@@ -3094,8 +3052,8 @@ const menuItems = computed<MenuItem[]>(() => {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: color-mix(in srgb, var(--status-error) 20%, transparent);
+  color: var(--status-error);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3106,26 +3064,26 @@ const menuItems = computed<MenuItem[]>(() => {
   margin: 0 0 8px;
   font-size: 18px;
   font-weight: 700;
-  color: #fee2e2;
+  color: var(--text-primary);
 }
 
 .purge-dialog-text {
   margin: 0 0 16px;
   font-size: 13px;
   line-height: 1.5;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .purge-warning-callout {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: color-mix(in srgb, var(--status-error) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-error) 25%, transparent);
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 11px;
-  color: #fca5a5;
+  color: var(--status-error);
   text-align: left;
   margin-bottom: 20px;
 }
@@ -3146,35 +3104,35 @@ const menuItems = computed<MenuItem[]>(() => {
 .dialog-cancel-btn {
   flex: 1;
   padding: 9px 16px;
-  background: #23272e;
-  border: 1px solid #333842;
-  border-radius: 6px;
-  color: #cbd5e1;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .dialog-cancel-btn:hover:not(:disabled) {
-  background: #2d3139;
-  color: #fff;
+  background: var(--bg-active);
+  color: var(--text-primary);
 }
 
 .dialog-danger-btn {
   flex: 1;
   padding: 9px 16px;
-  background: #dc2626;
-  border: 1px solid #b91c1c;
-  border-radius: 6px;
-  color: #fff;
+  background: var(--status-error);
+  border: 1px solid var(--status-error);
+  border-radius: var(--radius-md);
+  color: var(--text-on-danger);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .dialog-danger-btn:hover:not(:disabled) {
-  background: #ef4444;
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+  background: color-mix(in srgb, var(--status-error) 85%, var(--text-primary));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--status-error) 50%, transparent);
 }
 </style>

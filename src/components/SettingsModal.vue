@@ -1325,7 +1325,7 @@ const openTemplateDir = async () => {
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.75);
+    background: var(--backdrop);
     backdrop-filter: blur(12px);
     display: flex;
     align-items: center;
@@ -1344,7 +1344,7 @@ const openTemplateDir = async () => {
     background: var(--bg-secondary);
     border: 1px solid var(--border-medium);
     border-radius: 14px;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+    box-shadow: var(--shadow-3);
     overflow: hidden;
 }
 

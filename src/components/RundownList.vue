@@ -1297,7 +1297,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-surface-elevated, rgba(0, 0, 0, 0.25));
+  background: var(--bg-surface-elevated);
   padding: 2px 8px;
   border-radius: 6px;
   border: 1px solid var(--border-medium);
@@ -1313,18 +1313,18 @@ onUnmounted(() => {
   gap: 6px;
 }
 .rw-ticker-toggle-btn.is-active {
-  background: color-mix(in srgb, var(--accent-blue, #38bdf8) 20%, transparent);
-  border-color: var(--accent-blue, #38bdf8);
+  background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
+  border-color: var(--accent-blue);
 }
 .crawl-active-dot {
-  color: var(--accent-red, #ef4444);
+  color: var(--status-error);
   font-size: 0.7rem;
   animation: blink 1s step-end infinite;
 }
 .rw-graphics-drawer {
   display: flex;
   align-items: center;
-  background: var(--bg-surface-elevated, #1a1e24);
+  background: var(--bg-surface-elevated);
   border-bottom: 1px solid var(--border-medium);
   padding: 6px 12px;
   animation: fadeIn 0.15s ease-out;
@@ -1339,7 +1339,7 @@ onUnmounted(() => {
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.5px;
-  color: var(--accent-blue, #38bdf8);
+  color: var(--accent-blue);
   white-space: nowrap;
 }
 .drawer-close-btn {
@@ -1357,7 +1357,7 @@ onUnmounted(() => {
 }
 .tab-rename-input {
   background: var(--bg-surface);
-  border: 1px solid var(--accent-blue, #38bdf8);
+  border: 1px solid var(--accent-blue);
   border-radius: 4px;
   color: var(--text-primary);
   font-size: 0.82rem;
@@ -1656,7 +1656,7 @@ onUnmounted(() => {
   border-radius: 4px;
   pointer-events: none;
   user-select: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-1);
   white-space: nowrap;
 }
 .rw-fixed-drop-indicator.is-append .rw-indicator-badge {

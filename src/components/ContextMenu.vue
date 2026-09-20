@@ -272,8 +272,8 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
           <svg v-else-if="btn.id === 'purge'" class="icon-danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
             <path d="M10 11v6M14 11v6" />
-            <path d="M12 8.5v4" stroke="#ff4d4d" stroke-width="2.5" />
-            <circle cx="12" cy="16" r="0.75" fill="#ff4d4d" stroke="none" />
+            <path d="M12 8.5v4" stroke="currentColor" stroke-width="2.5" />
+            <circle cx="12" cy="16" r="0.75" fill="currentColor" stroke="none" />
           </svg>
           
           <!-- Delete (Trash Can) -->
@@ -391,9 +391,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 0.6rem;
-  box-shadow: 
-    0 12px 32px rgba(0, 0, 0, 0.45), 
-    0 2px 6px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-3);
   font-family: var(--font-ui);
   color: var(--text-primary);
   padding: 5px 0;
@@ -500,7 +498,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s ease, transform 0.12s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-2);
   z-index: calc(var(--z-context-menu) + 10);
 }
 
@@ -596,7 +594,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 0.6rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-2);
 }
 
 .submenu-flyout::before {

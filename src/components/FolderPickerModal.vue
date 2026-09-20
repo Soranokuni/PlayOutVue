@@ -295,7 +295,7 @@ watch(
               @click="selectFolder(item.path)"
               @dblclick="selectFolder(item.path); confirmMove();"
             >
-              <span class="folder-color-dot" :style="{ background: item.color || '#38bdf8' }"></span>
+              <span class="folder-color-dot" :style="{ background: item.color || 'var(--accent-blue)' }"></span>
               <span class="folder-path-display">{{ item.path }}</span>
               <span class="asset-count-pill">{{ item.allAssetCount }} items</span>
               <span v-if="isForbidden(item.path)" class="forbidden-pill">Source / Forbidden</span>
@@ -341,7 +341,7 @@ watch(
               <span
                 v-else
                 class="folder-color-dot"
-                :style="{ background: folder.color || '#38bdf8' }"
+                :style="{ background: folder.color || 'var(--accent-blue)' }"
               ></span>
 
               <!-- Folder Title -->
@@ -393,7 +393,7 @@ watch(
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--backdrop);
   backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
@@ -410,7 +410,7 @@ watch(
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 12px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-3);
   overflow: hidden;
 }
 
@@ -769,7 +769,7 @@ watch(
 
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-blue);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .btn-icon {

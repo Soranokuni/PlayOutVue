@@ -53,7 +53,14 @@ const emit = defineEmits<{
 
 
 const typeIcon = (type: RundownItem['type']) => ({ video: '🎬', live: '📹', graphic: '🎨', gap: '⏱' }[type] || '📄');
-const typeColor = (type: RundownItem['type']) => ({ video: '#33becc', live: '#e63946', graphic: '#a8dadc', gap: '#df8e1d' }[type] || '#aaa');
+// Resolved through theme tokens so the glyphs stay legible on a white panel.
+const typeColor = (type: RundownItem['type']) =>
+  ({
+    video: 'var(--accent-cyan)',
+    live: 'var(--status-onair)',
+    graphic: 'var(--accent-purple)',
+    gap: 'var(--status-warning)'
+  }[type] || 'var(--text-secondary)');
 
 const msToClockDisplay = (ms: number) => {
   if (ms <= 0) return '00:00:00';
@@ -144,14 +151,14 @@ const rowClass = computed(() => ({
 const rowStyle = computed(() => {
   if (props.progressTone === 'green') {
     return {
-      background: `linear-gradient(90deg, rgba(46,204,113,0.22) ${props.progressPct}%, rgba(46,204,113,0.06) ${props.progressPct}%)`,
-      borderColor: 'rgba(46,204,113,0.4)'
+      background: `linear-gradient(90deg, color-mix(in srgb, var(--status-ready) 22%, transparent) ${props.progressPct}%, color-mix(in srgb, var(--status-ready) 6%, transparent) ${props.progressPct}%)`,
+      borderColor: 'color-mix(in srgb, var(--status-ready) 40%, transparent)'
     };
   }
   if (props.progressTone === 'red') {
     return {
-      background: `linear-gradient(90deg, rgba(230,57,70,0.3) ${props.progressPct}%, rgba(230,57,70,0.08) ${props.progressPct}%)`,
-      borderColor: 'rgba(230,57,70,0.4)'
+      background: `linear-gradient(90deg, color-mix(in srgb, var(--status-onair) 30%, transparent) ${props.progressPct}%, color-mix(in srgb, var(--status-onair) 8%, transparent) ${props.progressPct}%)`,
+      borderColor: 'color-mix(in srgb, var(--status-onair) 40%, transparent)'
     };
   }
   return {};
@@ -219,7 +226,7 @@ const itemTooltip = computed(() => {
 
     <!-- Duration -->
     <div class="rw-dur">
-      <span v-if="countdown" style="color:#2ecc71; font-weight:bold; margin-right:8px; font-family:monospace;">
+      <span v-if="countdown" class="rw-countdown">
         {{ countdown }}
       </span>
       <span>{{ timerLabel }}</span>
@@ -336,11 +343,20 @@ const itemTooltip = computed(() => {
   color: var(--accent-orange);
   font-style: italic;
 }
-.rw-row.rating-k { box-shadow: inset 6px 0 0 rgba(16, 185, 129, 0.85); }
-.rw-row.rating-8 { box-shadow: inset 6px 0 0 rgba(6, 182, 212, 0.88); }
-.rw-row.rating-12 { box-shadow: inset 6px 0 0 rgba(234, 179, 8, 0.88); }
-.rw-row.rating-16 { box-shadow: inset 6px 0 0 rgba(249, 115, 22, 0.88); }
-.rw-row.rating-18 { box-shadow: inset 6px 0 0 rgba(239, 68, 68, 0.95); }
+.rw-row.rating-k { box-shadow: inset 6px 0 0 var(--rating-k); }
+.rw-row.rating-8 { box-shadow: inset 6px 0 0 var(--rating-8); }
+.rw-row.rating-12 { box-shadow: inset 6px 0 0 var(--rating-12); }
+.rw-row.rating-16 { box-shadow: inset 6px 0 0 var(--rating-16); }
+.rw-row.rating-18 { box-shadow: inset 6px 0 0 var(--rating-18); }
+
+/* The countdown is the one number an operator reads mid-take. */
+.rw-countdown {
+  color: var(--status-ready);
+  font-weight: 700;
+  margin-right: var(--space-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
 
 @keyframes nextUpPulse {
   0%, 100% { background: color-mix(in srgb, var(--accent-yellow) 10%, var(--bg-secondary)); box-shadow: 0 0 0 0 transparent; }
@@ -372,7 +388,7 @@ const itemTooltip = computed(() => {
   min-width: 34px; padding: 3px 8px; border-radius: 999px;
   font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em;
   border: 1px solid var(--border-medium);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-1);
 }
 .rw-tag-badge {
   display: inline-flex;
@@ -388,13 +404,13 @@ const itemTooltip = computed(() => {
   text-transform: uppercase;
 }
 .rw-rating-empty { color: var(--text-muted); font-size: 0.8rem; }
-.rw-rating-badge.rating-k, .rw-signal.tone-rating-k { color: #10b981; background: rgba(16, 185, 129, 0.16); border-color: rgba(16, 185, 129, 0.4); }
-.rw-rating-badge.rating-8, .rw-signal.tone-rating-8 { color: #06b6d4; background: rgba(6, 182, 212, 0.16); border-color: rgba(6, 182, 212, 0.4); }
-.rw-rating-badge.rating-12, .rw-signal.tone-rating-12 { color: #d97706; background: rgba(234, 179, 8, 0.18); border-color: rgba(234, 179, 8, 0.45); }
-.rw-rating-badge.rating-16, .rw-signal.tone-rating-16 { color: #ea580c; background: rgba(249, 115, 22, 0.16); border-color: rgba(249, 115, 22, 0.4); }
-.rw-rating-badge.rating-18, .rw-signal.tone-rating-18 { color: #dc2626; background: rgba(239, 68, 68, 0.18); border-color: rgba(239, 68, 68, 0.45); }
-.rw-tag-badge.tone-tag-spot, .rw-signal.tone-tag-spot { color: #ea580c; background: rgba(234, 88, 12, 0.16); border-color: rgba(234, 88, 12, 0.4); }
-.rw-tag-badge.tone-tag-telemarketing, .rw-signal.tone-tag-telemarketing { color: #9333ea; background: rgba(147, 51, 234, 0.16); border-color: rgba(147, 51, 234, 0.4); }
+.rw-rating-badge.rating-k, .rw-signal.tone-rating-k { color: var(--rating-k); background: color-mix(in srgb, var(--rating-k) 16%, transparent); border-color: color-mix(in srgb, var(--rating-k) 40%, transparent); }
+.rw-rating-badge.rating-8, .rw-signal.tone-rating-8 { color: var(--rating-8); background: color-mix(in srgb, var(--rating-8) 16%, transparent); border-color: color-mix(in srgb, var(--rating-8) 40%, transparent); }
+.rw-rating-badge.rating-12, .rw-signal.tone-rating-12 { color: var(--rating-12); background: color-mix(in srgb, var(--rating-12) 18%, transparent); border-color: color-mix(in srgb, var(--rating-12) 45%, transparent); }
+.rw-rating-badge.rating-16, .rw-signal.tone-rating-16 { color: var(--rating-16); background: color-mix(in srgb, var(--rating-16) 16%, transparent); border-color: color-mix(in srgb, var(--rating-16) 40%, transparent); }
+.rw-rating-badge.rating-18, .rw-signal.tone-rating-18 { color: var(--rating-18); background: color-mix(in srgb, var(--rating-18) 18%, transparent); border-color: color-mix(in srgb, var(--rating-18) 45%, transparent); }
+.rw-tag-badge.tone-tag-spot, .rw-signal.tone-tag-spot { color: var(--tag-spot); background: color-mix(in srgb, var(--tag-spot) 16%, transparent); border-color: color-mix(in srgb, var(--tag-spot) 40%, transparent); }
+.rw-tag-badge.tone-tag-telemarketing, .rw-signal.tone-tag-telemarketing { color: var(--tag-telemarketing); background: color-mix(in srgb, var(--tag-telemarketing) 16%, transparent); border-color: color-mix(in srgb, var(--tag-telemarketing) 40%, transparent); }
 .rw-inout   {
   width: 86px; text-align: center; flex-shrink: 0;
   font-size: 0.76rem; color: var(--text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
@@ -479,22 +495,22 @@ const itemTooltip = computed(() => {
   text-transform: uppercase;
 }
 
-.badge-age.age-k { background: #10b981; color: #fff; }
-.badge-age.age-8 { background: #06b6d4; color: #000; font-weight: 900; }
-.badge-age.age-12 { background: #eab308; color: #000; font-weight: 900; }
-.badge-age.age-16 { background: #f97316; color: #fff; }
-.badge-age.age-18 { background: #ef4444; color: #fff; }
+.badge-age.age-k { background: var(--rating-k); color: var(--rating-k-fg); }
+.badge-age.age-8 { background: var(--rating-8); color: var(--rating-8-fg); font-weight: 900; }
+.badge-age.age-12 { background: var(--rating-12); color: var(--rating-12-fg); font-weight: 900; }
+.badge-age.age-16 { background: var(--rating-16); color: var(--rating-16-fg); }
+.badge-age.age-18 { background: var(--rating-18); color: var(--rating-18-fg); }
 
 .badge-tp {
-  background: #ec4899;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: var(--rating-tp);
+  color: var(--rating-tp-fg);
+  border: 1px solid var(--border-medium);
 }
 
-.badge-content.content-movie { background: #3b82f6; color: #fff; }
-.badge-content.content-show { background: #8b5cf6; color: #fff; }
-.badge-content.content-documentary { background: #f59e0b; color: #000; font-weight: 800; }
-.badge-content.content-news { background: #14b8a6; color: #fff; }
+.badge-content.content-movie { background: var(--type-movie); color: var(--text-on-danger); }
+.badge-content.content-show { background: var(--type-show); color: var(--text-on-accent); }
+.badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: 800; }
+.badge-content.content-news { background: var(--type-news); color: var(--text-on-success); }
 
 .rw-eta-hint {
   font-size: 0.72rem;
