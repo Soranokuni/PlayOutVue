@@ -342,12 +342,12 @@ watch(
                 :class="{ 'is-expanded': folder.isExpanded }"
                 @click.stop="toggleExpand(folder.path)"
               >
-                ▶
+                <AppIcon name="chevron-right" :size="12" />
               </span>
               <span v-else class="chevron-spacer"></span>
 
               <!-- Folder Icon / Color Dot -->
-              <span v-if="folder.depth === 0" class="folder-icon">📂</span>
+              <span v-if="folder.depth === 0" class="folder-icon"><AppIcon name="folder-open" :size="14" /></span>
               <span
                 v-else
                 class="folder-color-dot"

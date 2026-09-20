@@ -15,6 +15,22 @@ import {
   type GreekWarningType,
   type GreekComplianceConfig
 } from '../lib/greekCompliance';
+import AppIcon from './ui/AppIcon.vue';
+import type { IconName } from './ui/icons';
+
+/**
+ * §8: the four NCRTV content descriptors carried emoji in their data. The
+ * mapping lives here rather than in `greekCompliance.ts` because which glyph
+ * draws a descriptor is a UI decision; the tag text that reaches air is not.
+ */
+const DESCRIPTOR_ICONS: Record<ContentDescriptorId, IconName> = {
+  violence: 'descriptor-violence',
+  sex: 'descriptor-sex',
+  substances: 'descriptor-substances',
+  language: 'descriptor-language',
+};
+
+const descriptorIcon = (id: ContentDescriptorId): IconName => DESCRIPTOR_ICONS[id] ?? 'alert';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -196,7 +212,7 @@ const clearComplianceOverlay = async () => {
   <div class="compliance-module">
     <div class="module-header">
       <div class="title-with-badge">
-        <span class="greek-flag">🇬🇷</span>
+        <AppIcon class="greek-mark" name="shield" :size="16" />
         <h3 class="text-warning">Greek NCRTV (ΕΣΡ) Compliance</h3>
       </div>
       <span v-if="selectedRating !== 'none'" class="active-badge" :class="'badge-' + selectedRating">
@@ -260,7 +276,7 @@ const clearComplianceOverlay = async () => {
             :class="{ active: selectedDescriptors.includes(desc.id) }"
             @click="onToggleDescriptor(desc.id)"
           >
-            <span class="desc-icon">{{ desc.icon }}</span>
+            <span class="desc-icon"><AppIcon :name="descriptorIcon(desc.id)" :size="14" /></span>
             <span class="desc-label">{{ desc.shortLabel }}</span>
           </button>
         </div>
@@ -281,7 +297,7 @@ const clearComplianceOverlay = async () => {
       <div class="live-preview-card">
         <div class="preview-header">
           <span>ON-AIR GRAPHIC PREVIEW (TOP-RIGHT)</span>
-          <span class="preview-timer">⏱️ First 30s + every 10m</span>
+          <span class="preview-timer"><AppIcon name="clock" :size="12" /> First 30s + every 10m</span>
         </div>
         <div class="mock-screen-crop">
           <div class="preview-advisory-group">
@@ -291,7 +307,7 @@ const clearComplianceOverlay = async () => {
             <div v-if="tpFlag" class="preview-tp">TP</div>
             <div v-if="advisoryText" class="preview-floating-text-wrap">
               <div class="preview-text-row">
-                <span class="pill-icon">⚠️</span>
+                <span class="pill-icon"><AppIcon name="alert" :size="12" /></span>
                 <span class="preview-floating-text">{{ advisoryText }}</span>
               </div>
               <div class="preview-accent-line"></div>
@@ -310,15 +326,15 @@ const clearComplianceOverlay = async () => {
         :disabled="isAdvisoryTriggering"
         @click="triggerAdvisory"
       >
-        <span v-if="!isAdvisoryTriggering">⚡ Trigger On-Air Advisory (CG 1-32)</span>
-        <span v-else>⏳ Pushing Advisory CG...</span>
+        <span v-if="!isAdvisoryTriggering"><AppIcon name="zap" :size="14" /> Trigger on-air advisory (CG 1-32)</span>
+        <span v-else><AppIcon name="processing" :size="14" spin /> Pushing advisory CG…</span>
       </button>
 
       <button v-if="!isOverlayActive" class="glass-btn btn-primary full-width" @click="applyComplianceOverlay">
-        ▶ Push Overlay (Top-Right L32)
+        <AppIcon name="play" :size="14" /> Push overlay (top-right L32)
       </button>
       <button v-else class="glass-btn btn-danger full-width" @click="clearComplianceOverlay">
-        ⏹ Clear Compliance Overlay
+        <AppIcon name="stop" :size="14" /> Clear compliance overlay
       </button>
     </div>
   </div>
