@@ -14,12 +14,28 @@ import { ref } from 'vue';
  */
 export type ToastTone = 'success' | 'info' | 'warning' | 'error';
 
+/**
+ * Round 3 §5.2: a toast may carry exactly one action.
+ *
+ * This exists for Undo. A destructive action that can be taken back within a
+ * few seconds needs no modal at all -- the modal asks a question the operator
+ * cannot yet answer ("did I mean that?"), where Undo answers it after the
+ * fact, from the thing they can now see is gone.
+ *
+ * One action only, and it dismisses the toast: a toast is not a menu.
+ */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 export interface Toast {
   id: number;
   tone: ToastTone;
   message: string;
   /** Optional detail, shown smaller under the message. */
   detail?: string;
+  action?: ToastAction;
 }
 
 const DEFAULT_TIMEOUT_MS = 4000;
@@ -31,6 +47,14 @@ export const toasts = ref<Toast[]>([]);
 let nextId = 1;
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
 
+/** Runs a toast's action and dismisses it. Nothing happens if it has none. */
+export function runToastAction(id: number): void {
+  const toast = toasts.value.find((t) => t.id === id);
+  if (!toast?.action) return;
+  dismissToast(id);
+  toast.action.run();
+}
+
 export function dismissToast(id: number): void {
   const timer = timers.get(id);
   if (timer) {
@@ -40,11 +64,26 @@ export function dismissToast(id: number): void {
   toasts.value = toasts.value.filter((toast) => toast.id !== id);
 }
 
-export function showToast(message: string, tone: ToastTone = 'success', detail?: string): number {
-  const id = nextId++;
-  toasts.value = [...toasts.value, { id, tone, message, detail }];
+export interface ToastOptions {
+  detail?: string;
+  action?: ToastAction;
+  /** Overrides the tone's default lifetime. An Undo needs longer than 4 s. */
+  timeoutMs?: number;
+}
 
-  const timeout = tone === 'error' ? ERROR_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+export function showToast(
+  message: string,
+  tone: ToastTone = 'success',
+  detailOrOptions?: string | ToastOptions
+): number {
+  const options: ToastOptions =
+    typeof detailOrOptions === 'string' ? { detail: detailOrOptions } : detailOrOptions ?? {};
+  const { detail, action, timeoutMs } = options;
+
+  const id = nextId++;
+  toasts.value = [...toasts.value, { id, tone, message, detail, action }];
+
+  const timeout = timeoutMs ?? (tone === 'error' ? ERROR_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
   timers.set(
     id,
     setTimeout(() => dismissToast(id), timeout)

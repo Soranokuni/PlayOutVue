@@ -23,6 +23,9 @@ import { activeScope } from '../composables/useOperatorShortcuts';
 import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget, type GeometrySnapshot } from '../lib/reorderHelper';
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 import EmptyState from './ui/EmptyState.vue';
+import BaseButton from './ui/BaseButton.vue';
+import DangerConfirm from './ui/DangerConfirm.vue';
+import { showToast } from '../lib/toasts';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -51,10 +54,149 @@ const closePlaylistMenu = () => {
   showPlaylistMenu.value = false;
 };
 
+/**
+ * Escape disarms before anything else sees the key, but only while something
+ * is armed -- otherwise it would swallow the Escape that clears the rundown
+ * selection.
+ */
+const onDeleteArmEscape = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape' || !deleteArmedPlaylistId.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  disarmDelete();
+};
+
 const runClearRundown = () => {
   showPlaylistMenu.value = false;
   void clearPlaylistFile();
 };
+
+/* ---------------------------------------------------------------------------
+   §5.2 — Delete playlist, armed.
+
+   The three file buttons came back to the header because the operator uses
+   them constantly; Delete is new, because there was no delete-playlist control
+   at all -- only the tab's `x` and "Clear playlist…" in the overflow, which do
+   two different things under names that sound alike.
+
+   Delete follows the pattern the operator already knows from CUT TO LIVE:
+   click to arm, click to confirm, auto-disarm. The arm state is what makes it
+   fool-proof -- not the dialog. A modal alone is dismissed by reflex, and its
+   OK button is where the eyes land. Arming instead marks the *target*: the tab
+   is struck through and outlined in red and the list behind it goes red, so
+   what the operator is looking at when they click the second time is the thing
+   that will go.
+   --------------------------------------------------------------------------- */
+
+/** How long the armed state stays live, in ms. */
+const DELETE_ARM_MS = 4000;
+
+const deleteArmedPlaylistId = ref<string | null>(null);
+const deleteArmRemaining = ref(0);
+let deleteArmTimer: ReturnType<typeof setTimeout> | null = null;
+let deleteArmTick: ReturnType<typeof setInterval> | null = null;
+
+/** 0 … 1, for the conic-gradient sweep. Same treatment as the live cut. */
+const deleteArmProgress = computed(() =>
+  deleteArmRemaining.value > 0 ? deleteArmRemaining.value / DELETE_ARM_MS : 0
+);
+
+const isDeleteArmed = computed(
+  () => !!deleteArmedPlaylistId.value && deleteArmedPlaylistId.value === store.activePlaylistId
+);
+
+const disarmDelete = () => {
+  if (deleteArmTimer) {
+    clearTimeout(deleteArmTimer);
+    deleteArmTimer = null;
+  }
+  if (deleteArmTick) {
+    clearInterval(deleteArmTick);
+    deleteArmTick = null;
+  }
+  deleteArmRemaining.value = 0;
+  deleteArmedPlaylistId.value = null;
+};
+
+/**
+ * Why the control is off, in the operator's words, or '' when it is live.
+ * A disabled control that cannot say why is the defect this round set out to
+ * remove from the library toolbar; it is not going to be reintroduced here.
+ */
+const deleteDisabledReason = computed(() => {
+  if (store.activePlaylistId === store.onAirPlaylistId) {
+    return "Can't delete the ON AIR playlist — stop playout or switch tabs";
+  }
+  if (store.playlists.length <= 1) {
+    return "Can't delete the last playlist — clear its items instead";
+  }
+  return '';
+});
+
+const activePlaylistItemCount = computed(
+  () => store.playlists.find((playlist) => playlist.id === store.activePlaylistId)?.items.length ?? 0
+);
+
+const deleteArmLabel = computed(() => {
+  const count = activePlaylistItemCount.value;
+  return `Delete "${store.currentPlaylistName}" · ${count} item${count === 1 ? '' : 's'} — click again`;
+});
+
+const pendingDeleteConfirm = ref(false);
+
+const performDeletePlaylist = (playlistId: string) => {
+  const removed = store.closePlaylist(playlistId);
+  if (!removed) return;
+  const count = removed.playlist.items.length;
+  showToast(`Deleted "${removed.playlist.name}" · ${count} item${count === 1 ? '' : 's'}`, 'warning', {
+    action: {
+      label: 'Undo',
+      run: () => {
+        store.restorePlaylist(removed.playlist, removed.index);
+      },
+    },
+    timeoutMs: 10000,
+  });
+};
+
+const requestDeletePlaylist = () => {
+  if (deleteDisabledReason.value) return;
+  const playlistId = store.activePlaylistId;
+  if (!playlistId) return;
+
+  // First click: arm, and let the operator see what they are pointing at.
+  if (!isDeleteArmed.value) {
+    disarmDelete();
+    deleteArmedPlaylistId.value = playlistId;
+    const armedAt = Date.now();
+    deleteArmRemaining.value = DELETE_ARM_MS;
+    // Ticked on a timer rather than rAF: ten repaints a second, not sixty.
+    deleteArmTick = setInterval(() => {
+      deleteArmRemaining.value = Math.max(0, DELETE_ARM_MS - (Date.now() - armedAt));
+    }, 100);
+    deleteArmTimer = setTimeout(disarmDelete, DELETE_ARM_MS);
+    return;
+  }
+
+  // Second click inside the window.
+  disarmDelete();
+  if (activePlaylistItemCount.value === 0) {
+    performDeletePlaylist(playlistId);
+    return;
+  }
+  pendingDeleteConfirm.value = true;
+};
+
+const confirmDeletePlaylist = () => {
+  pendingDeleteConfirm.value = false;
+  const playlistId = store.activePlaylistId;
+  if (playlistId) performDeletePlaylist(playlistId);
+};
+
+// Switching tabs, clicking elsewhere or pressing Escape all mean "not that
+// one". Disarming is silent -- an operator who changed their mind does not
+// need to be told they changed their mind.
+watch(() => store.activePlaylistId, disarmDelete);
 const activeDropTarget = ref<ActiveDropTarget>({ kind: 'none' });
 
 const indicatorTarget = computed(() => {
@@ -786,6 +928,30 @@ const createPlaylistTab = () => {
 const editingPlaylistId = ref<string | null>(null);
 const editingPlaylistName = ref('');
 
+/**
+ * §5.1: the two rare actions the overflow keeps, now that Load / Append / Save
+ * live in the header. Rename reuses the tab's own inline editor rather than
+ * opening a dialog for a one-field change.
+ */
+const startRenameActivePlaylist = () => {
+  showPlaylistMenu.value = false;
+  const playlist = store.playlists.find((p) => p.id === store.activePlaylistId);
+  if (playlist) void startRenamePlaylistTab(playlist as RundownPlaylist);
+};
+
+const duplicateActivePlaylist = () => {
+  showPlaylistMenu.value = false;
+  const source = store.playlists.find((p) => p.id === store.activePlaylistId);
+  if (!source) return;
+  const sourceItems = [...source.items];
+  store.createPlaylist(`${source.name} copy`);
+  for (const item of sourceItems) {
+    // `addItem` mints a fresh instance id; the draft carries everything else.
+    const { id: _id, ...draft } = item;
+    store.addItem(draft as Parameters<typeof store.addItem>[0]);
+  }
+};
+
 const startRenamePlaylistTab = async (playlist: RundownPlaylist) => {
   editingPlaylistId.value = playlist.id;
   editingPlaylistName.value = playlist.name;
@@ -802,14 +968,14 @@ const commitRenamePlaylistTab = () => {
   editingPlaylistId.value = null;
 };
 
-const closePlaylistTab = async (playlist: RundownPlaylist) => {
-  if (playlist.items.length > 0) {
-    const confirmed = await ask(
-      `Close playlist "${playlist.name}" with ${playlist.items.length} item${playlist.items.length === 1 ? '' : 's'}?`,
-      { title: 'Close Playlist', kind: 'warning' }
-    );
-    if (!confirmed) return;
-  }
+/**
+ * §5.3: the tab `x` is Close, and it now appears only on an empty tab -- an
+ * empty tab needs no ceremony. A tab with items is deleted through the header
+ * control, so there is one destructive path rather than two wearing different
+ * confirmations.
+ */
+const closePlaylistTab = (playlist: RundownPlaylist) => {
+  if (playlist.items.length > 0) return;
   store.closePlaylist(playlist.id);
 };
 
@@ -1077,6 +1243,8 @@ onMounted(() => {
   });
   window.addEventListener('click', closeContextMenu);
   window.addEventListener('click', closePlaylistMenu);
+  window.addEventListener('click', disarmDelete);
+  window.addEventListener('keydown', onDeleteArmEscape, true);
 
   unregisterSurface = registerRundownDropSurface({
     getSnapshot() {
@@ -1143,6 +1311,9 @@ onUnmounted(() => {
   if (crawlDebounceTimer) clearTimeout(crawlDebounceTimer);
   window.removeEventListener('click', closeContextMenu);
   window.removeEventListener('click', closePlaylistMenu);
+  window.removeEventListener('click', disarmDelete);
+  window.removeEventListener('keydown', onDeleteArmEscape, true);
+  disarmDelete();
 });
 
 </script>
@@ -1160,16 +1331,18 @@ onUnmounted(() => {
 
       <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
         <!-- Graphics Ticker Drawer Toggle Button -->
-        <button 
-          class="icon-action rw-ticker-toggle-btn"
+        <BaseButton
+          class="rw-ticker-toggle-btn"
+          variant="ghost"
+          size="sm"
+          icon="ticker"
           :class="{ 'is-active': showGraphicsDrawer || settings.cgCrawlActive }"
-          @click="showGraphicsDrawer = !showGraphicsDrawer"
           title="Toggle On-Demand News Ticker & Graphics Drawer"
+          @click="showGraphicsDrawer = !showGraphicsDrawer"
         >
-          <AppIcon name="ticker" :size="14" />
-          <span>Ticker</span>
+          Ticker
           <span v-if="settings.cgCrawlActive" class="crawl-active-dot" title="Crawl is on air"></span>
-        </button>
+        </BaseButton>
 
 <!-- UI F-14: the NTP lock dot was hard-coded to "synchronized" and
              nothing could ever turn it off, so it claimed a clock-sync state the
@@ -1178,47 +1351,113 @@ onUnmounted(() => {
           <span class="clock-display">{{ studioClockTimecode }}</span>
         </div>
 
-        <button class="icon-action" @click="showLiveDialog = true" title="Insert Live Item / Studio Block into Rundown">
-          <AppIcon name="live" :size="14" />
-          <span>Live block</span>
-        </button>
-        <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">
-          <AppIcon name="stop" :size="14" />
-          <span>Stop</span>
-        </button>
+        <BaseButton
+          variant="ghost"
+          size="sm"
+          icon="live"
+          title="Insert Live Item / Studio Block into Rundown"
+          @click="showLiveDialog = true"
+        >
+          Live block
+        </BaseButton>
+        <BaseButton
+          v-if="isPlayoutPlaying"
+          class="btn-stop"
+          variant="ghost"
+          size="sm"
+          icon="stop"
+          title="Stop"
+          @click="stopPlayback"
+        >
+          Stop
+        </BaseButton>
 
-        <!-- §6.3: Save / Load / Append / Clear moved up here from the bottom
-             bar. They are file management, used once a session, and they were
-             occupying prime width beside the controls used every minute. -->
+        <!-- §5.1: Load / Append / Save come back out of the overflow. §6.3
+             filed them as "used once a session"; the owner uses them
+             constantly, and an action used constantly does not belong two
+             clicks deep. The overflow keeps what is genuinely rare. -->
+        <div class="rw-file-group" role="group" aria-label="Playlist file">
+          <BaseButton
+            variant="icon"
+            size="sm"
+            icon="folder-open"
+            label="Load playlist"
+            title="Load playlist…"
+            :loading="isLoadingPlaylist"
+            @click="runPlaylistFileAction('load')"
+          />
+          <BaseButton
+            variant="icon"
+            size="sm"
+            icon="file-plus"
+            label="Append playlist"
+            title="Append playlist…"
+            :loading="isLoadingPlaylist"
+            @click="runPlaylistFileAction('append')"
+          />
+          <BaseButton
+            variant="icon"
+            size="sm"
+            icon="save"
+            label="Save playlist"
+            title="Save playlist…"
+            :loading="isSavingPlaylist"
+            @click="runPlaylistFileAction('save')"
+          />
+        </div>
+
+        <span class="rw-header-divider" aria-hidden="true"></span>
+
+        <!-- §5.2: two-stage arm. Armed, the control states its target rather
+             than asking a yes/no question about an abstraction. -->
+        <BaseButton
+          class="rw-delete-btn"
+          :class="{ 'is-armed': isDeleteArmed }"
+          :variant="isDeleteArmed ? 'danger' : 'icon'"
+          size="sm"
+          icon="trash"
+          :disabled="!!deleteDisabledReason"
+          :label="isDeleteArmed ? deleteArmLabel : 'Delete playlist'"
+          :title="deleteDisabledReason || (isDeleteArmed ? deleteArmLabel : 'Delete playlist')"
+          data-testid="rundown-delete-playlist"
+          @click.stop="requestDeletePlaylist"
+        >
+          <template v-if="isDeleteArmed">
+            <span class="rw-delete-arm-label">{{ deleteArmLabel }}</span>
+            <span
+              class="arm-ring"
+              aria-hidden="true"
+              :style="{ '--arm-progress': deleteArmProgress }"
+            ></span>
+          </template>
+        </BaseButton>
+
         <div class="rw-overflow-wrap">
-          <button
-            class="icon-action rw-overflow-trigger"
+          <BaseButton
+            class="rw-overflow-trigger"
             :class="{ 'is-open': showPlaylistMenu }"
-            :title="showPlaylistMenu ? 'Close playlist file menu' : 'Playlist file actions'"
-            aria-label="Playlist file actions"
+            variant="icon"
+            size="sm"
+            icon="more-vertical"
+            label="More playlist actions"
+            :title="showPlaylistMenu ? 'Close playlist menu' : 'More playlist actions'"
             :aria-expanded="showPlaylistMenu"
             data-testid="rundown-overflow"
             @click.stop="showPlaylistMenu = !showPlaylistMenu"
-          >
-            <AppIcon name="more-vertical" :size="16" />
-          </button>
+          />
           <div v-if="showPlaylistMenu" class="rw-overflow-menu popover-surface" role="menu" @click.stop>
-            <button class="rw-overflow-item popover-item" role="menuitem" :disabled="isSavingPlaylist" @click="runPlaylistFileAction('save')">
-              <AppIcon class="rw-overflow-icon tone-accent" name="save" :size="14" />
-              <span>Save playlist…</span>
+            <button class="rw-overflow-item popover-item" role="menuitem" @click="startRenameActivePlaylist">
+              <AppIcon class="rw-overflow-icon tone-accent" name="rename" :size="14" />
+              <span>Rename playlist…</span>
             </button>
-            <button class="rw-overflow-item popover-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('load')">
-              <AppIcon class="rw-overflow-icon tone-accent" name="folder-open" :size="14" />
-              <span>Load playlist…</span>
-            </button>
-            <button class="rw-overflow-item popover-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('append')">
-              <AppIcon class="rw-overflow-icon tone-accent" name="plus" :size="14" />
-              <span>Append playlist…</span>
+            <button class="rw-overflow-item popover-item" role="menuitem" @click="duplicateActivePlaylist">
+              <AppIcon class="rw-overflow-icon tone-accent" name="copy" :size="14" />
+              <span>Duplicate playlist</span>
             </button>
             <div class="popover-divider" role="separator" />
             <button class="rw-overflow-item popover-item popover-item--danger" role="menuitem" @click="runClearRundown">
-              <AppIcon class="rw-overflow-icon" name="trash" :size="14" />
-              <span>Clear playlist…</span>
+              <AppIcon class="rw-overflow-icon" name="broom" :size="14" />
+              <span>Clear all items…</span>
             </button>
           </div>
         </div>
@@ -1270,7 +1509,11 @@ onUnmounted(() => {
         v-for="playlist in store.playlists"
         :key="playlist.id"
         class="playlist-tab"
-        :class="{ 'is-active': playlist.id === store.activePlaylistId, 'is-onair': playlist.id === store.onAirPlaylistId }"
+        :class="{
+          'is-active': playlist.id === store.activePlaylistId,
+          'is-onair': playlist.id === store.onAirPlaylistId,
+          'is-delete-target': playlist.id === deleteArmedPlaylistId,
+        }"
         @click="store.activatePlaylist(playlist.id)"
         @dblclick.stop="startRenamePlaylistTab(playlist as RundownPlaylist)"
       >
@@ -1288,9 +1531,12 @@ onUnmounted(() => {
         <!-- §6.3: "OFFLINE" on every tab was noise — offline is the normal
              state. Only the exception gets a word; the rest get their count. -->
         <span v-if="playlist.id === store.onAirPlaylistId" class="playlist-tab-state">ON AIR</span>
+        <span v-else-if="playlist.id === deleteArmedPlaylistId" class="playlist-tab-state is-deleting">DELETING</span>
         <span v-else class="playlist-tab-count tabular-nums">{{ playlist.items.length }}</span>
+        <!-- §5.3: Close, on an empty tab only. A tab with items goes through
+             the header's Delete, so there is one destructive path. -->
         <span
-          v-if="store.playlists.length > 1 && playlist.id !== store.onAirPlaylistId"
+          v-if="store.playlists.length > 1 && playlist.id !== store.onAirPlaylistId && playlist.items.length === 0"
           class="playlist-tab-close"
           role="button"
           tabindex="-1"
@@ -1408,6 +1654,12 @@ onUnmounted(() => {
         <span class="end-drop-badge">Add to end</span>
       </div>
 
+      <!-- §5.2: the third cue. The tab says which one, this says what will
+           happen to the thing the operator is actually looking at. -->
+      <div v-if="isDeleteArmed" class="rw-delete-overlay" aria-hidden="true">
+        <span class="rw-delete-overlay-label">This playlist will be deleted</span>
+      </div>
+
       <EmptyState
         v-if="store.activeItems.length === 0"
         class="rw-empty"
@@ -1432,6 +1684,20 @@ onUnmounted(() => {
       </div>
     </Teleport>
 
+    <!-- §5.2: the only modal in the flow, and only for a playlist with items
+         in it. The two-click arm already stops an accidental single click; the
+         dialog is for the case where losing the work would actually matter. -->
+    <DangerConfirm
+      :open="pendingDeleteConfirm"
+      :title="`Delete &quot;${store.currentPlaylistName}&quot;?`"
+      :message="`${activePlaylistItemCount} item${activePlaylistItemCount === 1 ? '' : 's'} will be removed from this tab.`"
+      warning="You can undo for 10 seconds."
+      confirm-label="Delete playlist"
+      :nested="false"
+      @confirm="confirmDeletePlaylist"
+      @cancel="pendingDeleteConfirm = false"
+    />
+
     <!-- Custom Context Menu for Rundown -->
     <Teleport to="body">
       <ContextMenu
@@ -1452,7 +1718,8 @@ onUnmounted(() => {
 .rundown-wrapper { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
 .rw-header {
   padding: 8px 12px; border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-secondary);
+  background: var(--surface-panel-header);
+  box-shadow: inset 0 1px 0 var(--highlight-top);
   display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
 }
 .trim-warning-banner {
@@ -1492,7 +1759,7 @@ onUnmounted(() => {
 }
 .rw-ticker-toggle-btn.is-active {
   background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
-  border-color: var(--accent-blue);
+  color: var(--text-primary);
 }
 .rw-graphics-drawer {
   display: flex;
@@ -1545,13 +1812,65 @@ onUnmounted(() => {
   padding: 2px 8px; border-radius: 4px; animation: blink 1.2s step-end infinite;
 }
 @keyframes blink { 50% { opacity: 0.4; } }
-.icon-action {
-  display: inline-flex; align-items: center; gap: var(--space-1);
-  background: var(--bg-hover); border: 1px solid var(--border-medium);
-  color: var(--text-primary); border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
+/* §2.1: the second `.icon-action` definition is gone -- it had a different
+   radius, padding and hover from the library's, for controls that sit four
+   inches apart on the same screen. Everything in this header is a BaseButton. */
+.btn-stop { color: var(--accent-red); }
+.btn-stop:hover:not(:disabled) { color: var(--accent-red); background: color-mix(in srgb, var(--accent-red) 14%, transparent); }
+
+/* §5.1: the three file actions read as one control with three parts, because
+   that is what they are -- the same file, three verbs. */
+.rw-file-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
 }
-.icon-action:hover { background: var(--bg-surface-elevated); border-color: var(--border-strong); }
-.btn-stop { border-color: color-mix(in srgb, var(--accent-red) 45%, transparent); color: var(--accent-red); }
+
+.rw-header-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--border-subtle);
+}
+
+/* §5.2: at rest the trash is a quiet icon -- a resting red trash icon is
+   noise, and the operator learns to stop seeing it. Red arrives on hover, and
+   on arming the control becomes a labelled pill that states its target. */
+.rw-delete-btn:hover:not(:disabled) {
+  color: var(--status-error);
+  background: color-mix(in srgb, var(--status-error) 14%, transparent);
+}
+.rw-delete-btn.is-armed {
+  position: relative;
+  width: auto;
+  padding: 0 var(--space-3);
+  overflow: visible;
+}
+.rw-delete-arm-label {
+  white-space: nowrap;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+/* The same conic sweep the live cut uses, so "armed" looks like one thing in
+   this app rather than two. Compositor-only: a custom property feeding a
+   gradient angle, ticked ten times a second. */
+.rw-delete-btn .arm-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(var(--status-error) calc(var(--arm-progress, 0) * 360deg), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px));
+  opacity: 0.9;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rw-delete-btn .arm-ring { display: none; }
+}
 
 /* §6.3: the header overflow. Same visual language as the library's actions
    dropdown so the two "⋮" menus in the app are one pattern, not two. */
@@ -1560,7 +1879,7 @@ onUnmounted(() => {
 }
 .rw-overflow-trigger.is-open {
   background: var(--bg-surface-elevated);
-  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 /* Everything but position comes from `.popover-surface` / `.popover-item`. */
 .rw-overflow-menu {
@@ -1589,7 +1908,8 @@ onUnmounted(() => {
   gap: 6px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-secondary);
+  background: var(--surface-panel-header);
+  box-shadow: inset 0 1px 0 var(--highlight-top);
   overflow-x: auto;
   flex-shrink: 0;
 }
@@ -1664,6 +1984,23 @@ onUnmounted(() => {
 }
 /* §6.3: the on-air tab is the only one that says anything; it says the one
    word that matters, as a filled pill rather than a grey caption. */
+/* §5.2: the armed target. The operator's eyes are on the tab strip when they
+   click the second time, so this is where the answer to "which one?" has to
+   be -- not on an OK button in a dialog. */
+.playlist-tab.is-delete-target {
+  border-color: var(--status-error);
+  box-shadow: 0 0 0 1px var(--status-error);
+  background: var(--danger-tint-strong);
+}
+.playlist-tab.is-delete-target .playlist-tab-name {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.playlist-tab-state.is-deleting {
+  background: var(--status-error);
+  color: var(--text-on-danger);
+}
+
 .playlist-tab-state {
   margin-left: auto;
   font-size: var(--fs-xs);
@@ -1681,6 +2018,7 @@ onUnmounted(() => {
   font-weight: 700;
   color: var(--text-muted);
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   min-width: 14px;
   text-align: right;
 }
@@ -1731,7 +2069,41 @@ onUnmounted(() => {
   font-size: var(--fs-xs); letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; text-transform: uppercase;
   border-bottom: 1px solid var(--border-subtle); background: var(--bg-tertiary); flex-shrink: 0;
 }
-.rw-list { flex: 1; overflow-y: auto; padding: 6px 5px 10px; min-height: 0; transition: background 0.15s; contain: strict; }
+.rw-list { flex: 1; overflow-y: auto; padding: 6px 5px 10px; min-height: 0; transition: background 0.15s; contain: strict; position: relative; }
+
+/* §5.2: the third cue, over the thing that will actually be lost. Opacity only
+   (perf), no pointer events, and it never intercepts a click. */
+.rw-delete-overlay {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 0;
+  pointer-events: none;
+}
+.rw-delete-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0 -5px auto;
+  height: 100vh;
+  background: var(--danger-tint);
+  pointer-events: none;
+}
+.rw-delete-overlay-label {
+  position: relative;
+  margin-top: var(--space-4);
+  padding: 4px var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--status-error);
+  background: var(--surface-panel);
+  color: var(--status-error);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .rw-list.drag-over { background: color-mix(in srgb, var(--accent-cyan) 6%, transparent); outline: 2px dashed var(--accent-cyan); outline-offset: -3px; border-radius: 6px; }
 
 /* Sortable ghost clone of the row host wrapper */
