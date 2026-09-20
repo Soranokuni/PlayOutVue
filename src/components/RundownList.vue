@@ -761,11 +761,14 @@ const msToClockDisplay = (ms: number) => {
 };
 
 const durationLabel = (item: RundownItem, index: number) => {
-  if (item.type === 'gap') return 'Ghost marker';
+  // §9 / §6.2: a gap row states its hard start; "Ghost marker" told the
+  // operator nothing. A row that is not playing shows its total only -- the
+  // leading `00:00:00 /` was noise on 299 of 300 rows.
+  if (item.type === 'gap') return item.hardStartTime ? `Hard start ${item.hardStartTime}` : 'Gap';
   const durationMs = effectiveDurationMs(item, index);
-  if (durationMs > 0) return `00:00:00 / ${msToClockDisplay(durationMs)}`;
-  if (item.type === 'live') return 'LIVE';
-  return '00:00:00 / 00:00:00';
+  if (item.type === 'live') return durationMs > 0 ? `LIVE ${msToClockDisplay(durationMs)}` : 'LIVE';
+  if (durationMs > 0) return msToClockDisplay(durationMs);
+  return '—';
 };
 
 const activeTimerLabel = (item: RundownItem, index: number) => {
@@ -823,7 +826,6 @@ const rowProgressPct = (item: RundownItem, index: number): number => {
 };
 const rowCountdown = (item: RundownItem) => (item.id === store.currentPlayingInstanceId ? store.playbackCountdownStr : '');
 const rowTimerLabel = (item: RundownItem, index: number) => activeTimerLabel(item, index) || durationLabel(item, index);
-const rowEtaHint = (index: number) => store.activeItemsETAs[index]?.formatted || '';
 const rowDayLabel = (index: number) => scheduledTimes.value[index]?.dayLabel || '·';
 const rowAtKind = (index: number): '' | 'done' | 'now' | 'gap' | 'time' =>
   (scheduledTimes.value[index]?.kind as 'done' | 'now' | 'gap' | 'time' | undefined) || '';
@@ -832,6 +834,18 @@ const rowAtText = (index: number) => {
   return eta && (eta.kind === 'gap' || eta.kind === 'time') ? eta.text || '' : '';
 };
 const rowPlayProtected = (index: number) => isProtectedPlayingRow(index);
+
+/**
+ * §6.1: true on the first row of each scheduled day, so the list can draw one
+ * separator instead of repeating the weekday in every row.
+ */
+const dayBreakBefore = (index: number) => {
+  const day = scheduledTimes.value[index]?.dayLabel;
+  if (!day || day === '·') return false;
+  if (index === 0) return true;
+  return scheduledTimes.value[index - 1]?.dayLabel !== day;
+};
+
 
 const onRowSelect = (item: RundownItem, event?: MouseEvent) => {
   store.selectItem(item.id, { multi: event?.ctrlKey || event?.metaKey, range: event?.shiftKey });
@@ -1161,19 +1175,17 @@ onUnmounted(() => {
     </div>
 
     <!-- Column labels -->
-    <div class="rw-cols-label">
-      <span style="width:18px;"></span>
-      <span style="width:22px; text-align:center;">#</span>
-      <span style="width:20px;"></span>
-      <span style="width:20px;"></span>
-      <span style="flex:1;">Clip Title / Source</span>
-      <span style="width:50px; text-align:center;">Rating</span>
-      <span style="width:62px; text-align:center;">Tag</span>
-      <span style="width:86px; text-align:center;">Trim</span>
-      <span style="width:176px; text-align:right;">Duration / Countdown</span>
-      <span style="width:44px; text-align:left;">Day</span>
-      <span style="width:68px; text-align:left;">At</span>
-      <span style="width:68px; text-align:right;">Actions</span>
+    <div class="rw-cols-label" aria-hidden="true">
+      <span class="col-handle"></span>
+      <span class="col-num">#</span>
+      <span class="col-status"></span>
+      <span class="col-type"></span>
+      <span class="col-title">Title</span>
+      <span class="col-flags">Flags</span>
+      <span class="col-trim">Trim</span>
+      <span class="col-dur">Duration</span>
+      <span class="col-at">At</span>
+      <span class="col-actions">Actions</span>
     </div>
 
     <!-- List -->
@@ -1208,13 +1220,20 @@ onUnmounted(() => {
           rowProgressTone(item, index),
           rowCountdown(item),
           rowTimerLabel(item, index),
-          rowEtaHint(index),
           rowDayLabel(index),
           rowAtKind(index),
           rowAtText(index),
-          rowPlayProtected(index)
+          rowPlayProtected(index),
+          dayBreakBefore(index)
         ]"
       >
+        <!-- §6.1: a day separator instead of repeating the weekday on all 300
+             rows. Rendered only where the schedule crosses into a new day, and
+             inside the memoized container so `v-memo` stays on the `v-for`
+             element (Vue ignores it anywhere else). -->
+        <div v-if="dayBreakBefore(index)" class="rw-day-separator" role="presentation">
+          <span>{{ rowDayLabel(index) }}</span>
+        </div>
         <RundownRow
           :item="item"
           :index="index"
@@ -1227,7 +1246,6 @@ onUnmounted(() => {
           :progress-tone="rowProgressTone(item, index)"
           :countdown="rowCountdown(item)"
           :timer-label="rowTimerLabel(item, index)"
-          :eta-hint="rowEtaHint(index)"
           :day-label="rowDayLabel(index)"
           :at-kind="rowAtKind(index)"
           :at-text="rowAtText(index)"
@@ -1684,5 +1702,57 @@ onUnmounted(() => {
   background: var(--status-onair);
   display: inline-block;
   flex-shrink: 0;
+}
+/* --- §6.1 column header ---------------------------------------------------
+   Widths mirror RundownRow's. Labels are single words and never wrap. */
+.rw-cols-label > span {
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.rw-cols-label .col-handle { width: 18px; flex-shrink: 0; }
+.rw-cols-label .col-num { width: 22px; text-align: center; flex-shrink: 0; }
+.rw-cols-label .col-status { width: 16px; flex-shrink: 0; }
+.rw-cols-label .col-type { width: 18px; flex-shrink: 0; }
+.rw-cols-label .col-title { flex: 1 1 auto; min-width: 180px; }
+.rw-cols-label .col-flags { width: 88px; flex-shrink: 0; }
+.rw-cols-label .col-trim { width: 86px; text-align: center; flex-shrink: 0; }
+.rw-cols-label .col-dur { width: 96px; text-align: right; flex-shrink: 0; }
+.rw-cols-label .col-at { width: 68px; text-align: left; flex-shrink: 0; }
+.rw-cols-label .col-actions { width: 56px; text-align: right; flex-shrink: 0; }
+
+/* The panel is the container the row and header columns respond to, so the
+   library split width is accounted for (same reasoning as F-01). */
+.rw-list,
+.rw-cols-label {
+  container: rundown / inline-size;
+}
+
+@container rundown (max-width: 620px) {
+  .rw-cols-label .col-trim { display: none; }
+}
+
+@container rundown (max-width: 520px) {
+  .rw-cols-label .col-flags { width: 26px; }
+}
+
+/* --- Day separator -------------------------------------------------------- */
+.rw-day-separator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 4px var(--space-1);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.rw-day-separator::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border-subtle);
 }
 </style>
