@@ -141,20 +141,37 @@ const applyControlBarTier = (width: number) => {
   if (next !== controlBarTier.value) controlBarTier.value = next;
 };
 
+const measureControlBar = () => {
+  const el = controlBarRef.value;
+  if (el) applyControlBarTier(el.getBoundingClientRect().width);
+};
+
 const startControlBarObserver = () => {
   const el = controlBarRef.value;
-  if (!el || typeof ResizeObserver === 'undefined') return;
-  controlBarObserver = new ResizeObserver((entries) => {
-    const entry = entries[0];
-    if (entry) applyControlBarTier(entry.contentRect.width);
-  });
-  controlBarObserver.observe(el);
-  applyControlBarTier(el.getBoundingClientRect().width);
+  if (!el) return;
+
+  if (typeof ResizeObserver !== 'undefined') {
+    controlBarObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) applyControlBarTier(entry.contentRect.width);
+    });
+    controlBarObserver.observe(el);
+  }
+
+  // The first measurement at mount can land before the grid has laid out, and
+  // if the bar's box never changes afterwards no observation follows to correct
+  // it -- the bar would stay collapsed at a width that fits everything.
+  // Measure again after a frame, and keep a window listener as a fallback for
+  // environments where ResizeObserver does not deliver.
+  measureControlBar();
+  requestAnimationFrame(measureControlBar);
+  window.addEventListener('resize', measureControlBar);
 };
 
 const stopControlBarObserver = () => {
   controlBarObserver?.disconnect();
   controlBarObserver = null;
+  window.removeEventListener('resize', measureControlBar);
 };
 
 // The TAKE HELD alert is injected into the same row and is wide; while it is up
@@ -232,23 +249,6 @@ watch(
   { immediate: true, deep: true }
 );
 
-const formatDuration = (seconds: number) => {
-  const total = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const remainingSeconds = total % 60;
-  return [hours, minutes, remainingSeconds]
-    .filter((value, index) => value > 0 || index > 0)
-    .map((value) => String(value).padStart(2, '0'))
-    .join(':');
-};
-
-const rundownSummary = computed(() => {
-  const itemCount = rundown.activeItems.length;
-  if (!itemCount) return 'No items loaded';
-  return `${rundown.currentPlaylistName} · ${itemCount} item${itemCount === 1 ? '' : 's'} · ${formatDuration(rundown.totalDuration)}`;
-});
-
 const toggleProductInfo = () => {
   showProductInfo.value = !showProductInfo.value;
   if (showProductInfo.value) showQuickGuide.value = false;
@@ -309,6 +309,39 @@ const connectionTone = computed<'ready' | 'processing' | 'error' | 'warning' | '
     case 'crashed': return 'error';
     case 'operational': return 'ready';
     default: return 'offline';
+  }
+});
+
+/**
+ * §7 / §9: a short state for the status readout. The long sentences below stay
+ * as the tooltip; the bar shows two or three words.
+ */
+const connectionShortState = computed(() => {
+  if (!isPrimaryInstance.value) return isPlayoutConnected.value ? 'Monitor' : 'Monitor · offline';
+  if (isPlayoutConnected.value) return 'Connected';
+  if (processStatus.value?.circuitBreakerTripped) return 'Crash loop';
+  switch (processState.value) {
+    case 'unconfigured': return 'Not found';
+    case 'stopped': return 'Stopped';
+    case 'starting': return 'Starting…';
+    case 'external_running': return 'Ready';
+    case 'crashed': return 'Crashed';
+    case 'disconnected': return 'Offline';
+    case 'operational': return 'Ready';
+    default: return 'Offline';
+  }
+});
+
+/** The verb, which is now a separate control from the state above. */
+const connectionActionLabel = computed(() => {
+  if (isStarting.value || processState.value === 'starting') return 'Starting…';
+  if (isPlayoutConnected.value) return 'Disconnect';
+  if (processStatus.value?.circuitBreakerTripped) return 'Relaunch';
+  switch (processState.value) {
+    case 'unconfigured': return 'Browse…';
+    case 'stopped': return 'Start';
+    case 'crashed': return 'Relaunch';
+    default: return 'Connect';
   }
 });
 
@@ -443,22 +476,60 @@ const toggleSdi = async () => {
 const isLiveCutArmed = ref(false);
 let liveCutArmTimer: ReturnType<typeof setTimeout> | null = null;
 
-const cutToLive = async () => {
-  if (!isLiveCutArmed.value) {
-    isLiveCutArmed.value = true;
-    if (liveCutArmTimer) clearTimeout(liveCutArmTimer);
-    liveCutArmTimer = setTimeout(() => {
-      isLiveCutArmed.value = false;
-      liveCutArmTimer = null;
-    }, 3000);
-    return;
-  }
+/** How long the second click stays live, in ms. */
+const LIVE_CUT_ARM_MS = 3000;
 
+/**
+ * §7: the arm window is drawn as a ring that empties over the three seconds,
+ * so the operator can see how long they have. Ticked on a timer rather than
+ * rAF: one repaint every 100ms, not sixty.
+ */
+const liveCutArmRemaining = ref(0);
+let liveCutArmTick: ReturnType<typeof setInterval> | null = null;
+
+const stopArmCountdown = () => {
+  if (liveCutArmTick) {
+    clearInterval(liveCutArmTick);
+    liveCutArmTick = null;
+  }
+  liveCutArmRemaining.value = 0;
+};
+
+/** 0 … 1, for the conic-gradient sweep. */
+const liveCutArmProgress = computed(() =>
+  liveCutArmRemaining.value > 0 ? liveCutArmRemaining.value / LIVE_CUT_ARM_MS : 0
+);
+
+const disarmLiveCut = () => {
   if (liveCutArmTimer) {
     clearTimeout(liveCutArmTimer);
     liveCutArmTimer = null;
   }
   isLiveCutArmed.value = false;
+  stopArmCountdown();
+};
+
+const cutToLive = async () => {
+  if (!isLiveCutArmed.value) {
+    isLiveCutArmed.value = true;
+    if (liveCutArmTimer) clearTimeout(liveCutArmTimer);
+
+    const armedAt = Date.now();
+    liveCutArmRemaining.value = LIVE_CUT_ARM_MS;
+    stopArmCountdown();
+    liveCutArmTick = setInterval(() => {
+      liveCutArmRemaining.value = Math.max(0, LIVE_CUT_ARM_MS - (Date.now() - armedAt));
+    }, 100);
+
+    liveCutArmTimer = setTimeout(() => {
+      isLiveCutArmed.value = false;
+      liveCutArmTimer = null;
+      stopArmCountdown();
+    }, LIVE_CUT_ARM_MS);
+    return;
+  }
+
+  disarmLiveCut();
 
   try {
     await getActivePlayoutService().cutToLive?.();
@@ -644,10 +715,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   onMouseUp();
-  if (liveCutArmTimer) {
-    clearTimeout(liveCutArmTimer);
-    liveCutArmTimer = null;
-  }
+  disarmLiveCut();
   window.removeEventListener('pointerdown', handleGlobalPointerDown);
   window.removeEventListener('playout:open-inspector', handleInspectorOpenEvent);
   stopControlBarObserver();
@@ -706,18 +774,11 @@ onUnmounted(() => {
     <!-- Simplified Master Control Bar -->
     <footer class="control-bar glass-panel" ref="controlBarRef" :class="`tier-${effectiveControlBarTier}`">
 
-      <!-- Connection Indicator & Control in One Field -->
-      <div class="ctrl-section">
-        <button
-          class="ctrl-btn conn-toggle-btn"
-          :class="[
-            'tone-' + connectionTone,
-            { 'is-connected': isPlayoutConnected }
-          ]"
-          :disabled="isStarting || processState === 'starting'"
-          @click="handleConnectionAction"
-          :title="isPlayoutConnected ? 'CasparCG Connected · Click to Disconnect' : `CasparCG (${connectionLabel}) · Click to ${connectionBtnText}`"
-        >
+      <!-- §7 group 1: engine. The status says what is true; the button next
+           to it says what will happen. They used to be one control whose label
+           flipped between the two. -->
+      <div class="ctrl-section ctrl-engine">
+        <span class="conn-status" :title="connectionLabel">
           <span
             class="status-dot"
             :class="[
@@ -725,9 +786,15 @@ onUnmounted(() => {
               { pulse: connectionTone === 'processing' || processState === 'unconfigured' || processState === 'crashed' }
             ]"
           ></span>
-          <span class="conn-text">{{ isPlayoutConnected ? 'CONNECTED' : connectionBtnText }}</span>
-        </button>
-        <span v-if="!isPrimaryInstance" class="monitor-badge" title="Running in secondary Monitor Mode (Read-Only)">MONITOR</span>
+          <span class="conn-text">{{ connectionShortState }}</span>
+        </span>
+        <button
+          class="ctrl-btn conn-action-btn"
+          :disabled="isStarting || processState === 'starting'"
+          :title="`CasparCG: ${connectionLabel}`"
+          @click="handleConnectionAction"
+        >{{ connectionActionLabel }}</button>
+        <span v-if="!isPrimaryInstance" class="monitor-badge" title="Running in secondary monitor mode (read-only)">MONITOR</span>
       </div>
 
       <div class="ctrl-divider"></div>
@@ -767,8 +834,17 @@ onUnmounted(() => {
           :class="{ 'btn-live-armed': isLiveCutArmed }"
           :disabled="!isPlayoutConnected || !isPrimaryInstance"
           @click="cutToLive"
-          :title="!isLiveCutArmed ? 'Arm Cut to Live (First Click to Arm)' : 'Click Again to Execute Hardware Cut to Live'"
+          :title="!isLiveCutArmed ? 'Arm the cut to live — a second click executes it' : 'Click again to cut to live'"
         >
+          <!-- §7: the 3s arm window had no visible countdown. The ring
+               empties over those three seconds so the operator can see how
+               long the second click stays live. -->
+          <span
+            v-if="isLiveCutArmed"
+            class="arm-ring"
+            aria-hidden="true"
+            :style="{ '--arm-progress': liveCutArmProgress }"
+          ></span>
           <AppIcon class="ctrl-btn-glyph" :name="isLiveCutArmed ? 'alert' : 'live'" :size="14" :stroke-width="2.5" />
           <span class="ctrl-btn-label">{{ isLiveCutArmed ? 'CONFIRM CUT (ARMED)' : 'CUT TO LIVE' }}</span>
           <span class="ctrl-btn-label-short" aria-hidden="true">{{ isLiveCutArmed ? 'CONFIRM' : 'LIVE' }}</span>
@@ -827,14 +903,7 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <div class="ctrl-divider"></div>
-
-      <div class="ctrl-section ctrl-summary">
-        <span class="ctrl-label">RUNDOWN</span>
-        <span class="ctrl-value">{{ rundownSummary }}</span>
-      </div>
-
-      <div class="ctrl-divider"></div>
+      <div v-if="activePlayoutCapabilities.streaming" class="ctrl-divider"></div>
 
       <!-- Rundown Safety Lock Button -->
       <button
@@ -847,7 +916,10 @@ onUnmounted(() => {
         <span class="lock-text">{{ rundown.isRundownLocked ? 'LOCKED' : 'UNLOCKED' }}</span>
       </button>
 
-      <IngestorStatusLight />
+      <span class="ctrl-section ctrl-ingest" :title="ingestorStatus.isIngestorOnline ? 'Ingestor reachable' : 'Ingestor unreachable'">
+        <IngestorStatusLight />
+        <span class="ctrl-label">INGEST</span>
+      </span>
 
       <button
         class="ctrl-btn ctrl-settings-btn"
@@ -983,7 +1055,8 @@ onUnmounted(() => {
 
 .ctrl-section    { display:flex; align-items:center; gap:6px; }
 .ctrl-label      { font-size:0.72rem; color:var(--text-muted); letter-spacing:0.5px; font-weight:700; white-space:nowrap; }
-.ctrl-summary    { min-width:0; }
+.ctrl-ingest { display:inline-flex; align-items:center; gap:4px; }
+.ctrl-ingest .ctrl-label { font-size: var(--fs-xs); }
 .ctrl-value      {
   font-size:0.82rem; color:var(--text-primary); font-weight:600; white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; max-width:260px;
@@ -1185,47 +1258,49 @@ onUnmounted(() => {
   border-color: var(--status-armed);
   color: var(--text-on-warning);
 }
+/* §7: the arm-window ring. A conic sweep driven by --arm-progress, which the
+   script updates every 100ms. It sits on its own layer so the button below it
+   never repaints. */
+.arm-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(
+    var(--status-armed) calc(var(--arm-progress, 0) * 360deg),
+    transparent 0
+  );
+  -webkit-mask:
+    radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px));
+  opacity: 0.9;
+}
+
 .control-bar .btn-live-now.btn-live-armed::after {
   box-shadow: 0 0 22px color-mix(in srgb, var(--status-armed) 90%, transparent);
   animation: pulse-live-glow 0.6s ease-in-out infinite;
 }
 
-.conn-toggle-btn {
-  display: flex;
+/* §7 group 1: a status readout (not a control) beside its own action. */
+.ctrl-engine {
+  gap: 8px;
+}
+
+.conn-status {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  padding: 5px 11px;
-  border-radius: 6px;
-  letter-spacing: 0.5px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
-  user-select: none;
-}
-
-.conn-toggle-btn.is-connected {
-  background: color-mix(in srgb, var(--status-ready) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-ready) 40%, transparent);
-  color: var(--status-ready);
-}
-
-.conn-toggle-btn.is-connected:hover {
-  background: color-mix(in srgb, var(--status-error) 15%, transparent);
-  border-color: color-mix(in srgb, var(--status-error) 50%, transparent);
-  color: var(--status-error);
-}
-
-.conn-toggle-btn:not(.is-connected) {
-  background: var(--bg-hover);
-  border: 1px solid var(--border-medium);
+  letter-spacing: 0.02em;
   color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: default;
 }
 
-.conn-toggle-btn:not(.is-connected):hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
-  border-color: var(--accent-blue);
-  color: var(--text-primary);
+.conn-action-btn {
+  font-size: var(--fs-xs);
+  padding: 5px 11px;
 }
 
 .conn-popover {
@@ -1568,20 +1643,9 @@ onUnmounted(() => {
    non-wrapping row at every width the app allows (min 1100px); when it runs
    out of room it drops content in priority order, lowest value first.
    Transport and the routing fence are never collapsed. */
-.control-bar.tier-compact .ctrl-summary,
-.control-bar.tier-compact .ctrl-summary + .ctrl-divider,
-.control-bar.tier-minimal .ctrl-summary,
-.control-bar.tier-minimal .ctrl-summary + .ctrl-divider {
-  display: none;
-}
-
 .control-bar.tier-compact .routing-fence-label,
 .control-bar.tier-minimal .routing-fence-label {
   display: none;
-}
-
-.control-bar.tier-compact .ctrl-value {
-  max-width: 140px;
 }
 
 /* Tightest tier: labels become icons, long button texts become short ones.
@@ -1770,5 +1834,18 @@ onUnmounted(() => {
 @keyframes pulseWarning {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.15); }
+}
+/* At the tightest tier the ingest label folds back to its dot. */
+.control-bar.tier-minimal .ctrl-ingest .ctrl-label {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arm-ring {
+    /* The sweep is a state readout, not decoration, so it stays -- but it is
+       driven by a property update, not an animation, so there is nothing to
+       disable here beyond documenting the intent. */
+    opacity: 0.9;
+  }
 }
 </style>
