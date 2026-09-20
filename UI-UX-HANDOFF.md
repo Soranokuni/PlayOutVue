@@ -3,10 +3,11 @@
 **For the next agent. You are assumed to have no context from the session that wrote this.**
 
 - Plan: `UI-UX-PLAN.md` (repo root, git-ignored). Findings are referenced below as `F-01` … `F-23` and sections as `§4.2` etc. — those are *its* numbers, and it is the source of truth for anything not covered here.
-- Branch: `feat/ui-ux-phase-0-1` · base `main` (`4ad4cd6`) · PR [#9](https://github.com/Soranokuni/PlayOutVue/pull/9), open, CI green, mergeable.
-- 14 commits, each one phase-or-finding shaped with the reasoning in its message. `git log main..HEAD` is worth reading before you change anything.
+- **Round 1:** branch `feat/ui-ux-phase-0-1` · PR [#9](https://github.com/Soranokuni/PlayOutVue/pull/9), **merged** (`b366be9`). 14 commits.
+- **Round 2 (this one):** branch `feat/ui-ux-phase-3-4` · base `main` (`b366be9`). 5 commits: phases 3.3 and 4.3, the context-menu colour system, the emoji retirement, and the shared popover surface.
+- Each commit is phase-or-finding shaped with the reasoning in its message. `git log main..HEAD` is worth reading before you change anything.
 
-Verified at the branch tip: `npm test -- --run` **369 passed / 55 files** (baseline on `main` was 310 / 47) · `npm run type-check` clean · `npm run lint` **0 errors** (82 pre-existing warnings, unchanged) · `npm run build-only` clean.
+Verified at the branch tip: `npm test -- --run` **379 passed / 58 files** · `npm run type-check` clean · `npm run lint` **0 errors** (82 pre-existing warnings, unchanged) · `npm run build-only` clean.
 
 ---
 
@@ -17,11 +18,11 @@ Verified at the branch tip: `npm test -- --run` **369 passed / 55 files** (basel
 | 0 · Defect fixes | **Done** | — |
 | 1 · Foundation | **Done** | — |
 | 2 · Settings | **Done** | — |
-| 3 · Library and tree | **Partial** | 3.3 asset-row anatomy; the shared `TreeRow`; folder-tree arrow keys (blocked — §5) |
-| 4 · Rundown grid | **Partial** | 4.3 — header toolbar, tabs, schedule row |
+| 3 · Library and tree | **Partial** | the shared `TreeRow`; folder-tree arrow keys (blocked — §5). **3.3 asset-row anatomy is done.** |
+| 4 · Rundown grid | **Done** | — |
 | 5 · Control bar | **Done** | — |
-| 6 · Theme fidelity | **Partial** | 6.3 — the screenshot matrix has not been run as a matrix |
-| 7 · A11y, empty states, copy | **Partial** | The full §9 copy pass; the remaining emoji (§8) |
+| 6 · Theme fidelity | **Partial** | the screenshot matrix has not been run as a matrix |
+| 7 · A11y, empty states, copy | **Partial** | the full §9 copy pass. **The emoji are gone (§8).** |
 
 ---
 
@@ -78,12 +79,12 @@ Read these before writing new UI — most of what the remaining phases need is a
 ### `src/assets/`
 
 - `main.css` — the §3.1 semantic token layer for all three themes: text-on-colour, status, NCRTV ratings with `-fg` pairs, content type, commercial tag, elevation, backdrop, `--z-*` layers, space, radius, type scale, motion.
-- `components.css` — shared `.btn`, `.input`, `.select`, `.field`, `.toolbar`. Imported once from `main.ts`. (`base.css` was deleted; nothing imported it.)
+- `components.css` — shared `.btn`, `.input`, `.select`, `.field`, `.toolbar`, and (round 2) `.popover-surface` / `.popover-item` / `.popover-divider`. Imported once from `main.ts`. (`base.css` was deleted; nothing imported it.)
 - `fonts.css` + `public/fonts/` — Inter variable and JetBrains Mono 400/500/700, latin/greek split by `unicode-range`, 164 KB, same-origin so no CSP change.
 
 ---
 
-## 4. The two guard tests — read these first
+## 4. The guard tests — read these first
 
 Both will fail your PR if you regress. Neither is optional and neither may be loosened.
 
@@ -103,7 +104,7 @@ Current entries, all deliberate:
 
 Eight pairs failed when it was written. **Three of those eight were found by the test after the palette had already been checked by eye**, which is the whole argument for it. The fixes changed some brand-adjacent values — dark `--status-onair` `#f43f5e`→`#e11d48`, dark `--rating-18` `#ef4444`→`#dc2626`, dark `--rating-tp` `#a855f7`→`#9333ea`, light `--accent-blue` `#0284c7`→`#0369a1`, light `--text-on-warning` to white, and Monokai's 18 badge to dark type on its signature magenta.
 
-> **Open with the owner:** these colour changes were flagged to them and have **not** been signed off visually. If they want different values the constraint is ≥ 4.5:1, not the specific hex.
+> **Open with the owner:** these colour changes were flagged to them and have **not** been signed off visually. If they want different values the constraint is ≥ 4.5:1, not the specific hex. Round 2 added no new colour *values*; it only put existing tokens to new use.
 
 ---
 
@@ -147,12 +148,33 @@ Button texts `Stop Server` and `Restart Server`, and a rail entry whose text con
 
 ## 8. What to do next, in order of value
 
-1. **Phase 3.3 — the library asset row** (§5.2). Row anatomy, the TP-dot / type-bar chip policy, and the opt-in two-line mode (`layout.libraryRowMode`). `RatingBadgeOwnership.test.ts` and `UnratedVisibility.test.ts` pin `data-testid`s that must survive. `Chip.vue` already has the tones.
-2. **Phase 4.3 — rundown header, tabs and schedule row** (§6.3). Slims `PlaylistControls`, moves Save / Load / Append / Clear into an overflow menu. `EmptyState` exists; `BaseButton variant="icon"` covers the row controls.
-3. **§8 dialog migrations** — `CasparConfigModal`, `DeckLinkWizard`, `TrimPanel` (keep its `data-command-scope="trimmer"` and `@keydown.capture`), `CommandPaletteModal` (top-anchored, special), and the `MediaLibrary` purge dialog → `DangerConfirm`. This also retires the last emoji: `TrimPanel` has 42 glyphs, `ComplianceModule` 10, four dialogs one or two each. `AppIcon`'s set already covers most of what they need.
-4. **Folder-tree keyboard navigation** — its own PR, see §5 above.
-5. **The screenshot matrix** (Appendix C), now three themes × three densities rather than five × three.
-6. **The remaining §9 copy pass.** Done so far: the glossary terms the icon and dialog work already touched, Settings' marketing copy, the gap/live row labels, and the README + in-app shortcut tables — both of which claimed "Enter / Space: Take / Play", the exact opposite of the keyboard contract's guard.
+1. **§8 dialog migrations to `BaseModal`** — `CasparConfigModal`, `DeckLinkWizard`, `TrimPanel` (keep its `data-command-scope="trimmer"` and `@keydown.capture`), `CommandPaletteModal` (top-anchored, special), and the `MediaLibrary` purge dialog → `DangerConfirm`. The *emoji* half of this item is already done (round 2); what remains is the dialog chrome itself.
+2. **Folder-tree keyboard navigation** — its own PR, see §5 above.
+3. **The shared `TreeRow`** (§5.2/§5.3), used by `MediaLibrary` and `FolderPickerModal` alike.
+4. **The screenshot matrix** (Appendix C), now three themes × three densities rather than five × three.
+5. **The remaining §9 copy pass.** Done so far: the glossary terms the icon and dialog work already touched, Settings' marketing copy, the gap/live row labels, the README + in-app shortcut tables (both of which claimed "Enter / Space: Take / Play", the exact opposite of the keyboard contract's guard), and round 2's menu terms — "Purge" → "Delete permanently", "Folder Colors" → "Folder colour", "Legacy Tags" → "Commercial tag".
+
+### What round 2 added that you should know about
+
+- **`src/lib/menuTones.ts`** — the one mapping from a compliance value to the
+  colour it wears in a menu. Both context menus consume it. If you add a fifth
+  vocabulary, add it here, not in a component.
+- **`ContextMenu`'s `MenuTone` / `badge` / `swatch`** — a menu row's colour is a
+  token name, never a literal. `swatch` exists for the one case that is genuinely
+  operator data rather than a theme value: the folder colour palette.
+- **`src/composables/usePlaylistFile.ts`** — Save / Load / Append / Clear, with
+  **module-scoped** state. The rundown header runs the action and the schedule
+  row reports its outcome; two `usePlaylistFile()` calls must see one status
+  message, which is why the refs live outside the function.
+- **`.popover-surface` / `.popover-item`** in `components.css` — the one
+  definition of a floating menu. New popovers opt in rather than restating it.
+- **`--surface-popover`** — a real elevation step per theme. A menu is not the
+  panel colour.
+- **Two new guard tests** — `LibraryRowAnatomy.test.ts` (§5.2's three width
+  decisions), `ContextMenuTones.test.ts` (the tone map reaches the DOM),
+  `RundownHeaderActions.test.ts` (§6.3's overflow, tab labelling and schedule
+  row). `AppIcon.test.ts` now scans eleven files instead of seven, and its
+  pending list is down to three icons.
 
 ---
 
