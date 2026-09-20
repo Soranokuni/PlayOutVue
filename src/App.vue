@@ -17,6 +17,7 @@ const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponen
 );
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import AppIcon from './components/ui/AppIcon.vue';
+import ToastHost from './components/ui/ToastHost.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
@@ -919,6 +920,9 @@ onUnmounted(() => {
     <MediaInspector :is-open="activeModalName === 'inspector'" :target-item="activeInspectorItem" @close="closeInspectorModal" />
     <SettingsModal v-if="showSettings" :is-open="showSettings" @close="showSettings = false" />
     <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
+
+    <!-- UI §3.2: one toast host for the whole app. -->
+    <ToastHost />
   </main>
 </template>
 

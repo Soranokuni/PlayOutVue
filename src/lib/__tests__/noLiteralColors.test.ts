@@ -21,9 +21,11 @@ const SRC = join(process.cwd(), 'src');
 
 /** Remaining literals per file. Lower these; never raise them. */
 const ALLOWLIST: Record<string, number> = {
-  // Phase 2 rebuilds Settings on BaseModal with a left rail; tokenising CSS
-  // that is about to be deleted would be wasted work.
-  'components/SettingsModal.vue': 95,
+  // Permanent: the nine remaining literals are the three theme swatches in
+  // Appearance. A swatch has to show each theme's own palette -- the light
+  // swatch must look light while the dark theme is active -- so it cannot
+  // follow the active theme's tokens.
+  'components/SettingsModal.vue': 9,
   // Phase 6.1 (light-theme audit) owns the wizard.
   'components/DeckLinkWizard.vue': 89,
   // The `.mock-screen-crop` subtree simulates the on-air raster: its black
