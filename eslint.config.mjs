@@ -57,4 +57,17 @@ export default defineConfigWithVueTs(
       'vue/no-side-effects-in-computed-properties': 'warn',
     },
   },
+  {
+    // The one place `v-html` is allowed. AppIcon interpolates a value from the
+    // frozen ICONS map in src/components/ui/icons.ts: a compile-time constant,
+    // never a store value, a file path, an Ingestor response, or anything else
+    // an operator or the network can influence. Serving the glyphs as a runtime
+    // sprite instead would add a fetch and a CSP surface to a broadcast control
+    // surface for no security gain.
+    name: 'app/icon-primitive',
+    files: ['src/components/ui/AppIcon.vue'],
+    rules: {
+      'vue/no-v-html': 'off',
+    },
+  },
 )

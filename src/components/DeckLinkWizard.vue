@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../stores/settings';
+import AppIcon from './ui/AppIcon.vue';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -424,7 +425,9 @@ watch(
             <span class="step-badge">STEP {{ activeStep }} OF {{ totalSteps }}</span>
             <h2 class="text-accent">{{ stepTitle }}</h2>
           </div>
-          <button class="glass-btn btn-icon" @click="$emit('close')" :disabled="applying">✕</button>
+          <button class="glass-btn btn-icon" aria-label="Close wizard" title="Close wizard" @click="$emit('close')" :disabled="applying">
+            <AppIcon name="close" :size="16" />
+          </button>
         </div>
 
         <!-- Step Indicator Bar -->
@@ -691,7 +694,8 @@ watch(
               </div>
 
               <div v-if="inputDevice === outputDevice" class="status error">
-                ⚠️ Input device cannot be the same as Program Output device (DeckLink {{ outputDevice }}). Please select a different device number.
+                <AppIcon name="alert" :size="14" />
+                Input device cannot be the same as the program output (DeckLink {{ outputDevice }}). Choose a different device number.
               </div>
 
               <div v-else-if="routingSummary" class="routing-card">
@@ -738,13 +742,13 @@ watch(
 
         <!-- Footer -->
         <div class="modal-footer">
-          <button v-if="activeStep > 1" class="glass-btn" @click="goPrev" :disabled="applying">← Back</button>
+          <button v-if="activeStep > 1" class="glass-btn" @click="goPrev" :disabled="applying">Back</button>
           <div class="footer-spacer"></div>
           <button v-if="activeStep < totalSteps" class="glass-btn btn-primary" @click="goNext" :disabled="!canGoNext">
-            Next →
+            Next
           </button>
           <button v-if="activeStep === totalSteps" class="glass-btn btn-apply" @click="applyConfig" :disabled="applying || !!errorMessage">
-            {{ applying ? 'Applying & Saving…' : '✔ Apply & Save Configuration' }}
+            {{ applying ? 'Applying…' : 'Apply and save' }}
           </button>
         </div>
       </div>
@@ -756,12 +760,12 @@ watch(
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(8, 12, 20, 0.88);
+  background: var(--backdrop);
   backdrop-filter: blur(12px);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 10000;
+  z-index: var(--z-modal);
 }
 
 .modal-content {
@@ -770,16 +774,16 @@ watch(
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #141a26 0%, #0d121c 100%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
   border-radius: 14px;
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.85);
+  box-shadow: var(--shadow-3);
   overflow: hidden;
 }
 
 .modal-header {
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -792,16 +796,16 @@ watch(
 }
 
 .step-badge {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
-  color: #38bdf8;
+  color: var(--accent-blue);
   letter-spacing: 0.08em;
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 1.15rem;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 /* Step Indicator Bar */
@@ -809,8 +813,8 @@ watch(
   display: flex;
   justify-content: space-between;
   padding: 12px 1.5rem;
-  background: rgba(0, 0, 0, 0.3);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-input);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .step-item {
@@ -834,31 +838,31 @@ watch(
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  border: 1.5px solid var(--border-strong);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.75rem;
   font-weight: 800;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .step-item.active .step-circle {
-  background: #38bdf8;
-  border-color: #38bdf8;
-  color: #000;
-  box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: var(--text-on-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent-blue) 40%, transparent);
 }
 
 .step-item.completed .step-circle {
-  background: #10b981;
-  border-color: #10b981;
+  background: var(--status-ready);
+  border-color: var(--status-ready);
 }
 
 .step-name {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 /* Body */
@@ -876,16 +880,16 @@ watch(
 
 .section-desc {
   font-size: 0.82rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
   line-height: 1.45;
   margin: 0;
 }
 
 .section-desc code {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-hover);
   padding: 2px 5px;
   border-radius: 4px;
-  color: #38bdf8;
+  color: var(--accent-blue);
 }
 
 .form-group {
@@ -899,7 +903,7 @@ watch(
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .form-grid {
@@ -912,9 +916,9 @@ watch(
 }
 
 .glass-input {
-  background: #0b0f17;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #f1f5f9;
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
   border-radius: 6px;
   padding: 8px 12px;
   font-size: 0.82rem;
@@ -922,7 +926,7 @@ watch(
 }
 
 .glass-input:focus {
-  border-color: #38bdf8;
+  border-color: var(--accent-blue);
 }
 
 .input-with-button {
@@ -936,7 +940,7 @@ watch(
 
 .hint-text {
   font-size: 0.7rem;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 /* Checkbox */
@@ -950,17 +954,17 @@ watch(
   align-items: center;
   gap: 8px;
   font-size: 0.8rem;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
 .checkbox-label.highlight {
-  background: rgba(56, 189, 248, 0.08);
+  background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
   padding: 10px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 25%, transparent);
   font-weight: 600;
-  color: #38bdf8;
+  color: var(--accent-blue);
 }
 
 /* Video Mode Cards */
@@ -978,15 +982,15 @@ watch(
 }
 
 .media-path-preview code {
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--bg-input);
   padding: 2px 6px;
   border-radius: 4px;
-  color: #38bdf8;
+  color: var(--accent-blue);
 }
 
 .mode-card {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 12px;
   cursor: pointer;
@@ -997,14 +1001,14 @@ watch(
 }
 
 .mode-card:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 .mode-card.selected {
-  background: rgba(56, 189, 248, 0.1);
-  border-color: #38bdf8;
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+  background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-blue) 15%, transparent);
 }
 
 .mode-header {
@@ -1014,10 +1018,10 @@ watch(
 }
 
 .mode-badge {
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
-  background: rgba(56, 189, 248, 0.2);
-  color: #38bdf8;
+  background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
+  color: var(--accent-blue);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -1025,12 +1029,12 @@ watch(
 .mode-name {
   font-size: 0.88rem;
   font-weight: 800;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .mode-desc {
   font-size: 0.72rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
   line-height: 1.3;
 }
 
@@ -1039,8 +1043,8 @@ watch(
 .review-card,
 .connection-test-card,
 .template-deploy-card {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 12px 14px;
 }
@@ -1063,13 +1067,13 @@ watch(
 .connection-info strong,
 .template-info strong {
   font-size: 0.82rem;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .connection-info span,
 .template-info span {
   font-size: 0.72rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .summary-title,
@@ -1078,7 +1082,7 @@ watch(
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #94a3b8;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
@@ -1087,7 +1091,7 @@ watch(
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   font-size: 0.78rem;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .review-list {
@@ -1101,7 +1105,7 @@ watch(
 
 .review-list li {
   font-size: 0.78rem;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   position: relative;
   padding-left: 16px;
 }
@@ -1110,13 +1114,13 @@ watch(
   content: '▸';
   position: absolute;
   left: 0;
-  color: #38bdf8;
+  color: var(--accent-blue);
 }
 
 /* Routing Card */
 .routing-card {
-  background: rgba(56, 189, 248, 0.08);
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 25%, transparent);
   border-radius: 8px;
   padding: 12px;
   display: flex;
@@ -1131,10 +1135,10 @@ watch(
 }
 
 .routing-badge {
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
-  background: #38bdf8;
-  color: #000;
+  background: var(--accent-blue);
+  color: var(--text-on-accent);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -1142,22 +1146,22 @@ watch(
 .routing-text {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .routing-cmd-label {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .routing-cmd {
   font-family: Consolas, monospace;
   font-size: 0.76rem;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--bg-input);
   padding: 2px 6px;
   border-radius: 4px;
-  color: #38bdf8;
+  color: var(--accent-blue);
 }
 
 /* Status Messages */
@@ -1169,9 +1173,9 @@ watch(
 }
 
 .status.ok {
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #34d399;
+  background: color-mix(in srgb, var(--status-ready) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-ready) 30%, transparent);
+  color: var(--status-ready);
 }
 
 .status.ok.inline {
@@ -1180,18 +1184,18 @@ watch(
 }
 
 .status.error {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #f87171;
+  background: color-mix(in srgb, var(--status-error) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-error) 30%, transparent);
+  color: var(--status-error);
 }
 
 /* Buttons */
 .modal-footer {
   padding: 1rem 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--bg-input);
 }
 
 .footer-spacer {
@@ -1199,9 +1203,9 @@ watch(
 }
 
 .glass-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #cbd5e1;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
   padding: 8px 16px;
   border-radius: 6px;
   font-size: 0.8rem;
@@ -1211,8 +1215,8 @@ watch(
 }
 
 .glass-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: var(--bg-active);
+  color: var(--text-primary);
 }
 
 .glass-btn:disabled {
@@ -1221,37 +1225,37 @@ watch(
 }
 
 .btn-primary {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: rgba(56, 189, 248, 0.4);
-  color: #38bdf8;
+  background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  color: var(--accent-blue);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: rgba(56, 189, 248, 0.25);
+  background: color-mix(in srgb, var(--accent-blue) 25%, transparent);
 }
 
 .btn-apply {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.4);
-  color: #34d399;
+  background: color-mix(in srgb, var(--status-ready) 15%, transparent);
+  border-color: color-mix(in srgb, var(--status-ready) 40%, transparent);
+  color: var(--status-ready);
   font-weight: 700;
 }
 
 .btn-apply:hover:not(:disabled) {
-  background: rgba(16, 185, 129, 0.25);
-  box-shadow: 0 0 16px rgba(16, 185, 129, 0.2);
+  background: color-mix(in srgb, var(--status-ready) 25%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--status-ready) 20%, transparent);
 }
 
 .btn-test {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fbbf24;
+  background: color-mix(in srgb, var(--status-warning) 15%, transparent);
+  border-color: color-mix(in srgb, var(--status-warning) 35%, transparent);
+  color: var(--status-warning);
 }
 
 .btn-deploy {
-  background: rgba(168, 85, 247, 0.15);
-  border-color: rgba(168, 85, 247, 0.35);
-  color: #c084fc;
+  background: color-mix(in srgb, var(--accent-purple) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent-purple) 35%, transparent);
+  color: var(--accent-purple);
 }
 
 .btn-icon {

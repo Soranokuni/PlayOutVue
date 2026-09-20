@@ -4,6 +4,14 @@ import { setActivePinia, createPinia } from 'pinia';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import RecycleBinModal from '../RecycleBinModal.vue';
+
+/**
+ * BaseModal (UI F-11) renders through a Teleport to <body>, so these helpers
+ * query the document rather than the component wrapper.
+ */
+const q = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
+const qa = (selector: string) => Array.from(document.querySelectorAll<HTMLElement>(selector));
+const textsOf = (selector: string) => qa(selector).map((el) => el.textContent?.trim() ?? '');
 import { useMediaLibraryStore } from '../../stores/mediaLibrary';
 
 const mockInvoke = vi.fn();
@@ -88,9 +96,11 @@ describe('RecycleBinModal Component & Store Actions', () => {
     expect(mockInvoke).toHaveBeenCalledWith('list_ingestor_recycle_bin', { apiBaseUrlOverride: null });
     expect(libraryStore.recycleBinAssets.length).toBe(2);
 
-    const assetNames = wrapper.findAll('.asset-name').map((w) => w.text());
+    const assetNames = textsOf('.asset-name');
     expect(assetNames).toContain('Deleted Promo');
     expect(assetNames).toContain('Old Documentary Episode');
+
+    wrapper.unmount();
   });
 
   it('filters trashed assets with search query', async () => {
@@ -98,13 +108,16 @@ describe('RecycleBinModal Component & Store Actions', () => {
     await nextTick();
     await nextTick();
 
-    const searchInput = wrapper.find('.search-input');
-    await searchInput.setValue('Documentary');
+    const searchInput = q<HTMLInputElement>('.search-input')!;
+    searchInput.value = 'Documentary';
+    searchInput.dispatchEvent(new Event('input'));
     await nextTick();
 
-    const assetNames = wrapper.findAll('.asset-name').map((w) => w.text());
+    const assetNames = textsOf('.asset-name');
     expect(assetNames).toEqual(['Old Documentary Episode']);
     expect(assetNames).not.toContain('Deleted Promo');
+
+    wrapper.unmount();
   });
 
   it('triggers restore asset on restore button click', async () => {
@@ -112,10 +125,10 @@ describe('RecycleBinModal Component & Store Actions', () => {
     await nextTick();
     await nextTick();
 
-    const restoreButtons = wrapper.findAll('.restore-btn');
+    const restoreButtons = qa('.restore-btn');
     expect(restoreButtons.length).toBe(2);
 
-    await restoreButtons[0].trigger('click');
+    restoreButtons[0]!.click();
     await nextTick();
 
     expect(mockInvoke).toHaveBeenCalledWith('restore_ingestor_asset', {
@@ -128,34 +141,42 @@ describe('RecycleBinModal Component & Store Actions', () => {
     expect(libraryStore.assets.some((a) => a.uuid === 'trash-1')).toBe(true);
     expect(libraryStore.recycleBinAssets.some((a) => a.uuid === 'trash-1')).toBe(false);
     expect(libraryStore.deletedUuids.includes('trash-1')).toBe(false);
+
+    wrapper.unmount();
   });
 
-  it('prompts pulsing danger alert dialog before executing purge', async () => {
+  it('confirms through the shared danger dialog before executing a purge', async () => {
     const wrapper = mount(RecycleBinModal);
     await nextTick();
     await nextTick();
 
-    expect(wrapper.find('.danger-pulse-box').exists()).toBe(false);
+    expect(q('.danger-body')).toBeNull();
 
-    const purgeButtons = wrapper.findAll('.purge-btn');
-    await purgeButtons[0].trigger('click');
+    qa('.purge-btn')[0]!.click();
+    await nextTick();
     await nextTick();
 
-    // Dialog should now be open with pulsing danger styling
-    const dialog = wrapper.find('.danger-pulse-box');
-    expect(dialog.exists()).toBe(true);
-    expect(dialog.text()).toContain('Delete & Purge Asset');
-    expect(dialog.text()).toContain('This action is destructive and irreversible');
+    // UI F-11: this is now DangerConfirm, the one irreversible-action dialog,
+    // shared with MediaLibrary instead of duplicated in it.
+    const dialog = q('.danger-body')!;
+    expect(dialog).not.toBeNull();
+    // §9 glossary: one name for the irreversible action, everywhere.
+    expect(qa('.modal-title').map((el) => el.textContent?.trim())).toContain('Delete permanently');
+    expect(dialog.textContent).toContain('permanently purge "Deleted Promo"');
+    expect(dialog.textContent).toContain('cannot be undone');
 
-    // Confirm purge
-    const confirmBtn = wrapper.find('.dialog-danger-btn');
-    await confirmBtn.trigger('click');
+    // The confirm button is the footer's primary, and nothing is bound to
+    // Enter — an irreversible action has to be pressed.
+    const confirmBtn = qa('.modal-footer .btn--danger')[0]!;
+    confirmBtn.click();
     await nextTick();
 
     expect(mockInvoke).toHaveBeenCalledWith('purge_ingestor_asset', {
       uuid: 'trash-1',
       apiBaseUrlOverride: null
     });
+
+    wrapper.unmount();
   });
 });
 

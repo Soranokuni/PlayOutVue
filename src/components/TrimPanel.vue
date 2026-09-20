@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { msToTimecode, parseTimecode, snapMsToFrame, getFrameRate, isDropFrameSupported } from '../lib/timecode';
 import { activeTrimmerContext } from '../composables/useOperatorShortcuts';
 import { createVirtualSubclip } from '../services/virtualSubclipService';
+import { describeErrorMessage } from '../lib/describeError';
 import {
   createTrimDraft,
   setInAt,
@@ -95,7 +96,7 @@ const loadProxyPreview = async (path: string | undefined, reason: string) => {
   try {
     videoSrc.value = await invoke<string>('get_media_preview_url', { inputPath: path });
   } catch (error) {
-    previewError.value = `Preview proxy failed: ${error}`;
+    previewError.value = describeErrorMessage(error, 'Could not load the preview proxy.');
   } finally {
     isGeneratingProxy.value = false;
   }
@@ -648,7 +649,7 @@ const saveNonDestructive = () => {
     };
 
     saveTask().catch((error) => {
-      trimStatus.value = `❌ ${error}`;
+      trimStatus.value = `❌ ${describeErrorMessage(error, 'The trim could not be applied.')}`;
     });
 };
 
@@ -961,12 +962,12 @@ const saveAsSubclip = () => {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--backdrop);
   backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 10000;
+  z-index: var(--z-modal);
 }
 
 .trim-panel {
@@ -979,7 +980,7 @@ const saveAsSubclip = () => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 14px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-3);
 }
 
 /* Header */
@@ -1005,7 +1006,7 @@ const saveAsSubclip = () => {
 }
 
 .trim-badge {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   padding: 2px 7px;
@@ -1136,7 +1137,7 @@ const saveAsSubclip = () => {
   aspect-ratio: 16/9;
   max-height: 40vh;
   width: 100%;
-  background: #000;
+  background: #000; /* video letterbox, not theme */
   position: relative;
   border-radius: 10px;
   overflow: hidden;
@@ -1144,7 +1145,7 @@ const saveAsSubclip = () => {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border-medium);
-  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8); /* video vignette */
 }
 
 .trim-video {
@@ -1172,7 +1173,7 @@ const saveAsSubclip = () => {
   position: absolute;
   top: 10px;
   right: 12px;
-  background: rgba(15, 23, 42, 0.85);
+  background: var(--bg-surface);
   backdrop-filter: blur(4px);
   color: var(--accent-red);
   font-size: 0.78rem;
@@ -1288,7 +1289,7 @@ const saveAsSubclip = () => {
 .dot-emerald { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
 
 .metric-label {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-muted);
   letter-spacing: 0.06em;
@@ -1371,7 +1372,7 @@ const saveAsSubclip = () => {
   align-items: center;
   justify-content: center;
   font-weight: 900;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-2);
   transform: translateX(-50%);
   transition: transform 0.1s;
 }
@@ -1382,13 +1383,13 @@ const saveAsSubclip = () => {
 
 .tm-handle-in {
   background: var(--accent-green);
-  color: #fff;
+  color: var(--text-on-accent);
   border: 1px solid var(--accent-green);
 }
 
 .tm-handle-out {
   background: var(--accent-red);
-  color: #fff;
+  color: var(--text-on-accent);
   border: 1px solid var(--accent-red);
 }
 
@@ -1624,8 +1625,8 @@ const saveAsSubclip = () => {
 .subclip-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10001;
-  background: rgba(0, 0, 0, 0.75);
+  z-index: var(--z-modal-nested);
+  background: var(--backdrop);
   backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
@@ -1639,7 +1640,7 @@ const saveAsSubclip = () => {
   border: 1px solid var(--border-medium);
   border-radius: 10px;
   padding: 20px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1652,7 +1653,7 @@ const saveAsSubclip = () => {
 }
 
 .modal-badge {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   padding: 2px 6px;
   border-radius: 4px;

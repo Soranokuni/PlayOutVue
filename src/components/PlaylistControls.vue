@@ -5,12 +5,14 @@ import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useRundownStore, type PlaylistFile, type AnyPlaylistFile } from '../stores/rundown';
 import { isPlayoutPlaying } from '../services/playout';
+import AppIcon from './ui/AppIcon.vue';
+import { describeErrorMessage } from '../lib/describeError';
 
 const store = useRundownStore();
 
 const isSaving = ref(false);
 const isLoading = ref(false);
-const statusMessage = ref('Ready');
+const statusMessage = ref('');
 const statusTone = ref<'info' | 'error'>('info');
 const lastPlaylistDirectory = useStorage('playlist.lastDirectory', 'C:/Playlists');
 const startFromDraft = ref('');
@@ -138,7 +140,7 @@ const savePlaylist = async (path: string) => {
         lastPlaylistDirectory.value = path.replace(/[\\/][^\\/]+$/, '');
         setStatus(`Saved ${store.currentPlaylistName} to ${path}`);
     } catch (error) {
-        setStatus(`Save failed: ${error}`, 'error');
+        setStatus(describeErrorMessage(error, 'Could not save the playlist.'), 'error');
     } finally {
         isSaving.value = false;
     }
@@ -172,7 +174,7 @@ const loadPlaylist = async (path: string, append = false) => {
         lastPlaylistDirectory.value = path.replace(/[\\/][^\\/]+$/, '');
         setStatus(`${append ? 'Appended' : 'Loaded'} playlist from ${path}`);
     } catch (error) {
-        setStatus(`Load failed: ${error}`, 'error');
+        setStatus(describeErrorMessage(error, 'Could not load the playlist.'), 'error');
     } finally {
         isLoading.value = false;
     }
@@ -260,7 +262,7 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
       <span class="pl-state-pill" :class="{ 'is-onair': store.isCurrentPlaylistOnAir }">{{ playlistStateLabel }}</span>
       <span class="pl-meta-text">{{ store.activeItems.length }} items</span>
       <span class="pl-meta-text tabular-nums">{{ totalStr }}</span>
-      <span class="pl-status" :class="{ 'is-error': statusTone === 'error' }">{{ statusMessage }}</span>
+      <span v-if="statusMessage" class="pl-status" :class="{ 'is-error': statusTone === 'error' }">{{ statusMessage }}</span>
     </div>
 
     <div class="pl-planning" :class="{ 'is-disabled': !store.canScheduleCurrentPlaylist }">
@@ -279,7 +281,7 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
         @blur="commitStartFrom"
         @keydown.enter.prevent="commitStartFrom"
       >
-      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" :disabled="!store.canScheduleCurrentPlaylist" title="Insert offline gap line">⏱</button>
+      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" :disabled="!store.canScheduleCurrentPlaylist" title="Insert offline gap line" aria-label="Insert offline gap line"><AppIcon name="gap" /></button>
       <template v-else>
         <input
           v-model="gapTimeDraft"
@@ -293,16 +295,16 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
           @keydown.enter.prevent="commitGapLine"
           @keydown.esc.prevent="cancelGapLine"
         >
-        <button class="pl-btn" @click="commitGapLine" title="Insert gap line at this time">✔</button>
-        <button class="pl-btn" @click="cancelGapLine" title="Cancel">✖</button>
+        <button class="pl-btn" @click="commitGapLine" title="Insert gap line at this time" aria-label="Insert gap line at this time"><AppIcon name="check" /></button>
+        <button class="pl-btn" @click="cancelGapLine" title="Cancel" aria-label="Cancel"><AppIcon name="close" /></button>
       </template>
     </div>
 
     <div class="pl-buttons">
-      <button class="pl-btn" @click="pickPlaylistPath('save')" :disabled="isSaving" title="Save Playlist">💾</button>
-      <button class="pl-btn" @click="pickPlaylistPath('load')" :disabled="isLoading" title="Load Playlist">📂</button>
-      <button class="pl-btn" @click="pickPlaylistPath('append')" :disabled="isLoading" title="Append Playlist">➕</button>
-      <button class="pl-btn btn-danger" @click="clearRundown" title="Clear Rundown">🗑</button>
+      <button class="pl-btn" @click="pickPlaylistPath('save')" :disabled="isSaving" title="Save playlist" aria-label="Save playlist"><AppIcon name="save" /></button>
+      <button class="pl-btn" @click="pickPlaylistPath('load')" :disabled="isLoading" title="Load playlist" aria-label="Load playlist"><AppIcon name="folder-open" /></button>
+      <button class="pl-btn" @click="pickPlaylistPath('append')" :disabled="isLoading" title="Append playlist" aria-label="Append playlist"><AppIcon name="plus" /></button>
+      <button class="pl-btn btn-danger" @click="clearRundown" title="Clear rundown" aria-label="Clear rundown"><AppIcon name="trash" /></button>
     </div>
   </div>
 </template>
@@ -318,7 +320,7 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
   border-bottom: 1px solid var(--border-subtle);
   pointer-events: auto;
   position: relative;
-  z-index: 10;
+  z-index: var(--z-panel);
   flex-shrink: 0;
 }
 
@@ -337,7 +339,7 @@ const pickPlaylistPath = async (action: 'save' | 'load' | 'append') => {
 }
 
 .pl-state-pill {
-  font-size: 0.64rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   padding: 2px 6px;

@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { claimContextMenu, releaseContextMenu } from '../lib/activeContextMenu';
+import AppIcon from './ui/AppIcon.vue';
+import type { IconName } from './ui/icons';
 
 export interface MenuItem {
   type: 'action' | 'divider' | 'submenu' | 'label' | 'toggle';
   id?: string;
   label?: string;
+  /**
+   * UI F-10: menu labels used to embed an emoji ("🔍 Inspect Clip"). The glyph
+   * belongs in its own slot so it can be themed, sized and aligned, and so the
+   * label stays a plain translatable string.
+   */
+  icon?: IconName;
   action?: () => void;
   checked?: boolean;
   danger?: boolean;
@@ -14,6 +23,7 @@ export interface MenuItem {
 
 export interface TopAction {
   id: 'trim' | 'rename' | 'purge' | 'delete' | string;
+  icon?: IconName;
   tooltip: string;
   action: () => void;
   disabled?: boolean;
@@ -48,7 +58,52 @@ const activeSubmenu = ref<ActiveSubmenuState | null>(null);
 const currentHoveredParentId = ref<string | number | null>(null);
 let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
+// UI F-05: the menu owns its own dismissal. Previously each parent closed it on
+// a window `click`, which never fired for a right-click in another panel, and
+// nothing at all handled Escape.
+const requestClose = () => emit('close');
+
+/** Falls back to the action id so a new top action still renders something. */
+const topActionIcon = (btn: TopAction): IconName =>
+  btn.icon ??
+  (({ trim: 'scissors', rename: 'rename', purge: 'trash', delete: 'trash' } as Record<string, IconName>)[btn.id] ??
+    'file');
+
+const onDocumentKeyDown = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape') return;
+  // Take the event before the global operator router sees it, so Escape closes
+  // the menu rather than clearing the rundown selection underneath it.
+  event.preventDefault();
+  event.stopPropagation();
+  requestClose();
+};
+
+const isInsideMenu = (target: EventTarget | null) => {
+  const node = target as Node | null;
+  if (!node) return false;
+  return !!menuRef.value?.contains(node) || !!submenuRef.value?.contains(node);
+};
+
+const onPointerDownOutside = (event: PointerEvent | MouseEvent) => {
+  if (isInsideMenu(event.target)) return;
+  requestClose();
+};
+
+// A right-click elsewhere must close this menu before the new one opens; the
+// singleton covers menus, this covers a right-click on inert background.
+const onContextMenuOutside = (event: MouseEvent) => {
+  if (isInsideMenu(event.target)) return;
+  requestClose();
+};
+
 onMounted(() => {
+  claimContextMenu(requestClose);
+  window.addEventListener('keydown', onDocumentKeyDown, true);
+  window.addEventListener('pointerdown', onPointerDownOutside, true);
+  window.addEventListener('contextmenu', onContextMenuOutside, true);
+  window.addEventListener('blur', requestClose);
+  window.addEventListener('resize', requestClose);
+
   // Give Vue a moment to render and get actual dimensions
   setTimeout(() => {
     if (menuRef.value) {
@@ -81,6 +136,12 @@ onUnmounted(() => {
   if (closeTimeout) {
     clearTimeout(closeTimeout);
   }
+  releaseContextMenu(requestClose);
+  window.removeEventListener('keydown', onDocumentKeyDown, true);
+  window.removeEventListener('pointerdown', onPointerDownOutside, true);
+  window.removeEventListener('contextmenu', onContextMenuOutside, true);
+  window.removeEventListener('blur', requestClose);
+  window.removeEventListener('resize', requestClose);
 });
 
 // Open submenu with hover bridge and viewport boundary check
@@ -206,37 +267,8 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
         :disabled="btn.disabled"
         @click.stop="!btn.disabled && (btn.action(), emit('close'))"
       >
-        <span class="action-icon">
-          <!-- Trim (Scissors) -->
-          <svg v-if="btn.id === 'trim'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="6" cy="6" r="3"></circle>
-            <circle cx="6" cy="18" r="3"></circle>
-            <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
-            <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
-            <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
-          </svg>
-          
-          <!-- Rename (Pencil) -->
-          <svg v-else-if="btn.id === 'rename'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 20h9"></path>
-            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-          </svg>
-          
-          <!-- Purge (Trash Can with Warning Exclamation) -->
-          <svg v-else-if="btn.id === 'purge'" class="icon-danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-            <path d="M10 11v6M14 11v6" />
-            <path d="M12 8.5v4" stroke="#ff4d4d" stroke-width="2.5" />
-            <circle cx="12" cy="16" r="0.75" fill="#ff4d4d" stroke="none" />
-          </svg>
-          
-          <!-- Delete (Trash Can) -->
-          <svg v-else-if="btn.id === 'delete'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-          </svg>
-          
-          <span v-else>{{ btn.id }}</span>
+        <span class="action-icon" :class="{ 'icon-danger': btn.id === 'purge' }">
+          <AppIcon :name="topActionIcon(btn)" :size="16" />
         </span>
       </button>
     </div>
@@ -272,8 +304,9 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
           @click.stop="!item.disabled && item.action && (item.action(), emit('close'))"
         >
           <span class="menu-item-check-spacer">
-            <span v-if="item.checked" class="check-mark">✓</span>
+            <AppIcon v-if="item.checked" class="check-mark" name="check" :size="14" :stroke-width="3" />
           </span>
+          <AppIcon v-if="item.icon" class="menu-item-icon" :name="item.icon" :size="14" />
           <span class="menu-item-label">{{ item.label }}</span>
         </div>
 
@@ -291,11 +324,10 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
           @click.stop="openSubmenu($event, item, idx)"
         >
           <span class="menu-item-check-spacer"></span>
+          <AppIcon v-if="item.icon" class="menu-item-icon" :name="item.icon" :size="14" />
           <span class="menu-item-label">{{ item.label }}</span>
           <span class="submenu-chevron">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
+            <AppIcon name="chevron-right" :size="14" :stroke-width="2.5" />
           </span>
         </div>
       </template>
@@ -326,8 +358,9 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
             @click.stop="!child.disabled && child.action && (child.action(), emit('close'), activeSubmenu = null)"
           >
             <span class="menu-item-check-spacer">
-              <span v-if="child.checked" class="check-mark">✓</span>
+              <AppIcon v-if="child.checked" class="check-mark" name="check" :size="14" :stroke-width="3" />
             </span>
+            <AppIcon v-if="child.icon" class="menu-item-icon" :name="child.icon" :size="14" />
             <span class="menu-item-label">{{ child.label }}</span>
           </div>
         </template>
@@ -340,14 +373,12 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 /* Main Context Menu Styling */
 .win11-context-menu {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--z-context-menu);
   min-width: 220px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 0.6rem;
-  box-shadow: 
-    0 12px 32px rgba(0, 0, 0, 0.45), 
-    0 2px 6px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-3);
   font-family: var(--font-ui);
   color: var(--text-primary);
   padding: 5px 0;
@@ -454,8 +485,8 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s ease, transform 0.12s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-  z-index: 10010;
+  box-shadow: var(--shadow-2);
+  z-index: calc(var(--z-context-menu) + 10);
 }
 
 .action-btn:hover::after {
@@ -466,7 +497,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 /* Vertical Menu Items list */
 .menu-label {
   padding: 6px 12px 3px;
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -546,11 +577,11 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   min-width: 220px;
   max-height: 50vh;
   overflow-y: auto;
-  z-index: 10005;
+  z-index: calc(var(--z-context-menu) + 5);
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 0.6rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-2);
 }
 
 .submenu-flyout::before {
@@ -567,5 +598,18 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 .submenu-active {
   background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
   color: var(--text-primary);
+}
+/* UI F-10: the optional leading glyph on a menu row. */
+.menu-item-icon {
+  color: var(--text-secondary);
+  margin-right: var(--space-1);
+}
+
+.menu-item:hover:not(.disabled) .menu-item-icon {
+  color: var(--text-primary);
+}
+
+.menu-item.danger .menu-item-icon {
+  color: var(--status-error);
 }
 </style>

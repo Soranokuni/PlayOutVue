@@ -16,6 +16,8 @@ const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponen
   () => import('./components/SettingsModal.vue'),
 );
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
+import AppIcon from './components/ui/AppIcon.vue';
+import ToastHost from './components/ui/ToastHost.vue';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
@@ -121,6 +123,65 @@ const footerMetaRef = ref<HTMLElement | null>(null);
 const showProductInfo = ref(false);
 const showQuickGuide = ref(false);
 
+// UI F-01: the control bar used to wrap below 1280px, and the wrapped second
+// row fell outside the fixed 58px grid row — Settings and Lock became
+// unreachable at the app's own 1100px minimum width. The bar now never wraps;
+// it sheds content by priority instead. The tier is driven by a ResizeObserver
+// on the bar itself (not a viewport media query) so the library split width is
+// accounted for: dragging the resizer wider collapses the bar too.
+type ControlBarTier = 'full' | 'compact' | 'minimal';
+const controlBarRef = ref<HTMLElement | null>(null);
+const controlBarTier = ref<ControlBarTier>('full');
+let controlBarObserver: ResizeObserver | null = null;
+
+const applyControlBarTier = (width: number) => {
+  // Thresholds are the measured widths at which the bar's own content stops
+  // fitting on one line, not device breakpoints.
+  const next: ControlBarTier = width < 980 ? 'minimal' : width < 1180 ? 'compact' : 'full';
+  if (next !== controlBarTier.value) controlBarTier.value = next;
+};
+
+const measureControlBar = () => {
+  const el = controlBarRef.value;
+  if (el) applyControlBarTier(el.getBoundingClientRect().width);
+};
+
+const startControlBarObserver = () => {
+  const el = controlBarRef.value;
+  if (!el) return;
+
+  if (typeof ResizeObserver !== 'undefined') {
+    controlBarObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) applyControlBarTier(entry.contentRect.width);
+    });
+    controlBarObserver.observe(el);
+  }
+
+  // The first measurement at mount can land before the grid has laid out, and
+  // if the bar's box never changes afterwards no observation follows to correct
+  // it -- the bar would stay collapsed at a width that fits everything.
+  // Measure again after a frame, and keep a window listener as a fallback for
+  // environments where ResizeObserver does not deliver.
+  measureControlBar();
+  requestAnimationFrame(measureControlBar);
+  window.addEventListener('resize', measureControlBar);
+};
+
+const stopControlBarObserver = () => {
+  controlBarObserver?.disconnect();
+  controlBarObserver = null;
+  window.removeEventListener('resize', measureControlBar);
+};
+
+// The TAKE HELD alert is injected into the same row and is wide; while it is up
+// the bar behaves as if it were one tier tighter so the alert never pushes
+// Settings or Lock past the edge.
+const effectiveControlBarTier = computed<ControlBarTier>(() => {
+  if (!manualTakeFailure.value) return controlBarTier.value;
+  return controlBarTier.value === 'full' ? 'compact' : 'minimal';
+});
+
 const APP_NAME = 'Aether';
 const APP_VERSION = '3.0';
 
@@ -131,13 +192,19 @@ const appHighlights = [
   'Operator-first rundown editing with drag insert, gap markers, next-up warnings, and persistent selection.'
 ];
 
+// These are checked against useOperatorShortcuts: a guide that promises a key
+// nothing binds is how Ctrl+I went unbound for as long as it did (F-04). The
+// first line used to claim Enter or Space plays the selected row -- the
+// operator keyboard contract (§5) deliberately ignores both so a stray press
+// can never put something on air.
 const shortcutGuide = [
-  'Enter or Space: play from the selected rundown row.',
+  'Enter and Space never take a row on air — use the PLAY button or the row play control.',
   'Delete or Backspace: remove the selected row, except the one currently on air.',
   'Ctrl + Arrow Up or Arrow Down: move the selected row.',
   'Shift + Arrow Down: duplicate the selected row.',
-  'Ctrl + I: Inspect selected media clip metadata and QC probing.',
-  'F8 in the media library: append the selected library item after the selected rundown row.'
+  'Ctrl + I: inspect the selected clip — metadata and QC.',
+  'Ctrl + K: open the command palette.',
+  'F8 in the media library: add the selected item to the end of the rundown (Shift + F8 inserts after the selection).'
 ];
 
 const workflowGuide = [
@@ -148,18 +215,19 @@ const workflowGuide = [
   'Use Settings for connections, media paths, themes, and QC sensitivity modes.'
 ];
 
-const leftWidth = useStorage('layout.leftWidth', 280);
+// §5.1: 320px default (min 280, max 640). At 280 there were five chrome bars
+// before the first asset and names truncated at ~8 characters.
+const LIBRARY_WIDTH_DEFAULT = 320;
+const leftWidth = useStorage('layout.leftWidth', LIBRARY_WIDTH_DEFAULT);
 const isResizing = ref<'left'|null>(null);
 let pendingResizeX = 0;
 let resizeFrame = 0;
 
 // Theme and Scale watchers
 watch(() => settings.theme, (theme) => {
-    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme', 'soft-slate-theme', 'periwinkle-theme');
+    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme');
     if (theme === 'light') document.body.classList.add('light-theme');
     else if (theme === 'monokai') document.body.classList.add('monokai-theme');
-    else if (theme === 'soft-slate') document.body.classList.add('soft-slate-theme');
-    else if (theme === 'periwinkle') document.body.classList.add('periwinkle-theme');
     else document.body.classList.add('dark-theme');
 }, { immediate: true });
 
@@ -190,23 +258,6 @@ watch(
   { immediate: true, deep: true }
 );
 
-const formatDuration = (seconds: number) => {
-  const total = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const remainingSeconds = total % 60;
-  return [hours, minutes, remainingSeconds]
-    .filter((value, index) => value > 0 || index > 0)
-    .map((value) => String(value).padStart(2, '0'))
-    .join(':');
-};
-
-const rundownSummary = computed(() => {
-  const itemCount = rundown.activeItems.length;
-  if (!itemCount) return 'No items loaded';
-  return `${rundown.currentPlaylistName} · ${itemCount} item${itemCount === 1 ? '' : 's'} · ${formatDuration(rundown.totalDuration)}`;
-});
-
 const toggleProductInfo = () => {
   showProductInfo.value = !showProductInfo.value;
   if (showProductInfo.value) showQuickGuide.value = false;
@@ -231,7 +282,7 @@ const handleGlobalPointerDown = (event: PointerEvent) => {
 const applyResize = () => {
   resizeFrame = 0;
   if (isResizing.value === 'left') {
-    leftWidth.value = Math.max(260, Math.min(600, pendingResizeX));
+    leftWidth.value = Math.max(280, Math.min(640, pendingResizeX));
   }
 };
 
@@ -267,6 +318,39 @@ const connectionTone = computed<'ready' | 'processing' | 'error' | 'warning' | '
     case 'crashed': return 'error';
     case 'operational': return 'ready';
     default: return 'offline';
+  }
+});
+
+/**
+ * §7 / §9: a short state for the status readout. The long sentences below stay
+ * as the tooltip; the bar shows two or three words.
+ */
+const connectionShortState = computed(() => {
+  if (!isPrimaryInstance.value) return isPlayoutConnected.value ? 'Monitor' : 'Monitor · offline';
+  if (isPlayoutConnected.value) return 'Connected';
+  if (processStatus.value?.circuitBreakerTripped) return 'Crash loop';
+  switch (processState.value) {
+    case 'unconfigured': return 'Not found';
+    case 'stopped': return 'Stopped';
+    case 'starting': return 'Starting…';
+    case 'external_running': return 'Ready';
+    case 'crashed': return 'Crashed';
+    case 'disconnected': return 'Offline';
+    case 'operational': return 'Ready';
+    default: return 'Offline';
+  }
+});
+
+/** The verb, which is now a separate control from the state above. */
+const connectionActionLabel = computed(() => {
+  if (isStarting.value || processState.value === 'starting') return 'Starting…';
+  if (isPlayoutConnected.value) return 'Disconnect';
+  if (processStatus.value?.circuitBreakerTripped) return 'Relaunch';
+  switch (processState.value) {
+    case 'unconfigured': return 'Browse…';
+    case 'stopped': return 'Start';
+    case 'crashed': return 'Relaunch';
+    default: return 'Connect';
   }
 });
 
@@ -401,22 +485,60 @@ const toggleSdi = async () => {
 const isLiveCutArmed = ref(false);
 let liveCutArmTimer: ReturnType<typeof setTimeout> | null = null;
 
-const cutToLive = async () => {
-  if (!isLiveCutArmed.value) {
-    isLiveCutArmed.value = true;
-    if (liveCutArmTimer) clearTimeout(liveCutArmTimer);
-    liveCutArmTimer = setTimeout(() => {
-      isLiveCutArmed.value = false;
-      liveCutArmTimer = null;
-    }, 3000);
-    return;
-  }
+/** How long the second click stays live, in ms. */
+const LIVE_CUT_ARM_MS = 3000;
 
+/**
+ * §7: the arm window is drawn as a ring that empties over the three seconds,
+ * so the operator can see how long they have. Ticked on a timer rather than
+ * rAF: one repaint every 100ms, not sixty.
+ */
+const liveCutArmRemaining = ref(0);
+let liveCutArmTick: ReturnType<typeof setInterval> | null = null;
+
+const stopArmCountdown = () => {
+  if (liveCutArmTick) {
+    clearInterval(liveCutArmTick);
+    liveCutArmTick = null;
+  }
+  liveCutArmRemaining.value = 0;
+};
+
+/** 0 … 1, for the conic-gradient sweep. */
+const liveCutArmProgress = computed(() =>
+  liveCutArmRemaining.value > 0 ? liveCutArmRemaining.value / LIVE_CUT_ARM_MS : 0
+);
+
+const disarmLiveCut = () => {
   if (liveCutArmTimer) {
     clearTimeout(liveCutArmTimer);
     liveCutArmTimer = null;
   }
   isLiveCutArmed.value = false;
+  stopArmCountdown();
+};
+
+const cutToLive = async () => {
+  if (!isLiveCutArmed.value) {
+    isLiveCutArmed.value = true;
+    if (liveCutArmTimer) clearTimeout(liveCutArmTimer);
+
+    const armedAt = Date.now();
+    liveCutArmRemaining.value = LIVE_CUT_ARM_MS;
+    stopArmCountdown();
+    liveCutArmTick = setInterval(() => {
+      liveCutArmRemaining.value = Math.max(0, LIVE_CUT_ARM_MS - (Date.now() - armedAt));
+    }, 100);
+
+    liveCutArmTimer = setTimeout(() => {
+      isLiveCutArmed.value = false;
+      liveCutArmTimer = null;
+      stopArmCountdown();
+    }, LIVE_CUT_ARM_MS);
+    return;
+  }
+
+  disarmLiveCut();
 
   try {
     await getActivePlayoutService().cutToLive?.();
@@ -526,6 +648,7 @@ const revealWindow = () => {
 onMounted(async () => {
   window.addEventListener('pointerdown', handleGlobalPointerDown);
   window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
+  startControlBarObserver();
   revealWindow();
   if (settings.debugMode) {
     startJankMonitor();
@@ -601,12 +724,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   onMouseUp();
-  if (liveCutArmTimer) {
-    clearTimeout(liveCutArmTimer);
-    liveCutArmTimer = null;
-  }
+  disarmLiveCut();
   window.removeEventListener('pointerdown', handleGlobalPointerDown);
   window.removeEventListener('playout:open-inspector', handleInspectorOpenEvent);
+  stopControlBarObserver();
   if (unlistenHeartbeat) {
     unlistenHeartbeat();
     unlistenHeartbeat = null;
@@ -625,9 +746,12 @@ onUnmounted(() => {
     cursor: isResizing ? 'ew-resize' : 'default'
   }">
     <!-- Persistent Playout Halted Banner -->
-    <div v-if="playoutHalted" class="halt-banner">
+    <!-- §10: playout halting is the one thing that must interrupt whatever a
+         screen-reader user is reading, so this is `assertive`. Toasts stay
+         `polite`; clocks and timecodes announce nothing. -->
+    <div v-if="playoutHalted" class="halt-banner" role="alert" aria-live="assertive">
       <div class="halt-content">
-        <span class="halt-icon">⚠️</span>
+        <AppIcon class="halt-icon" name="alert" :size="20" />
         <span class="halt-text">Playout halted after 3 consecutive errors — operator intervention required.</span>
       </div>
       <button class="halt-dismiss-btn" @click="playoutHalted = false">Dismiss</button>
@@ -636,7 +760,7 @@ onUnmounted(() => {
     <!-- Audit T1-8: rundown changes are not reaching localStorage -->
     <div v-if="persistenceFault" class="halt-banner persist-banner" role="alert">
       <div class="halt-content">
-        <span class="halt-icon">💾</span>
+        <AppIcon class="halt-icon" name="save" :size="20" />
         <span class="halt-text">{{ persistenceFault.message }} Save the rundown to a file now.</span>
       </div>
       <button class="halt-dismiss-btn" @click="clearPersistenceFault()">Dismiss</button>
@@ -648,30 +772,25 @@ onUnmounted(() => {
         <span class="fault-source">{{ fault.source }}</span>
         <span class="fault-message">{{ fault.message }}</span>
         <span v-if="fault.count > 1" class="fault-count">×{{ fault.count }}</span>
-        <button class="fault-dismiss" title="Dismiss" @click="dismissFrontendFault(fault.id)">✕</button>
+        <button class="fault-dismiss" title="Dismiss" aria-label="Dismiss fault" @click="dismissFrontendFault(fault.id)">
+          <AppIcon name="close" :size="14" />
+        </button>
       </div>
     </div>
     
     <aside class="panel panel-library glass-panel"><MediaLibrary /></aside>
-    <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = 280"></div>
+    <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = LIBRARY_WIDTH_DEFAULT"></div>
     
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
 
     <!-- Simplified Master Control Bar -->
-    <footer class="control-bar glass-panel">
+    <footer class="control-bar glass-panel" ref="controlBarRef" :class="`tier-${effectiveControlBarTier}`">
 
-      <!-- Connection Indicator & Control in One Field -->
-      <div class="ctrl-section">
-        <button
-          class="ctrl-btn conn-toggle-btn"
-          :class="[
-            'tone-' + connectionTone,
-            { 'is-connected': isPlayoutConnected }
-          ]"
-          :disabled="isStarting || processState === 'starting'"
-          @click="handleConnectionAction"
-          :title="isPlayoutConnected ? 'CasparCG Connected · Click to Disconnect' : `CasparCG (${connectionLabel}) · Click to ${connectionBtnText}`"
-        >
+      <!-- §7 group 1: engine. The status says what is true; the button next
+           to it says what will happen. They used to be one control whose label
+           flipped between the two. -->
+      <div class="ctrl-section ctrl-engine">
+        <span class="conn-status" :title="connectionLabel">
           <span
             class="status-dot"
             :class="[
@@ -679,9 +798,15 @@ onUnmounted(() => {
               { pulse: connectionTone === 'processing' || processState === 'unconfigured' || processState === 'crashed' }
             ]"
           ></span>
-          <span class="conn-text">{{ isPlayoutConnected ? 'CONNECTED' : connectionBtnText }}</span>
-        </button>
-        <span v-if="!isPrimaryInstance" class="monitor-badge" title="Running in secondary Monitor Mode (Read-Only)">MONITOR</span>
+          <span class="conn-text">{{ connectionShortState }}</span>
+        </span>
+        <button
+          class="ctrl-btn conn-action-btn"
+          :disabled="isStarting || processState === 'starting'"
+          :title="`CasparCG: ${connectionLabel}`"
+          @click="handleConnectionAction"
+        >{{ connectionActionLabel }}</button>
+        <span v-if="!isPrimaryInstance" class="monitor-badge" title="Running in secondary monitor mode (read-only)">MONITOR</span>
       </div>
 
       <div class="ctrl-divider"></div>
@@ -695,7 +820,8 @@ onUnmounted(() => {
           @click="playSelected"
           :title="!isPrimaryInstance ? 'Disabled in Monitor Mode (Read-Only)' : (rundown.isRundownLocked ? 'Rundown is Locked (Unlock to Play)' : 'Play playlist from selected item (or beginning)')"
         >
-          ▶ PLAY
+          <AppIcon name="play" :size="16" :stroke-width="2.5" />
+          <span>PLAY</span>
         </button>
         <button
           v-else
@@ -704,7 +830,8 @@ onUnmounted(() => {
           @click="stopPlayback"
           title="Stop playback"
         >
-          ■ STOP
+          <AppIcon name="stop" :size="16" :stroke-width="2.5" />
+          <span>STOP</span>
         </button>
       </div>
 
@@ -719,9 +846,20 @@ onUnmounted(() => {
           :class="{ 'btn-live-armed': isLiveCutArmed }"
           :disabled="!isPlayoutConnected || !isPrimaryInstance"
           @click="cutToLive"
-          :title="!isLiveCutArmed ? 'Arm Cut to Live (First Click to Arm)' : 'Click Again to Execute Hardware Cut to Live'"
+          :title="!isLiveCutArmed ? 'Arm the cut to live — a second click executes it' : 'Click again to cut to live'"
         >
-          {{ isLiveCutArmed ? '⚠️ CONFIRM CUT (ARMED)' : '🔴 CUT TO LIVE' }}
+          <!-- §7: the 3s arm window had no visible countdown. The ring
+               empties over those three seconds so the operator can see how
+               long the second click stays live. -->
+          <span
+            v-if="isLiveCutArmed"
+            class="arm-ring"
+            aria-hidden="true"
+            :style="{ '--arm-progress': liveCutArmProgress }"
+          ></span>
+          <AppIcon class="ctrl-btn-glyph" :name="isLiveCutArmed ? 'alert' : 'live'" :size="14" :stroke-width="2.5" />
+          <span class="ctrl-btn-label">{{ isLiveCutArmed ? 'CONFIRM CUT (ARMED)' : 'CUT TO LIVE' }}</span>
+          <span class="ctrl-btn-label-short" aria-hidden="true">{{ isLiveCutArmed ? 'CONFIRM' : 'LIVE' }}</span>
         </button>
         <button
           v-else
@@ -730,7 +868,9 @@ onUnmounted(() => {
           @click="returnFromLive"
           title="Live Broadcast Active — Click to Return to Rundown Playlist"
         >
-          🔴 LIVE ON AIR (RETURN TO RUNDOWN)
+          <AppIcon class="ctrl-btn-glyph" name="live" :size="14" :stroke-width="2.5" />
+          <span class="ctrl-btn-label">LIVE ON AIR (RETURN TO RUNDOWN)</span>
+          <span class="ctrl-btn-label-short" aria-hidden="true">LIVE ON AIR</span>
         </button>
       </div>
 
@@ -762,25 +902,20 @@ onUnmounted(() => {
 
       <!-- Broadcast Stream & SDI -->
       <div v-if="activePlayoutCapabilities.streaming" class="ctrl-section">
-        <div class="status-dot" :class="{ connected: isStreaming }" style="--dot-color:#e63946;"></div>
+        <div class="status-dot" :class="{ connected: isStreaming }"></div>
         <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
         <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream" style="font-size:0.7rem;">
-          {{ isStreaming ? '■ Stop' : '● Stream' }}
+          <AppIcon :name="isStreaming ? 'stop' : 'live'" :size="14" />
+          <span>{{ isStreaming ? 'Stop' : 'Stream' }}</span>
         </button>
 
         <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleSdi" style="font-size:0.7rem; margin-left:12px;">
-          {{ isSdiActive ? '■ SDI Stop' : '● SDI OUT' }}
+          <AppIcon :name="isSdiActive ? 'stop' : 'live'" :size="14" />
+          <span>{{ isSdiActive ? 'SDI Stop' : 'SDI OUT' }}</span>
         </button>
       </div>
 
-      <div class="ctrl-divider"></div>
-
-      <div class="ctrl-section ctrl-summary">
-        <span class="ctrl-label">RUNDOWN</span>
-        <span class="ctrl-value">{{ rundownSummary }}</span>
-      </div>
-
-      <div class="ctrl-divider"></div>
+      <div v-if="activePlayoutCapabilities.streaming" class="ctrl-divider"></div>
 
       <!-- Rundown Safety Lock Button -->
       <button
@@ -789,13 +924,26 @@ onUnmounted(() => {
         @click="rundown.toggleRundownLock()"
         :title="rundown.isRundownLocked ? 'Rundown Locked: Accidental edits are protected. Click to Unlock.' : 'Rundown Unlocked: Free to edit, reorder, and delete items. Click to Lock.'"
       >
-        <span class="lock-icon">{{ rundown.isRundownLocked ? '🔒' : '🔓' }}</span>
+        <AppIcon class="lock-icon" :name="rundown.isRundownLocked ? 'lock' : 'unlock'" :size="14" />
         <span class="lock-text">{{ rundown.isRundownLocked ? 'LOCKED' : 'UNLOCKED' }}</span>
       </button>
 
-      <IngestorStatusLight />
+      <span class="ctrl-section ctrl-ingest" :title="ingestorStatus.isIngestorOnline ? 'Ingestor reachable' : 'Ingestor unreachable'">
+        <IngestorStatusLight />
+        <span class="ctrl-label">INGEST</span>
+      </span>
 
-      <button class="ctrl-btn" style="font-size:0.78rem;" @pointerenter="preloadSettingsModal()" @focus="preloadSettingsModal()" @click="showSettings = true">⚙ Settings</button>
+      <button
+        class="ctrl-btn ctrl-settings-btn"
+        aria-label="Settings"
+        title="Settings"
+        @pointerenter="preloadSettingsModal()"
+        @focus="preloadSettingsModal()"
+        @click="showSettings = true"
+      >
+        <AppIcon class="ctrl-btn-glyph" name="settings" :size="16" />
+        <span class="ctrl-btn-label">Settings</span>
+      </button>
 
       <div class="ctrl-meta-dock" ref="footerMetaRef">
         <button
@@ -856,6 +1004,9 @@ onUnmounted(() => {
     <MediaInspector :is-open="activeModalName === 'inspector'" :target-item="activeInspectorItem" @close="closeInspectorModal" />
     <SettingsModal v-if="showSettings" :is-open="showSettings" @close="showSettings = false" />
     <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
+
+    <!-- UI §3.2: one toast host for the whole app. -->
+    <ToastHost />
   </main>
 </template>
 
@@ -875,7 +1026,13 @@ onUnmounted(() => {
 }
 .panel-library  { grid-area: library; overflow:hidden; }
 .panel-rundown  { grid-area: rundown; overflow:hidden; }
-.control-bar    { grid-area: ctrl; display:flex; align-items:center; gap:8px; padding:0 12px; margin-top:5px; position:relative; overflow:visible; }
+/* UI F-01: `flex-wrap: nowrap` is load-bearing. The shell's `ctrl` grid row is
+   a fixed 58px and the shell is `overflow: hidden`, so any wrapped second row
+   is clipped out of reach. Collapse tiers below shed content instead. */
+.control-bar    { grid-area: ctrl; display:flex; flex-wrap:nowrap; align-items:center; gap:8px; padding:0 12px; margin-top:5px; position:relative; overflow:visible; min-width:0; }
+
+.ctrl-btn-glyph { flex-shrink:0; }
+.ctrl-btn-label-short { display:none; }
 
 .resizer {
   cursor: ew-resize;
@@ -910,7 +1067,8 @@ onUnmounted(() => {
 
 .ctrl-section    { display:flex; align-items:center; gap:6px; }
 .ctrl-label      { font-size:0.72rem; color:var(--text-muted); letter-spacing:0.5px; font-weight:700; white-space:nowrap; }
-.ctrl-summary    { min-width:0; }
+.ctrl-ingest { display:inline-flex; align-items:center; gap:4px; }
+.ctrl-ingest .ctrl-label { font-size: var(--fs-xs); }
 .ctrl-value      {
   font-size:0.82rem; color:var(--text-primary); font-weight:600; white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; max-width:260px;
@@ -922,27 +1080,32 @@ onUnmounted(() => {
 .ctrl-btn {
   background:var(--bg-hover); border:1px solid var(--border-medium);
   color:var(--text-primary); border-radius:6px; cursor:pointer;
-  padding:6px 14px; font-size:0.82rem; font-weight:600; transition:all 0.15s; white-space:nowrap;
+  padding:6px 14px; font-size:var(--fs-sm); font-weight:600; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:6px;
+  /* PERF: explicit property list, never `all`. */
+  transition:background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.ctrl-btn:hover { background:color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover)); border-color:var(--border-strong); }
-.ctrl-btn:disabled { opacity:0.35; cursor:not-allowed; }
-.ctrl-btn:hover { background:rgba(255,255,255,0.12); }
+.ctrl-btn:hover:not(:disabled) { background:color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover)); border-color:var(--border-strong); }
 .ctrl-btn:disabled { opacity:0.35; cursor:not-allowed; }
 
 .btn-play {
-  background:#33becc; border-color:#33becc;
-  color:#000; font-size:0.88rem; font-weight:800;
+  background:var(--accent-cyan); border-color:var(--accent-cyan);
+  color:var(--text-on-accent); font-size:var(--fs-md); font-weight:800;
   padding:6px 20px; letter-spacing:1px;
-  box-shadow:0 0 12px rgba(51,190,204,0.35);
+  box-shadow:0 0 12px color-mix(in srgb, var(--accent-cyan) 35%, transparent);
 }
-.btn-play:hover:not(:disabled) { background:#45d4e3; box-shadow:0 0 18px rgba(51,190,204,0.6); }
+.btn-play:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--accent-cyan) 88%, var(--text-primary));
+  border-color:color-mix(in srgb, var(--accent-cyan) 88%, var(--text-primary));
+  box-shadow:0 0 18px color-mix(in srgb, var(--accent-cyan) 60%, transparent);
+}
 
 .btn-stop {
   position: relative;
-  background:#e63946; border-color:#e63946;
-  color:#fff; font-size:0.88rem; font-weight:800;
+  background:var(--status-onair); border-color:var(--status-onair);
+  color:var(--text-on-danger); font-size:var(--fs-md); font-weight:800;
   padding:6px 20px; letter-spacing:1px;
-  box-shadow:0 0 12px rgba(230,57,70,0.4);
+  box-shadow:0 0 12px color-mix(in srgb, var(--status-onair) 40%, transparent);
 }
 /* PERF F-22: STOP is visible for the whole playing session; its glow pulse
    used to repaint the button every frame (box-shadow keyframe). The peak
@@ -953,7 +1116,7 @@ onUnmounted(() => {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 28px rgba(230,57,70,0.8);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--status-onair) 80%, transparent);
   animation: pulse-stop 1.5s ease-in-out infinite;
   will-change: opacity;
 }
@@ -975,26 +1138,63 @@ onUnmounted(() => {
   .btn-stop::after { opacity: 0.5; }
 }
 
-.btn-live { background:rgba(230,57,70,0.2); border-color:rgba(230,57,70,0.5); color:#e63946; }
-
-.btn-live-now {
-  background:rgba(230,57,70,0.1); border-color:#e63946;
-  color:#fff; font-size:0.8rem; font-weight:800;
-  padding:5px 12px; letter-spacing:0.5px; margin-left:0;
-  animation:pulse-live 2s infinite;
+.btn-live {
+  background:color-mix(in srgb, var(--status-onair) 20%, transparent);
+  border-color:color-mix(in srgb, var(--status-onair) 50%, transparent);
+  color:var(--status-onair);
 }
-.btn-live-now:hover { background:rgba(230,57,70,0.3); border-color:#fca5a5; box-shadow:0 0 12px rgba(230,57,70,0.4); }
+
+/* UI F-02: the resting CUT TO LIVE pill is a tint, so its label must be the
+   status colour, not white — white on a 10% tint was unreadable in the light
+   theme. Only the filled armed/active states carry --text-on-danger. */
+.btn-live-now {
+  position:relative;
+  background:color-mix(in srgb, var(--status-onair) 12%, var(--bg-hover));
+  border-color:var(--status-onair);
+  color:var(--status-onair); font-size:var(--fs-sm); font-weight:800;
+  padding:5px 12px; letter-spacing:0.5px; margin-left:0;
+}
+/* PERF: the pill is on screen for the whole session, so the breathing glow
+   lives on an overlay whose opacity animates on the compositor rather than a
+   box-shadow keyframe that repaints the button every frame. */
+.btn-live-now::after {
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  pointer-events:none;
+  box-shadow:0 0 16px color-mix(in srgb, var(--status-onair) 50%, transparent);
+  animation:pulse-live-glow 2s ease-in-out infinite;
+  will-change:opacity;
+}
+.btn-live-now:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--status-onair) 26%, var(--bg-hover));
+  border-color:var(--status-onair);
+}
 
 .btn-live-active {
-  background:#ef4444; border-color:#f87171;
-  color:#fff; font-size:0.8rem; font-weight:800;
+  position:relative;
+  background:var(--status-onair); border-color:var(--status-onair);
+  color:var(--text-on-danger); font-size:var(--fs-sm); font-weight:800;
   padding:5px 12px; letter-spacing:0.5px; margin-left:0;
-  box-shadow:0 0 16px rgba(239,68,68,0.7);
-  animation:pulse-live 1s infinite;
 }
-.btn-live-active:hover {
-  background:#dc2626; border-color:#fca5a5;
-  box-shadow:0 0 24px rgba(239,68,68,0.9);
+.btn-live-active::after {
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  pointer-events:none;
+  box-shadow:0 0 24px color-mix(in srgb, var(--status-onair) 90%, transparent);
+  animation:pulse-live-glow 1s ease-in-out infinite;
+  will-change:opacity;
+}
+.btn-live-active:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--status-onair) 85%, var(--text-primary));
+}
+
+@keyframes pulse-live-glow {
+  0%,100% { opacity:0.25; }
+  50%     { opacity:1; }
 }
 
 .lock-toggle-btn {
@@ -1007,28 +1207,22 @@ onUnmounted(() => {
   border-radius:6px;
   transition:all 0.15s;
   user-select:none;
-  background:rgba(16,185,129,0.12);
-  border:1px solid rgba(16,185,129,0.4);
-  color:#10b981;
+  background:color-mix(in srgb, var(--status-ready) 12%, transparent);
+  border:1px solid color-mix(in srgb, var(--status-ready) 40%, transparent);
+  color:var(--status-ready);
 }
-.lock-toggle-btn:hover {
-  background:rgba(16,185,129,0.22);
-  border-color:rgba(16,185,129,0.6);
+.lock-toggle-btn:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--status-ready) 22%, transparent);
+  border-color:color-mix(in srgb, var(--status-ready) 60%, transparent);
 }
 .lock-toggle-btn.is-locked {
-  background:rgba(239,68,68,0.15);
-  border-color:rgba(239,68,68,0.5);
-  color:#ef4444;
-  box-shadow:0 0 10px rgba(239,68,68,0.25);
+  background:color-mix(in srgb, var(--status-error) 15%, transparent);
+  border-color:color-mix(in srgb, var(--status-error) 50%, transparent);
+  color:var(--status-error);
 }
-.lock-toggle-btn.is-locked:hover {
-  background:rgba(239,68,68,0.25);
-  border-color:rgba(239,68,68,0.7);
-}
-
-@keyframes pulse-live {
-  0%,100% { box-shadow:0 0 8px rgba(230,57,70,0.2); }
-  50% { box-shadow:0 0 16px rgba(230,57,70,0.5); border-color:#fca5a5; }
+.lock-toggle-btn.is-locked:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--status-error) 25%, transparent);
+  border-color:color-mix(in srgb, var(--status-error) 70%, transparent);
 }
 
 .timecode {
@@ -1042,80 +1236,83 @@ onUnmounted(() => {
   line-height: 1;
 }
 
-.barrier-fence-divider {
-  width: 2px !important;
-  height: 32px !important;
-  background: var(--border-strong, #475569) !important;
-  margin: 0 10px !important;
+/* A heavier rule than .ctrl-divider: specificity, not !important. */
+.control-bar .ctrl-divider.barrier-fence-divider {
+  width: 2px;
+  height: 32px;
+  background: var(--border-strong);
+  margin: 0 10px;
 }
 
 .ctrl-routing-fence {
   display: flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid color-mix(in srgb, var(--status-error) 35%, transparent);
   border-radius: 6px;
   padding: 2px 8px;
-  background: rgba(239, 68, 68, 0.06);
+  background: color-mix(in srgb, var(--status-error) 6%, transparent);
 }
 
 .routing-fence-label {
   font-size: 0.6rem;
   font-weight: 800;
   letter-spacing: 0.08em;
-  color: var(--accent-red, #ef4444);
+  color: var(--status-error);
   white-space: nowrap;
 }
 
-.btn-live-armed {
-  background: #d97706 !important;
-  border-color: #f59e0b !important;
-  color: #fff !important;
-  box-shadow: 0 0 16px rgba(217, 119, 6, 0.8) !important;
-  animation: pulse-armed 0.6s infinite alternate !important;
+/* Armed is the one state that must read as "about to cut": a filled warning
+   surface, not a tint. The `!important`s are gone — the selector is more
+   specific than .btn-live-now on its own. */
+.control-bar .btn-live-now.btn-live-armed {
+  background: var(--status-armed);
+  border-color: var(--status-armed);
+  color: var(--text-on-warning);
+}
+/* §7: the arm-window ring. A conic sweep driven by --arm-progress, which the
+   script updates every 100ms. It sits on its own layer so the button below it
+   never repaints. */
+.arm-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(
+    var(--status-armed) calc(var(--arm-progress, 0) * 360deg),
+    transparent 0
+  );
+  -webkit-mask:
+    radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px));
+  opacity: 0.9;
 }
 
-@keyframes pulse-armed {
-  0% { background: #d97706; box-shadow: 0 0 10px #d97706; }
-  100% { background: #dc2626; box-shadow: 0 0 25px #dc2626; }
+.control-bar .btn-live-now.btn-live-armed::after {
+  box-shadow: 0 0 22px color-mix(in srgb, var(--status-armed) 90%, transparent);
+  animation: pulse-live-glow 0.6s ease-in-out infinite;
 }
 
-.conn-toggle-btn {
-  display: flex;
+/* §7 group 1: a status readout (not a control) beside its own action. */
+.ctrl-engine {
+  gap: 8px;
+}
+
+.conn-status {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  padding: 5px 11px;
-  border-radius: 6px;
-  letter-spacing: 0.5px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
-  user-select: none;
-}
-
-.conn-toggle-btn.is-connected {
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.4);
-  color: #22c55e;
-}
-
-.conn-toggle-btn.is-connected:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #f87171;
-}
-
-.conn-toggle-btn:not(.is-connected) {
-  background: var(--bg-hover);
-  border: 1px solid var(--border-medium);
+  letter-spacing: 0.02em;
   color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: default;
 }
 
-.conn-toggle-btn:not(.is-connected):hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
-  border-color: var(--accent-blue);
-  color: var(--text-primary);
+.conn-action-btn {
+  font-size: var(--fs-xs);
+  padding: 5px 11px;
 }
 
 .conn-popover {
@@ -1127,8 +1324,8 @@ onUnmounted(() => {
   border-radius: 8px;
   border: 1px solid var(--border-medium);
   background: var(--bg-secondary);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
-  z-index: 40;
+  box-shadow: var(--shadow-3);
+  z-index: var(--z-popover);
 }
 
 .conn-popover-header {
@@ -1183,7 +1380,7 @@ onUnmounted(() => {
   gap: 1px;
   padding: 2px 8px;
   border-radius: 6px;
-  background: var(--bg-surface-elevated, rgba(0, 0, 0, 0.25));
+  background: var(--bg-surface-elevated);
   border: 1px solid var(--border-subtle);
   min-width: 140px;
   max-width: 195px;
@@ -1194,14 +1391,14 @@ onUnmounted(() => {
 }
 
 .ctrl-nextup-dock.is-imminent {
-  border-color: #f59e0b;
-  background: rgba(245, 158, 11, 0.15);
+  border-color: var(--status-cued);
+  background: color-mix(in srgb, var(--status-cued) 15%, transparent);
   animation: pulse-imminent 1s infinite alternate;
 }
 
 @keyframes pulse-imminent {
-  0% { box-shadow: 0 0 6px rgba(245, 158, 11, 0.4); }
-  100% { box-shadow: 0 0 16px rgba(245, 158, 11, 0.8); }
+  0% { opacity: 0.35; }
+  100% { opacity: 1; }
 }
 
 .nextup-header {
@@ -1213,17 +1410,17 @@ onUnmounted(() => {
 }
 
 .nextup-kicker {
-  font-size: 0.55rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--text-muted);
 }
 
 .nextup-imminent-pill {
-  font-size: 0.52rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
-  color: #fff;
-  background: #d97706;
+  color: var(--text-on-warning);
+  background: var(--status-armed);
   padding: 0 3px;
   border-radius: 2px;
   line-height: 1.2;
@@ -1250,19 +1447,18 @@ onUnmounted(() => {
 
 .nextup-duration-pill {
   font-family: var(--font-mono);
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--accent-blue);
   font-variant-numeric: tabular-nums;
-  background: rgba(56, 189, 248, 0.1);
+  background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
   padding: 0 4px;
   border-radius: 3px;
   white-space: nowrap;
 }
 
 .brand-play-icon {
-  fill: #c084fc !important;
-  filter: drop-shadow(0 0 3px rgba(192, 132, 252, 0.6));
+  fill: var(--accent-purple);
 }
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -1271,24 +1467,24 @@ onUnmounted(() => {
 }
 .status-dot.connected,
 .status-dot.tone-ready {
-  background: var(--accent-green);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-green) 60%, transparent);
+  background: var(--status-ready);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--status-ready) 60%, transparent);
 }
 .status-dot.tone-warning {
-  background: #f59e0b;
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+  background: var(--status-warning);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--status-warning) 60%, transparent);
 }
 .status-dot.tone-error {
-  background: #ef4444;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
+  background: var(--status-error);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--status-error) 70%, transparent);
 }
 .status-dot.tone-processing {
-  background: #38bdf8;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.7);
+  background: var(--status-processing);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--status-processing) 70%, transparent);
 }
 .status-dot.tone-idle {
-  background: #c084fc;
-  box-shadow: 0 0 8px rgba(192, 132, 252, 0.6);
+  background: var(--accent-purple);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-purple) 60%, transparent);
 }
 .status-dot.pulse {
   animation: status-dot-pulse 1.4s ease-in-out infinite;
@@ -1299,15 +1495,15 @@ onUnmounted(() => {
 }
 
 .monitor-badge {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(168, 85, 247, 0.2);
-  border: 1px solid rgba(168, 85, 247, 0.5);
-  color: #c084fc;
+  background: color-mix(in srgb, var(--accent-purple) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-purple) 50%, transparent);
+  color: var(--accent-purple);
 }
 
 .ctrl-meta-dock {
@@ -1341,27 +1537,26 @@ onUnmounted(() => {
   height: 28px;
   min-width: 28px;
   padding: 0;
-  border-radius: 50% !important;
+  border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(168, 85, 247, 0.15) !important;
-  border: 1px solid rgba(168, 85, 247, 0.45) !important;
-  color: #c084fc !important;
+  background: color-mix(in srgb, var(--accent-purple) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-purple) 45%, transparent);
+  color: var(--accent-purple);
 }
 
 .ctrl-meta-brand:hover,
 .ctrl-meta-brand.is-open {
-  background: rgba(168, 85, 247, 0.28) !important;
-  border-color: rgba(168, 85, 247, 0.75) !important;
-  box-shadow: 0 0 12px rgba(168, 85, 247, 0.45) !important;
-  color: #d8b4fe !important;
+  background: color-mix(in srgb, var(--accent-purple) 28%, transparent);
+  border-color: color-mix(in srgb, var(--accent-purple) 75%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-purple) 45%, transparent);
+  color: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
 }
 
 .ctrl-meta-brand:hover .brand-play-icon,
 .ctrl-meta-brand.is-open .brand-play-icon {
-  fill: #d8b4fe !important;
-  filter: drop-shadow(0 0 5px rgba(192, 132, 252, 0.8));
+  fill: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
 }
 
 .ctrl-meta-help {
@@ -1380,9 +1575,9 @@ onUnmounted(() => {
   border-radius: 14px;
   border: 1px solid var(--border-medium);
   background: var(--bg-secondary);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+  box-shadow: var(--shadow-3);
   backdrop-filter: blur(18px);
-  z-index: 30;
+  z-index: var(--z-popover);
 }
 
 .ctrl-meta-popover-guide {
@@ -1397,7 +1592,7 @@ onUnmounted(() => {
 }
 
 .ctrl-meta-kicker {
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1420,7 +1615,7 @@ onUnmounted(() => {
 
 .ctrl-meta-section-label {
   margin-top: 12px;
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1456,31 +1651,54 @@ onUnmounted(() => {
   color: var(--text-primary);
 }
 
-@media (max-width: 1280px) {
-  .control-bar {
-    flex-wrap: wrap;
-    justify-content: center;
-    padding-block: 8px;
-  }
+/* UI F-01: priority collapse instead of wrapping. The bar is a single
+   non-wrapping row at every width the app allows (min 1100px); when it runs
+   out of room it drops content in priority order, lowest value first.
+   Transport and the routing fence are never collapsed. */
+.control-bar.tier-compact .routing-fence-label,
+.control-bar.tier-minimal .routing-fence-label {
+  display: none;
+}
 
-  .ctrl-divider {
-    display: none;
-  }
+/* Tightest tier: labels become icons, long button texts become short ones.
+   Every control stays present and clickable — nothing leaves the bar. */
+.control-bar.tier-minimal .ctrl-divider {
+  display: none;
+}
 
-  .ctrl-value {
-    max-width: none;
-  }
+.control-bar.tier-minimal .lock-text,
+.control-bar.tier-minimal .ctrl-settings-btn .ctrl-btn-label {
+  display: none;
+}
 
-  .ctrl-meta-dock {
-    margin-left:0;
-  }
+.control-bar.tier-minimal .ctrl-settings-btn {
+  padding-inline: 10px;
+}
 
-  .ctrl-meta-popover,
-  .ctrl-meta-popover-guide {
-    right:auto;
-    left:0;
-    width:min(380px, calc(100vw - 24px));
-  }
+.control-bar.tier-minimal .btn-live-now .ctrl-btn-label,
+.control-bar.tier-minimal .btn-live-active .ctrl-btn-label {
+  display: none;
+}
+
+.control-bar.tier-minimal .btn-live-now .ctrl-btn-label-short,
+.control-bar.tier-minimal .btn-live-active .ctrl-btn-label-short {
+  display: inline;
+}
+
+.control-bar.tier-minimal .ctrl-nextup-dock {
+  min-width: 108px;
+  max-width: 128px;
+}
+
+.control-bar.tier-minimal .nextup-title {
+  max-width: 90px;
+}
+
+/* The popovers anchor to the right edge of the dock by default; at the tight
+   tier the dock can sit close enough to the left that they would overflow. */
+.control-bar.tier-minimal .ctrl-meta-popover,
+.control-bar.tier-minimal .ctrl-meta-popover-guide {
+  width: min(380px, calc(100vw - 24px));
 }
 
 .halt-banner {
@@ -1488,17 +1706,17 @@ onUnmounted(() => {
   top: 16px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 9999;
+  z-index: var(--z-banner);
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 12px 20px;
-  background: rgba(230, 57, 70, 0.15);
-  border: 1px solid rgba(230, 57, 70, 0.45);
+  background: color-mix(in srgb, var(--status-error) 15%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--status-error) 45%, transparent);
   backdrop-filter: blur(12px);
   border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(230, 57, 70, 0.2), 0 0 1px 1px rgba(230, 57, 70, 0.3) inset;
-  color: #fff;
+  box-shadow: var(--shadow-2);
+  color: var(--text-primary);
   font-family: Inter, system-ui, sans-serif;
   animation: slideDownFade 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -1511,16 +1729,16 @@ onUnmounted(() => {
 
 .persist-banner {
   top: 72px;
-  background: rgba(245, 158, 11, 0.16);
-  border-color: rgba(245, 158, 11, 0.5);
-  box-shadow: 0 8px 32px rgba(245, 158, 11, 0.2);
+  background: color-mix(in srgb, var(--status-warning) 16%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--status-warning) 50%, transparent);
+  box-shadow: var(--shadow-2);
 }
 
 .fault-toasts {
   position: absolute;
   right: 16px;
   bottom: 92px;
-  z-index: 9998;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1534,11 +1752,11 @@ onUnmounted(() => {
   gap: 8px;
   padding: 8px 12px;
   border-radius: 6px;
-  background: rgba(230, 57, 70, 0.14);
-  border: 1px solid rgba(230, 57, 70, 0.4);
+  background: color-mix(in srgb, var(--status-error) 14%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--status-error) 40%, transparent);
   backdrop-filter: blur(10px);
-  color: #fff;
-  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
   font-family: Inter, system-ui, sans-serif;
   pointer-events: auto;
   animation: slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1548,7 +1766,7 @@ onUnmounted(() => {
   font-weight: 700;
   opacity: 0.85;
   text-transform: uppercase;
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   letter-spacing: 0.04em;
 }
 
@@ -1578,22 +1796,25 @@ onUnmounted(() => {
 }
 
 .halt-icon {
-  font-size: 1.15rem;
+  color: var(--status-error);
   animation: pulseWarning 1.5s infinite ease-in-out;
+}
+
+.persist-banner .halt-icon {
+  color: var(--status-warning);
 }
 
 .halt-text {
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 .halt-dismiss-btn {
-  background: rgba(255, 255, 255, 0.12);
-  border: none;
-  border-radius: 4px;
-  color: #fff;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
   padding: 6px 12px;
   font-size: 0.75rem;
   font-weight: 700;
@@ -1604,7 +1825,7 @@ onUnmounted(() => {
 }
 
 .halt-dismiss-btn:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: var(--bg-active);
 }
 
 .halt-dismiss-btn:active {
@@ -1624,6 +1845,19 @@ onUnmounted(() => {
 
 @keyframes pulseWarning {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); filter: drop-shadow(0 0 6px rgba(230, 57, 70, 0.8)); }
+  50% { transform: scale(1.15); }
+}
+/* At the tightest tier the ingest label folds back to its dot. */
+.control-bar.tier-minimal .ctrl-ingest .ctrl-label {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arm-ring {
+    /* The sweep is a state readout, not decoration, so it stays -- but it is
+       driven by a property update, not an animation, so there is nothing to
+       disable here beyond documenting the intent. */
+    opacity: 0.9;
+  }
 }
 </style>

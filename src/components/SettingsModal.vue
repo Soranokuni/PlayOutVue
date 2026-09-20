@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
@@ -19,6 +19,14 @@ import {
     type CasparValidationInfo
 } from '../services/casparProcess';
 import { getActivePlayoutService } from '../services/playout';
+import { describeError, describeErrorMessage } from '../lib/describeError';
+import { showToast } from '../lib/toasts';
+import BaseModal from './ui/BaseModal.vue';
+import BaseButton from './ui/BaseButton.vue';
+import ModalFooterActions from './ui/ModalFooterActions.vue';
+import RadioCardGroup from './ui/RadioCardGroup.vue';
+import AppIcon from './ui/AppIcon.vue';
+import type { IconName } from './ui/icons';
 
 // PERF F-14: both tools are large, rarely used and already `v-if` guarded.
 const { component: CasparConfigModal, preload: preloadCasparConfigModal } = lazyComponent(
@@ -38,7 +46,53 @@ const emit = defineEmits(['close']);
 const settings = useSettingsStore();
 const showCasparConfigurator = ref(false);
 const showDecklinkWizard = ref(false);
-const activeTab = ref<'general' | 'playout' | 'cg'>('general');
+/**
+ * UI §4.1: a left rail of seven groups replaces three emoji tabs holding
+ * twelve sections. The class stays `settings-tab-btn` because
+ * SettingsModalConfirmation.test.ts pins it, and the "Playout engine" entry
+ * still contains the word the test looks for.
+ */
+type SettingsSection = 'appearance' | 'playout' | 'hardware' | 'media' | 'graphics' | 'qc' | 'advanced';
+
+const RAIL: { id: SettingsSection; label: string; icon: IconName }[] = [
+    { id: 'appearance', label: 'Appearance', icon: 'graphic' },
+    { id: 'playout', label: 'Playout engine', icon: 'play' },
+    { id: 'hardware', label: 'Hardware', icon: 'live' },
+    { id: 'media', label: 'Media & ingest', icon: 'film' },
+    { id: 'graphics', label: 'Graphics (CG)', icon: 'ticker' },
+    { id: 'qc', label: 'QC & compliance', icon: 'check' },
+    { id: 'advanced', label: 'Advanced', icon: 'settings' },
+];
+
+const activeSection = ref<SettingsSection>('appearance');
+const modalBodyRef = ref<HTMLElement | null>(null);
+const sectionFilter = ref('');
+
+/** Which rail entries still match the filter box. */
+const visibleRail = computed(() => {
+    const query = sectionFilter.value.trim().toLowerCase();
+    if (!query) return RAIL;
+    return RAIL.filter((entry) => entry.label.toLowerCase().includes(query));
+});
+
+const selectSection = (id: SettingsSection) => {
+    activeSection.value = id;
+};
+
+// UI F-07: the panes share one scroll container, so moving between them carried
+// the previous offset over -- the Playout pane opened scrolled to its bottom.
+watch(activeSection, () => {
+    nextTick(() => {
+        if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
+    });
+});
+
+// Keep a matching entry selected as the operator types in the filter.
+watch(visibleRail, (entries) => {
+    if (entries.length && !entries.some((entry) => entry.id === activeSection.value)) {
+        activeSection.value = entries[0]!.id;
+    }
+});
 const validationInfo = ref<CasparValidationInfo | null>(null);
 const isValidating = ref(false);
 
@@ -134,8 +188,7 @@ const localState = ref({
     localMediaPath: '',
     ffmpegBinPath: '',
     debugMode: false,
-    logosPath: '',
-    theme: 'dark' as 'dark' | 'monokai' | 'light' | 'soft-slate' | 'periwinkle',
+    theme: 'dark' as 'dark' | 'monokai' | 'light',
     uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',
     qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
     decklinkOutputName: '',
@@ -158,31 +211,17 @@ const localState = ref({
     ingestorApiToken: '',
     recycleBinAutoPurge: 'disabled' as 'disabled' | '1week' | '2weeks' | '3weeks' | '1month',
     
-    // CG settings
-    complianceRenderMode: 'html5' as 'html5' | 'legacy_png',
+    // CG settings. The per-rating PNG paths, the five layout positions,
+    // complianceRenderMode, cgCrawlPosition, cg.stationIdPath and logosPath are
+    // gone (§12.4): they drove the legacy PNG overlay path, which caspar.ts no
+    // longer takes. Geometry, colours and SVGs now come from cgAdvisoryConfig,
+    // authored in CG Studio and applied on deploy.
     cg: {
-        stationIdPath: '',
         stationIdEnabled: true,
     },
-    
-    // CG Paths
-    cgRatingKPath: '',
-    cgRating8Path: '',
-    cgRating12Path: '',
-    cgRating16Path: '',
-    cgRating18Path: '',
-    cgRatingTPPath: '',
-
-    // CG Positions (Percentages)
-    cgStationLogoPos: { left: 5, top: 5, width: 12, height: 12 },
-    cgRatingBadgePos: { left: 88, top: 5, width: 7, height: 7 },
-    cgTPPos: { left: 88, top: 13, width: 7, height: 7 },
-    cgExplanationBannerPos: { left: 60, top: 5, width: 27, height: 7 },
-    cgCrawlPos: { left: 0, top: 90, width: 100, height: 8 },
 
     // CG Templates & Crawl
     cgCrawlTemplate: 'playout/crawl',
-    cgCrawlPosition: 'bottom' as 'top' | 'bottom',
     cgCrawlText: '',
     cgCrawlActive: false,
     cgExplanationTemplate: 'playout/advisory',
@@ -228,7 +267,7 @@ const deployTemplatesFromSettings = async () => {
         });
     } catch (e: any) {
         console.error('Failed to deploy templates:', e);
-        await message(`Failed to deploy templates: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not deploy the CG templates.'), {
             title: 'Template Deployment Error',
             kind: 'error'
         });
@@ -242,7 +281,6 @@ const mapLocalState = () => {
         localMediaPath: settings.localMediaPath,
         ffmpegBinPath: settings.ffmpegBinPath,
         debugMode: settings.debugMode,
-        logosPath: settings.logosPath,
         theme: settings.theme || 'dark',
         uiScale: settings.uiScale || 'comfortable',
         qcSensitivity: settings.qcSensitivity || 'production',
@@ -267,30 +305,12 @@ const mapLocalState = () => {
         casparAutoRelaunchOnCrash: settings.casparAutoRelaunchOnCrash ?? true,
         
         // CG settings
-        complianceRenderMode: settings.complianceRenderMode || 'html5',
         cg: {
-            stationIdPath: settings.cg?.stationIdPath || '',
             stationIdEnabled: settings.cg?.stationIdEnabled !== false,
         },
-        
-        // CG Paths
-        cgRatingKPath: settings.cgRatingKPath || '',
-        cgRating8Path: settings.cgRating8Path || '',
-        cgRating12Path: settings.cgRating12Path || '',
-        cgRating16Path: settings.cgRating16Path || '',
-        cgRating18Path: settings.cgRating18Path || '',
-        cgRatingTPPath: settings.cgRatingTPPath || '',
-
-        // CG Positions (Percentages)
-        cgStationLogoPos: JSON.parse(JSON.stringify(settings.cgStationLogoPos || { left: 5, top: 5, width: 12, height: 12 })),
-        cgRatingBadgePos: JSON.parse(JSON.stringify(settings.cgRatingBadgePos || { left: 88, top: 5, width: 7, height: 7 })),
-        cgTPPos: JSON.parse(JSON.stringify(settings.cgTPPos || { left: 88, top: 13, width: 7, height: 7 })),
-        cgExplanationBannerPos: JSON.parse(JSON.stringify(settings.cgExplanationBannerPos || { left: 60, top: 5, width: 27, height: 7 })),
-        cgCrawlPos: JSON.parse(JSON.stringify(settings.cgCrawlPos || { left: 0, top: 90, width: 100, height: 8 })),
 
         // CG Templates & Crawl
         cgCrawlTemplate: settings.cgCrawlTemplate || 'playout/crawl',
-        cgCrawlPosition: settings.cgCrawlPosition || 'bottom',
         cgCrawlText: settings.cgCrawlText || '',
         cgCrawlActive: settings.cgCrawlActive || false,
         cgExplanationTemplate: (settings.cgExplanationTemplate && settings.cgExplanationTemplate !== 'testdada' && settings.cgExplanationTemplate !== 'playout/explanation')
@@ -337,7 +357,7 @@ const handleStartServerFromSettings = async () => {
         await startCasparServer();
         await getActivePlayoutService().connect().catch(() => {});
     } catch (e) {
-        await message(`Failed to start CasparCG server: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not start the CasparCG server.'), {
             title: 'CasparCG Server Error',
             kind: 'error'
         });
@@ -354,7 +374,7 @@ const handleStopServerFromSettings = async () => {
         await getActivePlayoutService().disconnect().catch(() => {});
         await stopCasparServer(true);
     } catch (e) {
-        await message(`Failed to stop CasparCG server: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not stop the CasparCG server.'), {
             title: 'CasparCG Server Error',
             kind: 'error'
         });
@@ -372,7 +392,7 @@ const handleRestartServerFromSettings = async () => {
         const service = getActivePlayoutService();
         await service.connect().catch((err) => console.warn('[Settings] Connect after restart:', err));
     } catch (e) {
-        await message(`Failed to restart CasparCG server: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not restart the CasparCG server.'), {
             title: 'CasparCG Server Error',
             kind: 'error'
         });
@@ -409,6 +429,8 @@ watch(
     (open) => {
         if (open) {
             mapLocalState();
+            savedSnapshot.value = snapshotOf(localState.value);
+            connectionProbe.value = { state: 'idle', message: '' };
             void refreshStudioPresetState();
         }
     }
@@ -416,6 +438,7 @@ watch(
 
 onMounted(async () => {
     mapLocalState();
+    savedSnapshot.value = snapshotOf(localState.value);
     await refreshStudioPresetState();
 
     try {
@@ -440,15 +463,6 @@ onMounted(async () => {
         validateCasparExe(localState.value.casparcgExecutablePath);
     }
 
-    if (!settings.logosPath) {
-        invoke<string | null>('find_default_logos_dir')
-            .then((path) => {
-                if (path && !localState.value.logosPath) {
-                    localState.value.logosPath = path;
-                }
-            })
-            .catch(() => {});
-    }
 });
 
 onUnmounted(() => {
@@ -459,7 +473,107 @@ onUnmounted(() => {
     window.removeEventListener('focus', onWindowFocus);
 });
 
+/* ---------------------------------------------------------------- §4.3 ----
+ * Behaviours the dialog did not have: a live preview, a dirty state, and any
+ * feedback at all on Save.
+ * ------------------------------------------------------------------------ */
+
+/** Snapshot taken whenever the dialog opens; `isDirty` is measured against it. */
+const savedSnapshot = ref('');
+
+const snapshotOf = (value: unknown) => JSON.stringify(value);
+
+const isDirty = computed(() => snapshotOf(localState.value) !== savedSnapshot.value);
+
+/**
+ * UI F-07: theme and density changed `localState` only, so the operator had to
+ * Save and reopen the dialog to see a theme. They now apply to the document the
+ * moment they change, and Cancel puts the previous pair back.
+ *
+ * This writes the same body class and data attribute the App.vue watcher does;
+ * once Save commits the value to the store, that watcher takes over again.
+ */
+const applyThemePreview = (theme: string) => {
+    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme');
+    if (theme === 'light') document.body.classList.add('light-theme');
+    else if (theme === 'monokai') document.body.classList.add('monokai-theme');
+    else document.body.classList.add('dark-theme');
+};
+
+const applyScalePreview = (scale: string) => {
+    document.documentElement.setAttribute('data-ui-scale', scale || 'comfortable');
+};
+
+watch(() => localState.value.theme, (theme) => applyThemePreview(theme));
+watch(() => localState.value.uiScale, (scale) => applyScalePreview(scale));
+
+/** Puts the document back to whatever the store still holds. */
+const revertAppearancePreview = () => {
+    applyThemePreview(settings.theme);
+    applyScalePreview(settings.uiScale);
+};
+
+/* --- Validation (§4.3). Shown at the field, not in a modal wall of text. --- */
+
+const apiUrlError = computed(() => {
+    const value = localState.value.ingestorApiBaseUrl.trim();
+    if (!value) return 'Required — the library cannot load without it.';
+    if (!/^https?:\/\/[^\s]+$/i.test(value)) return 'Must start with http:// or https://';
+    return '';
+});
+
+const oscPortError = computed(() => {
+    const port = Number(localState.value.casparOscPort);
+    if (!Number.isFinite(port) || port < 1 || port > 65535) return 'Must be a port between 1 and 65535.';
+    return '';
+});
+
+const validationErrors = computed(() => [apiUrlError.value, oscPortError.value].filter(Boolean));
+
+const canSave = computed(() => isDirty.value && validationErrors.value.length === 0);
+
+/* --- Ingestor test connection (§4.2, Media & ingest) --- */
+
+type ConnectionProbe = { state: 'idle' | 'testing' | 'ok' | 'warn' | 'fail'; message: string };
+const connectionProbe = ref<ConnectionProbe>({ state: 'idle', message: '' });
+
+const testIngestorConnection = async () => {
+    if (apiUrlError.value) {
+        connectionProbe.value = { state: 'fail', message: apiUrlError.value };
+        return;
+    }
+    connectionProbe.value = { state: 'testing', message: 'Contacting the Ingestor…' };
+    try {
+        const healthy = await invoke<boolean>('check_ingestor_health', {
+            apiBaseUrlOverride: localState.value.ingestorApiBaseUrl.trim(),
+        });
+        connectionProbe.value = healthy
+            ? { state: 'ok', message: 'Reachable.' }
+            : { state: 'warn', message: 'Answered, but reported itself unhealthy. Check the Ingestor logs.' };
+    } catch (e) {
+        const described = describeError(e, 'Could not reach the Ingestor.');
+        // An auth rejection still proves the service is up, which is a
+        // different problem from an unreachable host — say which.
+        connectionProbe.value = {
+            state: described.kind === 'auth' ? 'warn' : 'fail',
+            message: described.message,
+        };
+    }
+};
+
+/* --- Layout reset (§4.2, Advanced) --- */
+
+const resetPanelLayout = () => {
+    // The library width is the one layout value the app persists.
+    localStorage.removeItem('layout.leftWidth');
+    showToast('Panel sizes reset. Reopen the window to see it.', 'info');
+};
+
+const isSaving = ref(false);
+
 const saveSettings = async () => {
+    if (!canSave.value || isSaving.value) return;
+    isSaving.value = true;
     try {
         const latestPreset = await invoke<any>('get_studio_default_preset');
         if (latestPreset) {
@@ -480,12 +594,31 @@ const saveSettings = async () => {
     try {
         await invoke('configure_caspar_osc_listener', { port: localState.value.casparOscPort });
     } catch {}
+
+    // UI F-07: Save used to close the dialog silently, so there was no way to
+    // tell a save from a mis-click on Cancel.
+    savedSnapshot.value = snapshotOf(localState.value);
+    isSaving.value = false;
+    showToast('Settings saved');
     emit('close');
 };
 
 const discardAndClose = () => {
+    // Put the document back before dropping the draft, or a previewed theme
+    // would survive a Cancel.
+    revertAppearancePreview();
     mapLocalState();
+    savedSnapshot.value = snapshotOf(localState.value);
     emit('close');
+};
+
+/** Ctrl/Cmd+S saves, scoped to this dialog. */
+const onModalKeyDown = (event: KeyboardEvent) => {
+    if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
+        event.preventDefault();
+        event.stopPropagation();
+        void saveSettings();
+    }
 };
 
 const emptyBinFromSettings = async () => {
@@ -511,15 +644,15 @@ const emptyBinFromSettings = async () => {
             });
         }
     } catch (e) {
-        await message(`Failed to empty Recycle Bin: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not empty the Recycle Bin.'), {
             title: 'Recycle Bin Error',
             kind: 'error'
         });
     }
 };
 
-const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | 'badge-k' | 'badge-8' | 'badge-12' | 'badge-16' | 'badge-18' | 'badge-tp' | 'caspar-config' | 'caspar-exe' | 'cg-advisory-template' | 'cg-crawl-template') => {
-    const isDirectory = target === 'media' || target === 'logos' || target === 'ffmpeg-bin';
+const pickPath = async (target: 'media' | 'ffmpeg-bin' | 'caspar-config' | 'caspar-exe' | 'cg-advisory-template' | 'cg-crawl-template') => {
+    const isDirectory = target === 'media' || target === 'ffmpeg-bin';
     const isConfigFile = target === 'caspar-config';
     const isExeFile = target === 'caspar-exe';
     const isTemplateFile = target === 'cg-advisory-template' || target === 'cg-crawl-template';
@@ -527,18 +660,10 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
     const defaultPath = (() => {
         if (target === 'media') return localState.value.localMediaPath;
         if (target === 'ffmpeg-bin') return localState.value.ffmpegBinPath;
-        if (target === 'logos') return localState.value.logosPath;
         if (target === 'caspar-config') return localState.value.casparConfigPath;
         if (target === 'caspar-exe') return localState.value.casparcgExecutablePath;
         if (target === 'cg-advisory-template') return localState.value.cgExplanationTemplate;
-        if (target === 'cg-crawl-template') return localState.value.cgCrawlTemplate;
-        if (target === 'cg-logo') return localState.value.cg.stationIdPath;
-        if (target === 'badge-k') return localState.value.cgRatingKPath;
-        if (target === 'badge-8') return localState.value.cgRating8Path;
-        if (target === 'badge-12') return localState.value.cgRating12Path;
-        if (target === 'badge-16') return localState.value.cgRating16Path;
-        if (target === 'badge-18') return localState.value.cgRating18Path;
-        return localState.value.cgRatingTPPath;
+        return localState.value.cgCrawlTemplate;
     })();
 
     let filters = undefined;
@@ -584,7 +709,6 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
 
     if (target === 'media') localState.value.localMediaPath = selection;
     else if (target === 'ffmpeg-bin') localState.value.ffmpegBinPath = selection;
-    else if (target === 'logos') localState.value.logosPath = selection;
     else if (target === 'caspar-config') localState.value.casparConfigPath = selection;
     else if (target === 'caspar-exe') {
         localState.value.casparcgExecutablePath = selection;
@@ -602,13 +726,6 @@ const pickPath = async (target: 'media' | 'logos' | 'ffmpeg-bin' | 'cg-logo' | '
         const match = normalized.match(/template\/(.+?)(\.html|\.htm|\.ft)?$/i);
         localState.value.cgCrawlTemplate = match ? match[1]! : selection;
     }
-    else if (target === 'cg-logo') localState.value.cg.stationIdPath = selection;
-    else if (target === 'badge-k') localState.value.cgRatingKPath = selection;
-    else if (target === 'badge-8') localState.value.cgRating8Path = selection;
-    else if (target === 'badge-12') localState.value.cgRating12Path = selection;
-    else if (target === 'badge-16') localState.value.cgRating16Path = selection;
-    else if (target === 'badge-18') localState.value.cgRating18Path = selection;
-    else if (target === 'badge-tp') localState.value.cgRatingTPPath = selection;
 };
 
 const openTemplateDir = async () => {
@@ -620,7 +737,7 @@ const openTemplateDir = async () => {
         });
         console.info('[Settings] Opened template directory:', path);
     } catch (e) {
-        await message(`Failed to open directory: ${e}`, {
+        await message(describeErrorMessage(e, 'Could not open that folder.'), {
             title: 'Open Directory Error',
             kind: 'error'
         });
@@ -629,1231 +746,883 @@ const openTemplateDir = async () => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="isOpen" class="modal-backdrop" data-command-scope="modal" @click.self="discardAndClose">
-      <div class="glass-panel modal-content">
-        <div class="modal-header">
-          <div class="modal-title-row">
-            <span class="settings-badge">SYSTEM CONFIG</span>
-            <h2 class="text-accent modal-title">Broadcast Preferences</h2>
-          </div>
-          <button class="glass-btn btn-icon" @click="discardAndClose" title="Close Settings">✕</button>
+  <BaseModal
+    :open="isOpen"
+    size="lg"
+    title="Settings"
+    :dirty="isDirty"
+    dirty-prompt="Discard unsaved settings?"
+    @close="discardAndClose"
+  >
+    <div class="settings-layout" @keydown="onModalKeyDown">
+      <!-- UI §4.1: left rail. Class pinned by SettingsModalConfirmation.test.ts. -->
+      <nav class="settings-rail" aria-label="Settings sections">
+        <div class="rail-filter">
+          <AppIcon class="rail-filter-icon" name="search" :size="14" />
+          <input v-model="sectionFilter" class="input rail-filter-input" type="search" placeholder="Find a setting…" />
+        </div>
+        <button
+          v-for="entry in visibleRail"
+          :key="entry.id"
+          type="button"
+          class="settings-tab-btn"
+          :class="{ active: activeSection === entry.id }"
+          :aria-current="activeSection === entry.id ? 'true' : undefined"
+          @click="selectSection(entry.id)"
+        >
+          <AppIcon :name="entry.icon" :size="16" />
+          <span>{{ entry.label }}</span>
+        </button>
+        <p v-if="!visibleRail.length" class="rail-empty">No section matches “{{ sectionFilter }}”.</p>
+      </nav>
+
+      <div class="settings-pane custom-scroll" ref="modalBodyRef">
+        <!-- ============================================ Appearance ==== -->
+        <div v-if="activeSection === 'appearance'">
+          <section class="settings-section">
+            <h3 class="section-title">Theme</h3>
+            <p class="section-hint">Applies immediately. Cancel puts the previous theme back.</p>
+            <RadioCardGroup
+              v-model="localState.theme"
+              label="Theme"
+              :options="[
+                { value: 'dark', title: 'Broadcast Midnight', badge: 'Default', description: 'Deep slate, low glare — for dim control rooms.' },
+                { value: 'monokai', title: 'Engineering Dark', description: 'Higher contrast charcoal with saturated accents.' },
+                { value: 'light', title: 'Studio Light', description: 'Daylight surfaces for well-lit rooms.' }
+              ]"
+            >
+              <template #preview="{ option }">
+                <span class="theme-swatch" :class="`swatch-${option.value}`" aria-hidden="true">
+                  <span class="swatch-panel"></span>
+                  <span class="swatch-row"></span>
+                  <span class="swatch-accent"></span>
+                </span>
+              </template>
+            </RadioCardGroup>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Density</h3>
+            <p class="section-hint">Sets row heights and text size across the whole app.</p>
+            <RadioCardGroup
+              v-model="localState.uiScale"
+              label="Density"
+              :options="[
+                { value: 'standard', title: 'Standard', badge: '100%', description: '42 px rundown rows — fits more on a laptop screen.' },
+                { value: 'comfortable', title: 'Comfortable', badge: '115% · recommended', description: '48 px rows with larger titles and timing.' },
+                { value: 'large', title: 'Large', badge: '130%', description: '54 px rows and bigger targets, for wall monitors.' }
+              ]"
+            />
+          </section>
         </div>
 
-        <div class="settings-tabs">
-          <button class="settings-tab-btn" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
-            <span>⚙️</span> General & QC
-          </button>
-          <button class="settings-tab-btn" :class="{ active: activeTab === 'playout' }" @click="activeTab = 'playout'">
-            <span>📺</span> Playout & Hardware
-          </button>
-          <button class="settings-tab-btn" :class="{ active: activeTab === 'cg' }" @click="activeTab = 'cg'">
-            <span>🎨</span> CG & Layouts
-          </button>
+        <!-- ======================================== Playout engine ==== -->
+        <div v-if="activeSection === 'playout'">
+          <section class="settings-section">
+            <div class="section-head">
+              <h3 class="section-title">CasparCG server</h3>
+              <div class="section-head-status">
+                <span class="instance-role-badge" :class="isPrimaryInstance ? 'role-primary' : 'role-monitor'">
+                  {{ isPrimaryInstance ? 'Primary supervisor' : 'Monitor (read-only)' }}
+                </span>
+                <span class="process-state-badge" :class="'state-' + processState">
+                  {{ processStatus?.pid ? `PID ${processStatus.pid} · ${processState}` : processState }}
+                </span>
+              </div>
+            </div>
+            <p class="section-hint">
+              Point at the CasparCG folder or executable. Config, media, templates and logs are detected from it.
+            </p>
+
+            <div class="field">
+              <label class="field-label" for="caspar-exe">Server location</label>
+              <div class="input-with-button">
+                <input
+                  id="caspar-exe"
+                  v-model="localState.casparcgExecutablePath"
+                  class="input"
+                  type="text"
+                  placeholder="C:/CasparCG/casparcg.exe or D:/casparcg-server"
+                  @input="onExecutableInput"
+                />
+                <BaseButton variant="secondary" icon="folder-open" label="Browse" @click="pickPath('caspar-exe')">Browse</BaseButton>
+              </div>
+              <p v-if="validationInfo" class="field-hint" :class="validationInfo.isValid ? 'is-ok' : 'is-bad'">
+                {{ validationInfo.message }}
+              </p>
+            </div>
+
+            <dl v-if="detectedCasparDir" class="env-list">
+              <div class="env-row"><dt>Installation root</dt><dd class="mono">{{ detectedCasparDir }}</dd></div>
+              <div class="env-row"><dt>Config file</dt><dd class="mono">{{ localState.casparConfigPath || (detectedCasparDir + '/casparcg.config') }}</dd></div>
+              <div class="env-row"><dt>Media directory</dt><dd class="mono">{{ localState.localMediaPath || (detectedCasparDir + '/media') }}</dd></div>
+              <div class="env-row"><dt>Templates directory</dt><dd class="mono">{{ detectedCasparDir }}/template/playout</dd></div>
+              <div class="env-row"><dt>Logs directory</dt><dd class="mono">{{ detectedCasparDir }}/log</dd></div>
+            </dl>
+
+            <div class="field">
+              <label class="field-label" for="caspar-config-name">Config filename</label>
+              <input
+                id="caspar-config-name"
+                v-model="localState.casparcgConfigFilename"
+                class="input"
+                type="text"
+                placeholder="casparcg.config"
+                @input="onConfigFilenameInput"
+              />
+              <p class="field-hint">Lets several channel configurations live in one folder.</p>
+            </div>
+
+            <div class="server-actions">
+              <BaseButton
+                variant="primary"
+                icon="play"
+                :loading="isStarting"
+                :disabled="!isPrimaryInstance || processState === 'starting' || processState === 'operational' || processState === 'external_running'"
+                @click="handleStartServerFromSettings"
+              >Start Server</BaseButton>
+              <BaseButton
+                variant="danger"
+                icon="stop"
+                :loading="isStopping"
+                :disabled="!isPrimaryInstance || processState === 'stopped' || processState === 'unconfigured'"
+                @click="handleStopServerFromSettings"
+              >Stop Server</BaseButton>
+              <BaseButton
+                variant="secondary"
+                icon="refresh"
+                :disabled="!isPrimaryInstance || isStarting || isStopping || processState === 'stopped' || processState === 'unconfigured'"
+                @click="handleRestartServerFromSettings"
+              >Restart Server</BaseButton>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Supervision</h3>
+            <label class="check-row">
+              <input v-model="localState.casparAutoStart" type="checkbox" />
+              <span>Start the server when Aether launches</span>
+            </label>
+            <label class="check-row">
+              <input v-model="localState.casparKeepAliveOnExit" type="checkbox" />
+              <span>Leave the server running when Aether exits (24/7 continuity)</span>
+            </label>
+            <label class="check-row">
+              <input v-model="localState.casparAutoRelaunchOnCrash" type="checkbox" />
+              <span>Relaunch the server after a crash, with crash-loop protection</span>
+            </label>
+            <label class="check-row">
+              <input v-model="localState.autoResumeAfterRestart" type="checkbox" />
+              <span>Resume the clip from its crash-time position after a restart</span>
+            </label>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Connection</h3>
+            <div class="field">
+              <label class="field-label" for="osc-port">OSC feedback port</label>
+              <input
+                id="osc-port"
+                v-model.number="localState.casparOscPort"
+                class="input"
+                :class="{ 'input--invalid': oscPortError }"
+                type="number"
+                min="1"
+                max="65535"
+                placeholder="6250"
+              />
+              <p v-if="oscPortError" class="field-error">{{ oscPortError }}</p>
+              <p v-else class="field-hint">Must match the UDP port in CasparCG's &lt;predefined-client&gt; (default 6250).</p>
+            </div>
+            <dl class="env-list">
+              <div class="env-row"><dt>AMCP port</dt><dd class="mono">5250 (fixed)</dd></div>
+            </dl>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Timing</h3>
+            <div class="field">
+              <label class="field-label" for="playout-profile">Playout profile</label>
+              <select id="playout-profile" v-model="localState.playoutProfile" class="select">
+                <option value="PAL_1080I50">PAL 1080i50 (interlaced)</option>
+                <option value="PAL_1080P25">PAL 1080p25 (progressive)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="transition-frames">Transition length — {{ localState.transitionFrames }} frames</label>
+              <input id="transition-frames" v-model.number="localState.transitionFrames" class="range" type="range" min="1" max="10" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="preroll-frames">Pre-roll buffer — {{ localState.prerollFrames }} frames</label>
+              <input id="preroll-frames" v-model.number="localState.prerollFrames" class="range" type="range" min="1" max="12" />
+            </div>
+          </section>
         </div>
 
-        <div class="modal-body custom-scroll">
-          <!-- General & QC Tab -->
-          <div v-if="activeTab === 'general'">
+        <!-- ============================================== Hardware ==== -->
+        <div v-if="activeSection === 'hardware'">
+          <section class="settings-section">
+            <h3 class="section-title">DeckLink</h3>
+            <p class="section-hint">The setup wizard writes these. They are shown here so you can check them without opening it.</p>
+            <dl class="env-list">
+              <div class="env-row">
+                <dt>Program out</dt>
+                <dd>{{ localState.decklinkOutputDevice > 0 ? `DeckLink ${localState.decklinkOutputDevice}` : 'Not configured' }}</dd>
+              </div>
+              <div class="env-row">
+                <dt>Output name</dt>
+                <dd class="mono">{{ localState.decklinkOutputName || '—' }}</dd>
+              </div>
+              <div class="env-row">
+                <dt>Live input</dt>
+                <dd>{{ localState.decklinkInputDevice > 0 ? `DeckLink ${localState.decklinkInputDevice} · ${localState.decklinkInputFormat}` : 'Disabled' }}</dd>
+              </div>
+              <div class="env-row">
+                <dt>Live source name</dt>
+                <dd class="mono">{{ localState.liveInputSourceName || '—' }}</dd>
+              </div>
+            </dl>
+          </section>
 
-              <!-- UI Scaling & Display Density -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">UI Scale & Layout Density</h3>
-                  <div class="qc-card-grid">
-                      <!-- Standard Scale (100%) -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.uiScale === 'standard' }"
-                        @click="localState.uiScale = 'standard'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge badge-lenient">100% SCALE</span>
-                          <input type="radio" value="standard" v-model="localState.uiScale">
-                        </div>
-                        <div class="qc-card-title">Standard (Compact)</div>
-                        <p class="qc-desc">
-                          Compact density with 42px rundown rows. Ideal for laptops or multi-window desktop workspaces.
-                        </p>
-                      </div>
+          <section class="settings-section">
+            <h3 class="section-title">Media path</h3>
+            <div class="field">
+              <label class="field-label" for="media-path">Local media folder</label>
+              <div class="input-with-button">
+                <input id="media-path" v-model="localState.localMediaPath" class="input" type="text" placeholder="D:/Media" />
+                <BaseButton variant="secondary" icon="folder-open" label="Browse" @click="pickPath('media')">Browse</BaseButton>
+              </div>
+              <p class="field-hint">Where CasparCG looks for clips. Editable here as well as in the wizard.</p>
+            </div>
+          </section>
 
-                      <!-- Comfortable Scale (115%) -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.uiScale === 'comfortable' }"
-                        @click="localState.uiScale = 'comfortable'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge badge-prod">115% (RECOMMENDED)</span>
-                          <input type="radio" value="comfortable" v-model="localState.uiScale">
-                        </div>
-                        <div class="qc-card-title">Comfortable / Broadcast</div>
-                        <p class="qc-desc">
-                          Balanced 48px rundown rows with enlarged titles and tabular timing. SOTA default for 1080p/1440p master control.
-                        </p>
-                      </div>
-
-                      <!-- Large Scale (130%) -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.uiScale === 'large' }"
-                        @click="localState.uiScale = 'large'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge badge-strict">130% SCALE</span>
-                          <input type="radio" value="large" v-model="localState.uiScale">
-                        </div>
-                        <div class="qc-card-title">High Visibility / Large</div>
-                        <p class="qc-desc">
-                          High visibility 54px rows, maximum text contrast, and enlarged click targets for operators needing larger text or wall monitors.
-                        </p>
-                      </div>
-                  </div>
-              </section>
-
-              <!-- Visual Theme & Workplace Atmosphere -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">Visual Atmosphere & Theme</h3>
-                  <div class="qc-card-grid">
-                      <!-- Broadcast Midnight -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.theme === 'dark' }"
-                        @click="localState.theme = 'dark'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge badge-lenient">🌌 DARK (DEFAULT)</span>
-                          <input type="radio" value="dark" v-model="localState.theme">
-                        </div>
-                        <div class="qc-card-title">Broadcast Midnight</div>
-                        <p class="qc-desc">
-                          Deep slate surfaces for low eye fatigue in master control and studio environments.
-                        </p>
-                      </div>
-
-                      <!-- Monokai Pro -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.theme === 'monokai' }"
-                        @click="localState.theme = 'monokai'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge badge-strict">👾 MONOKAI PRO</span>
-                          <input type="radio" value="monokai" v-model="localState.theme">
-                        </div>
-                        <div class="qc-card-title">Engineering Dark ("Nerd Mode")</div>
-                        <p class="qc-desc">
-                          High-contrast charcoal surfaces with iconic Monokai lime green, cyan, and magenta syntax accents.
-                        </p>
-                      </div>
-
-                      <!-- Clean Studio Light -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.theme === 'light' }"
-                        @click="localState.theme = 'light'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge badge-prod">☀️ STUDIO LIGHT</span>
-                          <input type="radio" value="light" v-model="localState.theme">
-                        </div>
-                        <div class="qc-card-title">Clean Studio Light</div>
-                        <p class="qc-desc">
-                          High-contrast daylight theme with crisp slate typography and clear borders for well-lit rooms.
-                        </p>
-                      </div>
-
-                      <!-- Soft Slate Neumorphic (Images 1, 3, 5) -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.theme === 'soft-slate' }"
-                        @click="localState.theme = 'soft-slate'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge" style="background: rgba(37, 99, 235, 0.15); color: #2563eb; border-color: rgba(37, 99, 235, 0.3);">🪨 SOFT SLATE NEUMORPHIC</span>
-                          <input type="radio" value="soft-slate" v-model="localState.theme">
-                        </div>
-                        <div class="qc-card-title">Soft Slate Clay</div>
-                        <p class="qc-desc">
-                          Tactile clay neumorphism with soft dual-shadow extrusion, sunken inputs, and steel blue accents.
-                        </p>
-                      </div>
-
-                      <!-- Periwinkle Studio Glow (Images 2, 4) -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.theme === 'periwinkle' }"
-                        @click="localState.theme = 'periwinkle'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge" style="background: rgba(124, 105, 239, 0.15); color: #7c69ef; border-color: rgba(124, 105, 239, 0.3);">💜 PERIWINKLE STUDIO</span>
-                          <input type="radio" value="periwinkle" v-model="localState.theme">
-                        </div>
-                        <div class="qc-card-title">Lavender / Periwinkle Glow</div>
-                        <p class="qc-desc">
-                          Music &amp; entertainment neumorphic theme with soft lilac surfaces, pill controls, and periwinkle glow.
-                        </p>
-                      </div>
-                  </div>
-              </section>
-
-              <!-- QC Warning Sensitivity Profile -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">QC & Compliance Warning Sensitivity</h3>
-                  <div class="qc-card-grid">
-                      <!-- Production Standard -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.qcSensitivity === 'production' }"
-                        @click="localState.qcSensitivity = 'production'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge badge-prod">🎬 PRODUCTION (DEFAULT)</span>
-                          <input type="radio" value="production" v-model="localState.qcSensitivity">
-                        </div>
-                        <div class="qc-card-title">Production Standard</div>
-                        <p class="qc-desc">
-                          Balanced broadcast operation. Editorial subclips with non-keyframe In points are clean (<strong>green</strong>). Alarms trigger for real media corruptions or missing tracks.
-                        </p>
-                      </div>
-
-                      <!-- Engineering Strict -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.qcSensitivity === 'strict' }"
-                        @click="localState.qcSensitivity = 'strict'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge badge-strict">🔬 ENGINEERING STRICT</span>
-                          <input type="radio" value="strict" v-model="localState.qcSensitivity">
-                        </div>
-                        <div class="qc-card-title">Engineering / Nerd Mode</div>
-                        <p class="qc-desc">
-                          Deep QC inspection. Flags every notice (including non-keyframe alignment on subclips, slight loudness deviations, and GOP notices) with orange warnings.
-                        </p>
-                      </div>
-
-                      <!-- Broadcast Lenient -->
-                      <div
-                        class="qc-radio-card"
-                        :class="{ 'is-selected': localState.qcSensitivity === 'lenient' }"
-                        @click="localState.qcSensitivity = 'lenient'"
-                      >
-                        <div class="qc-radio-header">
-                          <span class="qc-badge badge-lenient">🛡️ SAFE PLAYBACK</span>
-                          <input type="radio" value="lenient" v-model="localState.qcSensitivity">
-                        </div>
-                        <div class="qc-card-title">Broadcast Lenient</div>
-                        <p class="qc-desc">
-                          High tolerance. Ignores minor advisory tags; only alerts on fatal errors that would cause on-air blackout (missing file, unplayable format, zero duration).
-                        </p>
-                      </div>
-                  </div>
-              </section>
-
-              <!-- Ingestor API & Service Base -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">PlayoutTranscode Ingestor API</h3>
-                  <div class="form-group">
-                      <label>API Base URL</label>
-                      <input type="text" class="glass-input" v-model="localState.ingestorApiBaseUrl" placeholder="http://127.0.0.1:4353">
-                      <span class="hint-text">Base URL of the PlayoutTranscode Ingestor REST API for asset metadata, mezzanine validation, and virtual subclip persistence.</span>
-                  </div>
-                  <div class="form-group">
-                      <label>API Token</label>
-                      <div class="input-with-button">
-                          <input
-                            :type="showIngestorToken ? 'text' : 'password'"
-                            class="glass-input"
-                            v-model.trim="localState.ingestorApiToken"
-                            autocomplete="off"
-                            spellcheck="false"
-                            placeholder="Leave empty unless the service has server.api_token set"
-                            data-testid="ingestor-api-token"
-                          >
-                          <button
-                            type="button"
-                            class="glass-btn"
-                            style="flex-shrink: 0;"
-                            :title="showIngestorToken ? 'Hide token' : 'Show token'"
-                            @click="showIngestorToken = !showIngestorToken"
-                          >{{ showIngestorToken ? 'Hide' : 'Show' }}</button>
-                      </div>
-                      <span class="hint-text">
-                        Required once the ingest service has a token configured (generate one with <code>PlayoutTranscode gen-token</code>); every call except the health check is refused with HTTP 401 without it. Stored locally and sent as an <code>X-Api-Token</code> header; never written to logs.
-                      </span>
-                  </div>
-              </section>
-
-              <!-- FFmpeg Binary Location -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">FFmpeg Binary Directory</h3>
-                  <div class="form-group">
-                      <label>FFmpeg Bin Directory (Optional Override)</label>
-                      <div class="input-with-button">
-                          <input type="text" class="glass-input" v-model="localState.ffmpegBinPath" placeholder="Requirements/ffmpeg/bin">
-                          <button class="glass-btn" style="flex-shrink: 0;" title="Browse FFmpeg bin folder" @click="pickPath('ffmpeg-bin')">📁 Browse</button>
-                      </div>
-                      <span class="hint-text">Optional override. Leave blank to automatically use Requirements/ffmpeg/bin next to installation.</span>
-                  </div>
-              </section>
-
-              <!-- Recycle Bin & Storage Auto-Purge -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">Recycle Bin & Storage Auto-Purge</h3>
-                  <div class="form-group">
-                      <label>Automatic Purge Schedule</label>
-                      <select class="glass-select" v-model="localState.recycleBinAutoPurge">
-                          <option value="disabled">Disabled (Keep deleted items indefinitely)</option>
-                          <option value="1week">After 1 Week (7 Days)</option>
-                          <option value="2weeks">After 2 Weeks (14 Days)</option>
-                          <option value="3weeks">After 3 Weeks (21 Days)</option>
-                          <option value="1month">After 1 Month (30 Days)</option>
-                      </select>
-                      <span class="hint-text">Items older than the selected retention window will be permanently removed from disk and database during background maintenance.</span>
-                  </div>
-
-                  <div class="form-group" style="margin-top: 12px;">
-                      <label>Manual Storage Cleanup</label>
-                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); padding: 10px 14px; border-radius: 8px;">
-                          <div>
-                              <div style="font-weight: 600; font-size: 0.85rem; color: #fca5a5;">Empty Recycle Bin</div>
-                              <div style="font-size: 0.75rem; color: #94a3b8;">Permanently delete all soft-deleted items from physical storage now.</div>
-                          </div>
-                          <button
-                              class="glass-btn"
-                              style="background: #dc2626; color: #fff; border-color: #b91c1c; font-weight: 600; padding: 6px 14px; flex-shrink: 0;"
-                              @click="emptyBinFromSettings"
-                          >
-                              Empty Now
-                          </button>
-                      </div>
-                  </div>
-              </section>
-
-              <!-- Debug & Diagnostics -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">Debug & Diagnostics</h3>
-                  <div class="form-grid">
-                      <div class="form-group">
-                          <label style="display:flex; align-items:center; gap:8px;">
-                              <input type="checkbox" v-model="localState.debugMode">
-                              <span>Enable debug tools & diagnostics</span>
-                          </label>
-                          <span class="hint-text">Shows advanced probe inspectors and enables exportable diagnostic logs.</span>
-                      </div>
-                  </div>
-              </section>
-          </div>
-
-          <!-- Playout & Hardware Tab -->
-          <div v-if="activeTab === 'playout'">
-
-              <!-- Unified Hardware & DeckLink Setup Card -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title" style="display:flex; justify-content:space-between; align-items:center;">
-                      <span>Playout Hardware & DeckLink I/O</span>
-                      <button class="glass-btn btn-primary" style="padding: 5px 14px; font-size: 0.78rem;" @pointerenter="preloadDeckLinkWizard()" @click="showDecklinkWizard = true">
-                          ⚡ Launch Hardware Setup Wizard
-                      </button>
-                  </h3>
-                  <p class="hint-text" style="margin: 0 0 10px 0;">
-                      Use the Setup Wizard to configure Blackmagic DeckLink SDI Program Output, Live Camera/Ingest feed, Video Standards, and auto-deploy broadcast HTML5 CG templates in one coherent flow.
-                  </p>
-
-                  <div class="qc-card-grid" style="grid-template-columns: repeat(3, 1fr);">
-                      <div class="qc-radio-card" style="cursor:default;">
-                          <div class="qc-radio-header">
-                              <span class="qc-badge badge-prod">PROGRAM OUT</span>
-                          </div>
-                          <div class="qc-card-title">
-                              {{ localState.decklinkOutputDevice > 0 ? `DeckLink ${localState.decklinkOutputDevice}` : 'Not Configured' }}
-                          </div>
-                          <p class="qc-desc">
-                              Master SDI Out • {{ localState.playoutProfile || '1080i50' }}
-                          </p>
-                      </div>
-
-                      <div class="qc-radio-card" style="cursor:default;">
-                          <div class="qc-radio-header">
-                              <span class="qc-badge" :class="localState.decklinkInputDevice > 0 ? 'badge-lenient' : 'badge-strict'">
-                                  {{ localState.decklinkInputDevice > 0 ? 'LIVE INGEST ACTIVE' : 'NO LIVE IN' }}
-                              </span>
-                          </div>
-                          <div class="qc-card-title">
-                              {{ localState.decklinkInputDevice > 0 ? `DeckLink ${localState.decklinkInputDevice}` : 'Disabled / Custom' }}
-                          </div>
-                          <p class="qc-desc">
-                              {{ localState.decklinkInputDevice > 0 ? `${localState.decklinkInputFormat} (Rebroadcast)` : 'Manual or Stream route' }}
-                          </p>
-                      </div>
-
-                      <div class="qc-radio-card" style="cursor:default;">
-                          <div class="qc-radio-header">
-                              <span class="qc-badge badge-prod">CG TEMPLATES</span>
-                          </div>
-                          <div class="qc-card-title">HTML5 / CEF</div>
-                          <p class="qc-desc">
-                              Greek NCRTV Advisory + 50fps Crawl
-                          </p>
-                      </div>
-                  </div>
-              </section>
-
-              <!-- CasparCG Process Lifecycle & Binary Management -->
-              <section class="settings-section">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                      <h3 class="text-secondary section-title" style="margin: 0;">CasparCG Server Location &amp; Process Supervision</h3>
-                      <div style="display: flex; gap: 8px; align-items: center;">
-                          <span class="instance-role-badge" :class="isPrimaryInstance ? 'role-primary' : 'role-monitor'">
-                              {{ isPrimaryInstance ? '🛡️ PRIMARY SUPERVISOR' : '👁️ MONITOR MODE (READ-ONLY)' }}
-                          </span>
-                          <span class="process-state-badge" :class="'state-' + processState">
-                              {{ processStatus?.pid ? `PID: ${processStatus.pid} (${processState.toUpperCase()})` : processState.toUpperCase() }}
-                          </span>
-                      </div>
-                  </div>
-                  <p class="hint-text" style="margin: 0 0 12px 0;">
-                      Point to your CasparCG installation folder or executable. Config, media, templates, and logs are automatically detected from this single root location.
-                  </p>
-
-                  <div class="form-grid">
-                      <div class="form-group" style="grid-column: span 2;">
-                          <label>CasparCG Server Location (Folder or casparcg.exe)</label>
-                          <div class="input-with-button">
-                              <input
-                                  type="text"
-                                  class="glass-input"
-                                  v-model="localState.casparcgExecutablePath"
-                                  placeholder="e.g. C:/CasparCG/casparcg.exe or D:/casparcg-server"
-                                  @input="onExecutableInput"
-                              >
-                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse CasparCG folder or executable" @click="pickPath('caspar-exe')">📁 Browse</button>
-                          </div>
-                          <div v-if="validationInfo" style="margin-top: 6px; font-size: 0.75rem; display: flex; align-items: center; gap: 6px;">
-                              <span :style="{ color: validationInfo.isValid ? '#4ade80' : '#f87171' }">
-                                  {{ validationInfo.isValid ? '✓' : '⚠️' }} {{ validationInfo.message }}
-                              </span>
-                          </div>
-                      </div>
-
-                      <!-- Auto-Derived CasparCG Environment Box -->
-                      <div v-if="detectedCasparDir" class="caspar-derived-env-box" style="grid-column: span 2;">
-                          <div class="env-header">
-                              <span class="env-title">⚡ Auto-Detected CasparCG Environment</span>
-                              <span class="env-badge">Active</span>
-                          </div>
-                          <div class="env-tree">
-                              <div class="env-row">
-                                  <span class="env-label">📁 Installation Root:</span>
-                                  <span class="env-value">{{ detectedCasparDir }}</span>
-                              </div>
-                              <div class="env-row">
-                                  <span class="env-label">📄 Config File:</span>
-                                  <span class="env-value">{{ localState.casparConfigPath || (detectedCasparDir + '/casparcg.config') }}</span>
-                              </div>
-                              <div class="env-row">
-                                  <span class="env-label">🎬 Media Directory:</span>
-                                  <span class="env-value">{{ localState.localMediaPath || (detectedCasparDir + '/media') }}</span>
-                              </div>
-                              <div class="env-row">
-                                  <span class="env-label">🎨 Templates Directory:</span>
-                                  <span class="env-value">{{ detectedCasparDir }}/template/playout</span>
-                              </div>
-                              <div class="env-row">
-                                  <span class="env-label">📝 Logs Directory:</span>
-                                  <span class="env-value">{{ detectedCasparDir }}/log</span>
-                              </div>
-                          </div>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Config Filename / Channel Argument</label>
-                          <input
-                              type="text"
-                              class="glass-input"
-                              v-model="localState.casparcgConfigFilename"
-                              placeholder="casparcg.config (or custom like channel_2.config)"
-                              @input="onConfigFilenameInput"
-                          >
-                          <span class="hint-text">Allows multi-instance channel configurations in the same folder.</span>
-                      </div>
-
-                      <div class="form-group" style="display: flex; flex-direction: column; justify-content: center; gap: 8px;">
-                          <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                              <input type="checkbox" v-model="localState.casparAutoStart">
-                              <span>Auto-start CasparCG server on PlayOut launch</span>
-                          </label>
-                          <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                              <input type="checkbox" v-model="localState.casparKeepAliveOnExit">
-                              <span>24/7 Playout Continuity (Keep server running if PlayOut exits)</span>
-                          </label>
-                          <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                              <input type="checkbox" v-model="localState.casparAutoRelaunchOnCrash">
-                              <span>Auto-relaunch CasparCG on crash (with sliding-window crash loop protection)</span>
-                          </label>
-                      </div>
-                  </div>
-
-                  <!-- Process Lifecycle Actions -->
-                  <div style="display: flex; gap: 10px; margin-top: 14px; align-items: center;">
-                      <button
-                          class="glass-btn btn-primary"
-                          :disabled="!isPrimaryInstance || isStarting || processState === 'starting' || processState === 'operational' || processState === 'external_running'"
-                          @click="handleStartServerFromSettings"
-                      >
-                          {{ isStarting ? '⏳ Starting...' : '▶ Start Server' }}
-                      </button>
-                      <button
-                          class="glass-btn"
-                          :disabled="!isPrimaryInstance || isStopping || processState === 'stopped' || processState === 'unconfigured'"
-                          @click="handleStopServerFromSettings"
-                          style="color: #f87171; border-color: rgba(248, 113, 113, 0.4);"
-                      >
-                          {{ isStopping ? '⏳ Stopping...' : '■ Stop Server' }}
-                      </button>
-                      <button
-                          class="glass-btn"
-                          :disabled="!isPrimaryInstance || isStarting || isStopping || processState === 'stopped' || processState === 'unconfigured'"
-                          @click="handleRestartServerFromSettings"
-                      >
-                          🔄 Restart Server
-                      </button>
-                  </div>
-              </section>
-
-              <!-- CasparCG Server Configuration -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">CasparCG Server Configuration &amp; Setup</h3>
-                  <div class="form-grid">
-                      <div class="form-group">
-                          <label>OSC Feedback Port</label>
-                          <input type="number" min="1" max="65535" class="glass-input" v-model.number="localState.casparOscPort" placeholder="6250">
-                          <span class="hint-text">Must match the UDP port configured in CasparCG &lt;predefined-client&gt; (default: 6250).</span>
-                      </div>
-                  </div>
-
-                  <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;">
-                       <button class="glass-btn btn-primary" @pointerenter="preloadDeckLinkWizard()" @click="showDecklinkWizard = true">Open Setup Wizard</button>
-                       <button class="glass-btn" @pointerenter="preloadCasparConfigModal()" @click="showCasparConfigurator = true">Advanced XML Configurator</button>
-                  </div>
-              </section>
-
-               <!-- Broadcast CG Graphics & Template Studio (Unified Playout CG Action Center) -->
-               <section class="settings-section cg-studio-hero-section">
-                   <div class="cg-hero-header">
-                       <div>
-                           <h3 class="text-secondary section-title" style="margin-bottom: 4px;">
-                               🎨 Broadcast CG Graphics &amp; Template Studio
-                           </h3>
-                           <p class="cg-hero-desc">
-                               Visual WYSIWYG authoring for Greek compliance graphics (Layer 32), station ID logo bug, and emergency crawlers (Layer 33). Styling, shapes, and geometries are authored live in CG Studio and deployed directly to CasparCG.
-                           </p>
-                       </div>
-                   </div>
-
-                   <!-- Quick Status Pill Bar -->
-                   <div class="cg-status-pills">
-                       <div class="cg-status-pill">
-                           <span class="cg-pill-dot active"></span>
-                           <span>Badge &amp; Chassis: <strong>{{ localState.cgAdvisoryConfig.badgeShape || 'Squircle' }}</strong></span>
-                       </div>
-                       <div class="cg-status-pill">
-                           <span class="cg-pill-dot active"></span>
-                           <span>Layer 32: <strong>{{ localState.cgExplanationTemplate || 'playout/advisory' }}</strong></span>
-                       </div>
-                       <div class="cg-status-pill">
-                           <span class="cg-pill-dot active"></span>
-                           <span>Station ID Bug: <strong>Permanent Vector Bug</strong></span>
-                       </div>
-                   </div>
-
-                   <!-- Unified Action Center: Open CG Studio + Deploy + Open Folder in the SAME Section -->
-                   <div class="cg-studio-actions-bar">
-                       <button
-                           type="button"
-                           class="glass-btn btn-primary cg-launch-btn"
-                           @click="launchBrowserStudio"
-                           title="Launch full interactive visual CG Studio in browser"
-                       >
-                           ✨ Open CG Studio (Visual Editor)
-                       </button>
-                       <button
-                           type="button"
-                           class="glass-btn cg-deploy-btn"
-                           :disabled="isDeployingTemplates"
-                           @click="deployTemplatesFromSettings"
-                           title="Deploy HTML5 templates and active presets directly to CasparCG"
-                       >
-                           {{ isDeployingTemplates ? '⏳ Deploying Templates...' : '🚀 Deploy CG Templates to CasparCG' }}
-                       </button>
-                       <button
-                           type="button"
-                           class="glass-btn cg-folder-btn"
-                           @click="openTemplateDir"
-                           title="Open CasparCG template directory in Explorer"
-                       >
-                           📂 Open Templates Folder
-                       </button>
-                   </div>
-               </section>
-
-              <!-- PAL / SOTA Playout Timing -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">PAL / SOTA Playout Timing</h3>
-                  <div class="form-grid">
-                      <div class="form-group">
-                          <label>Playout Profile</label>
-                          <select class="glass-input" v-model="localState.playoutProfile">
-                              <option value="PAL_1080I50">PAL 1080i50 (Broadcast Interlaced)</option>
-                              <option value="PAL_1080P25">PAL 1080p25 (Progressive)</option>
-                          </select>
-                      </div>
-                      <div class="form-group">
-                          <label>Transition Length — {{ localState.transitionFrames }} frames</label>
-                          <input type="range" min="1" max="10" v-model.number="localState.transitionFrames" style="accent-color:var(--accent-blue,#33becc);">
-                      </div>
-                      <div class="form-group">
-                          <label>Pre-roll Buffer — {{ localState.prerollFrames }} frames</label>
-                          <input type="range" min="1" max="12" v-model.number="localState.prerollFrames" style="accent-color:var(--accent-blue,#33becc);">
-                      </div>
-                      <div class="form-group">
-                          <label style="display:flex; align-items:center; gap:8px;">
-                              <input type="checkbox" v-model="localState.autoResumeAfterRestart">
-                              <span>Auto-resume on CasparCG restart</span>
-                          </label>
-                          <span class="hint-text">Continues playback from crash-time position if CasparCG server process restarts.</span>
-                      </div>
-                  </div>
-              </section>
-          </div>
-
-          <!-- CG & Layouts Tab -->
-          <div v-if="activeTab === 'cg'">
-              <!-- Broadcast CG Graphics & Template Studio Hero Card -->
-              <section class="settings-section cg-studio-hero-section">
-                  <div class="cg-hero-header">
-                      <div>
-                          <h3 class="text-secondary section-title" style="margin-bottom: 4px;">
-                              🎨 Broadcast CG Graphics &amp; Template Studio
-                          </h3>
-                          <p class="cg-hero-desc">
-                              Interactive WYSIWYG studio for Greek compliance advisories (Layer 32), station ID logo bugs, show tags, and emergency crawlers (Layer 33). All styling, geometries, and typography are authored live in CG Studio and synchronized with broadcast playout.
-                          </p>
-                      </div>
-                  </div>
-
-                  <!-- Quick Status Pill Bar -->
-                  <div class="cg-status-pills">
-                      <div class="cg-status-pill">
-                          <span class="cg-pill-dot active"></span>
-                          <span>Badge &amp; Chassis: <strong>{{ localState.cgAdvisoryConfig.badgeShape || 'Squircle' }}</strong></span>
-                      </div>
-                      <div class="cg-status-pill">
-                          <span class="cg-pill-dot active"></span>
-                          <span>Layer 32: <strong>Greek ESR Advisory</strong></span>
-                      </div>
-                      <div class="cg-status-pill">
-                          <span class="cg-pill-dot active"></span>
-                          <span>Station ID Bug: <strong>Permanent Vector Bug</strong></span>
-                      </div>
-                  </div>
-
-                  <!-- Unified Action Center: Open CG Studio + Deploy + Open Folder in the SAME Section -->
-                  <div class="cg-studio-actions-bar">
-                      <button
-                          type="button"
-                          class="glass-btn btn-primary cg-launch-btn"
-                          @click="launchBrowserStudio"
-                          title="Launch full interactive visual CG Studio in browser"
-                      >
-                          ✨ Open CG Studio (Visual Editor)
-                      </button>
-                      <button
-                          type="button"
-                          class="glass-btn cg-deploy-btn"
-                          :disabled="isDeployingTemplates"
-                          @click="deployTemplatesFromSettings"
-                          title="Deploy HTML5 templates and active presets directly to CasparCG"
-                      >
-                          {{ isDeployingTemplates ? '⏳ Deploying Templates...' : '🚀 Deploy CG Templates to CasparCG' }}
-                      </button>
-                      <button
-                          type="button"
-                          class="glass-btn cg-folder-btn"
-                          @click="openTemplateDir"
-                          title="Open CasparCG template directory in Explorer"
-                      >
-                          📂 Open Templates Folder
-                      </button>
-                  </div>
-              </section>
-
-              <!-- CG HTML5 Template Identifiers -->
-              <section class="settings-section">
-                  <h3 class="text-secondary section-title">CG HTML5 Template Identifiers</h3>
-                  <div class="form-grid">
-                      <div class="form-group">
-                          <label>Greek ESR Advisory Template (Layer 32)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgExplanationTemplate" placeholder="playout/advisory">
-                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse template file" @click="pickPath('cg-advisory-template')">📁</button>
-                          </div>
-                          <span class="hint-text">Default: <code>playout/advisory</code> (Standard Greek ESR 30s Rating Banner &amp; Content Warnings).</span>
-                      </div>
-
-                      <div class="form-group">
-                          <label>Emergency Crawl Template (Layer 33)</label>
-                          <div class="input-with-button">
-                              <input type="text" class="glass-input" v-model="localState.cgCrawlTemplate" placeholder="playout/crawl">
-                              <button class="glass-btn" style="flex-shrink: 0;" title="Browse crawl template file" @click="pickPath('cg-crawl-template')">📁</button>
-                          </div>
-                          <span class="hint-text">Default: <code>playout/crawl</code> (50fps Broadcast Ticker).</span>
-                      </div>
-                  </div>
-              </section>
-          </div>
+          <section class="settings-section">
+            <h3 class="section-title">Tools</h3>
+            <div class="server-actions">
+              <BaseButton variant="primary" @pointerenter="preloadDeckLinkWizard()" @click="showDecklinkWizard = true">
+                Open setup wizard
+              </BaseButton>
+              <BaseButton variant="secondary" @pointerenter="preloadCasparConfigModal()" @click="showCasparConfigurator = true">
+                Advanced XML configurator
+              </BaseButton>
+            </div>
+          </section>
         </div>
 
-        <div class="modal-footer">
-          <button class="glass-btn btn-primary" @click="saveSettings">Save Preferences</button>
-          <button class="glass-btn" @click="discardAndClose">Cancel</button>
+        <!-- ======================================= Media & ingest ==== -->
+        <div v-if="activeSection === 'media'">
+          <section class="settings-section">
+            <h3 class="section-title">PlayoutTranscode API</h3>
+            <div class="field">
+              <label class="field-label" for="api-url">API base URL</label>
+              <div class="input-with-button">
+                <input
+                  id="api-url"
+                  v-model="localState.ingestorApiBaseUrl"
+                  class="input"
+                  :class="{ 'input--invalid': apiUrlError }"
+                  type="text"
+                  placeholder="http://127.0.0.1:4353"
+                />
+                <BaseButton
+                  variant="secondary"
+                  :loading="connectionProbe.state === 'testing'"
+                  @click="testIngestorConnection"
+                >Test connection</BaseButton>
+              </div>
+              <p v-if="apiUrlError" class="field-error">{{ apiUrlError }}</p>
+              <p v-else class="field-hint">Asset metadata, mezzanine validation and virtual subclips come from here.</p>
+              <p
+                v-if="connectionProbe.state !== 'idle' && connectionProbe.state !== 'testing'"
+                class="probe-result"
+                :class="`probe-${connectionProbe.state}`"
+              >
+                <AppIcon :name="connectionProbe.state === 'ok' ? 'check' : 'alert'" :size="14" />
+                <span>{{ connectionProbe.message }}</span>
+              </p>
+            </div>
+
+            <div class="field">
+              <label class="field-label" for="api-token">API token</label>
+              <div class="input-with-button">
+                <input
+                  id="api-token"
+                  v-model.trim="localState.ingestorApiToken"
+                  class="input"
+                  :type="showIngestorToken ? 'text' : 'password'"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="Leave empty unless the service sets server.api_token"
+                  data-testid="ingestor-api-token"
+                />
+                <BaseButton variant="secondary" @click="showIngestorToken = !showIngestorToken">
+                  {{ showIngestorToken ? 'Hide' : 'Show' }}
+                </BaseButton>
+              </div>
+              <p class="field-hint">
+                Needed once the service has a token (<code>PlayoutTranscode gen-token</code>); without it every call but
+                the health check is refused. Sent as an <code>X-Api-Token</code> header and never written to logs.
+              </p>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">FFmpeg</h3>
+            <div class="field">
+              <label class="field-label" for="ffmpeg-path">Binary folder override</label>
+              <div class="input-with-button">
+                <input id="ffmpeg-path" v-model="localState.ffmpegBinPath" class="input" type="text" placeholder="Requirements/ffmpeg/bin" />
+                <BaseButton variant="secondary" icon="folder-open" label="Browse" @click="pickPath('ffmpeg-bin')">Browse</BaseButton>
+              </div>
+              <p class="field-hint">Leave blank to use Requirements/ffmpeg/bin next to the installation.</p>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Recycle Bin</h3>
+            <div class="field">
+              <label class="field-label" for="purge-schedule">Keep deleted items for</label>
+              <select id="purge-schedule" v-model="localState.recycleBinAutoPurge" class="select">
+                <option value="disabled">Forever (no automatic purge)</option>
+                <option value="1week">1 week</option>
+                <option value="2weeks">2 weeks</option>
+                <option value="3weeks">3 weeks</option>
+                <option value="1month">1 month</option>
+              </select>
+              <p class="field-hint">Older items are removed from disk and database during background maintenance.</p>
+            </div>
+
+            <div class="danger-zone">
+              <div>
+                <p class="danger-zone-title">Empty the Recycle Bin</p>
+                <p class="danger-zone-hint">Deletes every soft-deleted item from storage now. This cannot be undone.</p>
+              </div>
+              <BaseButton variant="danger" icon="trash" @click="emptyBinFromSettings">Empty now</BaseButton>
+            </div>
+          </section>
+        </div>
+
+        <!-- ========================================= Graphics (CG) ==== -->
+        <div v-if="activeSection === 'graphics'">
+          <section class="settings-section">
+            <h3 class="section-title">CG Studio</h3>
+            <p class="section-hint">
+              Compliance graphics (layer 32), the station ID bug and the emergency crawl (layer 33) are authored in CG
+              Studio. Deploying writes the template and its preset to CasparCG.
+            </p>
+            <dl class="env-list">
+              <div class="env-row"><dt>Badge shape</dt><dd>{{ localState.cgAdvisoryConfig.badgeShape || 'Squircle' }}</dd></div>
+              <div class="env-row"><dt>Layer 32 template</dt><dd class="mono">{{ localState.cgExplanationTemplate || 'playout/advisory' }}</dd></div>
+              <div class="env-row"><dt>Layer 33 template</dt><dd class="mono">{{ localState.cgCrawlTemplate || 'playout/crawl' }}</dd></div>
+            </dl>
+            <div class="server-actions">
+              <BaseButton variant="primary" @click="launchBrowserStudio">Open CG Studio</BaseButton>
+              <BaseButton variant="secondary" :loading="isDeployingTemplates" @click="deployTemplatesFromSettings">
+                Deploy templates
+              </BaseButton>
+              <BaseButton variant="ghost" icon="folder-open" @click="openTemplateDir">Open templates folder</BaseButton>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Station logo</h3>
+            <label class="check-row">
+              <input v-model="localState.cg.stationIdEnabled" type="checkbox" />
+              <span>Keep the station ID bug on air</span>
+            </label>
+            <p class="field-hint">
+              When off, the logo layer is cleared on stop. Its artwork and position come from CG Studio.
+            </p>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Template identifiers</h3>
+            <div class="field">
+              <label class="field-label" for="advisory-template">Advisory template (layer 32)</label>
+              <div class="input-with-button">
+                <input id="advisory-template" v-model="localState.cgExplanationTemplate" class="input" type="text" placeholder="playout/advisory" />
+                <BaseButton variant="secondary" icon="folder-open" label="Browse for advisory template" @click="pickPath('cg-advisory-template')" />
+              </div>
+              <p class="field-hint">Default <code>playout/advisory</code> — the Greek NCRTV rating banner and content warnings.</p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="crawl-template">Crawl template (layer 33)</label>
+              <div class="input-with-button">
+                <input id="crawl-template" v-model="localState.cgCrawlTemplate" class="input" type="text" placeholder="playout/crawl" />
+                <BaseButton variant="secondary" icon="folder-open" label="Browse for crawl template" @click="pickPath('cg-crawl-template')" />
+              </div>
+              <p class="field-hint">Default <code>playout/crawl</code> — the 50 fps ticker.</p>
+            </div>
+          </section>
+        </div>
+
+        <!-- ====================================== QC & compliance ==== -->
+        <div v-if="activeSection === 'qc'">
+          <section class="settings-section">
+            <h3 class="section-title">Warning sensitivity</h3>
+            <p class="section-hint">How much the library and rundown flag before an item is considered fit to air.</p>
+            <RadioCardGroup
+              v-model="localState.qcSensitivity"
+              label="Warning sensitivity"
+              stacked
+              :options="[
+                { value: 'strict', title: 'Strict', description: 'Flags every advisory, including frame-alignment and loudness notes.' },
+                { value: 'production', title: 'Production', badge: 'Recommended', description: 'Flags anything that would affect the take; ignores sub-clip alignment notes.' },
+                { value: 'lenient', title: 'Lenient', description: 'Flags only faults that would black the output: missing file, unplayable format, zero duration.' }
+              ]"
+            />
+          </section>
+        </div>
+
+        <!-- ============================================== Advanced ==== -->
+        <div v-if="activeSection === 'advanced'">
+          <section class="settings-section">
+            <h3 class="section-title">Debug tools</h3>
+            <label class="check-row">
+              <input v-model="localState.debugMode" type="checkbox" />
+              <span>Enable debug tools and diagnostics</span>
+            </label>
+            <p class="field-hint">
+              Turns on the media library's debug panel with the live Ingestor log, the frame-timing (jank) monitor, and
+              detailed console logging. Leave it off during a broadcast: the log panel updates reactively.
+            </p>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Layout</h3>
+            <div class="server-actions">
+              <BaseButton variant="secondary" icon="refresh" @click="resetPanelLayout">Reset panel sizes</BaseButton>
+            </div>
+            <p class="field-hint">Puts the library panel back to its default width.</p>
+          </section>
         </div>
       </div>
     </div>
 
-    <!-- Sub-modals -->
-    <CasparConfigModal
-      v-if="showCasparConfigurator"
-      :is-open="showCasparConfigurator"
-      :initial-path="effectiveCasparConfigPath"
-      @update:path="onCasparConfigPathUpdate"
-      @close="showCasparConfigurator = false"
-    />
+    <template #footer>
+      <ModalFooterActions>
+        <template #destructive>
+          <span v-if="validationErrors.length" class="footer-validation">
+            <AppIcon name="alert" :size="14" />
+            <span>{{ validationErrors.length }} field needs attention</span>
+          </span>
+        </template>
+        <template #secondary>
+          <BaseButton variant="secondary" @click="discardAndClose">Cancel</BaseButton>
+        </template>
+        <template #primary>
+          <BaseButton variant="primary" :disabled="!canSave" :loading="isSaving" @click="saveSettings">
+            Save
+          </BaseButton>
+        </template>
+      </ModalFooterActions>
+    </template>
+  </BaseModal>
 
-    <DeckLinkWizard
-      v-if="showDecklinkWizard"
-      :is-open="showDecklinkWizard"
-      :initial-path="effectiveCasparConfigPath"
-      @close="onDecklinkWizardClose"
-    />
-  </Teleport>
+  <!-- Sub-modals -->
+  <CasparConfigModal
+    v-if="showCasparConfigurator"
+    :is-open="showCasparConfigurator"
+    :initial-path="effectiveCasparConfigPath"
+    @update:path="onCasparConfigPathUpdate"
+    @close="showCasparConfigurator = false"
+  />
+
+  <DeckLinkWizard
+    v-if="showDecklinkWizard"
+    :is-open="showDecklinkWizard"
+    :initial-path="effectiveCasparConfigPath"
+    @close="onDecklinkWizardClose"
+  />
 </template>
 
 <style scoped>
-.modal-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(12px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999;
+/* The shell (backdrop, header, body scroll, footer) is BaseModal's; buttons,
+   inputs and selects are components.css's. What is left is the rail, the
+   section rhythm, and the few status badges this dialog owns. */
+
+.settings-layout {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: var(--space-4);
+    min-height: 420px;
+    /* Give the dialog body a working height so the pane scrolls, not the page. */
+    max-height: calc(100vh - 260px);
 }
 
-.modal-content {
-    width: 890px;
-    max-width: 95vw;
-    height: 86vh;
-    max-height: 860px;
+/* --- Left rail (§4.1) --------------------------------------------------- */
+
+.settings-rail {
     display: flex;
     flex-direction: column;
-    padding: 0;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-medium);
-    border-radius: 14px;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
-    overflow: hidden;
+    gap: 2px;
+    padding-right: var(--space-3);
+    border-right: 1px solid var(--border-subtle);
+    overflow-y: auto;
 }
 
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1.25rem 1.5rem;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-secondary);
-}
-
-.modal-title-row {
+.rail-filter {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 10px;
+    margin-bottom: var(--space-2);
 }
 
-.settings-badge {
-    font-size: 0.68rem;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    padding: 2px 7px;
-    border-radius: 4px;
-    background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
-    color: var(--accent-blue);
-    border: 1px solid color-mix(in srgb, var(--accent-blue) 35%, transparent);
+.rail-filter-icon {
+    position: absolute;
+    left: var(--space-2);
+    color: var(--text-muted);
+    pointer-events: none;
 }
 
-.modal-title {
-    margin: 0;
-    font-size: 1.2rem;
-    font-weight: 700;
+.rail-filter-input {
+    height: var(--control-h-sm);
+    padding-left: calc(var(--space-2) * 2 + 14px);
+    font-size: var(--fs-xs);
+}
+
+.settings-tab-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-ui);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background-color var(--dur-fast) var(--ease-out),
+        color var(--dur-fast) var(--ease-out);
+}
+
+.settings-tab-btn:hover {
+    background: var(--bg-hover);
     color: var(--text-primary);
 }
 
-.modal-body {
-    flex: 1;
+.settings-tab-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.settings-tab-btn.active {
+    background: var(--bg-active);
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--accent-blue) 35%, transparent);
+}
+
+.rail-empty {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+}
+
+/* --- Content pane ------------------------------------------------------- */
+
+.settings-pane {
+    min-width: 0;
     overflow-y: auto;
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
+    padding-right: var(--space-2);
 }
 
 .settings-section {
+    padding-bottom: var(--space-5);
+    margin-bottom: var(--space-5);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-section:last-child {
+    margin-bottom: 0;
+    border-bottom: none;
+}
+
+.section-head {
     display: flex;
-    flex-direction: column;
-    gap: 0.85rem;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-subtle);
-    border-radius: 10px;
-    padding: 1.15rem;
-    margin-bottom: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.section-head-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
 }
 
 .section-title {
-    font-size: 0.82rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    margin: 0 0 var(--space-1);
+    font-size: var(--fs-md);
     font-weight: 700;
+    color: var(--text-primary);
+}
+
+.section-hint {
+    margin: 0 0 var(--space-3);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
     color: var(--text-secondary);
-    margin-bottom: 0.25rem;
 }
 
-.form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
+/* --- Fields ------------------------------------------------------------- */
+
+.settings-pane .field {
+    margin-bottom: var(--space-3);
 }
 
-.form-group label {
-    font-size: 0.82rem;
-    color: var(--text-primary);
-    font-weight: 600;
+.settings-pane .field:last-child {
+    margin-bottom: 0;
 }
 
-.form-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1rem;
+.field-hint.is-ok {
+    color: var(--status-ready);
 }
 
-.glass-input {
-    background: var(--bg-input);
-    border: 1px solid var(--border-medium);
-    border-radius: 6px;
-    padding: 8px 12px;
-    color: var(--text-primary);
-    font-size: 0.88rem;
-    outline: none;
-    transition: all 0.15s;
-}
-
-.glass-input:focus {
-    border-color: var(--accent-blue);
-    box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
+.field-hint.is-bad {
+    color: var(--status-error);
 }
 
 .input-with-button {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: var(--space-2);
 }
 
-.input-with-button .glass-input {
-    flex: 1;
+.input-with-button .input {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
-.hint-text {
-    font-size: 0.74rem;
-    color: var(--text-muted);
-    line-height: 1.35;
+.check-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) 0;
+    font-size: var(--fs-sm);
+    color: var(--text-primary);
+    cursor: pointer;
 }
 
-/* QC & Scale Cards */
-.qc-card-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+.range {
+    width: 100%;
+    accent-color: var(--accent-blue);
 }
 
-.qc-radio-card {
-    background: var(--bg-secondary);
+.server-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+/* --- Read-only definition lists (replacing the summary "cards") --------- */
+
+.env-list {
+    margin: var(--space-2) 0 0;
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
-    padding: 12px;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    transition: all 0.15s;
-    user-select: none;
+    border-radius: var(--radius-md);
+    background: var(--bg-input);
 }
 
-.qc-radio-card:hover {
-    background: var(--bg-hover);
-    border-color: var(--border-strong);
-}
-
-.qc-radio-card.is-selected {
-    border-color: var(--accent-blue);
-    background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-secondary));
-    box-shadow: 0 0 12px color-mix(in srgb, var(--accent-blue) 20%, transparent);
-}
-
-.qc-radio-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.qc-badge {
-    font-size: 0.64rem;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    padding: 2px 6px;
-    border-radius: 3px;
-}
-
-.badge-prod { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); }
-.badge-strict { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.35); }
-.badge-lenient { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); }
-
-.qc-card-title {
-    font-size: 0.88rem;
-    font-weight: 700;
-    color: var(--text-primary);
-}
-
-.qc-desc {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    line-height: 1.35;
-    margin: 0;
-}
-
-.modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    padding: 1rem 1.5rem;
-    border-top: 1px solid var(--border-subtle);
-    gap: 0.75rem;
-    background: var(--bg-tertiary);
-}
-
-.glass-btn {
-    padding: 8px 16px;
-    border-radius: 6px;
-    background: var(--bg-hover);
-    border: 1px solid var(--border-medium);
-    color: var(--text-primary);
-    font-size: 0.84rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-}
-
-.glass-btn:hover {
-    background: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-hover));
-    border-color: var(--border-strong);
-}
-
-.btn-primary {
-    background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
-    border-color: var(--accent-blue);
-    color: var(--accent-blue);
-    font-weight: 700;
-}
-
-.btn-primary:hover {
-    background: color-mix(in srgb, var(--accent-blue) 28%, transparent);
-    box-shadow: 0 0 12px color-mix(in srgb, var(--accent-blue) 35%, transparent);
-}
-
-.btn-icon {
-    padding: 4px 8px;
-    font-size: 1.1rem;
-    background: transparent;
-    border-color: transparent;
-    color: var(--text-secondary);
-}
-.btn-icon:hover {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--accent-red);
-}
-
-.settings-tabs {
-    display: flex;
-    gap: 6px;
-    padding: 0 1.5rem;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-tertiary);
-}
-
-.settings-tab-btn {
-    padding: 10px 16px;
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.settings-tab-btn:hover {
-    color: var(--text-primary);
-}
-
-.settings-tab-btn.active {
-    color: var(--accent-blue);
-    border-bottom-color: var(--accent-blue);
-    font-weight: 700;
-}
-
-@media (max-width: 768px) {
-    .qc-card-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-.studio-launch-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.25) 0%, rgba(59, 130, 246, 0.25) 100%);
-    border: 1px solid rgba(56, 189, 248, 0.45);
-    color: #38bdf8;
-    font-weight: 700;
-    padding: 10px 18px;
-    border-radius: 8px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-    transition: all 0.2s ease;
-    cursor: pointer;
-}
-
-.studio-launch-btn:hover {
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.45) 0%, rgba(59, 130, 246, 0.45) 100%);
-    border-color: #38bdf8;
-    color: #ffffff;
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
-    transform: translateY(-1px);
-}
-
-.instance-role-badge {
-    font-size: 0.72rem;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 6px;
-    letter-spacing: 0.04em;
-}
-.role-primary {
-    background: rgba(34, 197, 94, 0.15);
-    border: 1px solid rgba(34, 197, 94, 0.4);
-    color: #4ade80;
-}
-.role-monitor {
-    background: rgba(168, 85, 247, 0.15);
-    border: 1px solid rgba(168, 85, 247, 0.4);
-    color: #c084fc;
-}
-.process-state-badge {
-    font-size: 0.72rem;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 6px;
-    letter-spacing: 0.04em;
-}
-.state-operational {
-    background: rgba(34, 197, 94, 0.15);
-    border: 1px solid rgba(34, 197, 94, 0.4);
-    color: #4ade80;
-}
-.state-starting {
-    background: rgba(56, 189, 248, 0.15);
-    border: 1px solid rgba(56, 189, 248, 0.4);
-    color: #38bdf8;
-}
-.state-stopped {
-    background: rgba(245, 158, 11, 0.15);
-    border: 1px solid rgba(245, 158, 11, 0.4);
-    color: #fbbf24;
-}
-.state-crashed {
-    background: rgba(239, 68, 68, 0.15);
-    border: 1px solid rgba(239, 68, 68, 0.4);
-    color: #f87171;
-}
-.state-unconfigured {
-    background: rgba(148, 163, 184, 0.15);
-    border: 1px solid rgba(148, 163, 184, 0.4);
-    color: #94a3b8;
-}
-.state-external_running {
-    background: rgba(168, 85, 247, 0.15);
-    border: 1px solid rgba(168, 85, 247, 0.4);
-    color: #c084fc;
-}
-
-.caspar-derived-env-box {
-    background: rgba(15, 23, 42, 0.65);
-    border: 1px solid rgba(56, 189, 248, 0.3);
-    border-radius: 8px;
-    padding: 12px 14px;
-    margin-top: 4px;
-}
-.env-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-.env-title {
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: #38bdf8;
-}
-.env-badge {
-    font-size: 0.7rem;
-    background: rgba(56, 189, 248, 0.15);
-    color: #38bdf8;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: 500;
-}
-.env-tree {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
 .env-row {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.78rem;
-    font-family: monospace;
-}
-.env-label {
-    color: #94a3b8;
-    min-width: 155px;
-    font-weight: 500;
-}
-.env-value {
-    color: #f1f5f9;
-    word-break: break-all;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 3px 0;
 }
 
-/* Broadcast CG Graphics & Template Studio Hero Card */
-.cg-studio-hero-section {
-    background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.6) 100%);
-    border: 1px solid rgba(56, 189, 248, 0.35);
-    border-radius: 10px;
-    padding: 16px;
-    margin-bottom: 16px;
+.env-row dt {
+    flex-shrink: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-secondary);
 }
 
-.cg-hero-desc {
-    font-size: 0.82rem;
-    color: #94a3b8;
-    line-height: 1.45;
-    margin: 4px 0 12px 0;
+.env-row dd {
+    margin: 0;
+    min-width: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-primary);
+    text-align: right;
+    overflow-wrap: anywhere;
 }
 
-.cg-status-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 14px;
+.mono {
+    font-family: var(--font-mono);
 }
 
-.cg-status-pill {
+/* --- Status badges ------------------------------------------------------ */
+
+.instance-role-badge,
+.process-state-badge {
+    padding: 2px var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: capitalize;
+    white-space: nowrap;
+}
+
+.role-primary,
+.state-operational {
+    background: color-mix(in srgb, var(--status-ready) 15%, transparent);
+    border-color: color-mix(in srgb, var(--status-ready) 40%, transparent);
+    color: var(--status-ready);
+}
+
+.role-monitor,
+.state-external_running {
+    background: color-mix(in srgb, var(--accent-purple) 15%, transparent);
+    border-color: color-mix(in srgb, var(--accent-purple) 40%, transparent);
+    color: var(--accent-purple);
+}
+
+.state-starting {
+    background: color-mix(in srgb, var(--status-processing) 15%, transparent);
+    border-color: color-mix(in srgb, var(--status-processing) 40%, transparent);
+    color: var(--status-processing);
+}
+
+.state-stopped {
+    background: color-mix(in srgb, var(--status-warning) 15%, transparent);
+    border-color: color-mix(in srgb, var(--status-warning) 40%, transparent);
+    color: var(--status-warning);
+}
+
+.state-crashed {
+    background: color-mix(in srgb, var(--status-error) 15%, transparent);
+    border-color: color-mix(in srgb, var(--status-error) 40%, transparent);
+    color: var(--status-error);
+}
+
+.state-unconfigured {
+    background: color-mix(in srgb, var(--status-offline) 15%, transparent);
+    border-color: color-mix(in srgb, var(--status-offline) 40%, transparent);
+    color: var(--text-secondary);
+}
+
+/* --- Theme swatch (§4.2: a real preview, not a text badge) -------------- */
+
+.theme-swatch {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    background: rgba(11, 17, 32, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    padding: 4px 10px;
-    font-size: 0.76rem;
-    color: #cbd5e1;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-sm);
 }
 
-.cg-pill-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #64748b;
+.swatch-panel,
+.swatch-row,
+.swatch-accent {
+    display: block;
+    width: 10px;
+    height: 14px;
+    border-radius: 2px;
 }
 
-.cg-pill-dot.active {
-    background: #38bdf8;
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+.swatch-accent {
+    width: 6px;
 }
 
-.cg-studio-actions-bar {
+/* The swatches show each theme's own palette, so they are the one place in
+   this file that names colours directly rather than following the active
+   theme -- a light swatch must look light while the dark theme is on. */
+.swatch-dark .swatch-panel { background: #0f172a; }
+.swatch-dark .swatch-row { background: #334155; }
+.swatch-dark .swatch-accent { background: #38bdf8; }
+
+.swatch-monokai .swatch-panel { background: #22231e; }
+.swatch-monokai .swatch-row { background: #3e4036; }
+.swatch-monokai .swatch-accent { background: #a6e22e; }
+
+.swatch-light .swatch-panel { background: #ffffff; }
+.swatch-light .swatch-row { background: #e2e8f0; }
+.swatch-light .swatch-accent { background: #0284c7; }
+
+/* --- Connection probe & danger zone ------------------------------------- */
+
+.probe-result {
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
     align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs);
 }
 
-.cg-launch-btn {
-    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-    border: 1px solid #38bdf8;
-    color: #ffffff;
-    font-weight: 700;
-    padding: 8px 18px;
-    box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+.probe-ok {
+    color: var(--status-ready);
 }
 
-.cg-launch-btn:hover {
-    background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.5);
-    transform: translateY(-1px);
+.probe-warn {
+    color: var(--status-warning);
 }
 
-.cg-deploy-btn {
-    background: rgba(16, 185, 129, 0.15);
-    border: 1px solid rgba(16, 185, 129, 0.45);
-    color: #34d399;
-    font-weight: 700;
-    padding: 8px 16px;
+.probe-fail {
+    color: var(--status-error);
 }
 
-.cg-deploy-btn:hover:not(:disabled) {
-    background: rgba(16, 185, 129, 0.28);
-    border-color: #34d399;
-    color: #ffffff;
-    box-shadow: 0 0 14px rgba(52, 211, 153, 0.4);
+.danger-zone {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--status-error) 25%, transparent);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--status-error) 8%, transparent);
 }
 
-.cg-folder-btn {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: #cbd5e1;
+.danger-zone-title {
+    margin: 0;
+    font-size: var(--fs-sm);
     font-weight: 600;
-    padding: 8px 14px;
+    color: var(--text-primary);
 }
 
-.cg-folder-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+.danger-zone-hint {
+    margin: 2px 0 0;
+    font-size: var(--fs-xs);
+    color: var(--text-secondary);
+}
+
+.footer-validation {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--status-error);
+}
+
+code {
+    font-family: var(--font-mono);
+    font-size: 0.95em;
+    padding: 0 3px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-hover);
+}
+
+@media (max-width: 720px) {
+    .settings-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-rail {
+        border-right: none;
+        border-bottom: 1px solid var(--border-subtle);
+        padding-right: 0;
+        padding-bottom: var(--space-2);
+    }
 }
 </style>

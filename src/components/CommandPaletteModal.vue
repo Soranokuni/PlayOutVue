@@ -303,8 +303,8 @@ const runSelected = () => {
 .command-palette-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20000;
-  background: rgba(0, 0, 0, 0.7);
+  z-index: var(--z-palette);
+  background: var(--backdrop);
   backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
@@ -318,7 +318,7 @@ const runSelected = () => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 10px;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-3);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -431,7 +431,7 @@ const runSelected = () => {
 }
 
 .palette-item-scope {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 9999px;

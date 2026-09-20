@@ -74,15 +74,13 @@ export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
  */
 const ENUM_FIELDS: Record<string, readonly string[]> = {
     playoutEngine: ['casparcg', 'obs'],
-    theme: ['dark', 'monokai', 'light', 'soft-slate', 'periwinkle'],
+    theme: ['dark', 'monokai', 'light'],
     uiScale: ['standard', 'comfortable', 'large'],
     recycleBinAutoPurge: ['disabled', '1week', '2weeks', '3weeks', '1month'],
     qcSensitivity: ['strict', 'production', 'lenient'],
     decklinkLatency: ['normal', 'low', 'default'],
     decklinkKeyer: ['external', 'external_separate_device', 'internal', 'default'],
     playoutProfile: ['PAL_1080I50', 'PAL_1080P25'],
-    complianceRenderMode: ['html5', 'legacy_png'],
-    cgCrawlPosition: ['top', 'bottom'],
 };
 
 const INT_FIELDS: Record<string, { min: number; max: number }> = {
@@ -96,8 +94,6 @@ const INT_FIELDS: Record<string, { min: number; max: number }> = {
     lastAutoPurgeCheck: { min: 0, max: Number.MAX_SAFE_INTEGER },
 };
 
-const POSITION_FIELDS = ['cgStationLogoPos', 'cgRatingBadgePos', 'cgTPPos', 'cgExplanationBannerPos', 'cgCrawlPos'] as const;
-
 /** A single token of the AMCP grammar: letters, digits, `_`, `-`, `.` */
 const AMCP_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
 
@@ -108,7 +104,21 @@ const AMCP_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
  */
 export const INGESTOR_TOKEN = /^[\x21-\x7e]{0,256}$/;
 
+/**
+ * Themes removed in the UI/UX plan (§12.2): both were tinted copies of `light`
+ * that advertised neumorphism no component implemented. Operators who had one
+ * selected land on `light` rather than being reset to the `dark` default by the
+ * enum coercion below.
+ */
+const REMOVED_THEME_ALIASES: Record<string, string> = {
+    'soft-slate': 'light',
+    periwinkle: 'light',
+};
+
 export function sanitizeSettingsState<T extends Record<string, any>>(state: T, defaults: Record<string, any>): T {
+    const aliasedTheme = REMOVED_THEME_ALIASES[state.theme as string];
+    if (aliasedTheme) (state as any).theme = aliasedTheme;
+
     for (const [key, allowed] of Object.entries(ENUM_FIELDS)) {
         if (!allowed.includes(state[key])) {
             (state as any)[key] = defaults[key];
@@ -120,18 +130,6 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
             (state as any)[key] = defaults[key];
         } else {
             (state as any)[key] = Math.round(value);
-        }
-    }
-    for (const key of POSITION_FIELDS) {
-        const pos = state[key];
-        const fallback = defaults[key];
-        if (!pos || typeof pos !== 'object') {
-            (state as any)[key] = { ...fallback };
-            continue;
-        }
-        for (const axis of ['left', 'top', 'width', 'height'] as const) {
-            const value = Number(pos[axis]);
-            pos[axis] = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : fallback[axis];
         }
     }
     // Strings that end up inside an AMCP command line as bare tokens.
@@ -182,11 +180,8 @@ export const useSettingsStore = defineStore('settings', {
         ffmpegBinPath: '',
         debugMode: false,
 
-        // Local logo and ratings asset folder
-        logosPath: '',
-
-        // Visual Theme ('dark' | 'monokai' | 'light' | 'soft-slate' | 'periwinkle')
-        theme: 'dark' as 'dark' | 'monokai' | 'light' | 'soft-slate' | 'periwinkle',
+        // Visual Theme ('dark' | 'monokai' | 'light')
+        theme: 'dark' as 'dark' | 'monokai' | 'light',
 
         // UI Scale ('standard' | 'comfortable' | 'large')
         uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',
@@ -228,29 +223,23 @@ export const useSettingsStore = defineStore('settings', {
         // when CasparCG restarts while a clip was on air.
         autoResumeAfterRestart: true,
 
-        // Character Generator (CG) settings
-        complianceRenderMode: 'html5' as 'html5' | 'legacy_png',
+        // Character Generator (CG) settings.
+        //
+        // §12.4: the per-rating PNG paths, the five layout positions,
+        // `complianceRenderMode`, `cgCrawlPosition`, `cg.stationIdPath` and
+        // `logosPath` were deleted here. They belonged to the legacy PNG
+        // overlay path, which `caspar.ts` no longer takes -- it clears layers
+        // 31/34 and renders everything through the layer-32 HTML5 advisory
+        // template, whose geometry, colours and SVGs come from
+        // `cgAdvisoryConfig` (authored in CG Studio, applied on deploy by
+        // `updateCgAdvisoryFromDeployedPreset`). `stationIdEnabled` stays
+        // because `caspar.ts` still reads it to gate `clearBranding()`.
         cg: {
-            stationIdPath: '',
             stationIdEnabled: true,
         },
-        cgRatingKPath: '',
-        cgRating8Path: '',
-        cgRating12Path: '',
-        cgRating16Path: '',
-        cgRating18Path: '',
-        cgRatingTPPath: '',
-
-        // CG Positions (Percentages)
-        cgStationLogoPos: { left: 5, top: 5, width: 12, height: 12 },
-        cgRatingBadgePos: { left: 88, top: 5, width: 7, height: 7 },
-        cgTPPos: { left: 88, top: 13, width: 7, height: 7 },
-        cgExplanationBannerPos: { left: 60, top: 5, width: 27, height: 7 },
-        cgCrawlPos: { left: 0, top: 90, width: 100, height: 8 },
 
         // CG Templates & Crawl state
         cgCrawlTemplate: 'playout/crawl',
-        cgCrawlPosition: 'bottom' as 'top' | 'bottom',
         cgCrawlText: '',
         cgCrawlActive: false,
         cgExplanationTemplate: 'playout/advisory',

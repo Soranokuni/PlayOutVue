@@ -16,11 +16,15 @@ import { type LibraryCommandContext, type LibraryInsertResult } from '../service
 import TrimPanel from './TrimPanel.vue';
 import { lazyComponent } from '../lib/lazyComponent';
 import StatusIndicator from './StatusIndicator.vue';
+import AppIcon from './ui/AppIcon.vue';
+import type { IconName } from './ui/icons';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaLibrary';
+import { describeErrorMessage, rawErrorText } from '../lib/describeError';
+import EmptyState from './ui/EmptyState.vue';
 
 // PERF F-14: pickers/bin are opened rarely; fetch on first open, mount only while open.
 const { component: FolderPickerModal } = lazyComponent(
@@ -245,7 +249,43 @@ const displayedAssets = computed<LibraryAsset[]>(() => {
     });
 });
 
-const visibleTreeRows = displayedFolderRows;
+/* ----------------------------------------------------------- §5.3 / F-22 ---
+ * Folder-tree keyboard navigation. The rows were divs with click handlers and
+ * no role, tabindex or key handling, so the pane was mouse-only and invisible
+ * to a screen reader — while the asset rows beside them were already
+ * `role="option"`.
+ * -------------------------------------------------------------------------- */
+
+const isFolderRowSelected = (row: VisibleTreeRow) =>
+    mediaLibrary.selectedNodeId === row.id ||
+    (mediaLibrary.currentFolderPath === row.path && !mediaLibrary.selectedAssetId);
+
+/** Roving tabindex: one stop for the whole tree, on the selected row. */
+const folderRowTabIndex = (row: VisibleTreeRow, index: number) => {
+    if (isFolderRowSelected(row)) return 0;
+    const anySelected = displayedFolderRows.value.some((candidate) => isFolderRowSelected(candidate));
+    return !anySelected && index === 0 ? 0 : -1;
+};
+
+const folderPaneRef = ref<HTMLElement | null>(null);
+
+/*
+ * NOTE for whoever picks up §5.3 (folder-tree keyboard navigation).
+ *
+ * Arrow/Home/End keys cannot be handled here. OPERATOR-UI-CONTRACT §5 gives a
+ * single capture-phase listener in `useOperatorShortcuts` ownership of every
+ * key, and in `library` scope it already claims the arrows for
+ * `library.selectPrevious` / `library.selectNext` (the *asset* list), calling
+ * `preventDefault()` and `stopPropagation()`. A row-level `@keydown` never
+ * runs, so adding one would only look like it worked.
+ *
+ * Doing this properly means new commands in `commandRegistry`
+ * (`library.folderNext`, `library.folderExpand`, …) plus a folder cursor on
+ * `activeLibraryContext`, routed from the one listener -- a change to the
+ * keyboard contract's surface that deserves its own PR and its own routing
+ * tests. The roles, levels and roving tabindex below stand on their own: they
+ * are what a screen reader reads, and the pane had none of them.
+ */
 
 // Breadcrumbs for active folder context
 const currentBreadcrumbs = computed(() => {
@@ -429,7 +469,7 @@ async function fetchAssetsFromLocalFallback(): Promise<LibraryAsset[]> {
                 codec: f.codec,
             }));
     } catch (error) {
-        logIngestor('ingestor-list', `Local fallback scan failed: ${error}`, 'error');
+        logIngestor('ingestor-list', `Local fallback scan failed: ${rawErrorText(error)}`, 'error');
         return [];
     }
 }
@@ -1103,7 +1143,7 @@ async function doTrashAsset(uuid: string, alreadyConfirmed = false) {
     try {
         await mediaLibrary.trashAsset(uuid);
     } catch (e) {
-        await message(`Failed to move asset to Recycle Bin: ${e}`, { title: 'Recycle Bin Error', kind: 'error' });
+        await message(describeErrorMessage(e, 'Could not move the asset to the Recycle Bin.'), { title: 'Recycle Bin Error', kind: 'error' });
     }
 }
 
@@ -1114,7 +1154,7 @@ async function doTrashFolder(folderPath: string, alreadyConfirmed = false) {
     try {
         await mediaLibrary.trashFolder(folderPath);
     } catch (e) {
-        await message(`Failed to move folder to Recycle Bin: ${e}`, { title: 'Recycle Bin Error', kind: 'error' });
+        await message(describeErrorMessage(e, 'Could not move the folder to the Recycle Bin.'), { title: 'Recycle Bin Error', kind: 'error' });
     }
 }
 
@@ -1157,7 +1197,7 @@ async function executePurgeAlert() {
             await message(note, { title: 'Purge completed with warnings', kind: 'warning' });
         }
     } catch (e) {
-        await message(`Failed to purge: ${e}`, { title: 'Purge Error', kind: 'error' });
+        await message(describeErrorMessage(e, 'Could not delete the item permanently.'), { title: 'Purge Error', kind: 'error' });
     }
 }
 
@@ -1565,23 +1605,25 @@ const contentTypeOptions = [
 ] as const;
 
 interface AgeRatingOption {
+  /** Distinguishes "with explanation" from "badge only" in the menu (F-10). */
+  icon?: IconName;
   id: ComplianceRating;
   label: string;
   logoOnly?: boolean;
 }
 
 const ageRatingOptions: AgeRatingOption[] = [
-  { id: 'k', label: '🔘 Κ — Κατάλληλο για όλους (με επεξήγηση)' },
-  { id: '8', label: '🔘 8 — Κατάλληλο άνω των 8 (με επεξήγηση)' },
-  { id: '12', label: '🔘 12 — Κατάλληλο άνω των 12 (με επεξήγηση)' },
-  { id: '16', label: '🔘 16 — Κατάλληλο άνω των 16 (με επεξήγηση)' },
-  { id: '18', label: '🔘 18 — Κατάλληλο άνω των 18 (με επεξήγηση)' },
-  { id: 'k', label: '🏷️ Κ — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '8', label: '🏷️ 8 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '12', label: '🏷️ 12 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '16', label: '🏷️ 16 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '18', label: '🏷️ 18 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: 'none', label: '❌ Χωρίς Σήμανση (None)' }
+  { id: 'k', label: 'Κ — Κατάλληλο για όλους (με επεξήγηση)', icon: 'radio-on' },
+  { id: '8', label: '8 — Κατάλληλο άνω των 8 (με επεξήγηση)', icon: 'radio-on' },
+  { id: '12', label: '12 — Κατάλληλο άνω των 12 (με επεξήγηση)', icon: 'radio-on' },
+  { id: '16', label: '16 — Κατάλληλο άνω των 16 (με επεξήγηση)', icon: 'radio-on' },
+  { id: '18', label: '18 — Κατάλληλο άνω των 18 (με επεξήγηση)', icon: 'radio-on' },
+  { id: 'k', label: 'Κ — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: '8', label: '8 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: '12', label: '12 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: '16', label: '16 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: '18', label: '18 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' },
+  { id: 'none', label: 'Χωρίς Σήμανση (none)', icon: 'close' }
 ];
 
 async function ctxSetAgeRating(opt: AgeRatingOption) {
@@ -1665,6 +1707,9 @@ async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id'])
 }
 
 const folderColorsPreset = [
+  // Folder colours are operator data, not theme: the chosen hex is persisted
+  // per folder and must render identically in every theme. These are the only
+  // colour literals the lint guard allows in this file.
   { hex: '#e63946', label: 'Red' },
   { hex: '#f4a261', label: 'Orange' },
   { hex: '#e9c46a', label: 'Yellow' },
@@ -1710,7 +1755,7 @@ const topActionItems = computed<TopAction[]>(() => {
     },
     {
       id: 'delete',
-      tooltip: 'Hide Asset',
+      tooltip: 'Move to Recycle Bin',
       action: ctxDelete,
       disabled: false
     }
@@ -1728,18 +1773,21 @@ const menuItems = computed<MenuItem[]>(() => {
     return [
       {
         type: 'action',
-        label: '🔍 Inspect Clip (Ctrl+I)',
+        icon: 'inspect',
+        label: 'Inspect clip (Ctrl+I)',
         action: ctxInspect
       },
       {
         type: 'action',
-        label: 'Append to Rundown',
+        icon: 'plus',
+        label: 'Add to end',
         disabled: store.isRundownLocked,
         action: ctxAppend
       },
       {
         type: 'action',
-        label: 'Insert After Selected',
+        icon: 'plus',
+        label: 'Insert after selection',
         disabled: store.isRundownLocked,
         action: ctxInsertAfter
       },
@@ -1747,7 +1795,8 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'compliance-rating',
-        label: '🇬🇷 Σήματα Καταλληλότητας (Ηλικία)',
+        icon: 'tag',
+        label: 'Σήματα καταλληλότητας (age rating)',
         children: ageRatingOptions.map(r => {
           const itemRating = ratingMeta.ageRating || 'none';
           const itemIsLogoOnly = ratingMeta.advisoryText === '__LOGO_ONLY__';
@@ -1761,6 +1810,7 @@ const menuItems = computed<MenuItem[]>(() => {
           }
           return {
             type: 'action' as const,
+            icon: r.icon,
             label: r.label,
             checked: isChecked,
             action: () => ctxSetAgeRating(r)
@@ -1770,20 +1820,23 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'compliance-descriptors',
-        label: '⚠️ Προειδοποιήσεις Περιεχομένου (ΕΣΡ)',
+        icon: 'alert',
+        label: 'Προειδοποιήσεις περιεχομένου (content warnings)',
         children: [
           ...GREEK_CONTENT_DESCRIPTORS.map(d => {
             const isChecked = Array.isArray(ratingMeta.descriptors) && ratingMeta.descriptors.includes(d.id);
             return {
               type: 'action' as const,
-              label: `${isChecked ? '☑' : '☐'} ${d.icon} ${d.label}`,
+              icon: (isChecked ? 'square-check' : 'square') as IconName,
+              label: d.label,
               checked: isChecked,
               action: () => ctxToggleDescriptor(d.id)
             };
           }),
           {
             type: 'action' as const,
-            label: '🧹 Καθαρισμός Προειδοποιήσεων',
+            icon: 'broom' as IconName,
+            label: 'Καθαρισμός προειδοποιήσεων',
             disabled: !ratingMeta.descriptors || ratingMeta.descriptors.length === 0,
             action: ctxClearDescriptors
           }
@@ -1792,7 +1845,8 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'toggle',
-        label: ratingMeta.tpFlag ? '✓ TP (Active)' : '□ TP (None)',
+        icon: ratingMeta.tpFlag ? 'square-check' : 'square',
+        label: 'Προβολή προϊόντος (product placement, TP)',
         checked: ratingMeta.tpFlag,
         action: ctxToggleTP
       },
@@ -1800,7 +1854,7 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'content-type',
-        label: 'Categories/Tags',
+        label: 'Content type',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
           label: ct.label,
@@ -1811,18 +1865,21 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'action',
-        label: '➡️ Move to…',
+        icon: 'folder-open',
+        label: 'Move to…',
         action: () => openMoveAssetModal(asset)
       },
       { type: 'divider' },
       {
         type: 'action',
-        label: '🗑 Move to Recycle Bin',
+        icon: 'trash',
+        label: 'Move to Recycle Bin',
         action: () => doTrashAsset(asset.uuid)
       },
       {
         type: 'action',
-        label: '💥 Delete & Purge…',
+        icon: 'trash',
+        label: 'Delete permanently…',
         action: () => promptPurgeAsset(asset)
       }
     ];
@@ -1831,7 +1888,8 @@ const menuItems = computed<MenuItem[]>(() => {
     const folderItems: MenuItem[] = [
       {
         type: 'action',
-        label: '📁+ New Subfolder here',
+        icon: 'folder-plus',
+        label: 'New subfolder here',
         action: () => doNewVirtualFolder(node.virtualFolder)
       }
     ];
@@ -1839,23 +1897,27 @@ const menuItems = computed<MenuItem[]>(() => {
     if (!isRoot) {
       folderItems.push({
         type: 'action',
-        label: '➡️ Move Folder to…',
+        icon: 'folder-open',
+        label: 'Move folder to…',
         action: () => openMoveFolderModal(node.virtualFolder)
       });
       folderItems.push({
         type: 'action',
-        label: '✏️ Rename folder',
+        icon: 'rename',
+        label: 'Rename folder',
         action: doRenameFolder
       });
       folderItems.push({ type: 'divider' });
       folderItems.push({
         type: 'action',
-        label: '🗑 Move Folder to Recycle Bin',
+        icon: 'trash',
+        label: 'Move folder to Recycle Bin',
         action: () => doTrashFolder(node.virtualFolder)
       });
       folderItems.push({
         type: 'action',
-        label: '💥 Delete & Purge Folder…',
+        icon: 'trash',
+        label: 'Delete folder permanently…',
         action: () => promptPurgeFolder(node.virtualFolder)
       });
     }
@@ -1936,7 +1998,7 @@ const menuItems = computed<MenuItem[]>(() => {
           :title="isScanning ? 'Refreshing…' : 'Refresh from Ingestor'"
           @click="fetchAssets({ force: true })"
         >
-          {{ isScanning ? '⌛' : '↻' }}
+          <AppIcon name="refresh" :size="16" :spin="isScanning" />
         </button>
       </div>
     </div>
@@ -1949,7 +2011,9 @@ const menuItems = computed<MenuItem[]>(() => {
         type="search"
         placeholder="Search assets…"
       >
-      <button v-if="libraryQuery" class="icon-action" @click="libraryQuery = ''" title="Clear search">✕</button>
+      <button v-if="libraryQuery" class="icon-action" @click="libraryQuery = ''" title="Clear search" aria-label="Clear search">
+        <AppIcon name="close" :size="14" />
+      </button>
       <button
         class="icon-action lib-filter-unrated"
         :class="{ active: showUnratedOnly }"
@@ -1963,11 +2027,12 @@ const menuItems = computed<MenuItem[]>(() => {
       <div class="toolbar-spacer" />
       <button
         class="icon-action"
-        title="New virtual folder in current folder"
+        :title="mediaLibrary.currentFolderPath ? 'New virtual folder in the current folder' : 'Open a folder first — a new folder is created inside the one you are in'"
         :disabled="!mediaLibrary.currentFolderPath"
         @click="() => doNewVirtualFolder()"
       >
-        📁 New
+        <AppIcon name="folder-plus" :size="14" />
+        <span>New</span>
       </button>
 
       <!-- Actions Dropdown -->
@@ -1985,21 +2050,24 @@ const menuItems = computed<MenuItem[]>(() => {
             :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
             @click="doRenameSelected(); showActionsMenu = false"
           >
-            ✏️ Rename
+            <AppIcon name="rename" :size="14" />
+            <span>Rename</span>
           </button>
           <button
             class="lib-actions-item"
             :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
             @click="doMoveSelected(); showActionsMenu = false"
           >
-            ➡️ Move
+            <AppIcon name="folder-open" :size="14" />
+            <span>Move</span>
           </button>
           <button
             class="lib-actions-item lib-action-danger"
             :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
             @click="doDeleteSelected(); showActionsMenu = false"
           >
-            🗑 Delete
+            <AppIcon name="trash" :size="14" />
+            <span>Delete</span>
           </button>
         </div>
       </div>
@@ -2046,9 +2114,18 @@ const menuItems = computed<MenuItem[]>(() => {
       </div>
     </div>
 
+    <!-- §5.3: while a search is active the folder filter is suspended, which
+         used to happen silently -- the operator saw results from folders they
+         had not opened with no indication why. -->
+    <div v-if="libraryQuery" class="lib-search-scope">
+      <AppIcon name="search" :size="14" />
+      <span>Searching all folders · {{ displayedAssets.length }} result{{ displayedAssets.length === 1 ? '' : 's' }}</span>
+      <button type="button" class="btn btn--ghost btn--sm" @click="libraryQuery = ''">Clear</button>
+    </div>
+
     <!-- Active Path Breadcrumb Bar -->
-    <div class="lib-breadcrumb-bar">
-      <span class="breadcrumb-icon">📁</span>
+    <div v-else class="lib-breadcrumb-bar">
+      <AppIcon class="breadcrumb-icon" name="folder" :size="14" />
       <div class="breadcrumb-trail custom-scroll">
         <span
           v-for="(crumb, idx) in currentBreadcrumbs"
@@ -2065,16 +2142,30 @@ const menuItems = computed<MenuItem[]>(() => {
 
     <!-- Two-Pane Explorer Split -->
     <!-- Top Pane: Folder Tree & Navigation -->
-    <div class="lib-folder-pane custom-scroll">
-      <div v-if="isScanning && !displayedFolderRows.length" class="lib-empty">⌛ Loading…</div>
-      <div v-else-if="displayedFolderRows.length === 0" class="lib-empty">No folders</div>
-      <div v-else class="lib-folder-tree">
+    <div class="lib-folder-pane custom-scroll" ref="folderPaneRef">
+      <div v-if="isScanning && !displayedFolderRows.length" class="lib-empty">
+        <AppIcon name="processing" :size="16" spin />
+        <span>Loading…</span>
+      </div>
+      <EmptyState
+        v-else-if="displayedFolderRows.length === 0"
+        compact
+        icon="folder"
+        title="No folders yet"
+        hint="Folders appear once assets are filed into them."
+      />
+      <div v-else class="lib-folder-tree" role="tree" aria-label="Virtual folders">
         <div
-          v-for="row in displayedFolderRows"
+          v-for="(row, rowIndex) in displayedFolderRows"
           :key="row.key"
           class="lib-row is-folder"
+          role="treeitem"
+          :aria-level="row.depth + 1"
+          :aria-expanded="row.hasChildren ? row.isExpanded : undefined"
+          :aria-selected="isFolderRowSelected(row)"
+          :tabindex="folderRowTabIndex(row, rowIndex)"
           :class="{
-            'is-selected': mediaLibrary.selectedNodeId === row.id || (mediaLibrary.currentFolderPath === row.path && !mediaLibrary.selectedAssetId),
+            'is-selected': isFolderRowSelected(row),
             'is-folder-drop-target': folderDropTargetId === row.id,
             'is-root-folder': row.depth === 0,
           }"
@@ -2104,7 +2195,7 @@ const menuItems = computed<MenuItem[]>(() => {
             :class="{ 'is-expanded': row.isExpanded }"
             @click.stop="expandedFolders[row.path] = !row.isExpanded"
           >
-            ▶
+            <AppIcon name="chevron-right" :size="14" :stroke-width="2.5" />
           </span>
           <span v-else class="chevron-spacer"></span>
 
@@ -2112,7 +2203,7 @@ const menuItems = computed<MenuItem[]>(() => {
             <svg
               class="folder-svg"
               viewBox="0 0 24 24"
-              :style="{ fill: row.color || (row.depth === 0 ? '#38bdf8' : 'var(--accent-blue)') }"
+              :style="{ fill: row.color || 'var(--accent-blue)' }"
             >
               <path v-if="row.isExpanded" d="M19 5.5h-7.28l-2-2H4c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-11c0-1.1-.9-2-2-2zm0 13H4v-11h16v11z"/>
               <path v-else d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
@@ -2145,7 +2236,7 @@ const menuItems = computed<MenuItem[]>(() => {
           :style="{ paddingLeft: '26px' }"
         >
           <span class="chevron-spacer"></span>
-          <span class="lib-icon">📁</span>
+          <span class="lib-icon"><AppIcon name="folder" :size="16" /></span>
           <input
             v-model="newFolderNameValue"
             class="lib-inline-rename lib-new-folder-input"
@@ -2170,7 +2261,7 @@ const menuItems = computed<MenuItem[]>(() => {
         @dragleave="isTrashDragOver = false"
         @drop.prevent="onTrashDrop($event)"
       >
-        <span class="lib-icon">🗑️</span>
+        <span class="lib-icon"><AppIcon name="trash" :size="16" /></span>
         <span class="lib-text">Recycle Bin</span>
         <span v-if="mediaLibrary.recycleBinAssets.length > 0" class="recycle-bin-count-badge">
           {{ mediaLibrary.recycleBinAssets.length }}
@@ -2193,10 +2284,17 @@ const menuItems = computed<MenuItem[]>(() => {
       @focus="activeScope = 'library'"
       @contextmenu.prevent
     >
-      <div v-if="isScanning && !displayedAssets.length" class="lib-empty">⌛ Loading…</div>
-      <div v-else-if="displayedAssets.length === 0" class="lib-empty">
-        {{ libraryQuery ? 'No matching assets found.' : '📂 No media in folder.\nSet the Ingestor API or media folder in ⚙️ Settings.' }}
+      <div v-if="isScanning && !displayedAssets.length" class="lib-empty">
+        <AppIcon name="processing" :size="16" spin />
+        <span>Loading…</span>
       </div>
+      <EmptyState
+        v-else-if="displayedAssets.length === 0"
+        compact
+        :icon="libraryQuery ? 'search' : 'film'"
+        :title="libraryQuery ? 'No matching assets' : 'No media in this folder'"
+        :hint="libraryQuery ? 'Try a shorter search, or clear it to browse folders again.' : 'Point Settings › Media & ingest at the Ingestor API or a media folder.'"
+      />
       <div v-else class="lib-asset-list">
         <div
           v-for="asset in displayedAssets"
@@ -2221,7 +2319,7 @@ const menuItems = computed<MenuItem[]>(() => {
               variant="dot"
               :tooltip="getAssetTooltip(asset)"
             />
-            <span>🎬</span>
+            <AppIcon name="film" :size="16" />
           </span>
 
           <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">
@@ -2408,7 +2506,7 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 .lib-filter-unrated.active .lib-filter-count {
   background: var(--accent-blue);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .lib-debug-panel {
@@ -2565,8 +2663,8 @@ const menuItems = computed<MenuItem[]>(() => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  z-index: 50;
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-popover);
   min-width: 140px;
   display: flex;
   flex-direction: column;
@@ -2642,13 +2740,6 @@ const menuItems = computed<MenuItem[]>(() => {
   letter-spacing: 0.04em;
 }
 
-.lib-tree {
-  flex: 1;
-  position: relative;
-  min-height: 0;
-  overflow: hidden;
-  padding: 4px 6px;
-}
 .lib-empty { color: var(--text-muted); font-size: 0.82rem; text-align: center; padding: 20px 10px; line-height: 1.6; white-space: pre-line; }
 
 .glass-input {
@@ -2739,9 +2830,13 @@ const menuItems = computed<MenuItem[]>(() => {
   background: var(--bg-hover);
   border-color: var(--border-medium);
 }
-.lib-row.is-selected {
-  background: var(--bg-active) !important;
-  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent) !important;
+/* Selection outranks hover by matching its specificity, not by !important. */
+.lib-row.is-asset.is-selected,
+.lib-row.is-folder.is-selected,
+.lib-row.is-asset.is-selected:hover,
+.lib-row.is-folder.is-selected:hover {
+  background: var(--bg-active);
+  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent);
 }
 
 /* Tree Indentation Guides */
@@ -2802,7 +2897,7 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 
 .folder-count-badge {
-  font-size: 0.68rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
@@ -2841,8 +2936,8 @@ const menuItems = computed<MenuItem[]>(() => {
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  z-index: 20;
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-popover);
 }
 .debug-menu-item {
   background: transparent;
@@ -2889,7 +2984,7 @@ const menuItems = computed<MenuItem[]>(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   padding: 2px 5px;
   border-radius: 3px;
@@ -2900,31 +2995,28 @@ const menuItems = computed<MenuItem[]>(() => {
 
 /* Greek NCRTV Regulatory Color Codes */
 .badge-age.age-k {
-  background: #10b981;
-  color: #fff;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.25);
+  background: var(--rating-k);
+  color: var(--rating-k-fg);
 }
 .badge-age.age-8 {
-  background: #06b6d4;
-  color: #000;
+  background: var(--rating-8);
+  color: var(--rating-8-fg);
   font-weight: 900;
-  box-shadow: 0 0 6px rgba(6, 182, 212, 0.25);
+
 }
 .badge-age.age-12 {
-  background: #eab308;
-  color: #000;
+  background: var(--rating-12);
+  color: var(--rating-12-fg);
   font-weight: 900;
-  box-shadow: 0 0 6px rgba(234, 179, 8, 0.25);
+
 }
 .badge-age.age-16 {
-  background: #f97316;
-  color: #fff;
-  box-shadow: 0 0 6px rgba(249, 115, 22, 0.25);
+  background: var(--rating-16);
+  color: var(--rating-16-fg);
 }
 .badge-age.age-18 {
-  background: #ef4444;
-  color: #fff;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+  background: var(--rating-18);
+  color: var(--rating-18-fg);
 }
 
 /* Unrated: deliberately quiet (dashed outline, muted text) so it reads as
@@ -2939,19 +3031,18 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 
 .badge-tp {
-  background: #ec4899;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 0 6px rgba(236, 72, 153, 0.25);
+  background: var(--rating-tp);
+  color: var(--rating-tp-fg);
+  border: 1px solid var(--border-medium);
 }
 
-.badge-content.content-movie { background: #3b82f6; color: #fff; }
-.badge-content.content-show { background: #8b5cf6; color: #fff; }
-.badge-content.content-documentary { background: #f59e0b; color: #000; font-weight: 800; }
-.badge-content.content-news { background: #14b8a6; color: #fff; }
+.badge-content.content-movie { background: var(--type-movie); color: var(--text-on-danger); }
+.badge-content.content-show { background: var(--type-show); color: var(--text-on-accent); }
+.badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: 800; }
+.badge-content.content-news { background: var(--type-news); color: var(--text-on-success); }
 
 .chevron-icon {
-  font-size: 0.65rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   width: 16px;
   height: 16px;
@@ -2990,59 +3081,15 @@ const menuItems = computed<MenuItem[]>(() => {
   gap: 6px;
   padding: 6px 12px;
 }
-.folder-color-tag {
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.65rem;
-  font-weight: bold;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  transition: transform 0.1s, border-color 0.1s;
-}
-.folder-color-tag:hover {
-  transform: scale(1.15);
-  border-color: rgba(255, 255, 255, 0.4);
-}
-.folder-color-tag.color-reset {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border-color: var(--glass-border);
-}
-.folder-color-tag.color-reset:hover {
-  color: var(--text-primary);
-}
-.color-check {
-  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
-}
 
-/* Recycle Bin Toggle & Badges */
-.recycle-bin-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(239, 68, 68, 0.1) !important;
-  border-color: rgba(239, 68, 68, 0.3) !important;
-  color: #fca5a5 !important;
-}
-
-.recycle-bin-toggle-btn:hover {
-  background: rgba(239, 68, 68, 0.2) !important;
-  border-color: #ef4444 !important;
-  color: #fff !important;
-}
-
+/* Recycle Bin badge */
 .recycle-bin-count-badge {
   display: inline-block;
   padding: 1px 5px;
-  border-radius: 9999px;
-  background: #ef4444;
-  color: #fff;
-  font-size: 0.65rem;
+  border-radius: var(--radius-pill);
+  background: var(--status-error);
+  color: var(--text-on-danger);
+  font-size: var(--fs-xs);
   font-weight: 800;
   line-height: 1;
 }
@@ -3051,41 +3098,51 @@ const menuItems = computed<MenuItem[]>(() => {
 .purge-dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.85);
+  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: var(--z-modal-nested);
 }
 
 .danger-pulse-box {
-  background: #1c1315;
-  border: 2px solid #ef4444;
-  border-radius: 12px;
+  position: relative;
+  background: color-mix(in srgb, var(--status-error) 8%, var(--bg-secondary));
+  border: 2px solid var(--status-error);
+  border-radius: var(--radius-lg);
   width: 480px;
   max-width: 90vw;
-  padding: 24px;
-  box-shadow: 0 0 35px rgba(239, 68, 68, 0.35);
-  animation: danger-pulse 2s infinite ease-in-out;
+  padding: var(--space-6);
+  box-shadow: var(--shadow-3);
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
+/* PERF: the alarm glow was a box-shadow keyframe on the dialog itself. The
+   overlay pulses its opacity on the compositor instead. */
+.danger-pulse-box::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 45px color-mix(in srgb, var(--status-error) 70%, transparent);
+  animation: danger-pulse 2s ease-in-out infinite;
+  will-change: opacity;
+}
+
 @keyframes danger-pulse {
-  0% {
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
-    border-color: #ef4444;
-  }
-  50% {
-    box-shadow: 0 0 45px rgba(239, 68, 68, 0.7), 0 0 10px rgba(239, 68, 68, 0.5);
-    border-color: #f87171;
-  }
-  100% {
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
-    border-color: #ef4444;
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .danger-pulse-box::after {
+    animation: none;
+    opacity: 0.5;
   }
 }
 
@@ -3093,8 +3150,8 @@ const menuItems = computed<MenuItem[]>(() => {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: color-mix(in srgb, var(--status-error) 20%, transparent);
+  color: var(--status-error);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3105,26 +3162,26 @@ const menuItems = computed<MenuItem[]>(() => {
   margin: 0 0 8px;
   font-size: 18px;
   font-weight: 700;
-  color: #fee2e2;
+  color: var(--text-primary);
 }
 
 .purge-dialog-text {
   margin: 0 0 16px;
   font-size: 13px;
   line-height: 1.5;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .purge-warning-callout {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: color-mix(in srgb, var(--status-error) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-error) 25%, transparent);
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 11px;
-  color: #fca5a5;
+  color: var(--status-error);
   text-align: left;
   margin-bottom: 20px;
 }
@@ -3145,35 +3202,62 @@ const menuItems = computed<MenuItem[]>(() => {
 .dialog-cancel-btn {
   flex: 1;
   padding: 9px 16px;
-  background: #23272e;
-  border: 1px solid #333842;
-  border-radius: 6px;
-  color: #cbd5e1;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .dialog-cancel-btn:hover:not(:disabled) {
-  background: #2d3139;
-  color: #fff;
+  background: var(--bg-active);
+  color: var(--text-primary);
 }
 
 .dialog-danger-btn {
   flex: 1;
   padding: 9px 16px;
-  background: #dc2626;
-  border: 1px solid #b91c1c;
-  border-radius: 6px;
-  color: #fff;
+  background: var(--status-error);
+  border: 1px solid var(--status-error);
+  border-radius: var(--radius-md);
+  color: var(--text-on-danger);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .dialog-danger-btn:hover:not(:disabled) {
-  background: #ef4444;
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+  background: color-mix(in srgb, var(--status-error) 85%, var(--text-primary));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--status-error) 50%, transparent);
+}
+/* §5.3: the search-scope banner that replaces the breadcrumb while a query is
+   active, so the suspended folder filter is visible rather than implied. */
+.lib-search-scope {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
+  color: var(--accent-blue);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.lib-search-scope > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* F-22: the tree is keyboard-reachable now, so it needs a visible focus ring. */
+.lib-row.is-folder:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 </style>

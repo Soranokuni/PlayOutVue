@@ -10,6 +10,8 @@ import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPla
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
 import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
+import AppIcon from './ui/AppIcon.vue';
+import type { IconName } from './ui/icons';
 import RundownRow from './RundownRow.vue';
 import { useSettingsStore } from '../stores/settings';
 import { toggleCrawlTicker, updateCrawlTickerText } from '../services/caspar';
@@ -18,6 +20,7 @@ import { useStudioClock } from '../composables/useStudioClock';
 import { activeScope } from '../composables/useOperatorShortcuts';
 import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sameDropTarget, type TargetRowRect, type SemanticDropTarget, type ActiveDropTarget, type GeometrySnapshot } from '../lib/reorderHelper';
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
+import EmptyState from './ui/EmptyState.vue';
 
 const store = useRundownStore();
 const settings = useSettingsStore();
@@ -71,7 +74,7 @@ const indicatorOptions: Array<{ id: LibraryIndicator; label: string }> = [
   { id: 'telemarketing', label: 'Telemarketing' }
 ];
 
-const { timecode: studioClockTimecode, isNtpLocked } = useStudioClock();
+const { timecode: studioClockTimecode } = useStudioClock();
 const showGraphicsDrawer = ref(false);
 const clockStr = computed(() => formatClockTime(store.clockMs));
 
@@ -401,20 +404,22 @@ interface AgeRatingOption {
   id: ComplianceRating;
   label: string;
   logoOnly?: boolean;
+  /** Distinguishes "with explanation" from "badge only" in the menu (F-10). */
+  icon?: IconName;
 }
 
 const ageRatingOptions: AgeRatingOption[] = [
-  { id: 'k', label: '🔘 Κ — Κατάλληλο για όλους (με επεξήγηση)' },
-  { id: '8', label: '🔘 8 — Κατάλληλο άνω των 8 (με επεξήγηση)' },
-  { id: '12', label: '🔘 12 — Κατάλληλο άνω των 12 (με επεξήγηση)' },
-  { id: '16', label: '🔘 16 — Κατάλληλο άνω των 16 (με επεξήγηση)' },
-  { id: '18', label: '🔘 18 — Κατάλληλο άνω των 18 (με επεξήγηση)' },
-  { id: 'k', label: '🏷️ Κ — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '8', label: '🏷️ 8 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '12', label: '🏷️ 12 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '16', label: '🏷️ 16 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: '18', label: '🏷️ 18 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true },
-  { id: 'none', label: '❌ Χωρίς Σήμανση (None)' }
+  { id: 'k', label: 'Κ — Κατάλληλο για όλους (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: '8', label: '8 — Κατάλληλο άνω των 8 (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: '12', label: '12 — Κατάλληλο άνω των 12 (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: '16', label: '16 — Κατάλληλο άνω των 16 (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: '18', label: '18 — Κατάλληλο άνω των 18 (με επεξήγηση)', icon: 'radio-on' as const },
+  { id: 'k', label: 'Κ — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: '8', label: '8 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: '12', label: '12 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: '16', label: '16 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: '18', label: '18 — Μόνο Σήμα (χωρίς επεξήγηση)', logoOnly: true, icon: 'tag' as const },
+  { id: 'none', label: 'Χωρίς Σήμανση (none)', icon: 'close' as const }
 ];
 
 const ctxSetAgeRating = async (opt: AgeRatingOption) => {
@@ -523,25 +528,10 @@ const topActionItems = computed<TopAction[]>(() => {
 
   const isDeleteDisabled = isProtectedPlayingRow(contextMenu.value.index) || store.isRundownLocked;
   
+  // UI F-05: trim / rename / purge were permanently disabled stubs on every
+  // rundown row -- three dead controls above the only live one. A top action
+  // that can never apply to this node type is not rendered at all.
   return [
-    {
-      id: 'trim',
-      tooltip: 'Trim (Unavailable)',
-      action: () => {},
-      disabled: true
-    },
-    {
-      id: 'rename',
-      tooltip: 'Rename (Unavailable)',
-      action: () => {},
-      disabled: true
-    },
-    {
-      id: 'purge',
-      tooltip: 'Purge (Unavailable)',
-      action: () => {},
-      disabled: true
-    },
     {
       id: 'delete',
       tooltip: store.isRundownLocked ? 'Rundown Locked' : (isDeleteDisabled ? 'Delete (Protected)' : 'Delete Item'),
@@ -558,18 +548,21 @@ const menuItems = computed<MenuItem[]>(() => {
   const list: MenuItem[] = [
     {
       type: 'action',
-      label: '🔍 Inspect Clip (Ctrl+I)',
+      icon: 'inspect',
+      label: 'Inspect clip (Ctrl+I)',
       action: ctxInspect
     },
     {
       type: 'action',
-      label: '▶ Play from here',
+      icon: 'play',
+      label: 'Play from here',
       disabled: store.isRundownLocked,
       action: ctxPlayFrom
     },
     {
       type: 'action',
-      label: '⧉ Duplicate',
+      icon: 'file',
+      label: 'Duplicate',
       disabled: store.isRundownLocked,
       action: ctxDuplicate
     }
@@ -581,7 +574,8 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'compliance-rating',
-        label: '🇬🇷 Σήματα Καταλληλότητας (Ηλικία)',
+        icon: 'tag',
+        label: 'Σήματα καταλληλότητας (age rating)',
         children: ageRatingOptions.map(r => {
           const itemRating = item.complianceRating || 'none';
           const itemIsLogoOnly = item.complianceText === '__LOGO_ONLY__';
@@ -596,6 +590,7 @@ const menuItems = computed<MenuItem[]>(() => {
           return {
             type: 'action' as const,
             label: r.label,
+            icon: r.icon,
             checked: isChecked,
             action: () => ctxSetAgeRating(r)
           };
@@ -604,20 +599,23 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'compliance-descriptors',
-        label: '⚠️ Προειδοποιήσεις Περιεχομένου (ΕΣΡ)',
+        icon: 'alert',
+        label: 'Προειδοποιήσεις περιεχομένου (content warnings)',
         children: [
           ...GREEK_CONTENT_DESCRIPTORS.map(d => {
             const isChecked = Array.isArray(item.complianceDescriptors) && item.complianceDescriptors.includes(d.id);
             return {
               type: 'action' as const,
-              label: `${isChecked ? '☑' : '☐'} ${d.icon} ${d.label}`,
+              icon: (isChecked ? 'square-check' : 'square') as IconName,
+              label: d.label,
               checked: isChecked,
               action: () => ctxToggleDescriptor(d.id)
             };
           }),
           {
             type: 'action' as const,
-            label: '🧹 Καθαρισμός Προειδοποιήσεων',
+            icon: 'broom' as IconName,
+            label: 'Καθαρισμός προειδοποιήσεων',
             disabled: !item.complianceDescriptors || item.complianceDescriptors.length === 0,
             action: ctxClearDescriptors
           }
@@ -626,7 +624,8 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'toggle',
-        label: item.tp_flag ? '✓ TP (Active)' : '□ TP (None)',
+        icon: item.tp_flag ? 'square-check' : 'square',
+        label: 'Προβολή προϊόντος (product placement, TP)',
         checked: item.tp_flag,
         action: ctxToggleTP
       },
@@ -634,7 +633,7 @@ const menuItems = computed<MenuItem[]>(() => {
       {
         type: 'submenu',
         id: 'content-type',
-        label: 'Categories/Tags',
+        label: 'Content type',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
           label: ct.label,
@@ -645,8 +644,8 @@ const menuItems = computed<MenuItem[]>(() => {
       { type: 'divider' },
       {
         type: 'submenu',
-        id: 'legacy-tags',
-        label: 'Legacy Tags',
+        id: 'commercial-tag',
+        label: 'Commercial tag',
         children: indicatorOptions.map(ind => ({
           type: 'action',
           label: ind.label,
@@ -763,11 +762,14 @@ const msToClockDisplay = (ms: number) => {
 };
 
 const durationLabel = (item: RundownItem, index: number) => {
-  if (item.type === 'gap') return 'Ghost marker';
+  // §9 / §6.2: a gap row states its hard start; "Ghost marker" told the
+  // operator nothing. A row that is not playing shows its total only -- the
+  // leading `00:00:00 /` was noise on 299 of 300 rows.
+  if (item.type === 'gap') return item.hardStartTime ? `Hard start ${item.hardStartTime}` : 'Gap';
   const durationMs = effectiveDurationMs(item, index);
-  if (durationMs > 0) return `00:00:00 / ${msToClockDisplay(durationMs)}`;
-  if (item.type === 'live') return 'LIVE';
-  return '00:00:00 / 00:00:00';
+  if (item.type === 'live') return durationMs > 0 ? `LIVE ${msToClockDisplay(durationMs)}` : 'LIVE';
+  if (durationMs > 0) return msToClockDisplay(durationMs);
+  return '—';
 };
 
 const activeTimerLabel = (item: RundownItem, index: number) => {
@@ -825,7 +827,6 @@ const rowProgressPct = (item: RundownItem, index: number): number => {
 };
 const rowCountdown = (item: RundownItem) => (item.id === store.currentPlayingInstanceId ? store.playbackCountdownStr : '');
 const rowTimerLabel = (item: RundownItem, index: number) => activeTimerLabel(item, index) || durationLabel(item, index);
-const rowEtaHint = (index: number) => store.activeItemsETAs[index]?.formatted || '';
 const rowDayLabel = (index: number) => scheduledTimes.value[index]?.dayLabel || '·';
 const rowAtKind = (index: number): '' | 'done' | 'now' | 'gap' | 'time' =>
   (scheduledTimes.value[index]?.kind as 'done' | 'now' | 'gap' | 'time' | undefined) || '';
@@ -834,6 +835,18 @@ const rowAtText = (index: number) => {
   return eta && (eta.kind === 'gap' || eta.kind === 'time') ? eta.text || '' : '';
 };
 const rowPlayProtected = (index: number) => isProtectedPlayingRow(index);
+
+/**
+ * §6.1: true on the first row of each scheduled day, so the list can draw one
+ * separator instead of repeating the weekday in every row.
+ */
+const dayBreakBefore = (index: number) => {
+  const day = scheduledTimes.value[index]?.dayLabel;
+  if (!day || day === '·') return false;
+  if (index === 0) return true;
+  return scheduledTimes.value[index - 1]?.dayLabel !== day;
+};
+
 
 const onRowSelect = (item: RundownItem, event?: MouseEvent) => {
   store.selectItem(item.id, { multi: event?.ctrlKey || event?.metaKey, range: event?.shiftKey });
@@ -1056,7 +1069,7 @@ onUnmounted(() => {
     <div class="rw-header">
       <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
         <h2 class="text-warning" style="margin:0; font-size:0.9rem;">{{ store.currentPlaylistName }}</h2>
-        <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge">▶ ON AIR</span>
+        <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge"><AppIcon name="play" :size="12" /> ON AIR</span>
       </div>
 
       <div style="flex:1;"></div>
@@ -1069,25 +1082,30 @@ onUnmounted(() => {
           @click="showGraphicsDrawer = !showGraphicsDrawer"
           title="Toggle On-Demand News Ticker & Graphics Drawer"
         >
-          📰 Ticker
-          <span v-if="settings.cgCrawlActive" class="crawl-active-dot">●</span>
+          <AppIcon name="ticker" :size="14" />
+          <span>Ticker</span>
+          <span v-if="settings.cgCrawlActive" class="crawl-active-dot" title="Crawl is on air"></span>
         </button>
 
-        <!-- Precision Studio Wall Clock with NTP Lock Dot -->
-        <div class="studio-clock-wrap" title="Studio Wall Clock · System Clock Locked (NTP Synchronized)">
-          <span class="ntp-lock-dot" :class="{ 'is-locked': isNtpLocked }" title="System Clock Locked (NTP Synchronized)"></span>
+<!-- UI F-14: the NTP lock dot was hard-coded to "synchronized" and
+             nothing could ever turn it off, so it claimed a clock-sync state the
+             app does not observe. Dropped until a real source exists. -->
+        <div class="studio-clock-wrap" title="Studio wall clock (system time)">
           <span class="clock-display">{{ studioClockTimecode }}</span>
         </div>
 
         <button class="icon-action" @click="showLiveDialog = true" title="Insert Live Item / Studio Block into Rundown">+ Live Block</button>
-        <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">■ Stop</button>
+        <button v-if="isPlayoutPlaying" class="icon-action btn-stop" @click="stopPlayback" title="Stop">
+          <AppIcon name="stop" :size="14" />
+          <span>Stop</span>
+        </button>
       </div>
     </div>
 
     <!-- Collapsible Secondary Graphics Drawer -->
     <div v-if="showGraphicsDrawer" class="rw-graphics-drawer">
       <div class="graphics-drawer-content">
-        <span class="graphics-drawer-badge">📰 TICKER</span>
+        <span class="graphics-drawer-badge"><AppIcon name="ticker" :size="12" /> TICKER</span>
         <input 
           type="text" 
           v-model="settings.cgCrawlText" 
@@ -1105,13 +1123,15 @@ onUnmounted(() => {
           <span class="crawl-btn-dot"></span>
           {{ settings.cgCrawlActive ? 'CRAWL ON AIR' : 'START CRAWL' }}
         </button>
-        <button class="drawer-close-btn" @click="showGraphicsDrawer = false" title="Close ticker drawer">✕</button>
+        <button class="drawer-close-btn" @click="showGraphicsDrawer = false" title="Close ticker drawer" aria-label="Close ticker drawer">
+          <AppIcon name="close" :size="14" />
+        </button>
       </div>
     </div>
 
     <!-- Trim Duration Warning Banner -->
     <div v-if="store.lastTrimWarning" class="trim-warning-banner" role="status">
-      <span class="tw-icon">⚠️</span>
+      <AppIcon class="tw-icon" name="alert" :size="16" />
       <span class="tw-msg">
         Duration updated for <strong>{{ store.lastTrimWarning.filename }}</strong>: 
         Playlist total time adjusted by 
@@ -1156,19 +1176,17 @@ onUnmounted(() => {
     </div>
 
     <!-- Column labels -->
-    <div class="rw-cols-label">
-      <span style="width:18px;"></span>
-      <span style="width:22px; text-align:center;">#</span>
-      <span style="width:20px;"></span>
-      <span style="width:20px;"></span>
-      <span style="flex:1;">Clip Title / Source</span>
-      <span style="width:50px; text-align:center;">Rating</span>
-      <span style="width:62px; text-align:center;">Tag</span>
-      <span style="width:86px; text-align:center;">Trim</span>
-      <span style="width:176px; text-align:right;">Duration / Countdown</span>
-      <span style="width:44px; text-align:left;">Day</span>
-      <span style="width:68px; text-align:left;">At</span>
-      <span style="width:68px; text-align:right;">Actions</span>
+    <div class="rw-cols-label" aria-hidden="true">
+      <span class="col-handle"></span>
+      <span class="col-num">#</span>
+      <span class="col-status"></span>
+      <span class="col-type"></span>
+      <span class="col-title">Title</span>
+      <span class="col-flags">Flags</span>
+      <span class="col-trim">Trim</span>
+      <span class="col-dur">Duration</span>
+      <span class="col-at">At</span>
+      <span class="col-actions">Actions</span>
     </div>
 
     <!-- List -->
@@ -1203,13 +1221,20 @@ onUnmounted(() => {
           rowProgressTone(item, index),
           rowCountdown(item),
           rowTimerLabel(item, index),
-          rowEtaHint(index),
           rowDayLabel(index),
           rowAtKind(index),
           rowAtText(index),
-          rowPlayProtected(index)
+          rowPlayProtected(index),
+          dayBreakBefore(index)
         ]"
       >
+        <!-- §6.1: a day separator instead of repeating the weekday on all 300
+             rows. Rendered only where the schedule crosses into a new day, and
+             inside the memoized container so `v-memo` stays on the `v-for`
+             element (Vue ignores it anywhere else). -->
+        <div v-if="dayBreakBefore(index)" class="rw-day-separator" role="presentation">
+          <span>{{ rowDayLabel(index) }}</span>
+        </div>
         <RundownRow
           :item="item"
           :index="index"
@@ -1222,7 +1247,6 @@ onUnmounted(() => {
           :progress-tone="rowProgressTone(item, index)"
           :countdown="rowCountdown(item)"
           :timer-label="rowTimerLabel(item, index)"
-          :eta-hint="rowEtaHint(index)"
           :day-label="rowDayLabel(index)"
           :at-kind="rowAtKind(index)"
           :at-text="rowAtText(index)"
@@ -1243,12 +1267,16 @@ onUnmounted(() => {
         aria-hidden="true"
       >
         <div class="end-drop-indicator-line"></div>
-        <span class="end-drop-badge">Append to end</span>
+        <span class="end-drop-badge">Add to end</span>
       </div>
 
-      <div v-if="store.activeItems.length === 0" class="rw-empty">
-        Drop media here or click 📹 Live
-      </div>
+      <EmptyState
+        v-if="store.activeItems.length === 0"
+        class="rw-empty"
+        icon="film"
+        title="Nothing scheduled"
+        hint="Drag media from the library, or add a live block."
+      />
     </div>
 
     <!-- Fixed Overlay Drop Indicator -->
@@ -1311,22 +1339,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-surface-elevated, rgba(0, 0, 0, 0.25));
+  background: var(--bg-surface-elevated);
   padding: 2px 8px;
   border-radius: 6px;
   border: 1px solid var(--border-medium);
-}
-.ntp-lock-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #64748b;
-  flex-shrink: 0;
-  transition: background 0.2s ease, box-shadow 0.2s ease;
-}
-.ntp-lock-dot.is-locked {
-  background: #22c55e;
-  box-shadow: 0 0 6px #22c55e;
 }
 .clock-display {
   font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700;
@@ -1339,18 +1355,13 @@ onUnmounted(() => {
   gap: 6px;
 }
 .rw-ticker-toggle-btn.is-active {
-  background: color-mix(in srgb, var(--accent-blue, #38bdf8) 20%, transparent);
-  border-color: var(--accent-blue, #38bdf8);
-}
-.crawl-active-dot {
-  color: var(--accent-red, #ef4444);
-  font-size: 0.7rem;
-  animation: blink 1s step-end infinite;
+  background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
+  border-color: var(--accent-blue);
 }
 .rw-graphics-drawer {
   display: flex;
   align-items: center;
-  background: var(--bg-surface-elevated, #1a1e24);
+  background: var(--bg-surface-elevated);
   border-bottom: 1px solid var(--border-medium);
   padding: 6px 12px;
   animation: fadeIn 0.15s ease-out;
@@ -1365,7 +1376,7 @@ onUnmounted(() => {
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.5px;
-  color: var(--accent-blue, #38bdf8);
+  color: var(--accent-blue);
   white-space: nowrap;
 }
 .drawer-close-btn {
@@ -1383,7 +1394,7 @@ onUnmounted(() => {
 }
 .tab-rename-input {
   background: var(--bg-surface);
-  border: 1px solid var(--accent-blue, #38bdf8);
+  border: 1px solid var(--accent-blue);
   border-radius: 4px;
   color: var(--text-primary);
   font-size: 0.82rem;
@@ -1394,7 +1405,7 @@ onUnmounted(() => {
 }
 .playing-badge {
   background: color-mix(in srgb, var(--accent-red) 18%, transparent); border: 1px solid color-mix(in srgb, var(--accent-red) 50%, transparent);
-  color: var(--accent-red); font-size: 0.68rem; font-weight: 800; letter-spacing: 1px;
+  color: var(--accent-red); font-size: var(--fs-xs); font-weight: 800; letter-spacing: 1px;
   padding: 2px 8px; border-radius: 4px; animation: blink 1.2s step-end infinite;
 }
 @keyframes blink { 50% { opacity: 0.4; } }
@@ -1484,7 +1495,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .playlist-tab-state {
-  font-size: 0.62rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--text-muted);
@@ -1520,7 +1531,7 @@ onUnmounted(() => {
 
 .rw-cols-label {
   display: flex; align-items: center; gap: 6px; padding: 6px 8px;
-  font-size: 0.68rem; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; text-transform: uppercase;
+  font-size: var(--fs-xs); letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; text-transform: uppercase;
   border-bottom: 1px solid var(--border-subtle); background: var(--bg-tertiary); flex-shrink: 0;
 }
 .rw-list { flex: 1; overflow-y: auto; padding: 6px 5px 10px; min-height: 0; transition: background 0.15s; contain: strict; }
@@ -1647,7 +1658,7 @@ onUnmounted(() => {
   position: fixed;
   pointer-events: none;
   user-select: none;
-  z-index: 9999;
+  z-index: var(--z-drawer);
   height: 0;
   transition: none;
 }
@@ -1682,10 +1693,71 @@ onUnmounted(() => {
   border-radius: 4px;
   pointer-events: none;
   user-select: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-1);
   white-space: nowrap;
 }
 .rw-fixed-drop-indicator.is-append .rw-indicator-badge {
   background: var(--accent-blue);
+}
+/* The crawl indicator is a dot, so it is drawn rather than typed. */
+.crawl-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-onair);
+  display: inline-block;
+  flex-shrink: 0;
+}
+/* --- §6.1 column header ---------------------------------------------------
+   Widths mirror RundownRow's. Labels are single words and never wrap. */
+.rw-cols-label > span {
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.rw-cols-label .col-handle { width: 18px; flex-shrink: 0; }
+.rw-cols-label .col-num { width: 22px; text-align: center; flex-shrink: 0; }
+.rw-cols-label .col-status { width: 16px; flex-shrink: 0; }
+.rw-cols-label .col-type { width: 18px; flex-shrink: 0; }
+.rw-cols-label .col-title { flex: 1 1 auto; min-width: 180px; }
+.rw-cols-label .col-flags { width: 88px; flex-shrink: 0; }
+.rw-cols-label .col-trim { width: 86px; text-align: center; flex-shrink: 0; }
+.rw-cols-label .col-dur { width: 96px; text-align: right; flex-shrink: 0; }
+.rw-cols-label .col-at { width: 68px; text-align: left; flex-shrink: 0; }
+.rw-cols-label .col-actions { width: 56px; text-align: right; flex-shrink: 0; }
+
+/* The panel is the container the row and header columns respond to, so the
+   library split width is accounted for (same reasoning as F-01). */
+.rw-list,
+.rw-cols-label {
+  container: rundown / inline-size;
+}
+
+@container rundown (max-width: 620px) {
+  .rw-cols-label .col-trim { display: none; }
+}
+
+@container rundown (max-width: 520px) {
+  .rw-cols-label .col-flags { width: 26px; }
+}
+
+/* --- Day separator -------------------------------------------------------- */
+.rw-day-separator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 4px var(--space-1);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.rw-day-separator::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border-subtle);
 }
 </style>

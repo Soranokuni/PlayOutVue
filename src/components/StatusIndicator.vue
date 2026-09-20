@@ -48,13 +48,18 @@ const defaultLabel = computed(() => {
 });
 
 const tooltipText = computed(() => props.tooltip || defaultLabel.value);
+
+// A11y §10: a bare dot repeated down a 300-row rundown must not be a live
+// region -- it is decoration next to the row's own accessible name. Only a
+// labelled indicator announces itself.
+const isLiveRegion = computed(() => props.variant !== 'dot' || !!props.label);
 </script>
 
 <template>
   <div
     class="status-indicator"
     :class="[variant, toneClass, { pulse: pulse || tone === 'processing' || tone === 'on-air' }]"
-    role="status"
+    :role="isLiveRegion ? 'status' : undefined"
     :aria-label="defaultLabel"
     :title="tooltipText"
   >
@@ -89,75 +94,80 @@ const tooltipText = computed(() => props.tooltip || defaultLabel.value);
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-family: var(--font-sans, system-ui, sans-serif);
-  font-size: 0.75rem;
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
   font-weight: 500;
   line-height: 1.2;
   user-select: none;
 }
 
-/* Tone styles */
+/* Tone styles.
+   Every tone resolves through a theme token (§3.1) rather than a hex literal,
+   so the dots stay legible in the light theme instead of being dark-theme
+   colours on a white panel. `armed` here means "cued / next up" (see
+   resolveRundownStatusTone), which is why it maps to --status-cued and not to
+   --status-armed, the routing fence's about-to-cut orange. */
 .tone-ready {
-  --status-color: #22c55e;
-  --status-bg: rgba(34, 197, 94, 0.12);
-  --status-border: rgba(34, 197, 94, 0.3);
-  color: #4ade80;
+  --tone-color: var(--status-ready);
+  --tone-bg: color-mix(in srgb, var(--status-ready) 12%, transparent);
+  --tone-border: color-mix(in srgb, var(--status-ready) 30%, transparent);
+  color: var(--status-ready);
 }
 
 .tone-processing {
-  --status-color: #f59e0b;
-  --status-bg: rgba(245, 158, 11, 0.12);
-  --status-border: rgba(245, 158, 11, 0.3);
-  color: #fbbf24;
+  --tone-color: var(--status-processing);
+  --tone-bg: color-mix(in srgb, var(--status-processing) 12%, transparent);
+  --tone-border: color-mix(in srgb, var(--status-processing) 30%, transparent);
+  color: var(--status-processing);
 }
 
 .tone-error {
-  --status-color: #f43f5e;
-  --status-bg: rgba(244, 63, 94, 0.12);
-  --status-border: rgba(244, 63, 94, 0.3);
-  color: #fb7185;
+  --tone-color: var(--status-error);
+  --tone-bg: color-mix(in srgb, var(--status-error) 12%, transparent);
+  --tone-border: color-mix(in srgb, var(--status-error) 30%, transparent);
+  color: var(--status-error);
 }
 
 .tone-warning {
-  --status-color: #f97316;
-  --status-bg: rgba(249, 115, 22, 0.12);
-  --status-border: rgba(249, 115, 22, 0.3);
-  color: #fdba74;
+  --tone-color: var(--status-warning);
+  --tone-bg: color-mix(in srgb, var(--status-warning) 12%, transparent);
+  --tone-border: color-mix(in srgb, var(--status-warning) 30%, transparent);
+  color: var(--status-warning);
 }
 
 .tone-on-air {
-  --status-color: #ef4444;
-  --status-bg: rgba(239, 68, 68, 0.2);
-  --status-border: rgba(239, 68, 68, 0.5);
-  color: #f87171;
+  --tone-color: var(--status-onair);
+  --tone-bg: color-mix(in srgb, var(--status-onair) 20%, transparent);
+  --tone-border: color-mix(in srgb, var(--status-onair) 50%, transparent);
+  color: var(--status-onair);
 }
 
 .tone-armed {
-  --status-color: #06b6d4;
-  --status-bg: rgba(6, 182, 212, 0.15);
-  --status-border: rgba(6, 182, 212, 0.4);
-  color: #38bdf8;
+  --tone-color: var(--status-cued);
+  --tone-bg: color-mix(in srgb, var(--status-cued) 15%, transparent);
+  --tone-border: color-mix(in srgb, var(--status-cued) 40%, transparent);
+  color: var(--status-cued);
 }
 
 .tone-offline {
-  --status-color: #64748b;
-  --status-bg: rgba(100, 116, 139, 0.15);
-  --status-border: rgba(100, 116, 139, 0.3);
-  color: #94a3b8;
+  --tone-color: var(--status-offline);
+  --tone-bg: color-mix(in srgb, var(--status-offline) 15%, transparent);
+  --tone-border: color-mix(in srgb, var(--status-offline) 30%, transparent);
+  color: var(--text-secondary);
 }
 
 .tone-unsaved-trim {
-  --status-color: #a855f7;
-  --status-bg: rgba(168, 85, 247, 0.15);
-  --status-border: rgba(168, 85, 247, 0.4);
-  color: #c084fc;
+  --tone-color: var(--status-unsaved);
+  --tone-bg: color-mix(in srgb, var(--status-unsaved) 15%, transparent);
+  --tone-border: color-mix(in srgb, var(--status-unsaved) 40%, transparent);
+  color: var(--status-unsaved);
 }
 
 .tone-idle {
-  --status-color: #64748b;
-  --status-bg: rgba(100, 116, 139, 0.12);
-  --status-border: rgba(100, 116, 139, 0.3);
-  color: #94a3b8;
+  --tone-color: var(--status-offline);
+  --tone-bg: color-mix(in srgb, var(--status-offline) 12%, transparent);
+  --tone-border: color-mix(in srgb, var(--status-offline) 30%, transparent);
+  color: var(--text-secondary);
 }
 
 /* Variant styles */
@@ -167,18 +177,18 @@ const tooltipText = computed(() => props.tooltip || defaultLabel.value);
 
 .pill {
   padding: 3px 8px;
-  border-radius: 9999px;
-  background-color: var(--status-bg);
-  border: 1px solid var(--status-border);
+  border-radius: var(--radius-pill);
+  background-color: var(--tone-bg);
+  border: 1px solid var(--tone-border);
 }
 
 .banner {
   display: flex;
   width: 100%;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background-color: var(--status-bg);
-  border: 1px solid var(--status-border);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background-color: var(--tone-bg);
+  border: 1px solid var(--tone-border);
 }
 
 /* Dot element */
@@ -186,7 +196,7 @@ const tooltipText = computed(() => props.tooltip || defaultLabel.value);
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background-color: var(--status-color);
+  background-color: var(--tone-color);
   flex-shrink: 0;
 }
 
@@ -195,24 +205,14 @@ const tooltipText = computed(() => props.tooltip || defaultLabel.value);
 }
 
 @keyframes status-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4);
-    opacity: 1;
-  }
-  70% {
-    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0);
-    opacity: 0.6;
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
-    opacity: 1;
-  }
+  0%   { opacity: 1; transform: scale(1); }
+  50%  { opacity: 0.45; transform: scale(0.82); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pulse .status-dot,
-  .status-dot {
-    animation: none !important;
+  .pulse .status-dot {
+    animation: none;
   }
 }
 
@@ -227,7 +227,7 @@ const tooltipText = computed(() => props.tooltip || defaultLabel.value);
 }
 
 .status-sublabel {
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   opacity: 0.8;
 }
 

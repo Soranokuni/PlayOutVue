@@ -387,27 +387,14 @@ const getSettingsSnapshot = () => {
         return {
             liveInputSourceName: '',
             localMediaPath: '',
-            logosPath: '',
             casparOscPort: 6250,
             cg: {
-                stationIdPath: '',
                 stationIdEnabled: true,
             },
-            cgRatingKPath: '',
-            cgRating8Path: '',
-            cgRating12Path: '',
-            cgRating16Path: '',
-            cgRating18Path: '',
-            cgRatingTPPath: '',
             cgExplanationTemplate: 'playout/advisory',
             cgCrawlTemplate: 'playout/crawl',
             cgCrawlText: '',
             cgCrawlActive: false,
-            cgStationLogoPos: { left: 5, top: 5, width: 12, height: 12 },
-            cgRatingBadgePos: { left: 88, top: 5, width: 7, height: 7 },
-            cgTPPos: { left: 88, top: 13, width: 7, height: 7 },
-            cgExplanationBannerPos: { left: 60, top: 5, width: 27, height: 7 },
-            cgCrawlPos: { left: 0, top: 90, width: 100, height: 8 },
             updateSettings: (() => {}) as (p: any) => void,
         } as ReturnType<typeof useSettingsStore>;
     }
@@ -545,29 +532,6 @@ const disposeFeedbackListener = async () => {
     // short-circuits in ensureFeedbackListener (feedbackListenerPromise != null)
     // and never re-registers the OSC/advance listeners — the rundown freezes.
     feedbackListenerPromise = null;
-};
-
-const getLogosRoot = () => {
-    const { logosPath, localMediaPath } = getSettingsSnapshot();
-    if (logosPath) return logosPath;
-    if (!localMediaPath) return '';
-    const separator = /[\\/]$/.test(localMediaPath) ? '' : '/';
-    return `${localMediaPath}${separator}logos`;
-};
-
-const resolveLogoAsset = (filename: string): string => {
-    const logosRoot = getLogosRoot();
-    if (!logosRoot) {
-        console.warn(`[CasparCG] Cannot resolve logo asset "${filename}" — no logosPath or localMediaPath configured in Settings.`);
-        return '';
-    }
-    const separator = /[\\/]$/.test(logosRoot) ? '' : '/';
-    return `${logosRoot}${separator}${filename}`;
-};
-
-const getRatingAssetPath = (rating: string): string => {
-    const fileName = rating === 'k' ? 'K.png' : `${rating}.png`;
-    return resolveLogoAsset(fileName);
 };
 
 const formatTimecode = (ms: number) => {
