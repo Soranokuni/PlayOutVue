@@ -833,13 +833,35 @@ const durationLabel = (item: RundownItem, index: number) => {
   return '—';
 };
 
-const activeTimerLabel = (item: RundownItem, index: number) => {
+/**
+ * §3.2: the second line of the on-air timing cell.
+ *
+ * It used to be one string, `00:00:12 / 00:00:34`, stacked under the countdown
+ * in a 96 px column -- three values in a cell the operator reads one of. The
+ * hours are dropped below an hour, which is every clip, so the pair fits the
+ * column at `--fs-xs` and the countdown above it can be the size it deserves.
+ */
+const msToCompactDisplay = (ms: number) => {
+  if (ms <= 0) return '00:00';
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return hours > 0 ? `${hours}:${minutes}:${seconds}` : `${minutes}:${seconds}`;
+};
+
+const rowElapsedLabel = (item: RundownItem, index: number) => {
   if (item.type === 'gap') return '';
   if (index !== store.currentPlayingIndex || !isPlayoutPlaying.value || !store.isCurrentPlaylistOnAir) return '';
+  return msToCompactDisplay(currentPlayoutMs.value);
+};
+
+const rowTotalLabel = (item: RundownItem, index: number) => {
+  // At rest the row shows its full total, exactly as before.
+  if (!rowElapsedLabel(item, index)) return durationLabel(item, index);
   const totalMs = effectiveDurationMs(item, index);
-  if (item.type === 'live' && totalMs <= 0) return `${msToClockDisplay(currentPlayoutMs.value)} / LIVE`;
-  if (totalMs <= 0) return `${msToClockDisplay(currentPlayoutMs.value)} / 00:00:00`;
-  return `${msToClockDisplay(currentPlayoutMs.value)} / ${msToClockDisplay(totalMs)}`;
+  if (item.type === 'live' && totalMs <= 0) return 'LIVE';
+  return msToCompactDisplay(totalMs);
 };
 
 const isProtectedPlayingRow = (index: number) => store.isCurrentPlaylistOnAir && index === store.currentPlayingIndex;
@@ -887,7 +909,6 @@ const rowProgressPct = (item: RundownItem, index: number): number => {
   return 0;
 };
 const rowCountdown = (item: RundownItem) => (item.id === store.currentPlayingInstanceId ? store.playbackCountdownStr : '');
-const rowTimerLabel = (item: RundownItem, index: number) => activeTimerLabel(item, index) || durationLabel(item, index);
 const rowDayLabel = (index: number) => scheduledTimes.value[index]?.dayLabel || '·';
 const rowAtKind = (index: number): '' | 'done' | 'now' | 'gap' | 'time' =>
   (scheduledTimes.value[index]?.kind as 'done' | 'now' | 'gap' | 'time' | undefined) || '';
@@ -1300,6 +1321,7 @@ onUnmounted(() => {
       <span class="col-trim">Trim</span>
       <span class="col-dur">Duration</span>
       <span class="col-at">At</span>
+
       <span class="col-actions">Actions</span>
     </div>
 
@@ -1334,7 +1356,8 @@ onUnmounted(() => {
           rowProgressPct(item, index),
           rowProgressTone(item, index),
           rowCountdown(item),
-          rowTimerLabel(item, index),
+          rowElapsedLabel(item, index),
+          rowTotalLabel(item, index),
           rowDayLabel(index),
           rowAtKind(index),
           rowAtText(index),
@@ -1360,7 +1383,8 @@ onUnmounted(() => {
           :progress-pct="rowProgressPct(item, index)"
           :progress-tone="rowProgressTone(item, index)"
           :countdown="rowCountdown(item)"
-          :timer-label="rowTimerLabel(item, index)"
+          :elapsed-label="rowElapsedLabel(item, index)"
+          :total-label="rowTotalLabel(item, index)"
           :day-label="rowDayLabel(index)"
           :at-kind="rowAtKind(index)"
           :at-text="rowAtText(index)"
@@ -1895,8 +1919,11 @@ onUnmounted(() => {
 .rw-cols-label .col-title { flex: 1 1 auto; min-width: 180px; }
 .rw-cols-label .col-flags { width: 88px; flex-shrink: 0; }
 .rw-cols-label .col-trim { width: 86px; text-align: center; flex-shrink: 0; }
-.rw-cols-label .col-dur { width: 96px; text-align: right; flex-shrink: 0; }
-.rw-cols-label .col-at { width: 68px; text-align: left; flex-shrink: 0; }
+/* §3.2: both timing columns right-aligned to the same edge with a 12 px
+   gutter between them. Right-aligned "DURATION" followed by left-aligned "AT"
+   6 px away read as one word, "DURATIONAT". */
+.rw-cols-label .col-dur { width: 112px; text-align: right; flex-shrink: 0; }
+.rw-cols-label .col-at { width: 84px; text-align: right; flex-shrink: 0; margin-left: 6px; }
 .rw-cols-label .col-actions { width: 56px; text-align: right; flex-shrink: 0; }
 
 /* The panel is the container the row and header columns respond to, so the

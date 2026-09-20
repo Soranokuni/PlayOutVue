@@ -32,13 +32,32 @@ const props = defineProps<{
   progressTone: '' | 'green' | 'red';
   /** playbackCountdownStr when this row is the playing instance, else ''. */
   countdown: string;
-  /** activeTimerLabel || durationLabel ('' renders nothing extra). */
-  timerLabel: string;
+  /**
+   * §3.2: elapsed on the playing row, '' everywhere else. When it is set the
+   * cell reads as two lines -- remaining above, elapsed / total below.
+   */
+  elapsedLabel: string;
+  /** The row's total: `00:04:53` at rest, the compact `00:34` while playing. */
+  totalLabel: string;
   dayLabel: string;
   atKind: '' | 'done' | 'now' | 'gap' | 'time';
   atText: string;
   playProtected: boolean;
 }>();
+
+/**
+ * §3.2: the last ten seconds.
+ *
+ * The countdown arrives as a formatted string (`-00:22`, `-01:05:03`) rather
+ * than a number, and the plan is explicit that no new prop is warranted for
+ * this -- read the string. Anything that does not parse is simply not urgent.
+ */
+const countdownIsImminent = computed(() => {
+  const parts = props.countdown.replace('-', '').split(':').map(Number);
+  if (!parts.length || parts.some((n) => !Number.isFinite(n))) return false;
+  const seconds = parts.reduce((acc, n) => acc * 60 + n, 0);
+  return seconds <= 10;
+});
 
 const emit = defineEmits<{
   (e: 'select', ev: MouseEvent): void;
@@ -150,21 +169,20 @@ const rowClass = computed(() => ({
   'ct-news': props.item.content_type === 'news'
 }));
 
-const rowStyle = computed(() => {
-  if (props.progressTone === 'green') {
-    return {
-      background: `linear-gradient(90deg, color-mix(in srgb, var(--status-ready) 22%, transparent) ${props.progressPct}%, color-mix(in srgb, var(--status-ready) 6%, transparent) ${props.progressPct}%)`,
-      borderColor: 'color-mix(in srgb, var(--status-ready) 40%, transparent)'
-    };
-  }
-  if (props.progressTone === 'red') {
-    return {
-      background: `linear-gradient(90deg, color-mix(in srgb, var(--status-onair) 30%, transparent) ${props.progressPct}%, color-mix(in srgb, var(--status-onair) 8%, transparent) ${props.progressPct}%)`,
-      borderColor: 'color-mix(in srgb, var(--status-onair) 40%, transparent)'
-    };
-  }
-  return {};
-});
+/**
+ * §3.2 + perf backlog: progress is a hairline, not a repainting background.
+ *
+ * The row's `background` was a two-stop linear-gradient whose stop position was
+ * the progress percentage. The store's progress loop runs on a 250 ms interval,
+ * so that gradient forced a full paint of the widest row in the app four times
+ * a second, for the whole duration of every clip. It also said the same thing
+ * as the tint and the left bar.
+ *
+ * The tint is now a flat, static colour set by a class, and progress is a 2 px
+ * overlay at the row's bottom edge scaled with `transform: scaleX()` -- work
+ * the compositor does without touching layout or paint.
+ */
+const progressScale = computed(() => Math.min(1, Math.max(0, props.progressPct / 100)));
 const settings = useSettingsStore();
 const itemStatusTone = computed(() =>
   resolveRundownStatusTone(props.item, {
@@ -190,7 +208,7 @@ const itemTooltip = computed(() => {
     :aria-selected="selected"
     :data-item-id="item.id"
     :class="rowClass"
-    :style="rowStyle"
+    :data-progress-tone="progressTone || undefined"
     @click="emit('select', $event)"
     @contextmenu.prevent="emit('contextmenu', $event)"
     @dragover="emit('dragover', $event)"
@@ -247,17 +265,28 @@ const itemTooltip = computed(() => {
 
     <div class="rw-inout" :title="trimTitle(item)">{{ trimDisplay(item) }}</div>
 
-    <!-- Duration: total only, except on the on-air row, which shows elapsed. -->
+    <!-- §3.2: what the operator needs from this cell, in order -- time
+         remaining first and largest, elapsed / total underneath as a glance,
+         and nothing else. It used to stack three values in 96 px and the At
+         column squeezed the word ON AIR in beside them. -->
     <div class="rw-dur">
-      <span v-if="countdown" class="rw-countdown">{{ countdown }}</span>
-      <!-- §6.1: the ETA used to repeat here in parentheses on a second line,
-           which is the same value the At column already shows. -->
-      <span class="rw-dur-value">{{ timerLabel }}</span>
+      <span
+        v-if="countdown"
+        class="rw-countdown"
+        :class="{ 'is-imminent': countdownIsImminent }"
+      >{{ countdown }}</span>
+      <span v-if="elapsedLabel" class="rw-dur-sub">{{ elapsedLabel }} / {{ totalLabel }}</span>
+      <span v-else class="rw-dur-value">{{ totalLabel }}</span>
     </div>
 
     <div class="rw-at">
       <span v-if="atKind === 'done'" class="tc-done">PLAYED</span>
-      <span v-else-if="atKind === 'now'" class="tc-now">ON AIR</span>
+      <!-- The on-air state is already said by the row tint, the left bar and
+           the tab's pill. Here it is a compact mark, not a fourth sentence
+           competing with the numbers beside it. -->
+      <span v-else-if="atKind === 'now'" class="rw-onair-pill">
+        <span class="rw-onair-dot" aria-hidden="true"></span>ON AIR
+      </span>
       <span v-else-if="atKind === 'gap'" class="tc-gap">{{ atText }}</span>
       <span v-else-if="atKind === 'time'" class="tc-sched">{{ atText }}</span>
     </div>
@@ -282,6 +311,13 @@ const itemTooltip = computed(() => {
         <AppIcon name="close" :size="12" :stroke-width="2.5" />
       </button>
     </div>
+
+    <div
+      v-if="progressTone"
+      class="rw-progress-hairline"
+      :style="{ transform: `scaleX(${progressScale})` }"
+      aria-hidden="true"
+    ></div>
   </div>
 </template>
 
@@ -376,11 +412,58 @@ const itemTooltip = computed(() => {
   font-style: italic;
 }
 
-/* The countdown is the one number an operator reads mid-take. */
+/* Flat tints, so the row paints once when it starts playing rather than four
+   times a second for the length of the clip. */
+.rw-row[data-progress-tone='green'] {
+  background: color-mix(in srgb, var(--status-ready) 12%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--status-ready) 40%, transparent);
+}
+.rw-row[data-progress-tone='red'] {
+  background: color-mix(in srgb, var(--status-onair) 16%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--status-onair) 40%, transparent);
+}
+
+.rw-progress-hairline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  transform-origin: left center;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: var(--status-onair);
+  pointer-events: none;
+}
+.rw-row[data-progress-tone='green'] .rw-progress-hairline {
+  background: var(--status-ready);
+}
+
+/* The countdown is the one number an operator reads mid-take, so it is the
+   largest thing in the cell. It was green on a red row -- a mixed signal about
+   the only row that is actually on air. */
 .rw-countdown {
-  color: var(--status-ready);
+  font-size: var(--fs-md);
+  line-height: 1.15;
   font-weight: 700;
-  margin-right: var(--space-2);
+  color: var(--status-onair);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Under ten seconds the number changes colour and weight, not size -- a cell
+   that reflows at T-10 is the last thing anyone needs mid-take. No animation
+   on the digits. */
+.rw-countdown.is-imminent {
+  color: var(--status-warning);
+  font-weight: 800;
+}
+
+/* Elapsed / total: glanced at, not read. */
+.rw-dur-sub {
+  font-size: var(--fs-xs);
+  line-height: 1.2;
+  font-weight: 600;
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
@@ -438,12 +521,18 @@ const itemTooltip = computed(() => {
 .rw-rating-badge.rating-18, .rw-signal.tone-rating-18 { color: var(--rating-18); background: color-mix(in srgb, var(--rating-18) 18%, transparent); border-color: color-mix(in srgb, var(--rating-18) 45%, transparent); }
 .rw-tag-badge.tone-tag-spot, .rw-signal.tone-tag-spot { color: var(--tag-spot); background: color-mix(in srgb, var(--tag-spot) 16%, transparent); border-color: color-mix(in srgb, var(--tag-spot) 40%, transparent); }
 .rw-tag-badge.tone-tag-telemarketing, .rw-signal.tone-tag-telemarketing { color: var(--tag-telemarketing); background: color-mix(in srgb, var(--tag-telemarketing) 16%, transparent); border-color: color-mix(in srgb, var(--tag-telemarketing) 40%, transparent); }
+/* §3.2: `0:12→0:00` overflowed 86 px at 0.76rem. At the token size it fits,
+   and anything longer ellipses with the full `IN … OUT …` in the tooltip
+   rather than spilling into the duration column. */
 .rw-inout   {
   width: 86px; text-align: center; flex-shrink: 0;
-  font-size: 0.76rem; color: var(--text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  font-size: var(--fs-xs); color: var(--text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rw-dur     { width: 96px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 1px; text-align: right; font-size: 0.86rem; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: 0.02em; }
-.rw-at      { width: 68px; display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-shrink: 0; }
+/* Both timing columns are right-aligned to the same edge, 12 px apart, so the
+   header can no longer read "DURATION AT" as one word. */
+.rw-dur     { width: 112px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 1px; text-align: right; font-size: 0.86rem; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: 0.02em; }
+.rw-at      { width: 84px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-shrink: 0; margin-left: 6px; text-align: right; }
 .rw-actions { width: 56px; display: flex; gap: 4px; flex-shrink: 0; justify-content: flex-end; }
 
 /* The delete control appears on hover or keyboard focus, so a 300-row list is
@@ -468,11 +557,34 @@ const itemTooltip = computed(() => {
 .tc-sched { font-size: 0.78rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; font-family: var(--font-mono); text-align: left; }
 .tc-done  { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; }
 .tc-gap   { font-size: 0.76rem; color: var(--accent-orange); font-family: var(--font-mono); text-align: left; font-weight: 600; }
-.tc-now {
-  font-size: 0.78rem;
-  color: var(--accent-red);
+/* §3.2: a mark, not a sentence. The dot reuses the row's existing pulse
+   overlay treatment -- opacity only, gated by prefers-reduced-motion. */
+.rw-onair-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--status-onair) 16%, transparent);
+  color: var(--status-onair);
+  font-size: var(--fs-xs);
   font-weight: 800;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.rw-onair-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: rwOnAirDot 1.6s ease-in-out infinite;
+}
+@keyframes rwOnAirDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rw-onair-dot { animation: none; }
 }
 
 .row-btn {
