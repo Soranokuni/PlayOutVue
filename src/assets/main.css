@@ -16,6 +16,18 @@
   --bg-active: rgba(56, 189, 248, 0.16);
   --bg-input: rgba(15, 23, 42, 0.85);
 
+  /* Round 3 §7.1: panel depth. A panel body, its header strip and the inset
+     wells (timecode, clocks) are three distinct surfaces so the eye can find
+     the edge of a region without a border on every side. Static shadows only
+     — the perf rule forbids *animating* box-shadow, not using it. */
+  --surface-panel: #0f172a;
+  --surface-panel-header: #16203a;
+  --surface-inset: #060a12;
+  --highlight-top: rgba(255, 255, 255, 0.06);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  --danger-tint: color-mix(in srgb, var(--status-error) 6%, transparent);
+  --danger-tint-strong: color-mix(in srgb, var(--status-error) 16%, transparent);
+
   /* Accents */
   --accent-blue: #38bdf8;
   --accent-cyan: #00e5ff;
@@ -55,6 +67,14 @@
   --bg-active: rgba(102, 217, 239, 0.18);
   --bg-input: rgba(24, 25, 21, 0.92);
 
+  --surface-panel: #22231e;
+  --surface-panel-header: #2d2f28;
+  --surface-inset: #141510;
+  --highlight-top: rgba(255, 255, 255, 0.07);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --danger-tint: color-mix(in srgb, var(--status-error) 6%, transparent);
+  --danger-tint-strong: color-mix(in srgb, var(--status-error) 16%, transparent);
+
   --accent-blue: #66d9ef;
   --accent-cyan: #66d9ef;
   --accent-red: #f92672;
@@ -88,6 +108,14 @@
   --bg-hover: rgba(15, 23, 42, 0.05);
   --bg-active: rgba(2, 132, 199, 0.14);
   --bg-input: #ffffff;
+
+  --surface-panel: #ffffff;
+  --surface-panel-header: #eef2f7;
+  --surface-inset: #e2e8f0;
+  --highlight-top: rgba(255, 255, 255, 0.7);
+  --shadow-inset: inset 0 1px 2px rgba(15, 23, 42, 0.12);
+  --danger-tint: color-mix(in srgb, var(--status-error) 6%, transparent);
+  --danger-tint-strong: color-mix(in srgb, var(--status-error) 14%, transparent);
 
   /* §10: white on #0284c7 is 4.10:1; #0369a1 is 5.93:1. */
   --accent-blue: #0369a1;
