@@ -49,7 +49,7 @@ describe('Rundown header, tabs and schedule row (§6.3)', () => {
     const labels = wrapper.findAll('.rw-overflow-item').map((b) => b.text());
     expect(labels).toEqual(['Save playlist…', 'Load playlist…', 'Append playlist…', 'Clear playlist…']);
     // Clear is the only destructive one and is the only one marked as such.
-    expect(wrapper.findAll('.rw-overflow-item.is-danger')).toHaveLength(1);
+    expect(wrapper.findAll('.rw-overflow-item.popover-item--danger')).toHaveLength(1);
     wrapper.unmount();
   });
 

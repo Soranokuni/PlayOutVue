@@ -1181,21 +1181,21 @@ onUnmounted(() => {
           >
             <AppIcon name="more-vertical" :size="16" />
           </button>
-          <div v-if="showPlaylistMenu" class="rw-overflow-menu" role="menu" @click.stop>
-            <button class="rw-overflow-item" role="menuitem" :disabled="isSavingPlaylist" @click="runPlaylistFileAction('save')">
+          <div v-if="showPlaylistMenu" class="rw-overflow-menu popover-surface" role="menu" @click.stop>
+            <button class="rw-overflow-item popover-item" role="menuitem" :disabled="isSavingPlaylist" @click="runPlaylistFileAction('save')">
               <AppIcon class="rw-overflow-icon tone-accent" name="save" :size="14" />
               <span>Save playlist…</span>
             </button>
-            <button class="rw-overflow-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('load')">
+            <button class="rw-overflow-item popover-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('load')">
               <AppIcon class="rw-overflow-icon tone-accent" name="folder-open" :size="14" />
               <span>Load playlist…</span>
             </button>
-            <button class="rw-overflow-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('append')">
+            <button class="rw-overflow-item popover-item" role="menuitem" :disabled="isLoadingPlaylist" @click="runPlaylistFileAction('append')">
               <AppIcon class="rw-overflow-icon tone-accent" name="plus" :size="14" />
               <span>Append playlist…</span>
             </button>
-            <div class="rw-overflow-divider" role="separator" />
-            <button class="rw-overflow-item is-danger" role="menuitem" @click="runClearRundown">
+            <div class="popover-divider" role="separator" />
+            <button class="rw-overflow-item popover-item popover-item--danger" role="menuitem" @click="runClearRundown">
               <AppIcon class="rw-overflow-icon" name="trash" :size="14" />
               <span>Clear playlist…</span>
             </button>
@@ -1538,6 +1538,7 @@ onUnmounted(() => {
   background: var(--bg-surface-elevated);
   border-color: var(--border-strong);
 }
+/* Everything but position comes from `.popover-surface` / `.popover-item`. */
 .rw-overflow-menu {
   position: absolute;
   top: calc(100% + var(--space-1));
@@ -1546,41 +1547,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--space-1);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-2);
   z-index: var(--z-popover);
-}
-.rw-overflow-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: 6px var(--space-2);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.rw-overflow-item:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
-}
-.rw-overflow-item:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.rw-overflow-item.is-danger {
-  color: var(--status-error);
-}
-.rw-overflow-item.is-danger:hover {
-  background: color-mix(in srgb, var(--status-error) 16%, transparent);
 }
 .rw-overflow-icon {
   flex-shrink: 0;
@@ -1589,13 +1556,8 @@ onUnmounted(() => {
 .rw-overflow-icon.tone-accent {
   color: var(--accent-blue);
 }
-.rw-overflow-item.is-danger .rw-overflow-icon {
+.popover-item--danger .rw-overflow-icon {
   color: var(--status-error);
-}
-.rw-overflow-divider {
-  height: 1px;
-  margin: var(--space-1) 0;
-  background: var(--border-subtle);
 }
 
 .playlist-tabs-row {

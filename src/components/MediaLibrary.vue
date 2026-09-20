@@ -2140,9 +2140,9 @@ const menuItems = computed<MenuItem[]>(() => {
         >
           <AppIcon name="more-vertical" :size="16" />
         </button>
-        <div v-if="showActionsMenu" class="lib-actions-menu" @click.stop>
+        <div v-if="showActionsMenu" class="lib-actions-menu popover-surface" role="menu" @click.stop>
           <button
-            class="lib-actions-item"
+            class="lib-actions-item popover-item"
             :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
             @click="doRenameSelected(); showActionsMenu = false"
           >
@@ -2150,7 +2150,7 @@ const menuItems = computed<MenuItem[]>(() => {
             <span>Rename</span>
           </button>
           <button
-            class="lib-actions-item"
+            class="lib-actions-item popover-item"
             :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
             @click="doMoveSelected(); showActionsMenu = false"
           >
@@ -2158,7 +2158,7 @@ const menuItems = computed<MenuItem[]>(() => {
             <span>Move</span>
           </button>
           <button
-            class="lib-actions-item lib-action-danger"
+            class="lib-actions-item popover-item popover-item--danger"
             :disabled="!mediaLibrary.selectedAsset && (!mediaLibrary.selectedNodeId?.startsWith('folder:') || mediaLibrary.selectedNodeId === 'folder:/')"
             @click="doDeleteSelected(); showActionsMenu = false"
           >
@@ -2783,47 +2783,16 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-actions-dropdown-wrap {
   position: relative;
 }
+/* Everything but position comes from `.popover-surface` / `.popover-item`. */
 .lib-actions-menu {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + var(--space-1));
   right: 0;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: var(--shadow-2);
   z-index: var(--z-popover);
-  min-width: 140px;
+  min-width: 160px;
   display: flex;
   flex-direction: column;
-  padding: 4px;
   gap: 2px;
-}
-.lib-actions-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: transparent;
-  border: none;
-  color: var(--text-primary);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  cursor: pointer;
-  border-radius: 4px;
-  text-align: left;
-  width: 100%;
-  transition: background 0.12s ease;
-}
-.lib-actions-item:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
-}
-.lib-actions-item:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.lib-actions-item.lib-action-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
-  color: var(--accent-red);
 }
 
 .lib-inline-rename {

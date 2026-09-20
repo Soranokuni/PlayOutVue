@@ -334,7 +334,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 <template>
   <div
     ref="menuRef"
-    class="win11-context-menu"
+    class="win11-context-menu popover-surface"
     :style="{
       top: computedY + 'px',
       left: computedX + 'px',
@@ -433,7 +433,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
       <div
         v-if="activeSubmenu"
         ref="submenuRef"
-        class="win11-context-menu submenu-flyout custom-scrollbar"
+        class="win11-context-menu popover-surface submenu-flyout custom-scrollbar"
         :style="{
           top: activeSubmenu.top + 'px',
           left: activeSubmenu.left + 'px',
@@ -469,17 +469,15 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 
 <style scoped>
 /* Main Context Menu Styling */
+/* Surface, border, radius and shadow come from `.popover-surface`
+   (components.css) so this menu, the library dropdown and the rundown
+   overflow cannot drift apart again. */
 .win11-context-menu {
   position: fixed;
   z-index: var(--z-context-menu);
   min-width: 220px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-medium);
-  border-radius: 0.6rem;
-  box-shadow: var(--shadow-3);
   font-family: var(--font-ui);
-  color: var(--text-primary);
-  padding: 5px 0;
+  padding: var(--space-1) 0;
   transition: opacity 0.15s ease-out;
   user-select: none;
   box-sizing: border-box;
@@ -766,10 +764,6 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   max-height: 50vh;
   overflow-y: auto;
   z-index: calc(var(--z-context-menu) + 5);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-medium);
-  border-radius: 0.6rem;
-  box-shadow: var(--shadow-2);
 }
 
 .submenu-flyout::before {
