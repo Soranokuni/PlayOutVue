@@ -1829,7 +1829,8 @@ const menuItems = computed<MenuItem[]>(() => {
         type: 'action',
         icon: 'inspect',
         tone: 'accent',
-        label: 'Inspect clip (Ctrl+I)',
+        label: 'Inspect clip',
+        shortcut: 'Ctrl+I',
         action: ctxInspect
       },
       {
@@ -1950,6 +1951,7 @@ const menuItems = computed<MenuItem[]>(() => {
         icon: 'restore',
         tone: 'warning',
         label: 'Move to Recycle Bin',
+        shortcut: 'Del',
         action: () => doTrashAsset(asset.uuid)
       },
       {
@@ -1985,6 +1987,7 @@ const menuItems = computed<MenuItem[]>(() => {
         type: 'action',
         icon: 'rename',
         label: 'Rename folder',
+        shortcut: 'F2',
         action: doRenameFolder
       });
       folderItems.push({ type: 'divider' });

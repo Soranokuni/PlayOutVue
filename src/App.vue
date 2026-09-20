@@ -240,6 +240,7 @@ const shortcutGuide = [
   'Shift + Arrow Down: duplicate the selected row.',
   'Ctrl + I: inspect the selected clip — metadata and QC.',
   'Ctrl + K: open the command palette.',
+  'Ctrl + S: save the playlist; Ctrl + O loads one, Ctrl + Shift + O appends one.',
   'F8 in the media library: add the selected item to the end of the rundown (Shift + F8 inserts after the selection).'
 ];
 

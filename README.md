@@ -156,6 +156,9 @@ graph TD
 | <kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Ctrl</kbd> + <kbd>Y</kbd> | **Undo** / **Redo** last rundown modification | Rundown |
 | <kbd>Ctrl</kbd> + <kbd>K</kbd> | Open the **command palette** | Global |
 | <kbd>Ctrl</kbd> + <kbd>I</kbd> | **Inspect** the selected clip — metadata and QC | Rundown / Media Library |
+| <kbd>Ctrl</kbd> + <kbd>S</kbd> | **Save** the active playlist to a file | Global |
+| <kbd>Ctrl</kbd> + <kbd>O</kbd> | **Load** a playlist file into the active tab | Global |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> | **Append** a playlist file to the active tab | Global |
 | <kbd>Esc</kbd> | Close the top-most menu or dialog; in a text field, leave the field first | Global |
 
 ---

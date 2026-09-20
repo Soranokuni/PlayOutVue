@@ -245,6 +245,25 @@ export function useOperatorShortcuts() {
       }
     }
 
+    // 3c. Playlist file actions (§5.4). Ctrl/Cmd+S saves, Ctrl/Cmd+O loads and
+    //     Ctrl/Cmd+Shift+O appends. Text inputs returned above, so a rename
+    //     field keeps the browser's own Ctrl+S; these are only live in the
+    //     three operating scopes.
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      (scope === 'rundown' || scope === 'library' || scope === 'global')
+    ) {
+      const key = event.key.toLowerCase();
+      const playlistCommandId =
+        key === 's' ? 'playlist.save' : key === 'o' ? (event.shiftKey ? 'playlist.append' : 'playlist.load') : null;
+      if (playlistCommandId) {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute(playlistCommandId, ctx);
+        return;
+      }
+    }
+
     // Explicit Action Key Guard for Playback Take: Enter and Space are ignored (no playback)
     if (
       event.key === 'Enter' ||

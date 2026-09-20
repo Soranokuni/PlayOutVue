@@ -55,6 +55,16 @@ const closePlaylistMenu = () => {
 };
 
 /**
+ * §5.4: the registry's three playlist commands only announce themselves; the
+ * dialogs and the store writes live here, beside the buttons that do the same
+ * thing, so there is one implementation of each verb rather than two.
+ */
+const onPlaylistFileShortcut = (event: Event) => {
+  const action = (event as CustomEvent<{ action: 'save' | 'load' | 'append' }>).detail?.action;
+  if (action) runPlaylistFileAction(action);
+};
+
+/**
  * Escape disarms before anything else sees the key, but only while something
  * is armed -- otherwise it would swallow the Escape that clears the rundown
  * selection.
@@ -722,7 +732,8 @@ const menuItems = computed<MenuItem[]>(() => {
       type: 'action',
       icon: 'inspect',
       tone: 'accent',
-      label: 'Inspect clip (Ctrl+I)',
+      label: 'Inspect clip',
+      shortcut: 'Ctrl+I',
       action: ctxInspect
     },
     {
@@ -1244,6 +1255,7 @@ onMounted(() => {
   window.addEventListener('click', closeContextMenu);
   window.addEventListener('click', closePlaylistMenu);
   window.addEventListener('click', disarmDelete);
+  window.addEventListener('playout:playlist-file', onPlaylistFileShortcut as EventListener);
   window.addEventListener('keydown', onDeleteArmEscape, true);
 
   unregisterSurface = registerRundownDropSurface({
@@ -1312,6 +1324,7 @@ onUnmounted(() => {
   window.removeEventListener('click', closeContextMenu);
   window.removeEventListener('click', closePlaylistMenu);
   window.removeEventListener('click', disarmDelete);
+  window.removeEventListener('playout:playlist-file', onPlaylistFileShortcut as EventListener);
   window.removeEventListener('keydown', onDeleteArmEscape, true);
   disarmDelete();
 });
@@ -1382,7 +1395,7 @@ onUnmounted(() => {
             size="sm"
             icon="folder-open"
             label="Load playlist"
-            title="Load playlist…"
+            title="Load playlist… (Ctrl+O)"
             :loading="isLoadingPlaylist"
             @click="runPlaylistFileAction('load')"
           />
@@ -1391,7 +1404,7 @@ onUnmounted(() => {
             size="sm"
             icon="file-plus"
             label="Append playlist"
-            title="Append playlist…"
+            title="Append playlist… (Ctrl+Shift+O)"
             :loading="isLoadingPlaylist"
             @click="runPlaylistFileAction('append')"
           />
@@ -1400,7 +1413,7 @@ onUnmounted(() => {
             size="sm"
             icon="save"
             label="Save playlist"
-            title="Save playlist…"
+            title="Save playlist… (Ctrl+S)"
             :loading="isSavingPlaylist"
             @click="runPlaylistFileAction('save')"
           />
