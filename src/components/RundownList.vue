@@ -10,7 +10,8 @@ import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPla
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
 import { usePlaylistFile } from '../composables/usePlaylistFile';
-import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
+import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
+import { commercialTagBadge, commercialTagTone, contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
 import AppIcon from './ui/AppIcon.vue';
 import type { IconName } from './ui/icons';
 import RundownRow from './RundownRow.vue';
@@ -558,6 +559,7 @@ const topActionItems = computed<TopAction[]>(() => {
   return [
     {
       id: 'delete',
+      tone: 'danger',
       tooltip: store.isRundownLocked ? 'Rundown Locked' : (isDeleteDisabled ? 'Delete (Protected)' : 'Delete Item'),
       action: ctxDelete,
       disabled: isDeleteDisabled
@@ -571,21 +573,29 @@ const menuItems = computed<MenuItem[]>(() => {
   
   const list: MenuItem[] = [
     {
+      type: 'label',
+      label: 'Clip'
+    },
+    {
       type: 'action',
       icon: 'inspect',
+      tone: 'accent',
       label: 'Inspect clip (Ctrl+I)',
       action: ctxInspect
     },
     {
+      // Green is "go" on a broadcast desk, and this is the only row in the
+      // menu that puts something on air.
       type: 'action',
       icon: 'play',
+      tone: 'success',
       label: 'Play from here',
       disabled: store.isRundownLocked,
       action: ctxPlayFrom
     },
     {
       type: 'action',
-      icon: 'file',
+      icon: 'copy',
       label: 'Duplicate',
       disabled: store.isRundownLocked,
       action: ctxDuplicate
@@ -593,12 +603,22 @@ const menuItems = computed<MenuItem[]>(() => {
   ];
   
   if (item.type !== 'gap') {
+    const currentRating = item.complianceRating || 'none';
+    const descriptorCount = Array.isArray(item.complianceDescriptors) ? item.complianceDescriptors.length : 0;
+    const currentType = item.content_type || 'none';
+    const currentTag = item.libraryIndicator || 'none';
+
     list.push(
       { type: 'divider' },
+      { type: 'label', label: 'Compliance' },
       {
+        // The submenu parent wears the clip's *current* rating, so the menu
+        // answers "what is this rated" before it is even opened.
         type: 'submenu',
         id: 'compliance-rating',
-        icon: 'tag',
+        icon: 'shield',
+        tone: ratingTone(currentRating),
+        badge: ratingBadge(currentRating),
         label: 'Σήματα καταλληλότητας (age rating)',
         children: ageRatingOptions.map(r => {
           const itemRating = item.complianceRating || 'none';
@@ -615,6 +635,8 @@ const menuItems = computed<MenuItem[]>(() => {
             type: 'action' as const,
             label: r.label,
             icon: r.icon,
+            tone: ratingTone(r.id),
+            badge: r.id === 'none' ? undefined : ratingBadge(r.id),
             checked: isChecked,
             action: () => ctxSetAgeRating(r)
           };
@@ -624,6 +646,8 @@ const menuItems = computed<MenuItem[]>(() => {
         type: 'submenu',
         id: 'compliance-descriptors',
         icon: 'alert',
+        tone: descriptorCount > 0 ? 'warning' : 'neutral',
+        badge: descriptorCount > 0 ? String(descriptorCount) : undefined,
         label: 'Προειδοποιήσεις περιεχομένου (content warnings)',
         children: [
           ...GREEK_CONTENT_DESCRIPTORS.map(d => {
@@ -631,6 +655,7 @@ const menuItems = computed<MenuItem[]>(() => {
             return {
               type: 'action' as const,
               icon: (isChecked ? 'square-check' : 'square') as IconName,
+              tone: (isChecked ? 'warning' : 'neutral') as MenuTone,
               label: d.label,
               checked: isChecked,
               action: () => ctxToggleDescriptor(d.id)
@@ -639,39 +664,51 @@ const menuItems = computed<MenuItem[]>(() => {
           {
             type: 'action' as const,
             icon: 'broom' as IconName,
+            tone: 'danger' as MenuTone,
             label: 'Καθαρισμός προειδοποιήσεων',
             disabled: !item.complianceDescriptors || item.complianceDescriptors.length === 0,
             action: ctxClearDescriptors
           }
         ]
       },
-      { type: 'divider' },
       {
         type: 'toggle',
         icon: item.tp_flag ? 'square-check' : 'square',
+        tone: item.tp_flag ? 'rating-tp' : 'neutral',
+        badge: item.tp_flag ? 'TP' : undefined,
         label: 'Προβολή προϊόντος (product placement, TP)',
         checked: item.tp_flag,
         action: ctxToggleTP
       },
       { type: 'divider' },
+      { type: 'label', label: 'Classification' },
       {
         type: 'submenu',
         id: 'content-type',
+        icon: 'layers',
+        tone: contentTypeTone(currentType),
         label: 'Content type',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
+          icon: ((item.content_type || 'none') === ct.id ? 'radio-on' : 'radio-off') as IconName,
+          tone: contentTypeTone(ct.id),
           label: ct.label,
           checked: (item.content_type || 'none') === ct.id,
           action: () => ctxSetContentType(ct.id)
         }))
       },
-      { type: 'divider' },
       {
         type: 'submenu',
         id: 'commercial-tag',
+        icon: 'tag',
+        tone: commercialTagTone(currentTag),
+        badge: commercialTagBadge(currentTag),
         label: 'Commercial tag',
         children: indicatorOptions.map(ind => ({
           type: 'action',
+          icon: ((item.libraryIndicator || 'none') === ind.id ? 'radio-on' : 'radio-off') as IconName,
+          tone: commercialTagTone(ind.id),
+          badge: commercialTagBadge(ind.id),
           label: ind.label,
           checked: (item.libraryIndicator || 'none') === ind.id,
           action: () => ctxSetIndicator(ind.id)

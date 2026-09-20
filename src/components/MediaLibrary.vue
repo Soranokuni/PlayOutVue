@@ -20,7 +20,8 @@ import AppIcon from './ui/AppIcon.vue';
 import type { IconName } from './ui/icons';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
-import ContextMenu, { type MenuItem, type TopAction } from './ContextMenu.vue';
+import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
+import { contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaLibrary';
 import { describeErrorMessage, rawErrorText } from '../lib/describeError';
@@ -1772,26 +1773,33 @@ const topActionItems = computed<TopAction[]>(() => {
   return [
     {
       id: 'trim',
-      tooltip: 'Trim Asset',
+      tone: 'accent',
+      tooltip: 'Trim asset',
       action: ctxTrim,
       disabled: false
     },
     {
       id: 'rename',
-      tooltip: 'Rename Asset',
+      tone: 'accent',
+      tooltip: 'Rename asset',
       action: ctxRename,
       disabled: false
     },
     {
-      id: 'purge',
-      tooltip: 'Delete & Purge',
-      action: ctxPurge,
+      id: 'delete',
+      tone: 'warning',
+      icon: 'restore',
+      tooltip: 'Move to Recycle Bin',
+      action: ctxDelete,
       disabled: false
     },
     {
-      id: 'delete',
-      tooltip: 'Move to Recycle Bin',
-      action: ctxDelete,
+      // §9: "Purge" named an implementation. The only icon-only control in
+      // this bar that destroys media permanently is also the only red one.
+      id: 'purge',
+      tone: 'danger',
+      tooltip: 'Delete permanently',
+      action: ctxPurge,
       disabled: false
     }
   ];
@@ -1805,32 +1813,43 @@ const menuItems = computed<MenuItem[]>(() => {
     const asset = node.asset;
     const ratingMeta = cachedRatingMeta(asset);
     
+    const descriptorCount = Array.isArray(ratingMeta.descriptors) ? ratingMeta.descriptors.length : 0;
+
     return [
+      { type: 'label', label: 'Asset' },
       {
         type: 'action',
         icon: 'inspect',
+        tone: 'accent',
         label: 'Inspect clip (Ctrl+I)',
         action: ctxInspect
       },
       {
+        // The two rows that put media into the rundown share the tone the
+        // rundown's own "cued" state uses.
         type: 'action',
-        icon: 'plus',
+        icon: 'arrow-right',
+        tone: 'cued',
         label: 'Add to end',
         disabled: store.isRundownLocked,
         action: ctxAppend
       },
       {
         type: 'action',
-        icon: 'plus',
+        icon: 'arrow-right',
+        tone: 'cued',
         label: 'Insert after selection',
         disabled: store.isRundownLocked,
         action: ctxInsertAfter
       },
       { type: 'divider' },
+      { type: 'label', label: 'Compliance' },
       {
         type: 'submenu',
         id: 'compliance-rating',
-        icon: 'tag',
+        icon: 'shield',
+        tone: ratingTone(ratingMeta.ageRating),
+        badge: ratingBadge(ratingMeta.ageRating),
         label: 'Σήματα καταλληλότητας (age rating)',
         children: ageRatingOptions.map(r => {
           const itemRating = ratingMeta.ageRating || 'none';
@@ -1846,6 +1865,8 @@ const menuItems = computed<MenuItem[]>(() => {
           return {
             type: 'action' as const,
             icon: r.icon,
+            tone: ratingTone(r.id),
+            badge: r.id === 'none' ? undefined : ratingBadge(r.id),
             label: r.label,
             checked: isChecked,
             action: () => ctxSetAgeRating(r)
@@ -1856,6 +1877,8 @@ const menuItems = computed<MenuItem[]>(() => {
         type: 'submenu',
         id: 'compliance-descriptors',
         icon: 'alert',
+        tone: descriptorCount > 0 ? 'warning' : 'neutral',
+        badge: descriptorCount > 0 ? String(descriptorCount) : undefined,
         label: 'Προειδοποιήσεις περιεχομένου (content warnings)',
         children: [
           ...GREEK_CONTENT_DESCRIPTORS.map(d => {
@@ -1863,6 +1886,7 @@ const menuItems = computed<MenuItem[]>(() => {
             return {
               type: 'action' as const,
               icon: (isChecked ? 'square-check' : 'square') as IconName,
+              tone: (isChecked ? 'warning' : 'neutral') as MenuTone,
               label: d.label,
               checked: isChecked,
               action: () => ctxToggleDescriptor(d.id)
@@ -1871,49 +1895,60 @@ const menuItems = computed<MenuItem[]>(() => {
           {
             type: 'action' as const,
             icon: 'broom' as IconName,
+            tone: 'danger' as MenuTone,
             label: 'Καθαρισμός προειδοποιήσεων',
             disabled: !ratingMeta.descriptors || ratingMeta.descriptors.length === 0,
             action: ctxClearDescriptors
           }
         ]
       },
-      { type: 'divider' },
       {
         type: 'toggle',
         icon: ratingMeta.tpFlag ? 'square-check' : 'square',
+        tone: ratingMeta.tpFlag ? 'rating-tp' : 'neutral',
+        badge: ratingMeta.tpFlag ? 'TP' : undefined,
         label: 'Προβολή προϊόντος (product placement, TP)',
         checked: ratingMeta.tpFlag,
         action: ctxToggleTP
       },
-      { type: 'divider' },
       {
         type: 'submenu',
         id: 'content-type',
+        icon: 'layers',
+        tone: contentTypeTone(ratingMeta.contentType),
         label: 'Content type',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
+          icon: (ratingMeta.contentType === ct.id ? 'radio-on' : 'radio-off') as IconName,
+          tone: contentTypeTone(ct.id),
           label: ct.label,
           checked: ratingMeta.contentType === ct.id,
           action: () => ctxSetContentType(ct.id)
         }))
       },
       { type: 'divider' },
+      { type: 'label', label: 'Manage' },
       {
         type: 'action',
         icon: 'folder-open',
         label: 'Move to…',
         action: () => openMoveAssetModal(asset)
       },
-      { type: 'divider' },
       {
+        // Reversible: the bin keeps it. Amber, not red -- reserving red for
+        // the one row below it that cannot be undone is what makes red mean
+        // anything here.
         type: 'action',
-        icon: 'trash',
+        icon: 'restore',
+        tone: 'warning',
         label: 'Move to Recycle Bin',
         action: () => doTrashAsset(asset.uuid)
       },
       {
         type: 'action',
         icon: 'trash',
+        tone: 'danger',
+        danger: true,
         label: 'Delete permanently…',
         action: () => promptPurgeAsset(asset)
       }
@@ -1921,9 +1956,11 @@ const menuItems = computed<MenuItem[]>(() => {
   } else if (node.type === 'folder') {
     const isRoot = node.virtualFolder === '/';
     const folderItems: MenuItem[] = [
+      { type: 'label', label: 'Folder' },
       {
         type: 'action',
         icon: 'folder-plus',
+        tone: 'accent',
         label: 'New subfolder here',
         action: () => doNewVirtualFolder(node.virtualFolder)
       }
@@ -1945,13 +1982,16 @@ const menuItems = computed<MenuItem[]>(() => {
       folderItems.push({ type: 'divider' });
       folderItems.push({
         type: 'action',
-        icon: 'trash',
+        icon: 'restore',
+        tone: 'warning',
         label: 'Move folder to Recycle Bin',
         action: () => doTrashFolder(node.virtualFolder)
       });
       folderItems.push({
         type: 'action',
         icon: 'trash',
+        tone: 'danger',
+        danger: true,
         label: 'Delete folder permanently…',
         action: () => promptPurgeFolder(node.virtualFolder)
       });
@@ -1960,6 +2000,8 @@ const menuItems = computed<MenuItem[]>(() => {
     if (node.isTransient) {
       folderItems.push({
         type: 'action',
+        icon: 'close',
+        tone: 'warning',
         label: 'Remove empty placeholder',
         action: doRemoveFolder
       });
@@ -1967,19 +2009,26 @@ const menuItems = computed<MenuItem[]>(() => {
 
     folderItems.push({ type: 'divider' });
     folderItems.push({
+      // A list of ten colour *names* is a colour picker that shows no colour.
+      // Each row carries its own swatch, and so does the parent, so the current
+      // folder colour is visible without opening the submenu.
       type: 'submenu',
-      label: 'Folder Colors',
+      icon: 'palette',
+      label: 'Folder colour',
+      swatch: node.color || undefined,
       children: [
         ...folderColorsPreset.map(c => ({
           type: 'action' as const,
           label: c.label,
+          swatch: c.hex,
           checked: node.color === c.hex,
           action: () => ctxSetFolderColor(c.hex)
         })),
         { type: 'divider' as const },
         {
           type: 'action' as const,
-          label: 'Reset Color',
+          icon: 'close' as IconName,
+          label: 'Reset colour',
           checked: !node.color,
           action: () => ctxSetFolderColor('')
         }

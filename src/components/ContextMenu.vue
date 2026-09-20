@@ -1,8 +1,43 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue';
 import { claimContextMenu, releaseContextMenu } from '../lib/activeContextMenu';
 import AppIcon from './ui/AppIcon.vue';
 import type { IconName } from './ui/icons';
+
+/**
+ * The menu's colour vocabulary.
+ *
+ * Every entry used to be the same grey, so a 14-row menu mixing "inspect this",
+ * "give this an 18 rating" and "delete this permanently" read as one
+ * undifferentiated list and the operator had to parse each label to find out
+ * which kind of thing a row was. A tone is not decoration: it maps a row to the
+ * colour that same concept already carries elsewhere in the app -- an 18 row is
+ * the same red as the 18 badge on the rundown, a SPOT row the same orange as
+ * the SPOT chip -- so the menu teaches the palette instead of fighting it.
+ *
+ * Each tone resolves to `--menu-tone` (and `--menu-tone-fg` where a filled chip
+ * needs a foreground) in this component's stylesheet. Tones are token names, so
+ * a theme change carries the menu with it.
+ */
+export type MenuTone =
+  | 'neutral'
+  | 'accent'
+  | 'success'
+  | 'warning'
+  | 'danger'
+  | 'cued'
+  | 'rating-k'
+  | 'rating-8'
+  | 'rating-12'
+  | 'rating-16'
+  | 'rating-18'
+  | 'rating-tp'
+  | 'type-movie'
+  | 'type-show'
+  | 'type-documentary'
+  | 'type-news'
+  | 'tag-spot'
+  | 'tag-telemarketing';
 
 export interface MenuItem {
   type: 'action' | 'divider' | 'submenu' | 'label' | 'toggle';
@@ -14,6 +49,19 @@ export interface MenuItem {
    * label stays a plain translatable string.
    */
   icon?: IconName;
+  /** Colour family for the icon, the hover tint and any badge on this row. */
+  tone?: MenuTone;
+  /**
+   * A filled mini-chip rendered at the end of the row in the row's tone --
+   * used where the row *is* the thing the chip shows on air ("12", "TP",
+   * "SPOT"), so the menu shows the mark rather than describing it.
+   */
+  badge?: string;
+  /**
+   * A raw colour for rows whose colour is operator data rather than a theme
+   * token (the folder colour palette). Rendered as a swatch, never as a tone.
+   */
+  swatch?: string;
   action?: () => void;
   checked?: boolean;
   danger?: boolean;
@@ -24,6 +72,7 @@ export interface MenuItem {
 export interface TopAction {
   id: 'trim' | 'rename' | 'purge' | 'delete' | string;
   icon?: IconName;
+  tone?: MenuTone;
   tooltip: string;
   action: () => void;
   disabled?: boolean;
@@ -62,6 +111,17 @@ let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 // a window `click`, which never fired for a right-click in another panel, and
 // nothing at all handled Escape.
 const requestClose = () => emit('close');
+
+/**
+ * A row with no tone of its own still gets one: `danger` is a colour decision
+ * the caller already made by setting the flag, and neutral is the floor.
+ */
+const itemTone = (item: MenuItem): MenuTone => item.tone ?? (item.danger ? 'danger' : 'neutral');
+
+/** The top bar's four stock actions carry the tone their verb implies. */
+const defaultTopActionTone = (btn: TopAction): MenuTone =>
+  (({ trim: 'accent', rename: 'accent', purge: 'danger', delete: 'danger' } as Record<string, MenuTone>)[btn.id] ??
+    'neutral');
 
 /** Falls back to the action id so a new top action still renders something. */
 const topActionIcon = (btn: TopAction): IconName =>
@@ -192,6 +252,33 @@ const openSubmenu = (event: MouseEvent, item: MenuItem, index: number) => {
     left,
     children: item.children
   };
+
+  // The estimates above are a first guess made before the flyout exists. They
+  // are wrong whenever a label is longer than the assumed 220 px -- the Greek
+  // compliance labels are roughly 300 -- and the result was a submenu whose
+  // right-hand column (the rating badge) sat outside the window. Measure the
+  // rendered flyout and correct it in the same frame it appears.
+  void nextTick(() => {
+    const flyout = submenuRef.value;
+    const current = activeSubmenu.value;
+    if (!flyout || !current || current.id !== parentId) return;
+
+    const box = flyout.getBoundingClientRect();
+    let correctedLeft = current.left;
+    let correctedTop = current.top;
+
+    if (correctedLeft + box.width > window.innerWidth - 8) {
+      // Prefer flipping to the parent's left; clamp only if that overflows too.
+      correctedLeft = Math.max(8, Math.min(rect.left - box.width + 2, window.innerWidth - box.width - 8));
+    }
+    if (correctedTop + box.height > window.innerHeight - 8) {
+      correctedTop = Math.max(8, window.innerHeight - box.height - 8);
+    }
+
+    if (correctedLeft !== current.left || correctedTop !== current.top) {
+      activeSubmenu.value = { ...current, left: correctedLeft, top: correctedTop };
+    }
+  });
 };
 
 const onItemMouseMove = (event: MouseEvent, item: MenuItem, index: number) => {
@@ -263,11 +350,13 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
         :key="btn.id"
         class="action-btn"
         :class="{ disabled: btn.disabled }"
+        :data-tone="btn.tone ?? defaultTopActionTone(btn)"
         :data-tooltip="btn.tooltip"
+        :aria-label="btn.tooltip"
         :disabled="btn.disabled"
         @click.stop="!btn.disabled && (btn.action(), emit('close'))"
       >
-        <span class="action-icon" :class="{ 'icon-danger': btn.id === 'purge' }">
+        <span class="action-icon">
           <AppIcon :name="topActionIcon(btn)" :size="16" />
         </span>
       </button>
@@ -298,7 +387,8 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
         <div
           v-else-if="item.type === 'action' || item.type === 'toggle'"
           class="menu-item"
-          :class="{ danger: item.danger, disabled: item.disabled }"
+          :class="{ danger: item.danger, disabled: item.disabled, 'is-checked': item.checked }"
+          :data-tone="itemTone(item)"
           @mouseenter="openSubmenu($event, item, idx)"
           @mouseleave="onMouseLeaveItem($event)"
           @click.stop="!item.disabled && item.action && (item.action(), emit('close'))"
@@ -306,8 +396,10 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
           <span class="menu-item-check-spacer">
             <AppIcon v-if="item.checked" class="check-mark" name="check" :size="14" :stroke-width="3" />
           </span>
-          <AppIcon v-if="item.icon" class="menu-item-icon" :name="item.icon" :size="14" />
+          <span v-if="item.swatch" class="menu-item-swatch" :style="{ background: item.swatch }" aria-hidden="true" />
+          <AppIcon v-else-if="item.icon" class="menu-item-icon" :name="item.icon" :size="14" />
           <span class="menu-item-label">{{ item.label }}</span>
+          <span v-if="item.badge" class="menu-item-badge">{{ item.badge }}</span>
         </div>
 
         <!-- Submenu parent item -->
@@ -318,14 +410,17 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
             disabled: item.disabled,
             'submenu-active': currentHoveredParentId === (item.id || `sub-${idx}`)
           }"
+          :data-tone="itemTone(item)"
           @mouseenter="openSubmenu($event, item, idx)"
           @mousemove="onItemMouseMove($event, item, idx)"
           @mouseleave="onMouseLeaveItem($event)"
           @click.stop="openSubmenu($event, item, idx)"
         >
           <span class="menu-item-check-spacer"></span>
-          <AppIcon v-if="item.icon" class="menu-item-icon" :name="item.icon" :size="14" />
+          <span v-if="item.swatch" class="menu-item-swatch" :style="{ background: item.swatch }" aria-hidden="true" />
+          <AppIcon v-else-if="item.icon" class="menu-item-icon" :name="item.icon" :size="14" />
           <span class="menu-item-label">{{ item.label }}</span>
+          <span v-if="item.badge" class="menu-item-badge">{{ item.badge }}</span>
           <span class="submenu-chevron">
             <AppIcon name="chevron-right" :size="14" :stroke-width="2.5" />
           </span>
@@ -354,14 +449,17 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
           <div
             v-else
             class="menu-item"
-            :class="{ danger: child.danger, disabled: child.disabled }"
+            :class="{ danger: child.danger, disabled: child.disabled, 'is-checked': child.checked }"
+            :data-tone="itemTone(child)"
             @click.stop="!child.disabled && child.action && (child.action(), emit('close'), activeSubmenu = null)"
           >
             <span class="menu-item-check-spacer">
               <AppIcon v-if="child.checked" class="check-mark" name="check" :size="14" :stroke-width="3" />
             </span>
-            <AppIcon v-if="child.icon" class="menu-item-icon" :name="child.icon" :size="14" />
+            <span v-if="child.swatch" class="menu-item-swatch" :style="{ background: child.swatch }" aria-hidden="true" />
+            <AppIcon v-else-if="child.icon" class="menu-item-icon" :name="child.icon" :size="14" />
             <span class="menu-item-label">{{ child.label }}</span>
+            <span v-if="child.badge" class="menu-item-badge">{{ child.badge }}</span>
           </div>
         </template>
       </div>
@@ -463,10 +561,6 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   height: 100%;
 }
 
-.action-icon svg.icon-danger {
-  color: var(--accent-red);
-}
-
 /* Action button tooltips */
 .action-btn::after {
   content: attr(data-tooltip);
@@ -496,6 +590,9 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 
 /* Vertical Menu Items list */
 .menu-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: 6px 12px 3px;
   font-size: var(--fs-xs);
   font-weight: 800;
@@ -519,14 +616,105 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   box-sizing: border-box;
 }
 
+/* ---------------------------------------------------------------------------
+   Tone map.
+
+   `--menu-tone` is the row's colour; `--menu-tone-fg` is the type that sits on
+   it when the row carries a filled badge. Both are theme tokens, so the menu
+   follows a theme switch without a second palette to maintain.
+   --------------------------------------------------------------------------- */
+.menu-item,
+.action-btn {
+  --menu-tone: var(--text-secondary);
+  --menu-tone-fg: var(--text-on-accent);
+}
+.menu-item[data-tone='accent'],
+.action-btn[data-tone='accent'] { --menu-tone: var(--accent-blue); --menu-tone-fg: var(--text-on-accent); }
+.menu-item[data-tone='success'] { --menu-tone: var(--status-ready); --menu-tone-fg: var(--text-on-success); }
+.menu-item[data-tone='warning'] { --menu-tone: var(--status-warning); --menu-tone-fg: var(--text-on-warning); }
+.menu-item[data-tone='danger'],
+.action-btn[data-tone='danger'] { --menu-tone: var(--status-error); --menu-tone-fg: var(--text-on-danger); }
+.menu-item[data-tone='cued'] { --menu-tone: var(--status-cued); --menu-tone-fg: var(--text-on-accent); }
+
+/* The regulatory family. These are the same five colours the rating badge
+   shows on the rundown row and on air, so a "12" row in this menu and a "12"
+   badge on the clip are self-evidently the same statement. */
+.menu-item[data-tone='rating-k'] { --menu-tone: var(--rating-k); --menu-tone-fg: var(--rating-k-fg); }
+.menu-item[data-tone='rating-8'] { --menu-tone: var(--rating-8); --menu-tone-fg: var(--rating-8-fg); }
+.menu-item[data-tone='rating-12'] { --menu-tone: var(--rating-12); --menu-tone-fg: var(--rating-12-fg); }
+.menu-item[data-tone='rating-16'] { --menu-tone: var(--rating-16); --menu-tone-fg: var(--rating-16-fg); }
+.menu-item[data-tone='rating-18'] { --menu-tone: var(--rating-18); --menu-tone-fg: var(--rating-18-fg); }
+.menu-item[data-tone='rating-tp'] { --menu-tone: var(--rating-tp); --menu-tone-fg: var(--rating-tp-fg); }
+
+.menu-item[data-tone='type-movie'] { --menu-tone: var(--type-movie); --menu-tone-fg: var(--text-on-danger); }
+.menu-item[data-tone='type-show'] { --menu-tone: var(--type-show); --menu-tone-fg: var(--text-on-accent); }
+.menu-item[data-tone='type-documentary'] { --menu-tone: var(--type-documentary); --menu-tone-fg: var(--text-on-danger); }
+.menu-item[data-tone='type-news'] { --menu-tone: var(--type-news); --menu-tone-fg: var(--text-on-success); }
+
+.menu-item[data-tone='tag-spot'] { --menu-tone: var(--tag-spot); --menu-tone-fg: var(--text-on-warning); }
+.menu-item[data-tone='tag-telemarketing'] { --menu-tone: var(--tag-telemarketing); --menu-tone-fg: var(--text-on-danger); }
+
+/* Hover is the tone at low alpha plus a 2 px leading bar in the tone at full
+   strength: the tint alone is too weak to identify a colour at 12 %, and the
+   bar alone leaves the row looking unhovered. */
 .menu-item:hover:not(.disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  background: color-mix(in srgb, var(--menu-tone) 14%, var(--bg-hover));
   color: var(--text-primary);
 }
 
+.menu-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--menu-tone);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.menu-item:hover:not(.disabled)::before,
+.menu-item.is-checked::before {
+  opacity: 1;
+}
+
+/* A checked row keeps its tone at rest -- "this clip is 16" should be legible
+   without hovering it. */
+.menu-item.is-checked {
+  background: color-mix(in srgb, var(--menu-tone) 10%, transparent);
+}
+
 .menu-item.danger:hover:not(.disabled) {
-  background: color-mix(in srgb, var(--accent-red) 16%, transparent);
-  color: var(--accent-red);
+  color: var(--status-error);
+}
+
+/* The badge is the mark itself, drawn the way it is drawn on air. */
+.menu-item-badge {
+  flex-shrink: 0;
+  margin-left: var(--space-2);
+  min-width: 22px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--menu-tone);
+  color: var(--menu-tone-fg);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+
+/* Folder colours are operator data, not a theme tone, so they get a plain
+   swatch in the row's icon slot rather than a tone. */
+.menu-item-swatch {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  margin-right: var(--space-1);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
 }
 
 .menu-item.disabled {
@@ -596,20 +784,38 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 }
 
 .submenu-active {
-  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  background: color-mix(in srgb, var(--menu-tone) 14%, var(--bg-hover));
   color: var(--text-primary);
 }
-/* UI F-10: the optional leading glyph on a menu row. */
+.submenu-active::before {
+  opacity: 1;
+}
+/* UI F-10: the optional leading glyph on a menu row. It carries the tone at
+   rest, which is what makes a long menu scannable by colour before it is read
+   by label. */
 .menu-item-icon {
-  color: var(--text-secondary);
+  color: var(--menu-tone);
   margin-right: var(--space-1);
+  flex-shrink: 0;
 }
 
-.menu-item:hover:not(.disabled) .menu-item-icon {
+.menu-item[data-tone='neutral'] .menu-item-icon {
+  color: var(--text-secondary);
+}
+
+.menu-item[data-tone='neutral']:hover:not(.disabled) .menu-item-icon {
   color: var(--text-primary);
 }
 
-.menu-item.danger .menu-item-icon {
+/* Top-bar icons take their tone too, so "move to bin" is not the same grey as
+   "rename" in a bar where every control is icon-only. */
+.action-btn[data-tone='danger'] .action-icon {
   color: var(--status-error);
+}
+.action-btn[data-tone='accent'] .action-icon {
+  color: var(--accent-blue);
+}
+.action-btn[data-tone='danger']:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-error) 16%, transparent);
 }
 </style>
