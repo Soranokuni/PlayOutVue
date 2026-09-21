@@ -303,6 +303,23 @@ async fn handle_connection<R: Runtime>(mut stream: tokio::net::TcpStream, app: A
         ("GET", "/vendor/gsap.min.js") | ("GET", "/playout/vendor/gsap.min.js") => {
             send_raw_response(&mut stream, 200, "application/javascript", crate::caspar_config::TEMPLATE_GSAP.as_bytes()).await;
         }
+        // Vendored faces. The @font-face rules request these with a relative
+        // URL from the stylesheet, so no bearer token rides along; that is fine,
+        // reading a font is not a mutating route.
+        ("GET", p) if p.starts_with("/fonts/") || p.starts_with("/playout/fonts/") => {
+            let name = p.rsplit('/').next().unwrap_or("");
+            match crate::caspar_config::TEMPLATE_FONTS
+                .iter()
+                .find(|(n, _)| *n == name)
+            {
+                Some((_, bytes)) => {
+                    send_raw_response(&mut stream, 200, "font/woff2", bytes).await;
+                }
+                None => {
+                    send_raw_response(&mut stream, 404, "text/plain; charset=utf-8", b"font not found").await;
+                }
+            }
+        }
         ("GET", "/esr_presets.json") | ("GET", "/playout/esr_presets.json") => {
             send_raw_response(&mut stream, 200, "application/json", crate::caspar_config::TEMPLATE_ESR_PRESETS.as_bytes()).await;
         }

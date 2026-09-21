@@ -4,14 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Greek NCRTV Broadcast Advisory Template & Vector Studio</title> 
-  <!-- Google Fonts: Inter, Montserrat, Roboto, Roboto Mono with Greek subset -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- Audit T2-8: the web-font stylesheet is loaded without blocking first
-       paint (media="print" until it arrives). An offline render host falls
-       through to the local fallbacks in each font stack instead of stalling
-       the on-air template for the network timeout. -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Montserrat:wght@500;600;700;800;900&family=Roboto+Mono:wght@500;700&family=Roboto:wght@400;500;700;900&display=swap&subset=greek,greek-ext,latin" rel="stylesheet" media="print" onload="this.media='all'">
+  <!-- Fonts are vendored in fonts/ and declared at the top of the stylesheet
+       below. The CasparCG render host has no internet, so a Google Fonts
+       <link> silently fell through to the local fallback stack on air while
+       the studio showed the real face: the operator approved one look and a
+       different one went to transmission. -->
   <!-- GSAP 3: local vendor bundle only. The former document.write() CDN
        fallback fetched script from the internet on the render host (T2-8). -->
   <script src="vendor/gsap.min.js"></script>
@@ -68,6 +65,119 @@
     })();
   </script>
   <style>
+    /* =========================================================================
+       VENDORED BROADCAST FACES
+       Greek + Latin subsets, woff2, served from the template directory that
+       deploy_caspar_templates copies next to vendor/. font-display: block
+       because on air a swap would flash a fallback face mid-shot.
+       Montserrat has no Greek subset upstream; it is offered for Latin
+       wordmarks only and labelled as such in the font pickers.
+       ========================================================================= */
+    @font-face {
+      font-family: 'Inter';
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: block;
+      src: url('fonts/inter-greek-ext.woff2') format('woff2');
+      unicode-range: U+1F00-1FFF;
+    }
+    @font-face {
+      font-family: 'Inter';
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: block;
+      src: url('fonts/inter-greek.woff2') format('woff2');
+      unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+    }
+    @font-face {
+      font-family: 'Inter';
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: block;
+      src: url('fonts/inter-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    @font-face {
+      font-family: 'Inter';
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: block;
+      src: url('fonts/inter-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Montserrat';
+      font-style: normal;
+      font-weight: 500 900;
+      font-display: block;
+      src: url('fonts/montserrat-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    @font-face {
+      font-family: 'Montserrat';
+      font-style: normal;
+      font-weight: 500 900;
+      font-display: block;
+      src: url('fonts/montserrat-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Roboto';
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: block;
+      src: url('fonts/roboto-greek-ext.woff2') format('woff2');
+      unicode-range: U+1F00-1FFF;
+    }
+    @font-face {
+      font-family: 'Roboto';
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: block;
+      src: url('fonts/roboto-greek.woff2') format('woff2');
+      unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+    }
+    @font-face {
+      font-family: 'Roboto';
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: block;
+      src: url('fonts/roboto-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    @font-face {
+      font-family: 'Roboto';
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: block;
+      src: url('fonts/roboto-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Roboto Mono';
+      font-style: normal;
+      font-weight: 500 700;
+      font-display: block;
+      src: url('fonts/roboto-mono-greek.woff2') format('woff2');
+      unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+    }
+    @font-face {
+      font-family: 'Roboto Mono';
+      font-style: normal;
+      font-weight: 500 700;
+      font-display: block;
+      src: url('fonts/roboto-mono-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    @font-face {
+      font-family: 'Roboto Mono';
+      font-style: normal;
+      font-weight: 500 700;
+      font-display: block;
+      src: url('fonts/roboto-mono-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+
     /* =========================================================================
        SOTA 3-CARD WORKSTATION ARCHITECTURE (MCR BROADCAST DESIGN SYSTEM)
        - Card 1 (Left): CONTROLS Panel (Vertical card, 460px, rounded 24px)
@@ -1223,7 +1333,7 @@
 
     .warning-lead {
       font-family: var(--cg-font-family);
-      font-size: 10.5px;
+      font-size: var(--cg-warning-lead-font-size, 10.5px);
       font-weight: 800;
       color: #94a3b8;
       letter-spacing: 0.8px;
@@ -1234,7 +1344,7 @@
 
     .warning-body {
       font-family: var(--cg-font-family);
-      font-size: 12.5px;
+      font-size: var(--cg-warning-body-font-size, 12.5px);
       font-weight: 800;
       color: #ffffff;
       letter-spacing: 0.4px;
@@ -1256,7 +1366,7 @@
 
     .combo-line-1 {
       font-family: var(--cg-font-family);
-      font-size: 10.5px;
+      font-size: var(--cg-warning-lead-font-size, 10.5px);
       font-weight: 800;
       color: #94a3b8;
       letter-spacing: 0.8px;
@@ -1267,13 +1377,13 @@
     }
 
     .combo-group.has-3-lines .combo-line-1 {
-      font-size: 9.5px;
+      font-size: calc(var(--cg-warning-lead-font-size, 10.5px) * 0.905);
       letter-spacing: 0.7px;
     }
 
     .combo-line-2 {
       font-family: var(--cg-font-family);
-      font-size: 12px;
+      font-size: var(--cg-warning-body-font-size, 12px);
       font-weight: 800;
       color: #ffffff;
       letter-spacing: 0.4px;
@@ -1284,13 +1394,13 @@
     }
 
     .combo-group.has-3-lines .combo-line-2 {
-      font-size: 11px;
+      font-size: calc(var(--cg-warning-body-font-size, 12px) * 0.92);
       letter-spacing: 0.35px;
     }
 
     .combo-line-3 {
       font-family: var(--cg-font-family);
-      font-size: 11px;
+      font-size: calc(var(--cg-warning-body-font-size, 12px) * 0.92);
       font-weight: 800;
       color: #ffffff;
       letter-spacing: 0.35px;
@@ -2432,12 +2542,12 @@
               <input type="range" min="16" max="42" value="27" id="sld-rating-font-size" class="studio-slider" oninput="updateRatingFromControls()">
             </div>
             <div class="vector-ctrl-row" style="margin-top: 8px;">
-              <span style="font-size: 11.5px; color: #cbd5e1;">Base Fill Tint</span>
-              <input type="color" id="col-rating-tint" value="#ffffff" class="vector-color-input" oninput="updateRatingFromControls()">
+              <span style="font-size: 11.5px; color: #cbd5e1;" title="Overrides the blueprint's badge fill until the next blueprint is applied">Base Fill Tint</span>
+              <input type="color" id="col-rating-tint" value="#ffffff" class="vector-color-input" oninput="onBadgeColorPicked('tint')">
             </div>
             <div class="vector-ctrl-row">
-              <span style="font-size: 11.5px; color: #cbd5e1;">Border / Rim Stroke</span>
-              <input type="color" id="col-rating-stroke" value="#ffffff" class="vector-color-input" oninput="updateRatingFromControls()">
+              <span style="font-size: 11.5px; color: #cbd5e1;" title="Overrides the blueprint's badge rim until the next blueprint is applied">Border / Rim Stroke</span>
+              <input type="color" id="col-rating-stroke" value="#ffffff" class="vector-color-input" oninput="onBadgeColorPicked('rim')">
             </div>
           </div>
 
@@ -2452,7 +2562,7 @@
                 <option value="mono">Monospace Tech</option>
                 <option value="outfit">Outfit Geometric</option>
                 <option value="inter">Inter Neutral</option>
-                <option value="montserrat">Montserrat Display</option>
+                <option value="montserrat">Montserrat (Latin only)</option>
                 <option value="serif">Classic Serif</option>
               </select>
             </div>
@@ -2620,7 +2730,7 @@
                 <option value="mono">Monospace Tech</option>
                 <option value="outfit">Outfit Geometric</option>
                 <option value="inter">Inter Neutral</option>
-                <option value="montserrat">Montserrat Display</option>
+                <option value="montserrat">Montserrat (Latin only)</option>
                 <option value="serif">Classic Serif</option>
               </select>
             </div>
@@ -2644,6 +2754,13 @@
                 <span id="val-warning-lead-font" class="studio-value-tag">10.5px</span>
               </div>
               <input type="range" id="sld-warning-lead-font" min="8" max="16" step="0.5" value="10.5" class="studio-slider" oninput="updateStudioStyles()">
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Warning Icon Size</span>
+                <span id="val-warning-icon-size" class="studio-value-tag">28px</span>
+              </div>
+              <input type="range" id="sld-warning-icon-size" min="16" max="48" step="1" value="28" class="studio-slider" oninput="updateStudioStyles()">
             </div>
           </div>
         </div>
@@ -3317,6 +3434,19 @@
         .replace(/'/g, '&#039;');
     }
 
+    // 'stencil' ships in all seven master presets but was never an option of
+    // #sel-rating-cutout, so select.value = 'stencil' was a silent no-op and
+    // the badge kept whatever cut-out happened to be there (audit 2.3.4).
+    // Old presets in operators' localStorage still carry it, so it is read as
+    // an alias for the frosted default rather than rejected.
+    const RATING_CUTOUTS = ['frosted', 'embossed', 'inset', 'contrast', 'none'];
+
+    function normalizeRatingCutout(value) {
+      const key = String(value || '').toLowerCase().trim();
+      if (RATING_CUTOUTS.indexOf(key) !== -1) return key;
+      return 'frosted';
+    }
+
     function normalizeRating(r) {
       if (r === undefined || r === null) return '';
       const key = String(r).trim().toUpperCase();
@@ -3592,6 +3722,39 @@
     }
 
     // Dynamic Station Logo Generator
+    // =========================================================================
+    // DEFERRED RENDER GUARD (audit 2.3.1, 2.3.2)
+    //
+    // A single window.update() used to fan out into five to seven
+    // buildTimeline() calls and two renderStationSubtitle() calls, because
+    // every helper it touches rebuilt and replayed the stage for itself. The
+    // visible symptoms were the stage restarting mid-update and the show-tag
+    // dot->line->tag animation being killed by the styling pass that runs
+    // after it. While a deferred block is open the helpers record what they
+    // wanted instead of doing it, and the block flushes once at the end.
+    //
+    // PR 3 replaces this with render(state, changedKeys); until then the flag
+    // is the smallest change that makes the on-air path correct.
+    let deferredRenderDepth = 0;
+    let pendingTimelineBuild = false;
+    let pendingTimelineReplay = false;
+    let suppressSubtitleRender = false;
+
+    function beginDeferredRender() {
+      deferredRenderDepth++;
+    }
+
+    function endDeferredRender() {
+      deferredRenderDepth = Math.max(0, deferredRenderDepth - 1);
+      if (deferredRenderDepth > 0) return;
+      const build = pendingTimelineBuild;
+      const replay = pendingTimelineReplay;
+      pendingTimelineBuild = false;
+      pendingTimelineReplay = false;
+      if (build) buildTimeline();
+      if (replay) replayTimeline();
+    }
+
     function setLogoShape(shape) {
       currentLogoShape = shape;
       ['squircle', 'circle', 'pill', 'shield', 'diamond'].forEach(s => {
@@ -3651,8 +3814,11 @@
       const textCol = document.getElementById('col-logo-text')?.value || '#f7edf9';
       const textShadowCol = document.getElementById('col-logo-textshadow')?.value || '#200324';
 
-      // Update Live Subtitle Tag next to Logo Bug using robust renderStationSubtitle
-      renderStationSubtitle(currentShowTag, subtitle);
+      // Update Live Subtitle Tag next to Logo Bug using robust renderStationSubtitle.
+      // Skipped while applyStylingVariables is running: the show tag has just
+      // been animated in by applyShowTagPreset and a second call here would
+      // kill that timeline and snap to the end state (audit 2.3.1).
+      if (!suppressSubtitleRender) renderStationSubtitle(currentShowTag, subtitle);
 
       // Update labels
       if (document.getElementById('val-logo-size')) document.getElementById('val-logo-size').textContent = size + 'px';
@@ -3665,6 +3831,21 @@
 
       // Apply CSS variable
       document.documentElement.style.setProperty('--cg-logo-size', size + 'px');
+
+      // Virtual light angle. CSS-gradient convention: 0deg lights from the
+      // top, increasing clockwise. The half-length is 40 / sin(45deg) so the
+      // default 135deg reproduces the original static 10%/90% gradient
+      // exactly and the shipped look is unchanged (audit 2.1).
+      const surfaceGrad = document.getElementById('sitia-convex-surface');
+      if (surfaceGrad) {
+        const rad = ((parseFloat(angle) || 135) * Math.PI) / 180;
+        const hx = Math.sin(rad) * 56.5685;
+        const hy = -Math.cos(rad) * 56.5685;
+        surfaceGrad.setAttribute('x1', (50 - hx).toFixed(2) + '%');
+        surfaceGrad.setAttribute('y1', (50 - hy).toFixed(2) + '%');
+        surfaceGrad.setAttribute('x2', (50 + hx).toFixed(2) + '%');
+        surfaceGrad.setAttribute('y2', (50 + hy).toFixed(2) + '%');
+      }
 
       // Update Chassis Geometry Attributes
       const chassisEl = document.getElementById('sitia-logo-chassis');
@@ -3833,11 +4014,53 @@
       }
     }
 
+    // The badge fill and rim belong to the active blueprint, which stores them
+    // as rgba()/gradient strings that a colour input cannot display. So the two
+    // pickers are overrides rather than mirrors: untouched they stay linked to
+    // the theme, and once the operator moves one it wins until the next
+    // blueprint is applied. Before this they were read into a local and
+    // discarded (audit 2.1).
+    const BADGE_COLOR_TARGETS = {
+      tint: { id: 'col-rating-tint', prop: '--badge-fill' },
+      rim: { id: 'col-rating-stroke', prop: '--badge-stroke' }
+    };
+
+    function applyBadgeColorOverride(kind, hex) {
+      const target = BADGE_COLOR_TARGETS[kind];
+      if (!target) return;
+      const el = document.getElementById(target.id);
+      if (hex) {
+        if (el) { el.value = hex; el.setAttribute('data-override', '1'); }
+        document.documentElement.style.setProperty(target.prop, hex);
+      } else if (el) {
+        el.removeAttribute('data-override');
+      }
+    }
+
+    function getBadgeColorOverride(kind) {
+      const target = BADGE_COLOR_TARGETS[kind];
+      const el = target && document.getElementById(target.id);
+      return el && el.hasAttribute('data-override') ? el.value : null;
+    }
+
+    function clearBadgeColorOverrides() {
+      Object.keys(BADGE_COLOR_TARGETS).forEach(kind => {
+        const el = document.getElementById(BADGE_COLOR_TARGETS[kind].id);
+        if (el) el.removeAttribute('data-override');
+      });
+    }
+
+    function onBadgeColorPicked(kind) {
+      const target = BADGE_COLOR_TARGETS[kind];
+      const el = target && document.getElementById(target.id);
+      applyBadgeColorOverride(kind, el ? el.value : null);
+      updateRatingFromControls();
+      recordAction('BADGE', kind === 'tint' ? 'Set badge fill tint' : 'Set badge rim stroke');
+    }
+
     function updateRatingFromControls() {
       const size = document.getElementById('sld-rating-size')?.value || 54;
-      const cutout = document.getElementById('sel-rating-cutout')?.value || 'frosted';
-      const tint = document.getElementById('col-rating-tint')?.value || '#ffffff';
-      const stroke = document.getElementById('col-rating-stroke')?.value || '#ffffff';
+      const cutout = normalizeRatingCutout(document.getElementById('sel-rating-cutout')?.value);
       const fontKey = document.getElementById('sel-rating-font')?.value || 'system';
       const fontFamily = resolveFontFamily(fontKey);
       document.documentElement.style.setProperty('--cg-font-family', fontFamily);
@@ -3851,6 +4074,11 @@
       document.getElementById('val-rating-text-y').textContent = textY + 'px';
 
       document.documentElement.style.setProperty('--cg-badge-size', size + 'px');
+
+      const tintOverride = getBadgeColorOverride('tint');
+      const rimOverride = getBadgeColorOverride('rim');
+      if (tintOverride) document.documentElement.style.setProperty('--badge-fill', tintOverride);
+      if (rimOverride) document.documentElement.style.setProperty('--badge-stroke', rimOverride);
 
       if (cutout === 'none') {
         document.documentElement.style.setProperty('--stencil-outline-width', '0px');
@@ -3905,6 +4133,9 @@
       root.style.setProperty('--trough-border', preset.troughBorder);
       root.style.setProperty('--tp-bg', preset.tpBg);
       root.style.setProperty('--tp-border', preset.tpBorder);
+      // The blueprint owns the badge colours again until the operator
+      // deliberately overrides them.
+      clearBadgeColorOverrides();
 
       recordAction('THEME', `Applied blueprint theme: ${preset.name}`, () => {
         applyThemePreset('frosted');
@@ -4110,6 +4341,7 @@
       const expFont = document.getElementById('sld-explanation-font')?.value || 13;
       const warnBodyFont = document.getElementById('sld-warning-body-font')?.value || 12;
       const warnLeadFont = document.getElementById('sld-warning-lead-font')?.value || 10.5;
+      const warnIconSize = document.getElementById('sld-warning-icon-size')?.value || 28;
 
       document.getElementById('val-top-margin').textContent = topM + 'px';
       document.getElementById('val-right-margin').textContent = rightM + 'px';
@@ -4117,6 +4349,8 @@
       document.getElementById('val-explanation-font').textContent = expFont + 'px';
       document.getElementById('val-warning-body-font').textContent = warnBodyFont + 'px';
       document.getElementById('val-warning-lead-font').textContent = warnLeadFont + 'px';
+      const valIconSize = document.getElementById('val-warning-icon-size');
+      if (valIconSize) valIconSize.textContent = warnIconSize + 'px';
 
       const root = document.documentElement;
       root.style.setProperty('--cg-top', topM + 'px');
@@ -4130,6 +4364,7 @@
       root.style.setProperty('--cg-explanation-font-size', expFont + 'px');
       root.style.setProperty('--cg-warning-body-font-size', warnBodyFont + 'px');
       root.style.setProperty('--cg-warning-lead-font-size', warnLeadFont + 'px');
+      root.style.setProperty('--cg-warning-icon-size', warnIconSize + 'px');
 
       buildTimeline();
       replayTimeline();
@@ -4262,6 +4497,8 @@
     }
 
     function buildTimeline() {
+      if (deferredRenderDepth > 0) { pendingTimelineBuild = true; return; }
+      if (window.__cgDebug) window.__cgDebug.timelineBuilds++;
       if (masterTL) masterTL.kill();
 
       const stage = document.getElementById('advisory-stage');
@@ -4619,6 +4856,7 @@
     }
 
     function replayTimeline() {
+      if (deferredRenderDepth > 0) { pendingTimelineReplay = true; return; }
       if (masterTL) {
         masterTL.restart();
       }
@@ -4644,7 +4882,23 @@
       });
     };
 
+    // Counters for the on-air guard test (advisoryOnAir.test.ts). Only ever
+    // created by a harness that sets window.__cgDebug = { ... } before load;
+    // nothing in the template turns it on.
     window.update = function(data) {
+      beginDeferredRender();
+      try {
+        updateOnAir(data);
+      } finally {
+        // Flush whatever the helpers asked for as exactly one build.
+        pendingTimelineBuild = true;
+        endDeferredRender();
+      }
+      if (window.__cgDebug) window.__cgDebug.updates++;
+      window.play();
+    };
+
+    function updateOnAir(data) {
       document.documentElement.classList.add('on-air');
       document.body.classList.add('on-air');
       document.documentElement.classList.remove('studio-mode');
@@ -4707,13 +4961,27 @@
           applyStylingVariables(parsed.styling);
         }
       }
-      buildTimeline();
-      window.play();
-    };
+    }
 
     function applyStylingVariables(style) {
       if (!style) return;
+      beginDeferredRender();
+      suppressSubtitleRender = true;
+      try {
+        applyStylingVariablesInner(style);
+      } finally {
+        suppressSubtitleRender = false;
+        endDeferredRender();
+      }
+    }
+
+    function applyStylingVariablesInner(style) {
       const root = document.documentElement;
+      const setCtrl = (id, val) => {
+        const el = document.getElementById(id);
+        if (!el || val === undefined || val === null) return;
+        if (el.type === 'checkbox') el.checked = !!val; else el.value = val;
+      };
       const themeKey = style.themeName || style.theme;
       if (themeKey && THEME_PRESETS[themeKey]) applyThemePreset(themeKey);
 
@@ -4734,16 +5002,78 @@
         if (bSel && Array.from(bSel.options).some(o => o.value === rawF)) bSel.value = rawF;
       }
 
-      if (style.topOffsetPx !== undefined) root.style.setProperty('--cg-top', style.topOffsetPx + 'px');
-      if (style.rightOffsetPx !== undefined) root.style.setProperty('--cg-right', style.rightOffsetPx + 'px');
-      if (style.textOffsetYPx !== undefined) root.style.setProperty('--cg-text-offset-y', style.textOffsetYPx + 'px');
+      if (style.topOffsetPx !== undefined) {
+        root.style.setProperty('--cg-top', style.topOffsetPx + 'px');
+        root.style.setProperty('--cg-bottom', style.topOffsetPx + 'px');
+        setCtrl('sld-top-margin', style.topOffsetPx);
+      }
+      if (style.rightOffsetPx !== undefined) {
+        root.style.setProperty('--cg-right', style.rightOffsetPx + 'px');
+        root.style.setProperty('--cg-left', style.rightOffsetPx + 'px');
+        setCtrl('sld-right-margin', style.rightOffsetPx);
+      }
+      if (style.textOffsetYPx !== undefined) {
+        root.style.setProperty('--cg-text-offset-y', style.textOffsetYPx + 'px');
+        setCtrl('sld-text-offset-y', style.textOffsetYPx);
+      }
       if (style.anchorPosition) setAnchorPosition(style.anchorPosition);
+
+      // Logo position. Without this the operator's placement snapped back to
+      // the margin corner the moment the template went to air (audit 2.2).
+      if (style.logoTopPx !== undefined || style.logoLeftPx !== undefined) {
+        const lt = style.logoTopPx !== undefined ? style.logoTopPx : style.topOffsetPx;
+        const ll = style.logoLeftPx !== undefined ? style.logoLeftPx : style.rightOffsetPx;
+        if (lt !== undefined) {
+          root.style.setProperty('--cg-logo-top', lt + 'px');
+          setCtrl('sld-logo-top', lt);
+        }
+        if (ll !== undefined) {
+          root.style.setProperty('--cg-logo-left', ll + 'px');
+          setCtrl('sld-logo-left', ll);
+        }
+        const logoStage = document.getElementById('station-logo-stage');
+        if (logoStage && lt !== undefined && ll !== undefined) {
+          logoStage.style.setProperty('left', ll + 'px', 'important');
+          logoStage.style.setProperty('top', lt + 'px', 'important');
+          logoStage.style.setProperty('right', 'auto', 'important');
+          logoStage.style.setProperty('bottom', 'auto', 'important');
+        }
+      }
+
+      // Banner type scale and icon size: declared in the preset since the
+      // beginning, applied nowhere until now (audit 2.2).
+      const cssPx = (key, prop) => {
+        if (style[key] !== undefined && style[key] !== null && style[key] !== '') {
+          root.style.setProperty(prop, style[key] + 'px');
+        }
+      };
+      cssPx('explanationFontSizePx', '--cg-explanation-font-size');
+      cssPx('warningBodyFontSizePx', '--cg-warning-body-font-size');
+      cssPx('warningLeadFontSizePx', '--cg-warning-lead-font-size');
+      cssPx('warningIconSizePx', '--cg-warning-icon-size');
+      setCtrl('sld-explanation-font', style.explanationFontSizePx);
+      setCtrl('sld-warning-body-font', style.warningBodyFontSizePx);
+      setCtrl('sld-warning-lead-font', style.warningLeadFontSizePx);
+      setCtrl('sld-warning-icon-size', style.warningIconSizePx);
+
+      // Banner copy: the four descriptor phrasings and the lead line.
+      if (style.descriptorTexts && typeof style.descriptorTexts === 'object') {
+        setCtrl('txt-warn-lead', style.descriptorTexts.lead);
+        setCtrl('txt-warn-violence', style.descriptorTexts.violence);
+        setCtrl('txt-warn-drugs', style.descriptorTexts.drugs);
+        setCtrl('txt-warn-sex', style.descriptorTexts.sex);
+        setCtrl('txt-warn-language', style.descriptorTexts.language);
+      }
+      if (style.customText !== undefined) {
+        setCtrl('txt-custom-advisory', style.customText);
+        currentConfig.custom_text = style.customText || null;
+      }
+      if (style.motionCurve) setCtrl('sel-motion-curve', style.motionCurve);
 
       // Synchronize control inputs first so shape constructors and updates read the new values
       const accCol = style.accentColor || style.accentMid;
       const bSize = style.badgeSizePx !== undefined ? style.badgeSizePx : style.ratingSize;
       const bFont = style.badgeFontSizePx !== undefined ? style.badgeFontSizePx : style.ratingFontSize;
-      const setCtrl = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
       setCtrl('txt-logo-content', style.wordmark);
       setCtrl('txt-logo-subtitle', style.subtitle);
       setCtrl('sld-logo-size', style.logoSize);
@@ -4756,9 +5086,31 @@
       setCtrl('sel-logo-font', style.logoFont);
       setCtrl('col-accent-mid', accCol);
       setCtrl('sld-accent-line-height', style.accentLineHeightPx);
-      setCtrl('sel-rating-cutout', style.ratingCutout);
+      setCtrl('sel-rating-cutout', normalizeRatingCutout(style.ratingCutout));
       setCtrl('sld-rating-size', bSize);
       setCtrl('sld-rating-font-size', bFont);
+
+      // Logo surface and wordmark detail (audit 2.2).
+      setCtrl('col-logo-specular', style.logoSpecular);
+      setCtrl('col-logo-shadow', style.logoShadow);
+      setCtrl('sld-logo-blur', style.shadowBlurPx);
+      setCtrl('sld-logo-grad-angle', style.lightAngleDeg);
+      setCtrl('col-logo-text', style.logoTextColor);
+      setCtrl('col-logo-textshadow', style.logoTextShadowColor);
+      setCtrl('sld-logo-text-x', style.wordmarkX);
+      setCtrl('sld-logo-text-y', style.wordmarkY);
+      setCtrl('sld-logo-text-size', style.wordmarkSizePx);
+      if (style.microBorder !== undefined) setCtrl('chk-logo-microborder', style.microBorder);
+
+      // Rating stencil offsets and the two badge colour overrides.
+      setCtrl('sld-rating-text-x', style.stencilOffsetX);
+      setCtrl('sld-rating-text-y', style.stencilOffsetY);
+      applyBadgeColorOverride('tint', style.badgeTint);
+      applyBadgeColorOverride('rim', style.badgeRim);
+
+      // Accent line: the gradient start colour was never carried.
+      if (style.accentStart) setCtrl('col-accent-start', style.accentStart);
+      if (style.accentStart || accCol || style.accentLineHeightPx !== undefined) updateAccentLineStyles();
 
       // Station Logo Bug Styling
       if (style.logoShape) setLogoShape(style.logoShape);
@@ -4817,6 +5169,8 @@
     let dragStartY = 0;
     let initialElemX = 0;
     let initialElemY = 0;
+    let dragRevertX = 0;
+    let dragRevertY = 0;
 
     function initCanvasDraggables() {
       const draggables = document.querySelectorAll('.canvas-draggable');
@@ -4838,6 +5192,8 @@
           const canvasRect = document.getElementById('broadcast-canvas').getBoundingClientRect();
           initialElemX = (rect.left - canvasRect.left) / scale;
           initialElemY = (rect.top - canvasRect.top) / scale;
+          dragRevertX = initialElemX;
+          dragRevertY = initialElemY;
 
           if (hud) hud.style.display = 'block';
         });
@@ -4889,8 +5245,24 @@
         if (activeDragTarget) {
           activeDragTarget.classList.remove('canvas-dragging');
           const isLogo = activeDragTarget.id === 'station-logo-stage';
+          // Revert used to call resetToFactoryDefaults(), which threw away the
+          // logo colours, the wordmark and twelve other controls along with
+          // the reposition (audit 2.3.6). Put the element back where it was.
+          const revertEl = activeDragTarget;
+          const revertX = dragRevertX;
+          const revertY = dragRevertY;
           recordAction('LAYOUT', `Repositioned ${isLogo ? 'Station Logo' : 'Advisory Stage'}`, () => {
-            resetToFactoryDefaults();
+            revertEl.style.setProperty('left', `${revertX}px`, 'important');
+            revertEl.style.setProperty('top', `${revertY}px`, 'important');
+            revertEl.style.setProperty('right', 'auto', 'important');
+            revertEl.style.setProperty('bottom', 'auto', 'important');
+            if (isLogo) {
+              const sldTop = document.getElementById('sld-logo-top');
+              const sldLeft = document.getElementById('sld-logo-left');
+              if (sldTop) sldTop.value = Math.round(revertY);
+              if (sldLeft) sldLeft.value = Math.round(revertX);
+              onLogoPosSliderChanged();
+            }
           });
           activeDragTarget = null;
           const hud = document.getElementById('drag-hud');
@@ -4905,6 +5277,9 @@
     const actionHistory = [];
 
     function recordAction(type, desc, revertFn) {
+      // The console card is display:none on air, so every on-air update was
+      // re-rendering a list nobody can see (audit 2.3.6).
+      if (document.documentElement.classList.contains('on-air')) return;
       const item = {
         id: 'act_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
         time: new Date().toLocaleTimeString(),
@@ -5128,27 +5503,13 @@
       } catch (e) {}
     }
 
+    // "Factory" used to hard-code sizes 76/54 while the default preset said
+    // 88/48, so the two disagreed about what factory means (audit 2.4). There
+    // is one answer, and it is the default preset.
     function resetToFactoryDefaults() {
-      document.getElementById('sld-logo-size').value = 76;
-      document.getElementById('sld-logo-radius').value = 52;
-      document.getElementById('col-logo-base').value = '#702177';
-      document.getElementById('col-logo-grad').value = '#46104c';
-      document.getElementById('sld-logo-grad-angle').value = 135;
-      document.getElementById('txt-logo-content').value = 'SITIA';
-      document.getElementById('txt-logo-subtitle').value = 'HD';
-      document.getElementById('sld-logo-text-x').value = 0;
-      document.getElementById('sld-logo-text-y').value = 0;
-      document.getElementById('sld-logo-text-size').value = 40;
-      document.getElementById('sld-rating-size').value = 54;
-      document.getElementById('sld-rating-text-x').value = 0;
-      document.getElementById('sld-rating-text-y').value = 0;
-      document.getElementById('sld-rating-font-size').value = 27;
-
-      applyThemePreset('frosted');
-      setLogoShape('squircle');
-      setRatingShape('squircle');
-      updateLogoFromControls();
-      updateRatingFromControls();
+      const factory = MASTER_STANDARD_PRESETS['default'] || {};
+      applyPresetPackage(factory);
+      recordAction('LAYOUT', 'Reset to the default preset');
     }
 
     function toggleWorkstationFullscreen() {
@@ -5168,10 +5529,10 @@
       let usePound = false;
       if (col[0] === '#') { col = col.slice(1); usePound = true; }
       const num = parseInt(col, 16);
-      let r = Math.min(255, Math.max(0, (num >> 16) + amt));
-      let b = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amt));
-      let g = Math.min(255, Math.max(0, (num & 0x0000FF) + amt));
-      return (usePound ? '#' : '') + (g | (b << 8) | (r << 16)).toString(16).padStart(6, '0');
+      const r = Math.min(255, Math.max(0, (num >> 16) + amt));
+      const g = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amt));
+      const b = Math.min(255, Math.max(0, (num & 0x0000FF) + amt));
+      return (usePound ? '#' : '') + (b | (g << 8) | (r << 16)).toString(16).padStart(6, '0');
     }
 
     function darkenHex(col, amt) {
@@ -5362,15 +5723,13 @@
         }
       } catch (_) {}
 
-      // 3. Query Studio Bridge for authoritative saved preset
-      try {
-        const data = await getFromBridge('/api/default-preset');
-        if (data && data.preset && typeof data.preset === 'object') {
-          MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], data.preset);
-        }
-      } catch (_) {}
+      // Sources are merged weakest first, so the last one to write wins:
+      // bridge > sidecar > localStorage > baked. The sidecar used to be
+      // fetched after the bridge and therefore outranked it, which meant a
+      // stale file on disk could quietly beat the preset the operator had
+      // just deployed (audit 2.4).
 
-      // 4. Try fetching sidecar file if served via HTTP
+      // 3. Sidecar file, if this copy is served over HTTP
       try {
         const res = await fetch('advisory_default_preset.json?t=' + Date.now());
         if (res.ok) {
@@ -5378,6 +5737,14 @@
           if (sidecar && typeof sidecar === 'object') {
             MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], sidecar);
           }
+        }
+      } catch (_) {}
+
+      // 4. Studio Bridge — authoritative, so it is merged last
+      try {
+        const data = await getFromBridge('/api/default-preset');
+        if (data && data.preset && typeof data.preset === 'object') {
+          MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], data.preset);
         }
       } catch (_) {}
 
@@ -5448,7 +5815,7 @@
         logoShadow: '#18031d',
         logoFont: 'system',
         logoShape: 'squircle',
-        ratingCutout: 'stencil',
+        ratingCutout: 'frosted',
         ratingShape: 'squircle',
         badgeShape: 'squircle',
         ratingSize: 48,
@@ -5480,7 +5847,7 @@
         logoShadow: '#18031d',
         logoFont: 'system',
         logoShape: 'squircle',
-        ratingCutout: 'stencil',
+        ratingCutout: 'frosted',
         ratingShape: 'squircle',
         badgeShape: 'squircle',
         ratingSize: 48,
@@ -5511,7 +5878,7 @@
         logoShadow: '#0f051d',
         logoFont: 'display',
         logoShape: 'squircle',
-        ratingCutout: 'stencil',
+        ratingCutout: 'frosted',
         ratingShape: 'squircle',
         badgeShape: 'squircle',
         ratingSize: 48,
@@ -5542,7 +5909,7 @@
         logoShadow: '#082f49',
         logoFont: 'geometric',
         logoShape: 'squircle',
-        ratingCutout: 'stencil',
+        ratingCutout: 'frosted',
         ratingShape: 'squircle',
         badgeShape: 'squircle',
         ratingSize: 48,
@@ -5573,7 +5940,7 @@
         logoShadow: '#451a03',
         logoFont: 'system',
         logoShape: 'squircle',
-        ratingCutout: 'stencil',
+        ratingCutout: 'frosted',
         ratingShape: 'squircle',
         badgeShape: 'squircle',
         ratingSize: 46,
@@ -5604,7 +5971,7 @@
         logoShadow: '#18031d',
         logoFont: 'system',
         logoShape: 'squircle',
-        ratingCutout: 'stencil',
+        ratingCutout: 'frosted',
         ratingShape: 'squircle',
         badgeShape: 'squircle',
         ratingSize: 48,
@@ -5635,7 +6002,7 @@
         logoShadow: '#450a0a',
         logoFont: 'system',
         logoShape: 'squircle',
-        ratingCutout: 'stencil',
+        ratingCutout: 'frosted',
         ratingShape: 'squircle',
         badgeShape: 'squircle',
         ratingSize: 48,
@@ -5775,7 +6142,7 @@
 
       if (p.ratingCutout) {
         const selCut = document.getElementById('sel-rating-cutout');
-        if (selCut) selCut.value = p.ratingCutout;
+        if (selCut) selCut.value = normalizeRatingCutout(p.ratingCutout);
       }
       const rShape = p.ratingShape || p.badgeShape;
       if (rShape) setRatingShape(rShape, true);
@@ -5802,6 +6169,11 @@
       if (p.displayMode) {
         setStudioDisplayMode(p.displayMode);
       }
+
+      // Everything visual goes through applyStylingVariables, which is also
+      // the on-air entry point. One function decides what a preset restores,
+      // so the studio and the transmission can no longer disagree (audit 2.2).
+      applyStylingVariables(p);
 
       updateLogoFromControls();
       updateRatingFromControls();
@@ -5936,6 +6308,19 @@
 
       const rawRatingFont = document.getElementById('sel-rating-font')?.value || document.getElementById('sel-broadcast-font')?.value || 'system';
 
+      // Read a control, falling back to the shipped default when the studio
+      // markup is not present (the on-air branch never builds the rail).
+      const num = (id, fallback) => {
+        const el = document.getElementById(id);
+        if (!el || el.value === '' || el.value === null) return fallback;
+        const n = parseFloat(el.value);
+        return Number.isFinite(n) ? n : fallback;
+      };
+      const str = (id, fallback) => {
+        const el = document.getElementById(id);
+        return el && el.value !== undefined && el.value !== null ? el.value : fallback;
+      };
+
       return {
         id: presetId,
         name: presetName,
@@ -5978,7 +6363,53 @@
         warning_hold_time: currentConfig.warning_hold_time || 30.0,
         warningHoldSec: currentConfig.warning_hold_time || 30.0,
         orientation: currentLayoutOrientation || 'default',
-        displayMode: currentStudioDisplayMode || 'combo'
+        displayMode: currentStudioDisplayMode || 'combo',
+
+        // --- keys added in the on-air-defects pass (audit 2.2) ---------------
+        // Logo placement. Both the sliders and any drag on the canvas.
+        logoTopPx: num('sld-logo-top', 60),
+        logoLeftPx: num('sld-logo-left', 60),
+
+        // Logo surface.
+        lightAngleDeg: num('sld-logo-grad-angle', 135),
+        shadowBlurPx: num('sld-logo-blur', 6),
+        microBorder: document.getElementById('chk-logo-microborder')?.checked ?? true,
+
+        // Wordmark.
+        wordmarkX: num('sld-logo-text-x', 0),
+        wordmarkY: num('sld-logo-text-y', 0),
+        wordmarkSizePx: num('sld-logo-text-size', 40),
+        logoTextColor: str('col-logo-text', '#f7edf9'),
+        logoTextShadowColor: str('col-logo-textshadow', '#200324'),
+
+        // Rating stencil offsets and the two badge colour overrides
+        // (null when the picker is still linked to the blueprint).
+        stencilOffsetX: num('sld-rating-text-x', 0),
+        stencilOffsetY: num('sld-rating-text-y', 0),
+        badgeTint: getBadgeColorOverride('tint'),
+        badgeRim: getBadgeColorOverride('rim'),
+
+        // Accent line gradient start.
+        accentStart: str('col-accent-start', '#ffffff'),
+
+        // Banner type scale.
+        explanationFontSizePx: num('sld-explanation-font', 13),
+        warningBodyFontSizePx: num('sld-warning-body-font', 12),
+        warningLeadFontSizePx: num('sld-warning-lead-font', 10.5),
+        warningIconSizePx: num('sld-warning-icon-size', 28),
+
+        // Banner copy: the lead line and the four descriptor phrasings.
+        descriptorTexts: {
+          lead: str('txt-warn-lead', 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ'),
+          violence: str('txt-warn-violence', 'ΣΚΗΝΕΣ ΒΙΑΣ'),
+          drugs: str('txt-warn-drugs', 'ΧΡΗΣΗ ΟΥΣΙΩΝ'),
+          sex: str('txt-warn-sex', 'ΣΕΞ'),
+          language: str('txt-warn-language', 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ')
+        },
+        customText: str('txt-custom-advisory', ''),
+        activeTagline: str('txt-active-tagline', ''),
+
+        motionCurve: str('sel-motion-curve', 'elastic')
       };
     }
 
@@ -6028,6 +6459,7 @@
     }
 
     function renderStationSubtitle(tagKey, explicitText) {
+      if (window.__cgDebug) window.__cgDebug.subtitleRenders++;
       const tagEl = document.getElementById('station-subtitle-tag');
       const dotEl = document.getElementById('station-subtitle-dot');
       const textEl = document.getElementById('station-subtitle-text');
