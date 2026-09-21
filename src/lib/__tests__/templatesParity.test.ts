@@ -2,6 +2,14 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
+/** The body of a top-level template function, from its declaration to the next one. */
+function sliceFunction(content: string, declaration: string): string {
+    const start = content.indexOf(declaration);
+    if (start < 0) throw new Error(`template no longer declares ${declaration}`);
+    const end = content.indexOf('\n    function ', start + declaration.length);
+    return content.slice(start, end < 0 ? undefined : end);
+}
+
 describe('Broadcast Templates Parity Verification', () => {
     const publicPath = path.resolve(__dirname, '../../../public/templates/playout/advisory.html');
     const assetsPath = path.resolve(__dirname, '../../assets/templates/playout/advisory.html');
@@ -57,22 +65,31 @@ describe('Broadcast Templates Parity Verification', () => {
         expect(content).not.toContain("url('data:image/svg+xml;utf8,<svg");
     });
 
-    it('ensures applyStylingVariables applies all logo, badge, and theme styling properties', () => {
+    it('routes both halves of the preset round trip through the schema', () => {
+        // Audit 2.2's root cause: captureCurrentPresetPackage built the preset
+        // from one hand-written property list and applyStylingVariables applied
+        // it from a different, shorter one. Both are loops over CONTROL_SCHEMA
+        // now, and advisorySchema.test.ts checks the round trip itself; this
+        // pins the structure so nobody quietly reintroduces a hand list.
         const content = fs.readFileSync(publicPath, 'utf-8');
-        // applyStylingVariables is now a thin wrapper that opens the deferred
-        // render block; the work lives in applyStylingVariablesInner.
-        const stylingFnIndex = content.indexOf('function applyStylingVariablesInner(');
-        expect(stylingFnIndex).toBeGreaterThan(0);
-        const fnSnippet = content.slice(stylingFnIndex, content.indexOf('\n    function ', stylingFnIndex + 40));
 
-        expect(fnSnippet).toContain('setLogoShape');
-        expect(fnSnippet).toContain('setRatingShape');
-        expect(fnSnippet).toContain('--cg-logo-size');
-        expect(fnSnippet).toContain('sld-logo-radius');
-        expect(fnSnippet).toContain('col-logo-base');
-        expect(fnSnippet).toContain('col-logo-grad');
-        expect(fnSnippet).toContain('updateLogoFromControls()');
-        expect(fnSnippet).toContain('updateRatingFromControls()');
+        expect(content).toContain('const CONTROL_SCHEMA = [');
+        expect(content).toContain('function stateToPreset(');
+        expect(content).toContain('function stateFromPreset(');
+        expect(content).toContain('function renderState(');
+
+        const capture = sliceFunction(content, 'function captureCurrentPresetPackage(');
+        expect(capture).toContain('readStateFromDom()');
+        expect(capture).toContain('return stateToPreset(');
+        expect(
+            (capture.match(/document\.getElementById\(/g) || []).length,
+            'captureCurrentPresetPackage is reading controls by id again instead of using the schema'
+        ).toBe(0);
+
+        const apply = sliceFunction(content, 'function applyStylingVariables(');
+        expect(apply).toContain('stateFromPreset(style)');
+        expect(apply).toContain('writeStateToDom()');
+        expect(apply).toContain('renderState()');
     });
 
     it('vendors its web fonts instead of reaching for Google Fonts', () => {
@@ -99,32 +116,34 @@ describe('Broadcast Templates Parity Verification', () => {
         }
     });
 
-    it('applies every key the baked default preset carries', () => {
-        // Audit 2.2: the preset carried keys that applyStylingVariables simply
-        // ignored, so the operator's design was reset to defaults on air. Any
-        // key added to the preset from here on has to be applied somewhere.
+    it('has a schema entry for every key the baked default preset carries', () => {
+        // A preset key with no schema entry is a value the operator can design
+        // and the template will silently drop, which is audit 2.2 exactly.
         const content = fs.readFileSync(publicPath, 'utf-8');
         const baked = /let BAKED_DEFAULT_PRESET = (\{.*?\});/.exec(content);
         expect(baked, 'BAKED_DEFAULT_PRESET anchor line not found').toBeTruthy();
         const preset = JSON.parse(baked![1]) as Record<string, unknown>;
 
-        const start = content.indexOf('function applyStylingVariablesInner(');
-        expect(start).toBeGreaterThan(0);
-        const end = content.indexOf('\n    function ', start + 40);
-        const body = content.slice(start, end);
+        const schemaBlock = content.slice(
+            content.indexOf('const CONTROL_SCHEMA = ['),
+            content.indexOf('const SCHEMA_BY_KEY')
+        );
+        const presetKeys = new Set(
+            Array.from(schemaBlock.matchAll(/preset: '([^']+)'/g)).map(m => m[1].split('.')[0])
+        );
+        for (const m of schemaBlock.matchAll(/legacy: \[([^\]]*)\]/g)) {
+            for (const alias of m[1].matchAll(/'([^']+)'/g)) presetKeys.add(alias[1]);
+        }
 
-        // Keys that are payload/bookkeeping rather than style, or that are read
-        // through a documented legacy alias the function handles explicitly.
-        const notStyling = new Set([
-            'id', 'name', 'rating', 'warnings', 'tp', 'showTag', 'tagTexts',
-            'orientation', 'displayMode', 'customLogoSvgPath', 'customRatingSvgPaths',
-            'hold_time', 'ratingHoldSec', 'warning_hold_time', 'warningHoldSec',
-            'accentMid', 'theme', 'ratingSize', 'ratingFontSize', 'ratingShape',
-            'ratingFont', 'accentStyle', 'stencilStyle', 'badgeBorderRadiusPx',
+        // Payload and bookkeeping fields, carried through untouched by design.
+        const passthrough = new Set([
+            'id', 'name', 'rating', 'warnings', 'tp', 'fontFamily',
+            'accentStyle', 'stencilStyle', 'badgeBorderRadiusPx',
+            'customLogoSvgPath', 'customRatingSvgPaths', 'assets', 'meta',
         ]);
 
-        const missing = Object.keys(preset).filter(k => !notStyling.has(k) && !body.includes(k));
-        expect(missing, `preset keys applyStylingVariables ignores: ${missing.join(', ')}`).toEqual([]);
+        const orphaned = Object.keys(preset).filter(k => !passthrough.has(k) && !presetKeys.has(k));
+        expect(orphaned, `baked preset keys with no schema entry: ${orphaned.join(', ')}`).toEqual([]);
     });
 
     it('keeps the deferred-render guard that makes one update one build', () => {

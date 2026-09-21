@@ -74,6 +74,16 @@
           }
         }
 
+        // Per-rating custom badge SVGs. PlayOut reads these off disk from
+        // cgAdvisoryConfig.customRatingSvgPaths and has been sending them all
+        // along; the template accepted them into currentConfig and rendered
+        // none of them (audit 2.3.5). Same sanitiser as the station logo: the
+        // markup comes from an arbitrary file on disk.
+        if (parsed.customLogos && typeof parsed.customLogos === 'object') {
+          currentConfig.customLogos = parsed.customLogos;
+        }
+        applyCustomRatingBadge(currentConfig.rating);
+
         // Broadcast Show Tag handling & dismissal
         let tagKey = null;
         if (parsed.is_live || parsed.show_tag === 'live') tagKey = 'live';
@@ -99,29 +109,93 @@
       }
     }
 
+    /**
+     * Swaps the rating badge for a custom SVG when the operator has configured
+     * one for this rating, and puts the built-in stencil back when they have
+     * not. Idempotent: called on every update, does nothing when the rendered
+     * badge already matches.
+     */
+    function applyCustomRatingBadge(rating) {
+      const host = document.getElementById('rating-badge-container');
+      if (!host) return;
+
+      const key = String(rating === undefined || rating === null ? '' : rating).toUpperCase();
+      const markup = currentConfig.customLogos && currentConfig.customLogos[key];
+      const wanted = markup ? key : '';
+      if (host.getAttribute('data-custom-rating') === wanted) return;
+
+      if (!markup) {
+        // Back to the built-in stencil. setRatingShape rebuilds the mask and
+        // the main shape from scratch, which is what the badge markup is.
+        if (host.getAttribute('data-custom-rating')) {
+          host.removeAttribute('data-custom-rating');
+          const keep = host.querySelector('[data-custom-rating-svg]');
+          if (keep) keep.remove();
+          const builtIn = host.querySelector('#badge-svg');
+          if (builtIn) builtIn.style.removeProperty('display');
+        }
+        return;
+      }
+
+      const safeSvg = sanitizeSvgMarkup(markup);
+      if (!safeSvg) {
+        console.warn('[advisory] customLogos[' + key + '] rejected by sanitizer');
+        return;
+      }
+
+      const previous = host.querySelector('[data-custom-rating-svg]');
+      if (previous) previous.remove();
+      safeSvg.setAttribute('data-custom-rating-svg', '');
+      safeSvg.classList.add('badge-svg');
+      const builtIn = host.querySelector('#badge-svg');
+      if (builtIn) builtIn.style.setProperty('display', 'none');
+      host.appendChild(safeSvg);
+      host.setAttribute('data-custom-rating', key);
+    }
+
+    /**
+     * Applies a preset — from PlayOut's `styling` payload on air, or from the
+     * preset picker in the studio.
+     *
+     * This used to be a hand-written list of thirty-odd setCtrl calls that had
+     * to be kept in step with captureCurrentPresetPackage's own hand-written
+     * list, and was not: keys were captured and then ignored here, so the
+     * operator's design was silently reset to defaults on air. Both halves now
+     * iterate CONTROL_SCHEMA, so a key cannot be in one and missing from the
+     * other.
+     */
     function applyStylingVariables(style) {
       if (!style) return;
       beginDeferredRender();
+      // The show tag has just been animated in by the caller; a subtitle
+      // re-render here would kill that timeline and snap to the end state.
       suppressSubtitleRender = true;
       try {
-        applyStylingVariablesInner(style);
+        stateFromPreset(style);
+        writeStateToDom();
+        // A preset load touches everything, so render everything: the deferred
+        // block still collapses it into one timeline build. Single-control
+        // edits go through stateSet and render only what changed.
+        renderState();
+        applyDerivedStyling(style);
       } finally {
         suppressSubtitleRender = false;
         endDeferredRender();
       }
     }
 
-    function applyStylingVariablesInner(style) {
+    /**
+     * The parts of a preset that are not one control each: the resolved font
+     * stack, the margin tokens that two keys share, and the logo stage's inline
+     * position, which has to beat the `!important` a previous drag left behind.
+     */
+    function applyDerivedStyling(style) {
       const root = document.documentElement;
-      const setCtrl = (id, val) => {
-        const el = document.getElementById(id);
-        if (!el || val === undefined || val === null) return;
-        if (el.type === 'checkbox') el.checked = !!val; else el.value = val;
-      };
-      const themeKey = style.themeName || style.theme;
-      if (themeKey && THEME_PRESETS[themeKey]) applyThemePreset(themeKey);
 
-      const resolvedFont = resolveFontFamily(style.fontFamily || style.ratingFont || 'system');
+      // Font. The preset may carry a key ('inter') or a resolved CSS stack.
+      const resolvedFont = resolveFontFamily(
+        stateGet('badge.font') || style.fontFamily || style.ratingFont || 'system'
+      );
       root.style.setProperty('--cg-font-family', resolvedFont);
       const stText = document.getElementById('stencil-text');
       const stOutline = document.getElementById('stencil-outline-text');
@@ -129,140 +203,33 @@
       if (stOutline) stOutline.setAttribute('font-family', resolvedFont);
       const subLabel = document.getElementById('station-subtitle-label');
       if (subLabel) subLabel.style.fontFamily = resolvedFont;
-
-      const rawF = style.ratingFont || style.fontFamily;
-      if (rawF) {
-        const rSel = document.getElementById('sel-rating-font');
-        if (rSel && Array.from(rSel.options).some(o => o.value === rawF)) rSel.value = rawF;
-        const bSel = document.getElementById('sel-broadcast-font');
-        if (bSel && Array.from(bSel.options).some(o => o.value === rawF)) bSel.value = rawF;
+      const bSel = document.getElementById('sel-broadcast-font');
+      if (bSel && Array.from(bSel.options).some(o => o.value === stateGet('badge.font'))) {
+        bSel.value = stateGet('badge.font');
       }
 
-      if (style.topOffsetPx !== undefined) {
-        root.style.setProperty('--cg-top', style.topOffsetPx + 'px');
-        root.style.setProperty('--cg-bottom', style.topOffsetPx + 'px');
-        setCtrl('sld-top-margin', style.topOffsetPx);
-      }
-      if (style.rightOffsetPx !== undefined) {
-        root.style.setProperty('--cg-right', style.rightOffsetPx + 'px');
-        root.style.setProperty('--cg-left', style.rightOffsetPx + 'px');
-        setCtrl('sld-right-margin', style.rightOffsetPx);
-      }
-      if (style.textOffsetYPx !== undefined) {
-        root.style.setProperty('--cg-text-offset-y', style.textOffsetYPx + 'px');
-        setCtrl('sld-text-offset-y', style.textOffsetYPx);
-      }
-      if (style.anchorPosition) setAnchorPosition(style.anchorPosition);
+      // Margins: one control drives two tokens each.
+      const topMargin = stateGet('layout.margin.top');
+      const sideMargin = stateGet('layout.margin.side');
+      root.style.setProperty('--cg-top', topMargin + 'px');
+      root.style.setProperty('--cg-bottom', topMargin + 'px');
+      root.style.setProperty('--cg-left', sideMargin + 'px');
+      root.style.setProperty('--cg-right', sideMargin + 'px');
 
-      // Logo position. Without this the operator's placement snapped back to
-      // the margin corner the moment the template went to air (audit 2.2).
-      if (style.logoTopPx !== undefined || style.logoLeftPx !== undefined) {
-        const lt = style.logoTopPx !== undefined ? style.logoTopPx : style.topOffsetPx;
-        const ll = style.logoLeftPx !== undefined ? style.logoLeftPx : style.rightOffsetPx;
-        if (lt !== undefined) {
-          root.style.setProperty('--cg-logo-top', lt + 'px');
-          setCtrl('sld-logo-top', lt);
-        }
-        if (ll !== undefined) {
-          root.style.setProperty('--cg-logo-left', ll + 'px');
-          setCtrl('sld-logo-left', ll);
-        }
-        const logoStage = document.getElementById('station-logo-stage');
-        if (logoStage && lt !== undefined && ll !== undefined) {
-          logoStage.style.setProperty('left', ll + 'px', 'important');
-          logoStage.style.setProperty('top', lt + 'px', 'important');
-          logoStage.style.setProperty('right', 'auto', 'important');
-          logoStage.style.setProperty('bottom', 'auto', 'important');
-        }
+      // Logo placement. The CSS tokens alone are not enough: a drag writes
+      // inline top/left with !important on the stage, so a preset that does not
+      // clear them would leave the logo where the last drag put it.
+      const logoStage = document.getElementById('station-logo-stage');
+      if (logoStage) {
+        logoStage.style.setProperty('left', stateGet('logo.pos.left') + 'px', 'important');
+        logoStage.style.setProperty('top', stateGet('logo.pos.top') + 'px', 'important');
+        logoStage.style.setProperty('right', 'auto', 'important');
+        logoStage.style.setProperty('bottom', 'auto', 'important');
       }
 
-      // Banner type scale and icon size: declared in the preset since the
-      // beginning, applied nowhere until now (audit 2.2).
-      const cssPx = (key, prop) => {
-        if (style[key] !== undefined && style[key] !== null && style[key] !== '') {
-          root.style.setProperty(prop, style[key] + 'px');
-        }
-      };
-      cssPx('explanationFontSizePx', '--cg-explanation-font-size');
-      cssPx('warningBodyFontSizePx', '--cg-warning-body-font-size');
-      cssPx('warningLeadFontSizePx', '--cg-warning-lead-font-size');
-      cssPx('warningIconSizePx', '--cg-warning-icon-size');
-      setCtrl('sld-explanation-font', style.explanationFontSizePx);
-      setCtrl('sld-warning-body-font', style.warningBodyFontSizePx);
-      setCtrl('sld-warning-lead-font', style.warningLeadFontSizePx);
-      setCtrl('sld-warning-icon-size', style.warningIconSizePx);
-
-      // Banner copy: the four descriptor phrasings and the lead line.
-      if (style.descriptorTexts && typeof style.descriptorTexts === 'object') {
-        setCtrl('txt-warn-lead', style.descriptorTexts.lead);
-        setCtrl('txt-warn-violence', style.descriptorTexts.violence);
-        setCtrl('txt-warn-drugs', style.descriptorTexts.drugs);
-        setCtrl('txt-warn-sex', style.descriptorTexts.sex);
-        setCtrl('txt-warn-language', style.descriptorTexts.language);
-      }
-      if (style.customText !== undefined) {
-        setCtrl('txt-custom-advisory', style.customText);
-        currentConfig.custom_text = style.customText || null;
-      }
-      if (style.motionCurve) setCtrl('sel-motion-curve', style.motionCurve);
-
-      // Synchronize control inputs first so shape constructors and updates read the new values
-      const accCol = style.accentColor || style.accentMid;
-      const bSize = style.badgeSizePx !== undefined ? style.badgeSizePx : style.ratingSize;
-      const bFont = style.badgeFontSizePx !== undefined ? style.badgeFontSizePx : style.ratingFontSize;
-      setCtrl('txt-logo-content', style.wordmark);
-      setCtrl('txt-logo-subtitle', style.subtitle);
-      setCtrl('sld-logo-size', style.logoSize);
-      setCtrl('sld-logo-radius', style.logoRadius);
-      setCtrl('sel-logo-extrusion', style.logoExtrusion);
-      setCtrl('col-logo-base', style.logoBase);
-      setCtrl('col-logo-grad', style.logoGrad);
-      setCtrl('col-logo-specular', style.logoSpecular);
-      setCtrl('col-logo-shadow', style.logoShadow);
-      setCtrl('sel-logo-font', style.logoFont);
-      setCtrl('col-accent-mid', accCol);
-      setCtrl('sld-accent-line-height', style.accentLineHeightPx);
-      setCtrl('sel-rating-cutout', normalizeRatingCutout(style.ratingCutout));
-      setCtrl('sld-rating-size', bSize);
-      setCtrl('sld-rating-font-size', bFont);
-
-      // Logo surface and wordmark detail (audit 2.2).
-      setCtrl('col-logo-specular', style.logoSpecular);
-      setCtrl('col-logo-shadow', style.logoShadow);
-      setCtrl('sld-logo-blur', style.shadowBlurPx);
-      setCtrl('sld-logo-grad-angle', style.lightAngleDeg);
-      setCtrl('col-logo-text', style.logoTextColor);
-      setCtrl('col-logo-textshadow', style.logoTextShadowColor);
-      setCtrl('sld-logo-text-x', style.wordmarkX);
-      setCtrl('sld-logo-text-y', style.wordmarkY);
-      setCtrl('sld-logo-text-size', style.wordmarkSizePx);
-      if (style.microBorder !== undefined) setCtrl('chk-logo-microborder', style.microBorder);
-
-      // Rating stencil offsets and the two badge colour overrides.
-      setCtrl('sld-rating-text-x', style.stencilOffsetX);
-      setCtrl('sld-rating-text-y', style.stencilOffsetY);
-      applyBadgeColorOverride('tint', style.badgeTint);
-      applyBadgeColorOverride('rim', style.badgeRim);
-
-      // Accent line: the gradient start colour was never carried.
-      if (style.accentStart) setCtrl('col-accent-start', style.accentStart);
-      if (style.accentStart || accCol || style.accentLineHeightPx !== undefined) updateAccentLineStyles();
-
-      // Station Logo Bug Styling
-      if (style.logoShape) setLogoShape(style.logoShape);
-      if (style.logoSize !== undefined) root.style.setProperty('--cg-logo-size', style.logoSize + 'px');
-
-      // Rating Badge Styling
-      const ratingShape = style.badgeShape || style.ratingShape;
-      if (ratingShape) setRatingShape(ratingShape, true);
-      if (bSize !== undefined) root.style.setProperty('--cg-badge-size', bSize + 'px');
-      if (bFont !== undefined) {
-        root.style.setProperty('--cg-badge-font-size', bFont + 'px');
-        if (stText) stText.setAttribute('font-size', bFont);
-        if (stOutline) stOutline.setAttribute('font-size', bFont);
-      }
-
-      updateLogoFromControls();
-      updateRatingFromControls();
+      // The badge stencil's font size follows the badge font size control.
+      const badgeFont = stateGet('badge.fontSize');
+      if (stText) stText.setAttribute('font-size', badgeFont);
+      if (stOutline) stOutline.setAttribute('font-size', badgeFont);
     }
 

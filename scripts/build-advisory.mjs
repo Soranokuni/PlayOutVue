@@ -61,6 +61,8 @@ const JS_PARTS = [
     'core/text.js',
     'core/measure.js',
     'core/config.js',
+    'core/schema.js',
+    'core/store.js',
     'core/render.js',
     'studio/controls.js',
     'core/timeline.js',

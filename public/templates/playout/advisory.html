@@ -3490,6 +3490,30 @@
       return `${str}, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
     }
 
+    /**
+     * The inverse of resolveFontFamily, as far as it goes.
+     *
+     * Presets written before the font pickers existed store a resolved CSS
+     * stack in `ratingFont` rather than a key like 'inter'. The schema entry is
+     * an enum over the keys, so those presets would otherwise fall back to the
+     * default and quietly change the face. Anything that is already a key, or
+     * that matches a stack the template ships, comes back as its key.
+     */
+    function fontKeyFromCss(value) {
+      if (!value) return 'system';
+      const str = String(value).trim();
+      const lower = str.toLowerCase();
+      if (FONT_MAP[lower]) return lower;
+      const keys = Object.keys(FONT_MAP);
+      for (let i = 0; i < keys.length; i++) {
+        if (FONT_MAP[keys[i]] === str) return keys[i];
+      }
+      // An unrecognised stack: keep the first family name if it is one we know.
+      const first = str.split(',')[0].replace(/['"]/g, '').trim().toLowerCase();
+      if (FONT_MAP[first]) return first;
+      return 'system';
+    }
+
     function updateBroadcastFont(fontKey) {
       const fontCss = resolveFontFamily(fontKey);
       document.documentElement.style.setProperty('--cg-font-family', fontCss);
@@ -3722,6 +3746,626 @@
     }
 
     // Dynamic Station Logo Generator
+    // =========================================================================
+    // CONTROL SCHEMA — the single source of truth for everything adjustable
+    //
+    // Before this table, the state of the composition lived in the DOM.
+    // captureCurrentPresetPackage() read about thirty inputs by id to build a
+    // preset and applyStylingVariables() wrote a different, shorter list back.
+    // The two lists were maintained by hand, so they drifted: roughly twenty
+    // things the operator could design were captured nowhere, or captured and
+    // then ignored on the way back in, and were silently reset to defaults on
+    // air and at the next studio launch.
+    //
+    // One entry per adjustable value, and toPreset()/fromPreset() iterate this
+    // table rather than a hand-written list. A key that is not here is not part
+    // of the design; a key that is here round-trips by construction, which
+    // advisorySchema.test.ts asserts over randomised states.
+    //
+    // Fields
+    //   key      dotted identity, used by state and the inspector
+    //   preset   canonical key in the saved preset JSON
+    //   legacy   older preset keys that mean the same thing, still read and
+    //            still written, because operators have presets in localStorage
+    //            and PlayOut reads the flat names today
+    //   control  the DOM control that edits it, or null for derived values
+    //   type     px | deg | s | color | enum | text | bool | int
+    //   section  inspector grouping
+    //   tier     basic (about twelve things) | advanced
+    //   apply    writes the value; cssVar/svgAttr for direct ones, or null when
+    //            a composite renderer named in `invalidates` owns it
+    //   invalidates  composite renderer to run once after a batch:
+    //            logo | badge | accent | banner | timeline | subtitle
+    // =========================================================================
+
+    /** Writes a CSS custom property on :root, with an optional unit suffix. */
+    function cssVar(name, unit) {
+      return function (value) {
+        if (value === null || value === undefined || value === '') return;
+        document.documentElement.style.setProperty(name, unit ? value + unit : String(value));
+      };
+    }
+
+    /** Writes one or more attributes on a selector, optionally through a mapper. */
+    function svgAttr(selector, attrs, map) {
+      const names = Array.isArray(attrs) ? attrs : [attrs];
+      return function (value) {
+        const el = document.querySelector(selector);
+        if (!el || value === null || value === undefined) return;
+        const out = map ? map(value) : value;
+        names.forEach(function (n) { el.setAttribute(n, out); });
+      };
+    }
+
+    const CONTROL_SCHEMA = [
+      // --- Station ID: chassis -------------------------------------------
+      { key: 'logo.shape', preset: 'logoShape', control: null, type: 'enum', section: 'logo', tier: 'basic',
+        options: ['squircle', 'circle', 'pill', 'shield', 'diamond'], default: 'squircle', invalidates: 'logo' },
+      { key: 'logo.size', preset: 'logoSize', control: 'sld-logo-size', type: 'px', section: 'logo', tier: 'basic',
+        min: 40, max: 180, step: 1, default: 88, apply: cssVar('--cg-logo-size', 'px'), invalidates: 'logo' },
+      { key: 'logo.radius', preset: 'logoRadius', control: 'sld-logo-radius', type: 'px', section: 'logo', tier: 'basic',
+        min: 0, max: 60, step: 1, default: 54, invalidates: 'logo',
+        when: function (s) { return s['logo.shape'] === 'squircle'; } },
+      { key: 'logo.extrusion', preset: 'logoExtrusion', control: 'sel-logo-extrusion', type: 'enum', section: 'logo', tier: 'advanced',
+        options: ['convex', 'concave', 'flat', 'inset'], default: 'convex', invalidates: 'logo' },
+      { key: 'logo.microBorder', preset: 'microBorder', control: 'chk-logo-microborder', type: 'bool', section: 'logo', tier: 'advanced',
+        default: true, invalidates: 'logo' },
+
+      // --- Station ID: surface -------------------------------------------
+      { key: 'logo.base', preset: 'logoBase', control: 'col-logo-base', type: 'color', section: 'logo.surface', tier: 'basic',
+        default: '#702177', invalidates: 'logo' },
+      { key: 'logo.grad', preset: 'logoGrad', control: 'col-logo-grad', type: 'color', section: 'logo.surface', tier: 'advanced',
+        default: '#46104c', invalidates: 'logo' },
+      { key: 'logo.specular', preset: 'logoSpecular', control: 'col-logo-specular', type: 'color', section: 'logo.surface', tier: 'advanced',
+        default: '#f0f5fc', invalidates: 'logo' },
+      { key: 'logo.shadow', preset: 'logoShadow', control: 'col-logo-shadow', type: 'color', section: 'logo.surface', tier: 'advanced',
+        default: '#18031d', invalidates: 'logo' },
+      { key: 'logo.lightAngle', preset: 'lightAngleDeg', control: 'sld-logo-grad-angle', type: 'deg', section: 'logo.surface', tier: 'advanced',
+        min: 0, max: 360, step: 1, default: 135, invalidates: 'logo' },
+      { key: 'logo.shadowBlur', preset: 'shadowBlurPx', control: 'sld-logo-blur', type: 'px', section: 'logo.surface', tier: 'advanced',
+        min: 0, max: 25, step: 1, default: 18, invalidates: 'logo' },
+
+      // --- Station ID: placement -----------------------------------------
+      { key: 'logo.pos.top', preset: 'logoTopPx', control: 'sld-logo-top', type: 'px', section: 'logo.position', tier: 'basic',
+        min: 10, max: 400, step: 1, default: 60, apply: cssVar('--cg-logo-top', 'px'), invalidates: 'logo' },
+      { key: 'logo.pos.left', preset: 'logoLeftPx', control: 'sld-logo-left', type: 'px', section: 'logo.position', tier: 'basic',
+        min: 10, max: 600, step: 1, default: 60, apply: cssVar('--cg-logo-left', 'px'), invalidates: 'logo' },
+
+      // --- Wordmark -------------------------------------------------------
+      { key: 'wordmark.text', preset: 'wordmark', control: 'txt-logo-content', type: 'text', section: 'wordmark', tier: 'basic',
+        default: 'SITIA', invalidates: 'logo' },
+      { key: 'wordmark.font', preset: 'logoFont', control: 'sel-logo-font', type: 'enum', section: 'wordmark', tier: 'basic',
+        options: ['system', 'roboto', 'mono', 'display', 'geometric', 'inter', 'serif'], default: 'system', invalidates: 'logo',
+        ingest: function (v) { return fontKeyFromCss(v); } },
+      { key: 'wordmark.size', preset: 'wordmarkSizePx', control: 'sld-logo-text-size', type: 'px', section: 'wordmark', tier: 'advanced',
+        min: 16, max: 64, step: 1, default: 40, invalidates: 'logo' },
+      { key: 'wordmark.x', preset: 'wordmarkX', control: 'sld-logo-text-x', type: 'px', section: 'wordmark', tier: 'advanced',
+        min: -40, max: 40, step: 1, default: 0, invalidates: 'logo' },
+      { key: 'wordmark.y', preset: 'wordmarkY', control: 'sld-logo-text-y', type: 'px', section: 'wordmark', tier: 'advanced',
+        min: -40, max: 40, step: 1, default: 0, invalidates: 'logo' },
+      { key: 'wordmark.color', preset: 'logoTextColor', control: 'col-logo-text', type: 'color', section: 'wordmark', tier: 'advanced',
+        default: '#f7edf9', invalidates: 'logo' },
+      { key: 'wordmark.shadowColor', preset: 'logoTextShadowColor', control: 'col-logo-textshadow', type: 'color', section: 'wordmark', tier: 'advanced',
+        default: '#200324', invalidates: 'logo' },
+      { key: 'wordmark.subtitle', preset: 'subtitle', control: 'txt-logo-subtitle', type: 'text', section: 'wordmark', tier: 'basic',
+        default: 'HD', invalidates: 'subtitle' },
+
+      // --- Rating badge ----------------------------------------------------
+      { key: 'badge.shape', preset: 'badgeShape', legacy: ['ratingShape'], control: null, type: 'enum', section: 'badge', tier: 'basic',
+        options: ['circle', 'squircle', 'pill'], default: 'circle', invalidates: 'badge' },
+      { key: 'badge.size', preset: 'badgeSizePx', legacy: ['ratingSize'], control: 'sld-rating-size', type: 'px', section: 'badge', tier: 'basic',
+        min: 36, max: 100, step: 1, default: 54, apply: cssVar('--cg-badge-size', 'px'), invalidates: 'badge' },
+      { key: 'badge.fontSize', preset: 'badgeFontSizePx', legacy: ['ratingFontSize'], control: 'sld-rating-font-size', type: 'px', section: 'badge', tier: 'basic',
+        min: 16, max: 42, step: 1, default: 27, apply: cssVar('--cg-badge-font-size', 'px'), invalidates: 'badge' },
+      { key: 'badge.cutout', preset: 'ratingCutout', control: 'sel-rating-cutout', type: 'enum', section: 'badge', tier: 'advanced',
+        // 'stencil' shipped in the master presets and was never an option here;
+        // normalizeRatingCutout reads it as an alias for the frosted default.
+        options: ['frosted', 'embossed', 'inset', 'contrast', 'none'], default: 'frosted', invalidates: 'badge' },
+      { key: 'badge.stencil.x', preset: 'stencilOffsetX', control: 'sld-rating-text-x', type: 'px', section: 'badge', tier: 'advanced',
+        min: -20, max: 20, step: 1, default: 0, invalidates: 'badge' },
+      { key: 'badge.stencil.y', preset: 'stencilOffsetY', control: 'sld-rating-text-y', type: 'px', section: 'badge', tier: 'advanced',
+        min: -20, max: 20, step: 1, default: 0, invalidates: 'badge' },
+      // Null means "follow the blueprint"; a hex means the operator overrode it.
+      { key: 'badge.tint', preset: 'badgeTint', control: 'col-rating-tint', type: 'color', section: 'badge', tier: 'advanced',
+        nullable: true, default: null, invalidates: 'badge' },
+      { key: 'badge.rim', preset: 'badgeRim', control: 'col-rating-stroke', type: 'color', section: 'badge', tier: 'advanced',
+        nullable: true, default: null, invalidates: 'badge' },
+      // ingest: presets written before the font pickers store a resolved CSS
+      // stack here rather than a key, and the enum would drop them.
+      { key: 'badge.font', preset: 'ratingFont', control: 'sel-rating-font', type: 'enum', section: 'badge', tier: 'basic',
+        ingest: function (v) { return fontKeyFromCss(v); },
+        options: ['system', 'roboto', 'mono', 'outfit', 'inter', 'montserrat', 'serif'], default: 'system', invalidates: 'badge' },
+
+      // --- Banner ----------------------------------------------------------
+      { key: 'banner.font.explanation', preset: 'explanationFontSizePx', control: 'sld-explanation-font', type: 'px', section: 'banner', tier: 'basic',
+        min: 10, max: 22, step: 0.5, default: 13, apply: cssVar('--cg-explanation-font-size', 'px'), invalidates: 'timeline' },
+      { key: 'banner.font.body', preset: 'warningBodyFontSizePx', control: 'sld-warning-body-font', type: 'px', section: 'banner', tier: 'basic',
+        min: 9, max: 20, step: 0.5, default: 12, apply: cssVar('--cg-warning-body-font-size', 'px'), invalidates: 'timeline' },
+      { key: 'banner.font.lead', preset: 'warningLeadFontSizePx', control: 'sld-warning-lead-font', type: 'px', section: 'banner', tier: 'advanced',
+        min: 8, max: 16, step: 0.5, default: 10.5, apply: cssVar('--cg-warning-lead-font-size', 'px'), invalidates: 'timeline' },
+      { key: 'banner.icon.size', preset: 'warningIconSizePx', control: 'sld-warning-icon-size', type: 'px', section: 'banner', tier: 'advanced',
+        min: 16, max: 48, step: 1, default: 28, apply: cssVar('--cg-warning-icon-size', 'px'), invalidates: 'timeline' },
+      { key: 'banner.accent.start', preset: 'accentStart', control: 'col-accent-start', type: 'color', section: 'banner', tier: 'advanced',
+        default: '#ffffff', invalidates: 'accent' },
+      { key: 'banner.accent.mid', preset: 'accentColor', legacy: ['accentMid'], control: 'col-accent-mid', type: 'color', section: 'banner', tier: 'basic',
+        default: '#38bdf8', invalidates: 'accent' },
+      { key: 'banner.accent.height', preset: 'accentLineHeightPx', control: 'sld-accent-line-height', type: 'px', section: 'banner', tier: 'advanced',
+        min: 1, max: 6, step: 0.5, default: 2, invalidates: 'accent' },
+      { key: 'banner.customText', preset: 'customText', control: 'txt-custom-advisory', type: 'text', section: 'banner', tier: 'basic',
+        default: '', invalidates: 'timeline' },
+
+      // --- Banner copy: the lead line and the four descriptor phrasings -----
+      { key: 'banner.text.lead', preset: 'descriptorTexts.lead', control: 'txt-warn-lead', type: 'text', section: 'banner.copy', tier: 'basic',
+        default: 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ', invalidates: 'timeline' },
+      { key: 'banner.text.violence', preset: 'descriptorTexts.violence', control: 'txt-warn-violence', type: 'text', section: 'banner.copy', tier: 'basic',
+        default: 'ΣΚΗΝΕΣ ΒΙΑΣ', invalidates: 'timeline' },
+      { key: 'banner.text.drugs', preset: 'descriptorTexts.drugs', control: 'txt-warn-drugs', type: 'text', section: 'banner.copy', tier: 'basic',
+        default: 'ΧΡΗΣΗ ΟΥΣΙΩΝ', invalidates: 'timeline' },
+      { key: 'banner.text.sex', preset: 'descriptorTexts.sex', control: 'txt-warn-sex', type: 'text', section: 'banner.copy', tier: 'basic',
+        default: 'ΣΕΞ', invalidates: 'timeline' },
+      { key: 'banner.text.language', preset: 'descriptorTexts.language', control: 'txt-warn-language', type: 'text', section: 'banner.copy', tier: 'basic',
+        default: 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ', invalidates: 'timeline' },
+
+      // --- Layout -----------------------------------------------------------
+      { key: 'layout.margin.top', preset: 'topOffsetPx', control: 'sld-top-margin', type: 'px', section: 'layout', tier: 'basic',
+        min: 20, max: 160, step: 1, default: 60, invalidates: 'layout' },
+      { key: 'layout.margin.side', preset: 'rightOffsetPx', control: 'sld-right-margin', type: 'px', section: 'layout', tier: 'basic',
+        min: 20, max: 180, step: 1, default: 60, invalidates: 'layout' },
+      { key: 'layout.textOffsetY', preset: 'textOffsetYPx', control: 'sld-text-offset-y', type: 'px', section: 'layout', tier: 'advanced',
+        min: -30, max: 30, step: 1, default: 0, apply: cssVar('--cg-text-offset-y', 'px') },
+      { key: 'layout.anchor', preset: 'anchorPosition', control: null, type: 'enum', section: 'layout', tier: 'basic',
+        options: ['top-right', 'top-left', 'bottom-right', 'bottom-left'], default: 'top-right', invalidates: 'layout' },
+      { key: 'layout.orientation', preset: 'orientation', control: null, type: 'enum', section: 'layout', tier: 'advanced',
+        options: ['default', 'flipped'], default: 'default', invalidates: 'timeline' },
+      { key: 'layout.displayMode', preset: 'displayMode', control: null, type: 'enum', section: 'layout', tier: 'basic',
+        options: ['combo', 'rating', 'logo'], default: 'combo', invalidates: 'timeline' },
+
+      // --- Motion ------------------------------------------------------------
+      { key: 'motion.hold.rating', preset: 'ratingHoldSec', legacy: ['hold_time'], control: 'sld-rating-hold', type: 's', section: 'motion', tier: 'basic',
+        min: 1, max: 60, step: 1, default: 30, invalidates: 'timeline' },
+      { key: 'motion.hold.warning', preset: 'warningHoldSec', legacy: ['warning_hold_time'], control: 'sld-warning-hold', type: 's', section: 'motion', tier: 'basic',
+        min: 1, max: 60, step: 1, default: 30, invalidates: 'timeline' },
+      { key: 'motion.curve', preset: 'motionCurve', control: 'sel-motion-curve', type: 'enum', section: 'motion', tier: 'advanced',
+        options: ['elastic', 'smooth', 'fade'], default: 'elastic', invalidates: 'timeline' },
+
+      // --- Look ---------------------------------------------------------------
+      { key: 'look.theme', preset: 'themeName', legacy: ['theme'], control: null, type: 'enum', section: 'look', tier: 'basic',
+        options: ['frosted', 'matte-slate', 'obsidian', 'aurora', 'newsroom', 'cinema', 'kids'], default: 'frosted', invalidates: 'theme' },
+
+      // --- Show tag ------------------------------------------------------------
+      { key: 'tag.key', preset: 'showTag', control: null, type: 'enum', section: 'tag', tier: 'basic',
+        options: ['none', 'live', 'movie', 'documentary', 'telemarketing', 'show', 'news'], default: 'none', invalidates: 'subtitle' },
+      { key: 'tag.active', preset: 'activeTagline', control: 'txt-active-tagline', type: 'text', section: 'tag', tier: 'basic',
+        default: '', invalidates: 'subtitle' },
+      { key: 'tag.text.live', preset: 'tagTexts.live', control: 'txt-tag-live', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'LIVE' },
+      { key: 'tag.text.movie', preset: 'tagTexts.movie', control: 'txt-tag-movie', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'MOVIE TIME' },
+      { key: 'tag.text.documentary', preset: 'tagTexts.documentary', control: 'txt-tag-documentary', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'DOCUMENTARY' },
+      { key: 'tag.text.telemarketing', preset: 'tagTexts.telemarketing', control: 'txt-tag-telemarketing', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'TELEMARKETING' },
+      { key: 'tag.text.show', preset: 'tagTexts.show', control: 'txt-tag-show', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'SERIES' },
+      { key: 'tag.text.news', preset: 'tagTexts.news', control: 'txt-tag-news', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'NEWS' }
+    ];
+
+    /** key -> entry, for the hot paths that look entries up per change. */
+    const SCHEMA_BY_KEY = {};
+    CONTROL_SCHEMA.forEach(function (entry) { SCHEMA_BY_KEY[entry.key] = entry; });
+
+    /**
+     * Preset key -> schema key, including every legacy alias.
+     *
+     * Old presets in operators' localStorage and the deployed
+     * advisory_default_preset.json must keep loading unchanged, and PlayOut's
+     * updateCgAdvisoryFromDeployedPreset reads the flat names today, so
+     * toPreset() writes both the canonical key and every alias.
+     */
+    const PRESET_KEY_TO_SCHEMA = {};
+    CONTROL_SCHEMA.forEach(function (entry) {
+      PRESET_KEY_TO_SCHEMA[entry.preset] = entry.key;
+      (entry.legacy || []).forEach(function (alias) { PRESET_KEY_TO_SCHEMA[alias] = entry.key; });
+    });
+
+    /**
+     * Preset keys that are payload or bookkeeping rather than design, and are
+     * copied through a round trip untouched rather than being schema entries.
+     */
+    const PASSTHROUGH_PRESET_KEYS = [
+      'id', 'name', 'rating', 'warnings', 'tp',
+      'fontFamily', 'accentStyle', 'stencilStyle', 'badgeBorderRadiusPx',
+      'customLogoSvgPath', 'customRatingSvgPaths', 'assets', 'meta'
+    ];
+
+    /** Clamps and coerces a raw value to what the entry's type promises. */
+    function coerceValue(entry, raw) {
+      if (raw === undefined) return entry.default;
+      if (entry.ingest) raw = entry.ingest(raw);
+      if (raw === null || raw === '') {
+        return entry.nullable ? null : (entry.type === 'text' ? '' : entry.default);
+      }
+
+      switch (entry.type) {
+        case 'px':
+        case 'deg':
+        case 's':
+        case 'int': {
+          const n = parseFloat(raw);
+          if (!isFinite(n)) return entry.default;
+          const stepped = entry.type === 'int' ? Math.round(n) : n;
+          if (entry.min !== undefined && stepped < entry.min) return entry.min;
+          if (entry.max !== undefined && stepped > entry.max) return entry.max;
+          return stepped;
+        }
+        case 'bool':
+          return raw === true || raw === 'true' || raw === 1 || raw === '1';
+        case 'color': {
+          const hex = String(raw).trim().toLowerCase();
+          if (/^#[0-9a-f]{6}$/.test(hex)) return hex;
+          if (/^#[0-9a-f]{3}$/.test(hex)) {
+            return '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
+          }
+          return entry.nullable ? null : entry.default;
+        }
+        case 'enum': {
+          const key = String(raw).trim();
+          if (entry.options.indexOf(key) !== -1) return key;
+          const lower = key.toLowerCase();
+          for (let i = 0; i < entry.options.length; i++) {
+            if (entry.options[i].toLowerCase() === lower) return entry.options[i];
+          }
+          return entry.default;
+        }
+        default:
+          return String(raw);
+      }
+    }
+
+    /** Reads a possibly dotted preset key (`tagTexts.live`) out of an object. */
+    function readPresetPath(obj, path) {
+      const parts = path.split('.');
+      let cur = obj;
+      for (let i = 0; i < parts.length; i++) {
+        if (cur === null || typeof cur !== 'object') return undefined;
+        cur = cur[parts[i]];
+      }
+      return cur;
+    }
+
+    /** Writes a possibly dotted preset key, creating the intermediate objects. */
+    function writePresetPath(obj, path, value) {
+      const parts = path.split('.');
+      let cur = obj;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (typeof cur[parts[i]] !== 'object' || cur[parts[i]] === null) cur[parts[i]] = {};
+        cur = cur[parts[i]];
+      }
+      cur[parts[parts.length - 1]] = value;
+    }
+    // =========================================================================
+    // STATE STORE — one object, derived from CONTROL_SCHEMA
+    //
+    // The composition used to live in the DOM: thirty-odd inputs read by id to
+    // build a preset, and a shorter, separately maintained list written back.
+    // Here the schema owns the list, so toPreset() and fromPreset() are loops
+    // rather than hand-written property lists and cannot drift apart.
+    //
+    // The DOM is still the rail the operator touches, so the store keeps it in
+    // sync in both directions: readStateFromDom() pulls the controls in before
+    // a capture, writeStateToDom() pushes the state out after a load, and the
+    // existing composite renderers then read the controls as they always have.
+    // That is the seam. Moving the renderers onto the state directly is the
+    // next step, and it lands with the rail that is generated from the schema
+    // rather than hand-written.
+    // =========================================================================
+
+    /**
+     * Keys the schema owns but no single input edits: they live in module
+     * variables that the button groups and theme cards already maintain.
+     */
+    const STATE_ACCESSORS = {
+      'logo.shape': {
+        read: function () { return currentLogoShape; },
+        write: function (v) { if (v && v !== currentLogoShape) setLogoShape(v); else currentLogoShape = v; }
+      },
+      'badge.shape': {
+        read: function () { return currentRatingShape; },
+        write: function (v) { if (v && v !== currentRatingShape) setRatingShape(v, true); }
+      },
+      'layout.anchor': {
+        read: function () { return currentConfig.anchor; },
+        write: function (v) { if (v) setAnchorPosition(v); }
+      },
+      'layout.orientation': {
+        read: function () { return currentLayoutOrientation; },
+        write: function (v) { if (v && v !== currentLayoutOrientation) flipStagePositions(); }
+      },
+      'layout.displayMode': {
+        read: function () { return currentStudioDisplayMode; },
+        write: function (v) { if (v && v !== currentStudioDisplayMode) setStudioDisplayMode(v); }
+      },
+      'look.theme': {
+        read: function () { return currentConfig.theme; },
+        write: function (v) { if (v && THEME_PRESETS[v]) applyThemePreset(v); }
+      },
+      'tag.key': {
+        read: function () { return currentShowTag; },
+        write: function (v) { currentShowTag = v || 'none'; }
+      },
+      'motion.hold.rating': {
+        read: function () {
+          const el = document.getElementById('sld-rating-hold');
+          return el ? el.value : currentConfig.hold_time;
+        },
+        write: function (v) {
+          currentConfig.hold_time = v;
+          const el = document.getElementById('sld-rating-hold');
+          if (el) el.value = v;
+          const lab = document.getElementById('val-rating-hold');
+          if (lab) lab.textContent = v + 's';
+        }
+      },
+      'motion.hold.warning': {
+        read: function () {
+          const el = document.getElementById('sld-warning-hold');
+          return el ? el.value : currentConfig.warning_hold_time;
+        },
+        write: function (v) {
+          currentConfig.warning_hold_time = v;
+          const el = document.getElementById('sld-warning-hold');
+          if (el) el.value = v;
+          const lab = document.getElementById('val-warning-hold');
+          if (lab) lab.textContent = v + 's';
+        }
+      },
+      // The two badge colours are overrides: null means "follow the blueprint".
+      'badge.tint': {
+        read: function () { return getBadgeColorOverride('tint'); },
+        write: function (v) { applyBadgeColorOverride('tint', v); }
+      },
+      'badge.rim': {
+        read: function () { return getBadgeColorOverride('rim'); },
+        write: function (v) { applyBadgeColorOverride('rim', v); }
+      },
+      'banner.customText': {
+        read: function () {
+          const el = document.getElementById('txt-custom-advisory');
+          return el ? el.value : '';
+        },
+        write: function (v) {
+          const el = document.getElementById('txt-custom-advisory');
+          if (el) el.value = v || '';
+          currentConfig.custom_text = v || null;
+        }
+      }
+    };
+
+    /** The live state. Every schema key, always present, always coerced. */
+    const cgState = {};
+    CONTROL_SCHEMA.forEach(function (entry) { cgState[entry.key] = entry.default; });
+
+    /** Preset keys the round trip carries through without interpreting them. */
+    const cgPassthrough = {};
+
+    function stateGet(key) { return cgState[key]; }
+
+    /**
+     * Sets one key, coercing and clamping through its schema entry.
+     * @returns {boolean} whether the value actually changed.
+     */
+    function stateSet(key, raw) {
+      const entry = SCHEMA_BY_KEY[key];
+      if (!entry) return false;
+      const next = coerceValue(entry, raw);
+      if (cgState[key] === next) return false;
+      cgState[key] = next;
+      return true;
+    }
+
+    /** Sets many keys at once. @returns {string[]} the keys that changed. */
+    function stateSetMany(values) {
+      const changed = [];
+      Object.keys(values).forEach(function (key) {
+        if (stateSet(key, values[key])) changed.push(key);
+      });
+      return changed;
+    }
+
+    /** Pulls the current control values into the state. */
+    function readStateFromDom() {
+      CONTROL_SCHEMA.forEach(function (entry) {
+        const accessor = STATE_ACCESSORS[entry.key];
+        if (accessor) {
+          cgState[entry.key] = coerceValue(entry, accessor.read());
+          return;
+        }
+        if (!entry.control) return;
+        const el = document.getElementById(entry.control);
+        if (!el) return;
+        cgState[entry.key] = coerceValue(entry, entry.type === 'bool' ? el.checked : el.value);
+      });
+      return cgState;
+    }
+
+    /**
+     * Keys that have to be written before the rest, because writing them
+     * re-applies a whole group that later keys then override. The blueprint is
+     * the one that matters: applyThemePreset takes the badge colours back, so a
+     * theme written after badge.tint would silently discard the operator's
+     * override.
+     */
+    const WRITE_FIRST = ['look.theme'];
+
+    /**
+     * Pushes the state out to the controls.
+     * @param {string[]} [only] restrict to these keys; omit for all of them.
+     */
+    function writeStateToDom(only) {
+      const requested = only || Object.keys(cgState);
+      const first = WRITE_FIRST.filter(function (k) { return requested.indexOf(k) !== -1; });
+      const rest = requested.filter(function (k) { return first.indexOf(k) === -1; });
+      const keys = first.concat(rest);
+
+      keys.forEach(function (key) {
+        const entry = SCHEMA_BY_KEY[key];
+        if (!entry) return;
+        const value = cgState[key];
+        const accessor = STATE_ACCESSORS[key];
+        if (accessor) { accessor.write(value); return; }
+        if (!entry.control) return;
+        const el = document.getElementById(entry.control);
+        if (!el) return;
+        if (entry.type === 'bool') el.checked = !!value;
+        else if (value !== null) el.value = value;
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // Preset round trip
+    // -------------------------------------------------------------------------
+
+    /**
+     * Serialises the state to a preset.
+     *
+     * Every entry writes its canonical key and every legacy alias, because
+     * operators have presets in localStorage under the old names and PlayOut's
+     * updateCgAdvisoryFromDeployedPreset reads the flat names today. Adding a
+     * key never renames one.
+     */
+    function stateToPreset(extra) {
+      const preset = {};
+      Object.keys(cgPassthrough).forEach(function (k) { preset[k] = cgPassthrough[k]; });
+
+      CONTROL_SCHEMA.forEach(function (entry) {
+        const value = cgState[entry.key];
+        writePresetPath(preset, entry.preset, value);
+        (entry.legacy || []).forEach(function (alias) { writePresetPath(preset, alias, value); });
+      });
+
+      if (extra) Object.keys(extra).forEach(function (k) { preset[k] = extra[k]; });
+      return preset;
+    }
+
+    /**
+     * Loads a preset into the state.
+     *
+     * A key the preset omits keeps the schema default rather than whatever the
+     * last preset left behind, so loading a 2025-era preset with only flat keys
+     * produces the same composition every time.
+     *
+     * @returns {string[]} the keys that changed.
+     */
+    function stateFromPreset(preset) {
+      if (!preset || typeof preset !== 'object') return [];
+      const changed = [];
+
+      CONTROL_SCHEMA.forEach(function (entry) {
+        let raw = readPresetPath(preset, entry.preset);
+        if (raw === undefined) {
+          const aliases = entry.legacy || [];
+          for (let i = 0; i < aliases.length && raw === undefined; i++) {
+            raw = readPresetPath(preset, aliases[i]);
+          }
+        }
+        if (stateSet(entry.key, raw)) changed.push(entry.key);
+      });
+
+      PASSTHROUGH_PRESET_KEYS.forEach(function (k) {
+        if (preset[k] !== undefined) cgPassthrough[k] = preset[k];
+      });
+
+      return changed;
+    }
+
+    // -------------------------------------------------------------------------
+    // Render: per-key writers, then each invalidated composite renderer once
+    // -------------------------------------------------------------------------
+
+    /**
+     * The composite renderers. A batch that touches twelve logo keys rebuilds
+     * the chassis once, not twelve times. Names match schema `invalidates`.
+     */
+    const COMPOSITE_RENDERERS = {
+      theme: function () { /* applied through STATE_ACCESSORS, which calls applyThemePreset */ },
+      logo: function () { updateLogoFromControls(); },
+      badge: function () { updateRatingFromControls(); },
+      accent: function () { updateAccentLineStyles(); },
+      layout: function () { updateStudioStyles(); },
+      subtitle: function () { /* owned by the show-tag path, which animates */ },
+      timeline: function () { buildTimeline(); }
+    };
+
+    /** Order matters: geometry before the timeline that measures it. */
+    const COMPOSITE_ORDER = ['theme', 'layout', 'logo', 'badge', 'accent', 'subtitle', 'timeline'];
+
+    /**
+     * Applies changed keys. Direct writers run per key; composite renderers run
+     * once each, whatever the size of the batch.
+     *
+     * @param {string[]} [changed] omit to re-apply everything.
+     */
+    function renderState(changed) {
+      const keys = changed || Object.keys(cgState);
+      if (keys.length === 0) return;
+
+      const pending = {};
+      beginDeferredRender();
+      try {
+        keys.forEach(function (key) {
+          const entry = SCHEMA_BY_KEY[key];
+          if (!entry) return;
+          if (entry.when && !entry.when(cgState)) return;
+          if (entry.apply) entry.apply(cgState[key]);
+          if (entry.invalidates) pending[entry.invalidates] = true;
+        });
+
+        COMPOSITE_ORDER.forEach(function (name) {
+          if (pending[name] && COMPOSITE_RENDERERS[name]) COMPOSITE_RENDERERS[name]();
+        });
+      } finally {
+        endDeferredRender();
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Undo / redo
+    // -------------------------------------------------------------------------
+
+    const UNDO_LIMIT = 200;
+    const undoStack = [];
+    const redoStack = [];
+
+    /** Snapshots the state so a later undo can put it back. */
+    function pushUndoSnapshot(label) {
+      undoStack.push({ label: label || 'Change', values: Object.assign({}, cgState) });
+      if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+      redoStack.length = 0;
+    }
+
+    function restoreSnapshot(snapshot) {
+      const changed = [];
+      Object.keys(snapshot.values).forEach(function (key) {
+        if (cgState[key] !== snapshot.values[key]) {
+          cgState[key] = snapshot.values[key];
+          changed.push(key);
+        }
+      });
+      writeStateToDom(changed);
+      renderState(changed);
+      replayTimeline();
+    }
+
+    function undoState() {
+      const snapshot = undoStack.pop();
+      if (!snapshot) return false;
+      redoStack.push({ label: snapshot.label, values: Object.assign({}, cgState) });
+      restoreSnapshot(snapshot);
+      return true;
+    }
+
+    function redoState() {
+      const snapshot = redoStack.pop();
+      if (!snapshot) return false;
+      undoStack.push({ label: snapshot.label, values: Object.assign({}, cgState) });
+      restoreSnapshot(snapshot);
+      return true;
+    }
     // =========================================================================
     // DEFERRED RENDER GUARD (audit 2.3.1, 2.3.2)
     //
@@ -4357,8 +5001,11 @@
       root.style.setProperty('--cg-bottom', topM + 'px');
       root.style.setProperty('--cg-left', rightM + 'px');
       root.style.setProperty('--cg-right', rightM + 'px');
-      root.style.setProperty('--cg-logo-top', topM + 'px');
-      root.style.setProperty('--cg-logo-left', rightM + 'px');
+      // --cg-logo-top / --cg-logo-left belong to the logo position controls,
+      // not to the safe-area margins. Setting them here made the margin
+      // sliders drag the logo back to the corner whenever anything else was
+      // re-applied. --cg-logo-right has no control of its own, so the side
+      // margin still owns it for right-anchored layouts.
       root.style.setProperty('--cg-logo-right', rightM + 'px');
       root.style.setProperty('--cg-text-offset-y', textOffY + 'px');
       root.style.setProperty('--cg-explanation-font-size', expFont + 'px');
@@ -4938,6 +5585,16 @@
           }
         }
 
+        // Per-rating custom badge SVGs. PlayOut reads these off disk from
+        // cgAdvisoryConfig.customRatingSvgPaths and has been sending them all
+        // along; the template accepted them into currentConfig and rendered
+        // none of them (audit 2.3.5). Same sanitiser as the station logo: the
+        // markup comes from an arbitrary file on disk.
+        if (parsed.customLogos && typeof parsed.customLogos === 'object') {
+          currentConfig.customLogos = parsed.customLogos;
+        }
+        applyCustomRatingBadge(currentConfig.rating);
+
         // Broadcast Show Tag handling & dismissal
         let tagKey = null;
         if (parsed.is_live || parsed.show_tag === 'live') tagKey = 'live';
@@ -4963,29 +5620,93 @@
       }
     }
 
+    /**
+     * Swaps the rating badge for a custom SVG when the operator has configured
+     * one for this rating, and puts the built-in stencil back when they have
+     * not. Idempotent: called on every update, does nothing when the rendered
+     * badge already matches.
+     */
+    function applyCustomRatingBadge(rating) {
+      const host = document.getElementById('rating-badge-container');
+      if (!host) return;
+
+      const key = String(rating === undefined || rating === null ? '' : rating).toUpperCase();
+      const markup = currentConfig.customLogos && currentConfig.customLogos[key];
+      const wanted = markup ? key : '';
+      if (host.getAttribute('data-custom-rating') === wanted) return;
+
+      if (!markup) {
+        // Back to the built-in stencil. setRatingShape rebuilds the mask and
+        // the main shape from scratch, which is what the badge markup is.
+        if (host.getAttribute('data-custom-rating')) {
+          host.removeAttribute('data-custom-rating');
+          const keep = host.querySelector('[data-custom-rating-svg]');
+          if (keep) keep.remove();
+          const builtIn = host.querySelector('#badge-svg');
+          if (builtIn) builtIn.style.removeProperty('display');
+        }
+        return;
+      }
+
+      const safeSvg = sanitizeSvgMarkup(markup);
+      if (!safeSvg) {
+        console.warn('[advisory] customLogos[' + key + '] rejected by sanitizer');
+        return;
+      }
+
+      const previous = host.querySelector('[data-custom-rating-svg]');
+      if (previous) previous.remove();
+      safeSvg.setAttribute('data-custom-rating-svg', '');
+      safeSvg.classList.add('badge-svg');
+      const builtIn = host.querySelector('#badge-svg');
+      if (builtIn) builtIn.style.setProperty('display', 'none');
+      host.appendChild(safeSvg);
+      host.setAttribute('data-custom-rating', key);
+    }
+
+    /**
+     * Applies a preset — from PlayOut's `styling` payload on air, or from the
+     * preset picker in the studio.
+     *
+     * This used to be a hand-written list of thirty-odd setCtrl calls that had
+     * to be kept in step with captureCurrentPresetPackage's own hand-written
+     * list, and was not: keys were captured and then ignored here, so the
+     * operator's design was silently reset to defaults on air. Both halves now
+     * iterate CONTROL_SCHEMA, so a key cannot be in one and missing from the
+     * other.
+     */
     function applyStylingVariables(style) {
       if (!style) return;
       beginDeferredRender();
+      // The show tag has just been animated in by the caller; a subtitle
+      // re-render here would kill that timeline and snap to the end state.
       suppressSubtitleRender = true;
       try {
-        applyStylingVariablesInner(style);
+        stateFromPreset(style);
+        writeStateToDom();
+        // A preset load touches everything, so render everything: the deferred
+        // block still collapses it into one timeline build. Single-control
+        // edits go through stateSet and render only what changed.
+        renderState();
+        applyDerivedStyling(style);
       } finally {
         suppressSubtitleRender = false;
         endDeferredRender();
       }
     }
 
-    function applyStylingVariablesInner(style) {
+    /**
+     * The parts of a preset that are not one control each: the resolved font
+     * stack, the margin tokens that two keys share, and the logo stage's inline
+     * position, which has to beat the `!important` a previous drag left behind.
+     */
+    function applyDerivedStyling(style) {
       const root = document.documentElement;
-      const setCtrl = (id, val) => {
-        const el = document.getElementById(id);
-        if (!el || val === undefined || val === null) return;
-        if (el.type === 'checkbox') el.checked = !!val; else el.value = val;
-      };
-      const themeKey = style.themeName || style.theme;
-      if (themeKey && THEME_PRESETS[themeKey]) applyThemePreset(themeKey);
 
-      const resolvedFont = resolveFontFamily(style.fontFamily || style.ratingFont || 'system');
+      // Font. The preset may carry a key ('inter') or a resolved CSS stack.
+      const resolvedFont = resolveFontFamily(
+        stateGet('badge.font') || style.fontFamily || style.ratingFont || 'system'
+      );
       root.style.setProperty('--cg-font-family', resolvedFont);
       const stText = document.getElementById('stencil-text');
       const stOutline = document.getElementById('stencil-outline-text');
@@ -4993,141 +5714,34 @@
       if (stOutline) stOutline.setAttribute('font-family', resolvedFont);
       const subLabel = document.getElementById('station-subtitle-label');
       if (subLabel) subLabel.style.fontFamily = resolvedFont;
-
-      const rawF = style.ratingFont || style.fontFamily;
-      if (rawF) {
-        const rSel = document.getElementById('sel-rating-font');
-        if (rSel && Array.from(rSel.options).some(o => o.value === rawF)) rSel.value = rawF;
-        const bSel = document.getElementById('sel-broadcast-font');
-        if (bSel && Array.from(bSel.options).some(o => o.value === rawF)) bSel.value = rawF;
+      const bSel = document.getElementById('sel-broadcast-font');
+      if (bSel && Array.from(bSel.options).some(o => o.value === stateGet('badge.font'))) {
+        bSel.value = stateGet('badge.font');
       }
 
-      if (style.topOffsetPx !== undefined) {
-        root.style.setProperty('--cg-top', style.topOffsetPx + 'px');
-        root.style.setProperty('--cg-bottom', style.topOffsetPx + 'px');
-        setCtrl('sld-top-margin', style.topOffsetPx);
-      }
-      if (style.rightOffsetPx !== undefined) {
-        root.style.setProperty('--cg-right', style.rightOffsetPx + 'px');
-        root.style.setProperty('--cg-left', style.rightOffsetPx + 'px');
-        setCtrl('sld-right-margin', style.rightOffsetPx);
-      }
-      if (style.textOffsetYPx !== undefined) {
-        root.style.setProperty('--cg-text-offset-y', style.textOffsetYPx + 'px');
-        setCtrl('sld-text-offset-y', style.textOffsetYPx);
-      }
-      if (style.anchorPosition) setAnchorPosition(style.anchorPosition);
+      // Margins: one control drives two tokens each.
+      const topMargin = stateGet('layout.margin.top');
+      const sideMargin = stateGet('layout.margin.side');
+      root.style.setProperty('--cg-top', topMargin + 'px');
+      root.style.setProperty('--cg-bottom', topMargin + 'px');
+      root.style.setProperty('--cg-left', sideMargin + 'px');
+      root.style.setProperty('--cg-right', sideMargin + 'px');
 
-      // Logo position. Without this the operator's placement snapped back to
-      // the margin corner the moment the template went to air (audit 2.2).
-      if (style.logoTopPx !== undefined || style.logoLeftPx !== undefined) {
-        const lt = style.logoTopPx !== undefined ? style.logoTopPx : style.topOffsetPx;
-        const ll = style.logoLeftPx !== undefined ? style.logoLeftPx : style.rightOffsetPx;
-        if (lt !== undefined) {
-          root.style.setProperty('--cg-logo-top', lt + 'px');
-          setCtrl('sld-logo-top', lt);
-        }
-        if (ll !== undefined) {
-          root.style.setProperty('--cg-logo-left', ll + 'px');
-          setCtrl('sld-logo-left', ll);
-        }
-        const logoStage = document.getElementById('station-logo-stage');
-        if (logoStage && lt !== undefined && ll !== undefined) {
-          logoStage.style.setProperty('left', ll + 'px', 'important');
-          logoStage.style.setProperty('top', lt + 'px', 'important');
-          logoStage.style.setProperty('right', 'auto', 'important');
-          logoStage.style.setProperty('bottom', 'auto', 'important');
-        }
+      // Logo placement. The CSS tokens alone are not enough: a drag writes
+      // inline top/left with !important on the stage, so a preset that does not
+      // clear them would leave the logo where the last drag put it.
+      const logoStage = document.getElementById('station-logo-stage');
+      if (logoStage) {
+        logoStage.style.setProperty('left', stateGet('logo.pos.left') + 'px', 'important');
+        logoStage.style.setProperty('top', stateGet('logo.pos.top') + 'px', 'important');
+        logoStage.style.setProperty('right', 'auto', 'important');
+        logoStage.style.setProperty('bottom', 'auto', 'important');
       }
 
-      // Banner type scale and icon size: declared in the preset since the
-      // beginning, applied nowhere until now (audit 2.2).
-      const cssPx = (key, prop) => {
-        if (style[key] !== undefined && style[key] !== null && style[key] !== '') {
-          root.style.setProperty(prop, style[key] + 'px');
-        }
-      };
-      cssPx('explanationFontSizePx', '--cg-explanation-font-size');
-      cssPx('warningBodyFontSizePx', '--cg-warning-body-font-size');
-      cssPx('warningLeadFontSizePx', '--cg-warning-lead-font-size');
-      cssPx('warningIconSizePx', '--cg-warning-icon-size');
-      setCtrl('sld-explanation-font', style.explanationFontSizePx);
-      setCtrl('sld-warning-body-font', style.warningBodyFontSizePx);
-      setCtrl('sld-warning-lead-font', style.warningLeadFontSizePx);
-      setCtrl('sld-warning-icon-size', style.warningIconSizePx);
-
-      // Banner copy: the four descriptor phrasings and the lead line.
-      if (style.descriptorTexts && typeof style.descriptorTexts === 'object') {
-        setCtrl('txt-warn-lead', style.descriptorTexts.lead);
-        setCtrl('txt-warn-violence', style.descriptorTexts.violence);
-        setCtrl('txt-warn-drugs', style.descriptorTexts.drugs);
-        setCtrl('txt-warn-sex', style.descriptorTexts.sex);
-        setCtrl('txt-warn-language', style.descriptorTexts.language);
-      }
-      if (style.customText !== undefined) {
-        setCtrl('txt-custom-advisory', style.customText);
-        currentConfig.custom_text = style.customText || null;
-      }
-      if (style.motionCurve) setCtrl('sel-motion-curve', style.motionCurve);
-
-      // Synchronize control inputs first so shape constructors and updates read the new values
-      const accCol = style.accentColor || style.accentMid;
-      const bSize = style.badgeSizePx !== undefined ? style.badgeSizePx : style.ratingSize;
-      const bFont = style.badgeFontSizePx !== undefined ? style.badgeFontSizePx : style.ratingFontSize;
-      setCtrl('txt-logo-content', style.wordmark);
-      setCtrl('txt-logo-subtitle', style.subtitle);
-      setCtrl('sld-logo-size', style.logoSize);
-      setCtrl('sld-logo-radius', style.logoRadius);
-      setCtrl('sel-logo-extrusion', style.logoExtrusion);
-      setCtrl('col-logo-base', style.logoBase);
-      setCtrl('col-logo-grad', style.logoGrad);
-      setCtrl('col-logo-specular', style.logoSpecular);
-      setCtrl('col-logo-shadow', style.logoShadow);
-      setCtrl('sel-logo-font', style.logoFont);
-      setCtrl('col-accent-mid', accCol);
-      setCtrl('sld-accent-line-height', style.accentLineHeightPx);
-      setCtrl('sel-rating-cutout', normalizeRatingCutout(style.ratingCutout));
-      setCtrl('sld-rating-size', bSize);
-      setCtrl('sld-rating-font-size', bFont);
-
-      // Logo surface and wordmark detail (audit 2.2).
-      setCtrl('col-logo-specular', style.logoSpecular);
-      setCtrl('col-logo-shadow', style.logoShadow);
-      setCtrl('sld-logo-blur', style.shadowBlurPx);
-      setCtrl('sld-logo-grad-angle', style.lightAngleDeg);
-      setCtrl('col-logo-text', style.logoTextColor);
-      setCtrl('col-logo-textshadow', style.logoTextShadowColor);
-      setCtrl('sld-logo-text-x', style.wordmarkX);
-      setCtrl('sld-logo-text-y', style.wordmarkY);
-      setCtrl('sld-logo-text-size', style.wordmarkSizePx);
-      if (style.microBorder !== undefined) setCtrl('chk-logo-microborder', style.microBorder);
-
-      // Rating stencil offsets and the two badge colour overrides.
-      setCtrl('sld-rating-text-x', style.stencilOffsetX);
-      setCtrl('sld-rating-text-y', style.stencilOffsetY);
-      applyBadgeColorOverride('tint', style.badgeTint);
-      applyBadgeColorOverride('rim', style.badgeRim);
-
-      // Accent line: the gradient start colour was never carried.
-      if (style.accentStart) setCtrl('col-accent-start', style.accentStart);
-      if (style.accentStart || accCol || style.accentLineHeightPx !== undefined) updateAccentLineStyles();
-
-      // Station Logo Bug Styling
-      if (style.logoShape) setLogoShape(style.logoShape);
-      if (style.logoSize !== undefined) root.style.setProperty('--cg-logo-size', style.logoSize + 'px');
-
-      // Rating Badge Styling
-      const ratingShape = style.badgeShape || style.ratingShape;
-      if (ratingShape) setRatingShape(ratingShape, true);
-      if (bSize !== undefined) root.style.setProperty('--cg-badge-size', bSize + 'px');
-      if (bFont !== undefined) {
-        root.style.setProperty('--cg-badge-font-size', bFont + 'px');
-        if (stText) stText.setAttribute('font-size', bFont);
-        if (stOutline) stOutline.setAttribute('font-size', bFont);
-      }
-
-      updateLogoFromControls();
-      updateRatingFromControls();
+      // The badge stencil's font size follows the badge font size control.
+      const badgeFont = stateGet('badge.fontSize');
+      if (stText) stText.setAttribute('font-size', badgeFont);
+      if (stOutline) stOutline.setAttribute('font-size', badgeFont);
     }
 
     // =========================================================================
@@ -6076,109 +6690,41 @@
       recordAction('PRESET', `Applied preset: "${preset.name}"`);
     }
 
+    /**
+     * Loads a preset into the studio.
+     *
+     * Everything visual goes through applyStylingVariables, which is also the
+     * on-air entry point, so the studio and the transmission cannot disagree
+     * about what a preset restores. What is left here is the studio-only part:
+     * the rating buttons, and animating the show tag in rather than just
+     * setting its state.
+     */
     function applyPresetPackage(p) {
       if (!p) return;
+      beginDeferredRender();
+      try {
+        applyStylingVariables(p);
 
-      // 1. Wordmark & Subtitle
-      const txtWordmark = document.getElementById('txt-logo-content');
-      if (txtWordmark && p.wordmark) txtWordmark.value = p.wordmark;
+        if (p.rating) setStudioRating(p.rating);
 
-      // 2. Tag custom text boxes
-      if (p.tagTexts) {
-        Object.keys(p.tagTexts).forEach(tagKey => {
-          const input = document.getElementById('txt-tag-' + tagKey);
-          if (input) input.value = p.tagTexts[tagKey];
-        });
+        // The show tag animates on entry; applyStylingVariables deliberately
+        // suppresses the subtitle render so this is the one that runs.
+        const tagKey = stateGet('tag.key');
+        const tagLine = stateGet('tag.active') || stateGet('wordmark.subtitle');
+        if (tagKey && tagKey !== 'none') {
+          activateShowTag(tagKey, tagLine);
+        } else if (tagLine) {
+          const txtActive = document.getElementById('txt-active-tagline');
+          if (txtActive) txtActive.value = tagLine;
+          renderStationSubtitle('none', tagLine);
+        } else {
+          activateShowTag('none');
+        }
+      } finally {
+        pendingTimelineBuild = true;
+        pendingTimelineReplay = true;
+        endDeferredRender();
       }
-
-      // 3. Active show tag
-      if (p.showTag && p.showTag !== 'none') {
-        activateShowTag(p.showTag, p.subtitle);
-      } else if (p.subtitle) {
-        const txtActive = document.getElementById('txt-active-tagline');
-        const txtLogoSub = document.getElementById('txt-logo-subtitle');
-        if (txtActive) txtActive.value = p.subtitle;
-        if (txtLogoSub) txtLogoSub.value = p.subtitle;
-        renderStationSubtitle('none', p.subtitle);
-      } else {
-        activateShowTag('none');
-      }
-
-      // 4. Chassis geometry & sizes
-      const sldLogoSize = document.getElementById('sld-logo-size');
-      if (sldLogoSize && p.logoSize) {
-        sldLogoSize.value = p.logoSize;
-        const valEl = document.getElementById('val-logo-size');
-        if (valEl) valEl.textContent = p.logoSize + 'px';
-      }
-
-      const sldLogoRadius = document.getElementById('sld-logo-radius');
-      if (sldLogoRadius && p.logoRadius) {
-        sldLogoRadius.value = p.logoRadius;
-        const valEl = document.getElementById('val-logo-radius');
-        if (valEl) valEl.textContent = p.logoRadius + 'px';
-      }
-
-      if (p.logoShape) setLogoShape(p.logoShape);
-      if (p.logoExtrusion) {
-        const sel = document.getElementById('sel-logo-extrusion');
-        if (sel) sel.value = p.logoExtrusion;
-      }
-
-      if (p.logoBase) document.getElementById('col-logo-base').value = p.logoBase;
-      if (p.logoGrad) document.getElementById('col-logo-grad').value = p.logoGrad;
-      if (p.logoFont) {
-        const sel = document.getElementById('sel-logo-font');
-        if (sel) sel.value = p.logoFont;
-      }
-
-      // 5. Rating Badge
-      const sldRatingSize = document.getElementById('sld-rating-size');
-      if (sldRatingSize && p.ratingSize) {
-        sldRatingSize.value = p.ratingSize;
-        const valEl = document.getElementById('val-rating-size');
-        if (valEl) valEl.textContent = p.ratingSize + 'px';
-      }
-
-      if (p.ratingCutout) {
-        const selCut = document.getElementById('sel-rating-cutout');
-        if (selCut) selCut.value = normalizeRatingCutout(p.ratingCutout);
-      }
-      const rShape = p.ratingShape || p.badgeShape;
-      if (rShape) setRatingShape(rShape, true);
-      if (p.rating) setStudioRating(p.rating);
-
-      if (p.fontFamily || p.ratingFont) {
-        const fontVal = p.ratingFont || p.fontFamily;
-        const selRatingFont = document.getElementById('sel-rating-font');
-        if (selRatingFont) selRatingFont.value = fontVal;
-        const selBroadcastFont = document.getElementById('sel-broadcast-font');
-        if (selBroadcastFont) selBroadcastFont.value = fontVal;
-        updateBroadcastFont(fontVal);
-      }
-
-      // 6. Theme & Motion
-      if (p.theme) applyThemePreset(p.theme);
-      if (p.hold_time) currentConfig.hold_time = p.hold_time;
-      if (p.warning_hold_time) currentConfig.warning_hold_time = p.warning_hold_time;
-
-      // 7. Orientation & Display mode
-      if (p.orientation && p.orientation !== currentLayoutOrientation) {
-        flipStagePositions();
-      }
-      if (p.displayMode) {
-        setStudioDisplayMode(p.displayMode);
-      }
-
-      // Everything visual goes through applyStylingVariables, which is also
-      // the on-air entry point. One function decides what a preset restores,
-      // so the studio and the transmission can no longer disagree (audit 2.2).
-      applyStylingVariables(p);
-
-      updateLogoFromControls();
-      updateRatingFromControls();
-      buildTimeline();
-      replayTimeline();
     }
 
     function showStudioToast(msg) {
@@ -6293,124 +6839,26 @@
     }
 
     function captureCurrentPresetPackage(name) {
-      const tagTexts = {
-        live: document.getElementById('txt-tag-live')?.value.trim() || 'LIVE',
-        movie: document.getElementById('txt-tag-movie')?.value.trim() || 'MOVIE TIME',
-        documentary: document.getElementById('txt-tag-documentary')?.value.trim() || 'DOCUMENTARY',
-        telemarketing: document.getElementById('txt-tag-telemarketing')?.value.trim() || 'TELEMARKETING',
-        show: document.getElementById('txt-tag-show')?.value.trim() || 'SERIES',
-        news: document.getElementById('txt-tag-news')?.value.trim() || 'NEWS'
-      };
-
       const isUserPreset = currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_');
       const presetId = name ? ('preset_' + Date.now()) : (isUserPreset ? currentMasterPresetId : (currentMasterPresetId || 'default'));
       const presetName = name || (isUserPreset ? (getUserPresetsList().find(p => p.id === currentMasterPresetId)?.name || 'Custom Preset') : (MASTER_STANDARD_PRESETS[currentMasterPresetId]?.name || 'Sitia HD Standard (Default)'));
 
-      const rawRatingFont = document.getElementById('sel-rating-font')?.value || document.getElementById('sel-broadcast-font')?.value || 'system';
+      // Pull the rail into the state, then let CONTROL_SCHEMA decide what a
+      // preset contains. This used to be a hand-written property list, one
+      // half of a pair that had to be kept in step with applyStylingVariables
+      // and was not: about twenty things the operator could design were
+      // captured in neither, or captured here and ignored there.
+      readStateFromDom();
 
-      // Read a control, falling back to the shipped default when the studio
-      // markup is not present (the on-air branch never builds the rail).
-      const num = (id, fallback) => {
-        const el = document.getElementById(id);
-        if (!el || el.value === '' || el.value === null) return fallback;
-        const n = parseFloat(el.value);
-        return Number.isFinite(n) ? n : fallback;
-      };
-      const str = (id, fallback) => {
-        const el = document.getElementById(id);
-        return el && el.value !== undefined && el.value !== null ? el.value : fallback;
-      };
-
-      return {
+      return stateToPreset({
         id: presetId,
         name: presetName,
-        wordmark: document.getElementById('txt-logo-content')?.value || 'SITIA',
-        subtitle: document.getElementById('txt-logo-subtitle')?.value || 'HD',
-        showTag: currentShowTag || 'none',
-        tagTexts: tagTexts,
-        logoSize: parseInt(document.getElementById('sld-logo-size')?.value) || 88,
-        logoRadius: parseInt(document.getElementById('sld-logo-radius')?.value) || 54,
-        logoExtrusion: document.getElementById('sel-logo-extrusion')?.value || 'convex',
-        logoBase: document.getElementById('col-logo-base')?.value || '#702177',
-        logoGrad: document.getElementById('col-logo-grad')?.value || '#46104c',
-        logoSpecular: document.getElementById('col-logo-specular')?.value || '#f0f5fc',
-        logoShadow: document.getElementById('col-logo-shadow')?.value || '#18031d',
-        logoFont: document.getElementById('sel-logo-font')?.value || 'system',
-        logoShape: currentLogoShape || 'squircle',
-        ratingCutout: document.getElementById('sel-rating-cutout')?.value || 'frosted',
-        ratingShape: currentRatingShape || 'squircle',
-        badgeShape: currentRatingShape || 'squircle',
-        ratingSize: parseInt(document.getElementById('sld-rating-size')?.value) || 48,
-        badgeSizePx: parseInt(document.getElementById('sld-rating-size')?.value) || 48,
-        ratingFontSize: parseInt(document.getElementById('sld-rating-font-size')?.value) || 24,
-        badgeFontSizePx: parseInt(document.getElementById('sld-rating-font-size')?.value) || 24,
-        ratingFont: rawRatingFont,
-        fontFamily: resolveFontFamily(rawRatingFont),
+        // Payload and derived fields. Not design, so not schema entries.
         rating: currentConfig.rating || '16',
         warnings: currentConfig.warnings || [],
         tp: !!currentConfig.tp,
-        theme: currentConfig.theme || 'frosted',
-        themeName: currentConfig.theme || 'frosted',
-        topOffsetPx: parseInt(document.getElementById('sld-top-margin')?.value) || 60,
-        rightOffsetPx: parseInt(document.getElementById('sld-right-margin')?.value) || 60,
-        textOffsetYPx: parseInt(document.getElementById('sld-text-offset-y')?.value) || 0,
-        anchorPosition: currentConfig.anchor || 'top-right',
-        accentMid: document.getElementById('col-accent-mid')?.value || '#38bdf8',
-        accentColor: document.getElementById('col-accent-mid')?.value || '#38bdf8',
-        accentLineHeightPx: parseInt(document.getElementById('sld-accent-line-height')?.value) || 2,
-        hold_time: currentConfig.hold_time || 30.0,
-        ratingHoldSec: currentConfig.hold_time || 30.0,
-        warning_hold_time: currentConfig.warning_hold_time || 30.0,
-        warningHoldSec: currentConfig.warning_hold_time || 30.0,
-        orientation: currentLayoutOrientation || 'default',
-        displayMode: currentStudioDisplayMode || 'combo',
-
-        // --- keys added in the on-air-defects pass (audit 2.2) ---------------
-        // Logo placement. Both the sliders and any drag on the canvas.
-        logoTopPx: num('sld-logo-top', 60),
-        logoLeftPx: num('sld-logo-left', 60),
-
-        // Logo surface.
-        lightAngleDeg: num('sld-logo-grad-angle', 135),
-        shadowBlurPx: num('sld-logo-blur', 6),
-        microBorder: document.getElementById('chk-logo-microborder')?.checked ?? true,
-
-        // Wordmark.
-        wordmarkX: num('sld-logo-text-x', 0),
-        wordmarkY: num('sld-logo-text-y', 0),
-        wordmarkSizePx: num('sld-logo-text-size', 40),
-        logoTextColor: str('col-logo-text', '#f7edf9'),
-        logoTextShadowColor: str('col-logo-textshadow', '#200324'),
-
-        // Rating stencil offsets and the two badge colour overrides
-        // (null when the picker is still linked to the blueprint).
-        stencilOffsetX: num('sld-rating-text-x', 0),
-        stencilOffsetY: num('sld-rating-text-y', 0),
-        badgeTint: getBadgeColorOverride('tint'),
-        badgeRim: getBadgeColorOverride('rim'),
-
-        // Accent line gradient start.
-        accentStart: str('col-accent-start', '#ffffff'),
-
-        // Banner type scale.
-        explanationFontSizePx: num('sld-explanation-font', 13),
-        warningBodyFontSizePx: num('sld-warning-body-font', 12),
-        warningLeadFontSizePx: num('sld-warning-lead-font', 10.5),
-        warningIconSizePx: num('sld-warning-icon-size', 28),
-
-        // Banner copy: the lead line and the four descriptor phrasings.
-        descriptorTexts: {
-          lead: str('txt-warn-lead', 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ'),
-          violence: str('txt-warn-violence', 'ΣΚΗΝΕΣ ΒΙΑΣ'),
-          drugs: str('txt-warn-drugs', 'ΧΡΗΣΗ ΟΥΣΙΩΝ'),
-          sex: str('txt-warn-sex', 'ΣΕΞ'),
-          language: str('txt-warn-language', 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ')
-        },
-        customText: str('txt-custom-advisory', ''),
-        activeTagline: str('txt-active-tagline', ''),
-
-        motionCurve: str('sel-motion-curve', 'elastic')
-      };
+        fontFamily: resolveFontFamily(stateGet('badge.font'))
+      });
     }
 
     function getUserPresetsList() {

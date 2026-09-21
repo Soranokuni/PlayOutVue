@@ -48,8 +48,11 @@
       root.style.setProperty('--cg-bottom', topM + 'px');
       root.style.setProperty('--cg-left', rightM + 'px');
       root.style.setProperty('--cg-right', rightM + 'px');
-      root.style.setProperty('--cg-logo-top', topM + 'px');
-      root.style.setProperty('--cg-logo-left', rightM + 'px');
+      // --cg-logo-top / --cg-logo-left belong to the logo position controls,
+      // not to the safe-area margins. Setting them here made the margin
+      // sliders drag the logo back to the corner whenever anything else was
+      // re-applied. --cg-logo-right has no control of its own, so the side
+      // margin still owns it for right-anchored layouts.
       root.style.setProperty('--cg-logo-right', rightM + 'px');
       root.style.setProperty('--cg-text-offset-y', textOffY + 'px');
       root.style.setProperty('--cg-explanation-font-size', expFont + 'px');

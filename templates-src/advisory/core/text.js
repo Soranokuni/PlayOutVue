@@ -130,6 +130,30 @@
       return `${str}, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
     }
 
+    /**
+     * The inverse of resolveFontFamily, as far as it goes.
+     *
+     * Presets written before the font pickers existed store a resolved CSS
+     * stack in `ratingFont` rather than a key like 'inter'. The schema entry is
+     * an enum over the keys, so those presets would otherwise fall back to the
+     * default and quietly change the face. Anything that is already a key, or
+     * that matches a stack the template ships, comes back as its key.
+     */
+    function fontKeyFromCss(value) {
+      if (!value) return 'system';
+      const str = String(value).trim();
+      const lower = str.toLowerCase();
+      if (FONT_MAP[lower]) return lower;
+      const keys = Object.keys(FONT_MAP);
+      for (let i = 0; i < keys.length; i++) {
+        if (FONT_MAP[keys[i]] === str) return keys[i];
+      }
+      // An unrecognised stack: keep the first family name if it is one we know.
+      const first = str.split(',')[0].replace(/['"]/g, '').trim().toLowerCase();
+      if (FONT_MAP[first]) return first;
+      return 'system';
+    }
+
     function updateBroadcastFont(fontKey) {
       const fontCss = resolveFontFamily(fontKey);
       document.documentElement.style.setProperty('--cg-font-family', fontCss);

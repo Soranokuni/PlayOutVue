@@ -315,109 +315,41 @@
       recordAction('PRESET', `Applied preset: "${preset.name}"`);
     }
 
+    /**
+     * Loads a preset into the studio.
+     *
+     * Everything visual goes through applyStylingVariables, which is also the
+     * on-air entry point, so the studio and the transmission cannot disagree
+     * about what a preset restores. What is left here is the studio-only part:
+     * the rating buttons, and animating the show tag in rather than just
+     * setting its state.
+     */
     function applyPresetPackage(p) {
       if (!p) return;
+      beginDeferredRender();
+      try {
+        applyStylingVariables(p);
 
-      // 1. Wordmark & Subtitle
-      const txtWordmark = document.getElementById('txt-logo-content');
-      if (txtWordmark && p.wordmark) txtWordmark.value = p.wordmark;
+        if (p.rating) setStudioRating(p.rating);
 
-      // 2. Tag custom text boxes
-      if (p.tagTexts) {
-        Object.keys(p.tagTexts).forEach(tagKey => {
-          const input = document.getElementById('txt-tag-' + tagKey);
-          if (input) input.value = p.tagTexts[tagKey];
-        });
+        // The show tag animates on entry; applyStylingVariables deliberately
+        // suppresses the subtitle render so this is the one that runs.
+        const tagKey = stateGet('tag.key');
+        const tagLine = stateGet('tag.active') || stateGet('wordmark.subtitle');
+        if (tagKey && tagKey !== 'none') {
+          activateShowTag(tagKey, tagLine);
+        } else if (tagLine) {
+          const txtActive = document.getElementById('txt-active-tagline');
+          if (txtActive) txtActive.value = tagLine;
+          renderStationSubtitle('none', tagLine);
+        } else {
+          activateShowTag('none');
+        }
+      } finally {
+        pendingTimelineBuild = true;
+        pendingTimelineReplay = true;
+        endDeferredRender();
       }
-
-      // 3. Active show tag
-      if (p.showTag && p.showTag !== 'none') {
-        activateShowTag(p.showTag, p.subtitle);
-      } else if (p.subtitle) {
-        const txtActive = document.getElementById('txt-active-tagline');
-        const txtLogoSub = document.getElementById('txt-logo-subtitle');
-        if (txtActive) txtActive.value = p.subtitle;
-        if (txtLogoSub) txtLogoSub.value = p.subtitle;
-        renderStationSubtitle('none', p.subtitle);
-      } else {
-        activateShowTag('none');
-      }
-
-      // 4. Chassis geometry & sizes
-      const sldLogoSize = document.getElementById('sld-logo-size');
-      if (sldLogoSize && p.logoSize) {
-        sldLogoSize.value = p.logoSize;
-        const valEl = document.getElementById('val-logo-size');
-        if (valEl) valEl.textContent = p.logoSize + 'px';
-      }
-
-      const sldLogoRadius = document.getElementById('sld-logo-radius');
-      if (sldLogoRadius && p.logoRadius) {
-        sldLogoRadius.value = p.logoRadius;
-        const valEl = document.getElementById('val-logo-radius');
-        if (valEl) valEl.textContent = p.logoRadius + 'px';
-      }
-
-      if (p.logoShape) setLogoShape(p.logoShape);
-      if (p.logoExtrusion) {
-        const sel = document.getElementById('sel-logo-extrusion');
-        if (sel) sel.value = p.logoExtrusion;
-      }
-
-      if (p.logoBase) document.getElementById('col-logo-base').value = p.logoBase;
-      if (p.logoGrad) document.getElementById('col-logo-grad').value = p.logoGrad;
-      if (p.logoFont) {
-        const sel = document.getElementById('sel-logo-font');
-        if (sel) sel.value = p.logoFont;
-      }
-
-      // 5. Rating Badge
-      const sldRatingSize = document.getElementById('sld-rating-size');
-      if (sldRatingSize && p.ratingSize) {
-        sldRatingSize.value = p.ratingSize;
-        const valEl = document.getElementById('val-rating-size');
-        if (valEl) valEl.textContent = p.ratingSize + 'px';
-      }
-
-      if (p.ratingCutout) {
-        const selCut = document.getElementById('sel-rating-cutout');
-        if (selCut) selCut.value = normalizeRatingCutout(p.ratingCutout);
-      }
-      const rShape = p.ratingShape || p.badgeShape;
-      if (rShape) setRatingShape(rShape, true);
-      if (p.rating) setStudioRating(p.rating);
-
-      if (p.fontFamily || p.ratingFont) {
-        const fontVal = p.ratingFont || p.fontFamily;
-        const selRatingFont = document.getElementById('sel-rating-font');
-        if (selRatingFont) selRatingFont.value = fontVal;
-        const selBroadcastFont = document.getElementById('sel-broadcast-font');
-        if (selBroadcastFont) selBroadcastFont.value = fontVal;
-        updateBroadcastFont(fontVal);
-      }
-
-      // 6. Theme & Motion
-      if (p.theme) applyThemePreset(p.theme);
-      if (p.hold_time) currentConfig.hold_time = p.hold_time;
-      if (p.warning_hold_time) currentConfig.warning_hold_time = p.warning_hold_time;
-
-      // 7. Orientation & Display mode
-      if (p.orientation && p.orientation !== currentLayoutOrientation) {
-        flipStagePositions();
-      }
-      if (p.displayMode) {
-        setStudioDisplayMode(p.displayMode);
-      }
-
-      // Everything visual goes through applyStylingVariables, which is also
-      // the on-air entry point. One function decides what a preset restores,
-      // so the studio and the transmission can no longer disagree (audit 2.2).
-      applyStylingVariables(p);
-
-      updateLogoFromControls();
-      updateRatingFromControls();
-      buildTimeline();
-      replayTimeline();
     }
 
     function showStudioToast(msg) {
@@ -532,124 +464,26 @@
     }
 
     function captureCurrentPresetPackage(name) {
-      const tagTexts = {
-        live: document.getElementById('txt-tag-live')?.value.trim() || 'LIVE',
-        movie: document.getElementById('txt-tag-movie')?.value.trim() || 'MOVIE TIME',
-        documentary: document.getElementById('txt-tag-documentary')?.value.trim() || 'DOCUMENTARY',
-        telemarketing: document.getElementById('txt-tag-telemarketing')?.value.trim() || 'TELEMARKETING',
-        show: document.getElementById('txt-tag-show')?.value.trim() || 'SERIES',
-        news: document.getElementById('txt-tag-news')?.value.trim() || 'NEWS'
-      };
-
       const isUserPreset = currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_');
       const presetId = name ? ('preset_' + Date.now()) : (isUserPreset ? currentMasterPresetId : (currentMasterPresetId || 'default'));
       const presetName = name || (isUserPreset ? (getUserPresetsList().find(p => p.id === currentMasterPresetId)?.name || 'Custom Preset') : (MASTER_STANDARD_PRESETS[currentMasterPresetId]?.name || 'Sitia HD Standard (Default)'));
 
-      const rawRatingFont = document.getElementById('sel-rating-font')?.value || document.getElementById('sel-broadcast-font')?.value || 'system';
+      // Pull the rail into the state, then let CONTROL_SCHEMA decide what a
+      // preset contains. This used to be a hand-written property list, one
+      // half of a pair that had to be kept in step with applyStylingVariables
+      // and was not: about twenty things the operator could design were
+      // captured in neither, or captured here and ignored there.
+      readStateFromDom();
 
-      // Read a control, falling back to the shipped default when the studio
-      // markup is not present (the on-air branch never builds the rail).
-      const num = (id, fallback) => {
-        const el = document.getElementById(id);
-        if (!el || el.value === '' || el.value === null) return fallback;
-        const n = parseFloat(el.value);
-        return Number.isFinite(n) ? n : fallback;
-      };
-      const str = (id, fallback) => {
-        const el = document.getElementById(id);
-        return el && el.value !== undefined && el.value !== null ? el.value : fallback;
-      };
-
-      return {
+      return stateToPreset({
         id: presetId,
         name: presetName,
-        wordmark: document.getElementById('txt-logo-content')?.value || 'SITIA',
-        subtitle: document.getElementById('txt-logo-subtitle')?.value || 'HD',
-        showTag: currentShowTag || 'none',
-        tagTexts: tagTexts,
-        logoSize: parseInt(document.getElementById('sld-logo-size')?.value) || 88,
-        logoRadius: parseInt(document.getElementById('sld-logo-radius')?.value) || 54,
-        logoExtrusion: document.getElementById('sel-logo-extrusion')?.value || 'convex',
-        logoBase: document.getElementById('col-logo-base')?.value || '#702177',
-        logoGrad: document.getElementById('col-logo-grad')?.value || '#46104c',
-        logoSpecular: document.getElementById('col-logo-specular')?.value || '#f0f5fc',
-        logoShadow: document.getElementById('col-logo-shadow')?.value || '#18031d',
-        logoFont: document.getElementById('sel-logo-font')?.value || 'system',
-        logoShape: currentLogoShape || 'squircle',
-        ratingCutout: document.getElementById('sel-rating-cutout')?.value || 'frosted',
-        ratingShape: currentRatingShape || 'squircle',
-        badgeShape: currentRatingShape || 'squircle',
-        ratingSize: parseInt(document.getElementById('sld-rating-size')?.value) || 48,
-        badgeSizePx: parseInt(document.getElementById('sld-rating-size')?.value) || 48,
-        ratingFontSize: parseInt(document.getElementById('sld-rating-font-size')?.value) || 24,
-        badgeFontSizePx: parseInt(document.getElementById('sld-rating-font-size')?.value) || 24,
-        ratingFont: rawRatingFont,
-        fontFamily: resolveFontFamily(rawRatingFont),
+        // Payload and derived fields. Not design, so not schema entries.
         rating: currentConfig.rating || '16',
         warnings: currentConfig.warnings || [],
         tp: !!currentConfig.tp,
-        theme: currentConfig.theme || 'frosted',
-        themeName: currentConfig.theme || 'frosted',
-        topOffsetPx: parseInt(document.getElementById('sld-top-margin')?.value) || 60,
-        rightOffsetPx: parseInt(document.getElementById('sld-right-margin')?.value) || 60,
-        textOffsetYPx: parseInt(document.getElementById('sld-text-offset-y')?.value) || 0,
-        anchorPosition: currentConfig.anchor || 'top-right',
-        accentMid: document.getElementById('col-accent-mid')?.value || '#38bdf8',
-        accentColor: document.getElementById('col-accent-mid')?.value || '#38bdf8',
-        accentLineHeightPx: parseInt(document.getElementById('sld-accent-line-height')?.value) || 2,
-        hold_time: currentConfig.hold_time || 30.0,
-        ratingHoldSec: currentConfig.hold_time || 30.0,
-        warning_hold_time: currentConfig.warning_hold_time || 30.0,
-        warningHoldSec: currentConfig.warning_hold_time || 30.0,
-        orientation: currentLayoutOrientation || 'default',
-        displayMode: currentStudioDisplayMode || 'combo',
-
-        // --- keys added in the on-air-defects pass (audit 2.2) ---------------
-        // Logo placement. Both the sliders and any drag on the canvas.
-        logoTopPx: num('sld-logo-top', 60),
-        logoLeftPx: num('sld-logo-left', 60),
-
-        // Logo surface.
-        lightAngleDeg: num('sld-logo-grad-angle', 135),
-        shadowBlurPx: num('sld-logo-blur', 6),
-        microBorder: document.getElementById('chk-logo-microborder')?.checked ?? true,
-
-        // Wordmark.
-        wordmarkX: num('sld-logo-text-x', 0),
-        wordmarkY: num('sld-logo-text-y', 0),
-        wordmarkSizePx: num('sld-logo-text-size', 40),
-        logoTextColor: str('col-logo-text', '#f7edf9'),
-        logoTextShadowColor: str('col-logo-textshadow', '#200324'),
-
-        // Rating stencil offsets and the two badge colour overrides
-        // (null when the picker is still linked to the blueprint).
-        stencilOffsetX: num('sld-rating-text-x', 0),
-        stencilOffsetY: num('sld-rating-text-y', 0),
-        badgeTint: getBadgeColorOverride('tint'),
-        badgeRim: getBadgeColorOverride('rim'),
-
-        // Accent line gradient start.
-        accentStart: str('col-accent-start', '#ffffff'),
-
-        // Banner type scale.
-        explanationFontSizePx: num('sld-explanation-font', 13),
-        warningBodyFontSizePx: num('sld-warning-body-font', 12),
-        warningLeadFontSizePx: num('sld-warning-lead-font', 10.5),
-        warningIconSizePx: num('sld-warning-icon-size', 28),
-
-        // Banner copy: the lead line and the four descriptor phrasings.
-        descriptorTexts: {
-          lead: str('txt-warn-lead', 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ'),
-          violence: str('txt-warn-violence', 'ΣΚΗΝΕΣ ΒΙΑΣ'),
-          drugs: str('txt-warn-drugs', 'ΧΡΗΣΗ ΟΥΣΙΩΝ'),
-          sex: str('txt-warn-sex', 'ΣΕΞ'),
-          language: str('txt-warn-language', 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ')
-        },
-        customText: str('txt-custom-advisory', ''),
-        activeTagline: str('txt-active-tagline', ''),
-
-        motionCurve: str('sel-motion-curve', 'elastic')
-      };
+        fontFamily: resolveFontFamily(stateGet('badge.font'))
+      });
     }
 
     function getUserPresetsList() {

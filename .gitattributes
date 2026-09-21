@@ -8,5 +8,10 @@ templates-src/advisory/*.md text eol=lf
 public/templates/playout/*.html      text eol=crlf
 src/assets/templates/playout/*.html  text eol=crlf
 
+# Build scripts stay LF: Vite's transform rejects a CRLF .mjs outright, so a
+# checkout that converted them broke the test that imports the build script
+# with a bare "SyntaxError: Invalid or unexpected token".
+scripts/*.mjs text eol=lf
+
 # Vendored faces are binary.
 *.woff2 binary

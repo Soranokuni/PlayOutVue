@@ -189,6 +189,42 @@ describe('CG advisory: on-air runtime', () => {
         expect(grad.getAttribute('y1')).toBe('90.00%');
     });
 
+    it('renders the per-rating custom badge SVGs PlayOut has always been sending', () => {
+        // Audit 2.3.5: customLogos was accepted into currentConfig and rendered
+        // nowhere, so an operator who configured a custom badge saw the
+        // built-in stencil go to air instead.
+        const host = document.getElementById('rating-badge-container')!;
+
+        (window as unknown as { update: (d: unknown) => void }).update({
+            rating: '16',
+            customLogos: { '16': '<svg viewBox="0 0 52 52"><rect width="52" height="52" fill="#ff0000"/></svg>' },
+        });
+        expect(host.querySelector('[data-custom-rating-svg]')).toBeTruthy();
+        expect(host.getAttribute('data-custom-rating')).toBe('16');
+
+        // A rating with no custom SVG gets the built-in stencil back.
+        (window as unknown as { update: (d: unknown) => void }).update({ rating: '12' });
+        expect(host.querySelector('[data-custom-rating-svg]')).toBeNull();
+    });
+
+    it('sanitises a custom badge SVG before it reaches the on-air DOM', () => {
+        // The markup comes off disk via read_svg_file, so it is untrusted.
+        const host = document.getElementById('rating-badge-container')!;
+        (window as unknown as { update: (d: unknown) => void }).update({
+            rating: '18',
+            customLogos: {
+                '18': '<svg viewBox="0 0 52 52"><script>fetch("//evil")</script>'
+                    + '<a href="javascript:alert(1)"><rect width="52" height="52" onload="alert(2)"/></a></svg>',
+            },
+        });
+        const rendered = host.querySelector('[data-custom-rating-svg]');
+        if (rendered) {
+            expect(rendered.querySelector('script')).toBeNull();
+            expect(rendered.innerHTML).not.toContain('javascript:');
+            expect(rendered.innerHTML).not.toContain('onload');
+        }
+    });
+
     it('keeps the on-air console silent', () => {
         // recordAction re-rendered a display:none card on every update.
         const list = document.getElementById('console-action-list');
