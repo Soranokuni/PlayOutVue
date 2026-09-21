@@ -1336,14 +1336,14 @@ onUnmounted(() => {
   <div class="rundown-wrapper">
     <!-- Header with clock -->
     <div class="rw-header">
-      <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
-        <h2 class="text-warning" style="margin:0; font-size:var(--fs-lg);">{{ store.currentPlaylistName }}</h2>
+      <div class="rw-header-title">
+        <h2 class="text-warning rw-header-name">{{ store.currentPlaylistName }}</h2>
         <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge"><AppIcon name="play" :size="12" /> ON AIR</span>
       </div>
 
-      <div style="flex:1;"></div>
+      <div class="rw-header-spacer"></div>
 
-      <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+      <div class="rw-header-actions">
         <!-- Graphics Ticker Drawer Toggle Button -->
         <BaseButton
           class="rw-ticker-toggle-btn"
@@ -1730,46 +1730,63 @@ onUnmounted(() => {
 
 <style scoped>
 .rundown-wrapper { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+.rw-header-title,
+.rw-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.rw-header-name {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.rw-header-spacer {
+  flex: 1;
+}
+
 .rw-header {
-  padding: 8px 12px; border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-panel-header);
   box-shadow: inset 0 1px 0 var(--highlight-top);
   display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
 }
 .trim-warning-banner {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px; font-size: var(--fs-md); color: var(--accent-yellow);
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); font-size: var(--fs-md); color: var(--accent-yellow);
   background: color-mix(in srgb, var(--accent-yellow) 15%, var(--bg-secondary));
   border-bottom: 1px solid color-mix(in srgb, var(--accent-yellow) 35%, transparent);
-  flex-shrink: 0; animation: fadeIn 0.2s ease-out;
+  flex-shrink: 0;
 }
 .tw-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tw-pos { color: var(--accent-green); font-weight: 700; }
-.tw-neg { color: var(--accent-red); font-weight: 700; }
+.tw-pos { color: var(--accent-green); font-weight: var(--fw-bold); }
+.tw-neg { color: var(--accent-red); font-weight: var(--fw-bold); }
 .tw-dismiss {
   background: transparent; border: none; color: var(--accent-yellow);
-  font-size: var(--fs-xl); cursor: pointer; padding: 0 4px; border-radius: 3px;
-  line-height: 1;
+  font-size: var(--fs-xl); cursor: pointer; padding: 0 var(--space-1); border-radius: var(--radius-sm);
+  line-height: var(--lh-none);
 }
 .tw-dismiss:hover { background: var(--bg-hover); }
 .studio-clock-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   background: var(--bg-surface-elevated);
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-medium);
 }
 .clock-display {
-  font-family: var(--font-mono); font-size: var(--fs-tc); font-weight: 700;
-  letter-spacing: 1px; color: var(--text-primary); text-shadow: 0 0 10px var(--glass-border);
+  font-family: var(--font-mono); font-size: var(--fs-tc); font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps); color: var(--text-primary); text-shadow: 0 0 10px var(--glass-border);
   font-variant-numeric: tabular-nums;
 }
 .rw-ticker-toggle-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .rw-ticker-toggle-btn.is-active {
   background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
@@ -1780,19 +1797,18 @@ onUnmounted(() => {
   align-items: center;
   background: var(--bg-surface-elevated);
   border-bottom: 1px solid var(--border-medium);
-  padding: 6px 12px;
-  animation: fadeIn 0.15s ease-out;
+  padding: var(--space-2) var(--space-3);
 }
 .graphics-drawer-content {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   width: 100%;
 }
 .graphics-drawer-badge {
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.5px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   color: var(--accent-blue);
   white-space: nowrap;
 }
@@ -1802,8 +1818,8 @@ onUnmounted(() => {
   color: var(--text-muted);
   cursor: pointer;
   font-size: var(--fs-xl);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
 }
 .drawer-close-btn:hover {
   background: var(--bg-hover);
@@ -1812,20 +1828,20 @@ onUnmounted(() => {
 .tab-rename-input {
   background: var(--bg-surface);
   border: 1px solid var(--accent-blue);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: var(--fs-md);
-  font-weight: 700;
-  padding: 1px 4px;
+  font-weight: var(--fw-bold);
+  padding: var(--space-0) var(--space-1);
   outline: none;
   max-width: 130px;
 }
 .playing-badge {
   background: color-mix(in srgb, var(--accent-red) 18%, transparent); border: 1px solid color-mix(in srgb, var(--accent-red) 50%, transparent);
-  color: var(--accent-red); font-size: var(--fs-xs); font-weight: 800; letter-spacing: 1px;
-  padding: 2px 8px; border-radius: 4px; animation: blink 1.2s step-end infinite;
+  color: var(--accent-red); font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps);
+  padding: var(--space-0) var(--space-2); border-radius: var(--radius-sm);
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
-@keyframes blink { 50% { opacity: 0.4; } }
 /* §2.1: the second `.icon-action` definition is gone -- it had a different
    radius, padding and hover from the library's, for controls that sit four
    inches apart on the same screen. Everything in this header is a BaseButton. */
@@ -1837,8 +1853,8 @@ onUnmounted(() => {
 .rw-file-group {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: var(--space-0);
+  padding: var(--space-0);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-hover);
@@ -1847,7 +1863,7 @@ onUnmounted(() => {
 .rw-header-divider {
   width: 1px;
   align-self: stretch;
-  margin: 2px 2px;
+  margin: var(--space-0);
   background: var(--border-subtle);
 }
 
@@ -1866,15 +1882,15 @@ onUnmounted(() => {
 }
 .rw-delete-arm-label {
   white-space: nowrap;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
 }
 /* The same conic sweep the live cut uses, so "armed" looks like one thing in
    this app rather than two. Compositor-only: a custom property feeding a
    gradient angle, ticked ten times a second. */
 .rw-delete-btn .arm-ring {
   position: absolute;
-  inset: -3px;
+  inset: calc(var(--space-0) * -1);
   border-radius: inherit;
   pointer-events: none;
   background: conic-gradient(var(--status-error) calc(var(--arm-progress, 0) * 360deg), transparent 0);
@@ -1882,10 +1898,6 @@ onUnmounted(() => {
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px));
   opacity: 0.9;
 }
-@media (prefers-reduced-motion: reduce) {
-  .rw-delete-btn .arm-ring { display: none; }
-}
-
 /* §6.3: the header overflow. Same visual language as the library's actions
    dropdown so the two "⋮" menus in the app are one pattern, not two. */
 .rw-overflow-wrap {
@@ -1903,7 +1915,7 @@ onUnmounted(() => {
   min-width: 190px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0);
   z-index: var(--z-popover);
 }
 .rw-overflow-icon {
@@ -1919,8 +1931,8 @@ onUnmounted(() => {
 
 .playlist-tabs-row {
   display: flex;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: var(--space-2);
+  padding: var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-panel-header);
   box-shadow: inset 0 1px 0 var(--highlight-top);
@@ -1931,9 +1943,9 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 8px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-subtle);
   background: var(--bg-hover);
   color: var(--text-primary);
@@ -1941,7 +1953,7 @@ onUnmounted(() => {
   flex-shrink: 0;
   min-width: 140px;
   /* PERF F-23: explicit list; `all` also animated width/padding on label changes. */
-  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .playlist-tab:hover {
   background: var(--bg-surface-elevated);
@@ -1977,16 +1989,9 @@ onUnmounted(() => {
 .playlist-tab.is-onair::before {
   background: var(--status-onair);
 }
-@media (prefers-reduced-motion: reduce) {
-  .playlist-tab::before {
-    transition: none;
-  }
-}
 .playlist-tab.is-onair {
   position: relative;
-  border-color: var(--accent-red);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-red) 25%, transparent), 0 0 10px color-mix(in srgb, var(--accent-red) 15%, transparent);
-  animation: pulseOnAir 1.5s ease-in-out infinite;
+  border-color: var(--status-onair);
 }
 /* PERF F-06: the glow used to be a box-shadow keyframe on the tab itself,
    which repaints the tab every frame for the whole on-air session. The tab
@@ -1998,31 +2003,13 @@ onUnmounted(() => {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 0 1px var(--accent-red), 0 0 18px color-mix(in srgb, var(--accent-red) 35%, transparent);
-  animation: pulseOnAirGlow 1.5s ease-in-out infinite;
+  box-shadow: var(--glow-onair);
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
   will-change: opacity;
-}
-@keyframes pulseOnAir {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1px); }
-}
-@keyframes pulseOnAirGlow {
-  0%, 100% { opacity: 0; }
-  50% { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .playlist-tab.is-onair,
-  .playlist-tab.is-onair::after,
-  .crawl-btn.is-active .crawl-btn-dot,
-  .crawl-active-dot,
-  .playing-badge {
-    animation: none !important;
-  }
-  .playlist-tab.is-onair::after { opacity: 1; }
 }
 .playlist-tab-name {
   font-size: var(--fs-md);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2050,18 +2037,18 @@ onUnmounted(() => {
 .playlist-tab-state {
   margin-left: auto;
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   color: var(--text-on-danger);
   background: var(--status-onair);
   border-radius: var(--radius-pill);
-  padding: 1px var(--space-2);
-  line-height: 1.4;
+  padding: var(--space-0) var(--space-2);
+  line-height: var(--lh-body);
 }
 .playlist-tab-count {
   margin-left: auto;
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -2097,13 +2084,13 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   width: 34px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 1px dashed color-mix(in srgb, var(--accent-blue) 40%, transparent);
   background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
   color: var(--accent-blue);
   cursor: pointer;
   flex-shrink: 0;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .playlist-add-btn:hover {
   background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
@@ -2111,11 +2098,11 @@ onUnmounted(() => {
 }
 
 .rw-cols-label {
-  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
-  font-size: var(--fs-xs); letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; text-transform: uppercase;
+  display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2);
+  font-size: var(--fs-xs); letter-spacing: var(--tracking-caps); color: var(--text-muted); font-weight: var(--fw-bold); text-transform: uppercase;
   border-bottom: 1px solid var(--border-subtle); background: var(--bg-tertiary); flex-shrink: 0;
 }
-.rw-list { flex: 1; overflow-y: auto; padding: 6px 5px 10px; min-height: 0; transition: background 0.15s; contain: strict; position: relative; }
+.rw-list { flex: 1; overflow-y: auto; padding: var(--space-2) var(--space-2) var(--space-3); min-height: 0; transition: background var(--dur-fast); contain: strict; position: relative; }
 
 /* §5.2: the third cue, over the thing that will actually be lost. Opacity only
    (perf), no pointer events, and it never intercepts a click. */
@@ -2132,7 +2119,7 @@ onUnmounted(() => {
 .rw-delete-overlay::before {
   content: '';
   position: absolute;
-  inset: 0 -5px auto;
+  inset: 0 calc(var(--space-1) * -1) auto;
   height: 100vh;
   background: var(--danger-tint);
   pointer-events: none;
@@ -2140,17 +2127,17 @@ onUnmounted(() => {
 .rw-delete-overlay-label {
   position: relative;
   margin-top: var(--space-4);
-  padding: 4px var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-pill);
   border: 1px solid var(--status-error);
   background: var(--surface-panel);
   color: var(--status-error);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
-.rw-list.drag-over { background: color-mix(in srgb, var(--accent-cyan) 6%, transparent); outline: 2px dashed var(--accent-cyan); outline-offset: -3px; border-radius: 6px; }
+.rw-list.drag-over { background: color-mix(in srgb, var(--accent-cyan) 6%, transparent); outline: 2px dashed var(--accent-cyan); outline-offset: -3px; border-radius: var(--radius-md); }
 
 /* Sortable ghost clone of the row host wrapper */
 .rw-ghost { opacity: 0.3; background: var(--bg-hover); }
@@ -2160,7 +2147,7 @@ onUnmounted(() => {
    in this panel and like an empty state everywhere else. The class stays as a
    layout hook; the box is gone. */
 .rw-empty {
-  margin: var(--space-4) 4px;
+  margin: var(--space-4) var(--space-1);
 }
 
 /* On-Demand Crawl Styling */
@@ -2169,76 +2156,70 @@ onUnmounted(() => {
   background: var(--bg-input);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
-  padding: 5px 10px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   font-size: var(--fs-md);
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color var(--dur-fast) var(--ease-out);
   min-width: 120px;
 }
 .crawl-input:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary) 25%, transparent);
+  box-shadow: var(--focus-ring);
 }
 /* §7.2: surface, border, radius, hover, focus, press and disabled come from
    `.btn`. What is genuinely this control's own is its on-air tone and the
    status dot beside the label. */
 .crawl-btn {
-  gap: 6px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
+  gap: var(--space-2);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   transition:
     background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-fast) var(--ease-out),
-    transform 90ms var(--ease-out);
+    transform var(--dur-base) var(--ease-out);
 }
 .crawl-btn.is-active {
   background: color-mix(in srgb, var(--accent-red) 16%, transparent);
   border-color: var(--accent-red);
   color: var(--accent-red);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-red) 30%, transparent);
+  box-shadow: var(--glow-onair);
 }
 .crawl-btn-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 .crawl-btn:hover .crawl-btn-dot {
   background: var(--text-primary);
 }
 .crawl-btn.is-active .crawl-btn-dot {
   background: var(--accent-red);
-  box-shadow: 0 0 8px var(--accent-red);
-  animation: pulse-dot 1.2s infinite;
-}
-@keyframes pulse-dot {
-  0% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.6; }
-  100% { transform: scale(1); opacity: 1; }
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 .rw-list:focus-visible {
-  outline: 2px solid var(--accent-cyan);
+  outline: none;
+  box-shadow: var(--focus-ring);
   outline-offset: -2px;
 }
 
 .rundown-end-drop-zone {
   position: relative;
   height: 44px;
-  margin: 6px 4px 12px 4px;
+  margin: var(--space-2) var(--space-1) var(--space-3) var(--space-1);
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px dashed var(--border-medium);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   font-size: var(--fs-sm);
-  font-weight: 600;
-  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  font-weight: var(--fw-semibold);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   user-select: none;
 }
 
@@ -2297,9 +2278,9 @@ onUnmounted(() => {
   background: var(--accent-cyan);
   color: var(--text-inverse);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 4px;
+  font-weight: var(--fw-semibold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   pointer-events: none;
   user-select: none;
   box-shadow: var(--shadow-1);
@@ -2335,7 +2316,7 @@ onUnmounted(() => {
    gutter between them. Right-aligned "DURATION" followed by left-aligned "AT"
    6 px away read as one word, "DURATIONAT". */
 .rw-cols-label .col-dur { width: 112px; text-align: right; flex-shrink: 0; }
-.rw-cols-label .col-at { width: 84px; text-align: right; flex-shrink: 0; margin-left: 6px; }
+.rw-cols-label .col-at { width: 84px; text-align: right; flex-shrink: 0; margin-left: var(--space-2); }
 .rw-cols-label .col-actions { width: 56px; text-align: right; flex-shrink: 0; }
 
 /* The panel is the container the row and header columns respond to, so the
@@ -2358,10 +2339,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: var(--space-2) 4px var(--space-1);
+  margin: var(--space-2) var(--space-1) var(--space-1);
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }

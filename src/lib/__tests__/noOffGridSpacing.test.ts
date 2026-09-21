@@ -30,7 +30,6 @@ const ALLOWLIST: Record<string, number> = {
   'App.vue': 36,
   'components/ComplianceModule.vue': 25,
   'components/DeckLinkWizard.vue': 25,
-  'components/RundownList.vue': 24,
   'components/CasparConfigModal.vue': 19,
   'components/FolderPickerModal.vue': 16,
   'components/MediaInspector.vue': 14,

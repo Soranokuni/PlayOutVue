@@ -33,7 +33,6 @@ const ALL_ALLOWLIST: Record<string, number> = {
 /** Remaining duration literals per file. Lower these; never raise them. */
 const DURATION_ALLOWLIST: Record<string, number> = {
   'App.vue': 20,
-  'components/RundownList.vue': 20,
   'components/RundownRow.vue': 6,
   'components/RecycleBinModal.vue': 5,
   'components/ComplianceModule.vue': 4,
@@ -49,7 +48,6 @@ const DURATION_ALLOWLIST: Record<string, number> = {
 /** Remaining animated shadows per file. Lower these; never raise them. */
 const SHADOW_ALLOWLIST: Record<string, number> = {
   'App.vue': 3,
-  'components/RundownList.vue': 4,
   'components/RundownRow.vue': 2,
 };
 
