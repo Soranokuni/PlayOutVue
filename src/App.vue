@@ -1066,7 +1066,7 @@ onUnmounted(() => {
 
       <div class="ctrl-meta-dock" ref="footerMetaRef">
         <button
-          class="ctrl-meta-btn ctrl-meta-brand"
+          class="btn btn--icon btn--sm ctrl-meta-btn ctrl-meta-brand"
           :class="{ 'is-open': showProductInfo }"
           @click.stop="toggleProductInfo"
           v-tooltip="`${APP_NAME} ${APP_VERSION} · System Info`"
@@ -1077,7 +1077,7 @@ onUnmounted(() => {
           </svg>
         </button>
         <button
-          class="ctrl-meta-btn ctrl-meta-help"
+          class="btn btn--icon btn--sm ctrl-meta-btn ctrl-meta-help"
           :class="{ 'is-open': showQuickGuide }"
           @click.stop="toggleQuickGuide"
           v-tooltip="'Quick guide'"
@@ -1184,25 +1184,6 @@ onUnmounted(() => {
   background: var(--bg-hover);
 }
 .resizer-left { grid-area: r1; }
-
-.panel-toggle-btn {
-  flex:1;
-  min-width:0;
-  border-radius:8px;
-  border:1px solid var(--border-subtle);
-  background:var(--bg-hover);
-  color:var(--text-secondary);
-  padding:6px 10px;
-  font-size:var(--fs-xs);
-  font-weight:700;
-  cursor:pointer;
-}
-
-.panel-toggle-btn.is-active {
-  color:var(--text-primary);
-  border-color:color-mix(in srgb, var(--accent-blue) 40%, transparent);
-  background:color-mix(in srgb, var(--accent-blue) 12%, var(--bg-secondary));
-}
 
 .ctrl-section    { display:flex; align-items:center; gap:6px; }
 .ctrl-label      { font-size:var(--fs-xs); color:var(--text-muted); letter-spacing:0.5px; font-weight:700; white-space:nowrap; }
@@ -1659,17 +1640,22 @@ onUnmounted(() => {
   position: relative;
 }
 
+/* §7.2: `.btn--icon.btn--sm`, except for the radius -- the plan keeps
+   `--radius-md` everywhere but pills, and these two are pills. The bordered
+   rest is the family's. */
 .ctrl-meta-btn {
-  height: var(--btn-h-compact, 30px);
   border-radius: 999px;
-  border: 1px solid var(--border-subtle);
+  border-color: var(--border-subtle);
   background: var(--bg-hover);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    transform 90ms var(--ease-out);
 }
 
-.ctrl-meta-btn:hover,
+.ctrl-meta-btn:hover:not(:disabled),
 .ctrl-meta-btn.is-open {
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent);
@@ -1677,21 +1663,16 @@ onUnmounted(() => {
   box-shadow: 0 0 16px color-mix(in srgb, var(--accent-blue) 15%, transparent);
 }
 
+/* Size and shape come from `.btn--icon.btn--sm` + `.ctrl-meta-btn`; this is
+   only the purple. It used to be pinned at 28 px while its neighbour tracked
+   `--btn-h-compact`, so the pair sat at different sizes at every density. */
 .ctrl-meta-brand {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  padding: 0;
-  border-radius: var(--radius-pill);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: color-mix(in srgb, var(--accent-purple) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-purple) 45%, transparent);
+  border-color: color-mix(in srgb, var(--accent-purple) 45%, transparent);
   color: var(--accent-purple);
 }
 
-.ctrl-meta-brand:hover,
+.ctrl-meta-brand:hover:not(:disabled),
 .ctrl-meta-brand.is-open {
   background: color-mix(in srgb, var(--accent-purple) 28%, transparent);
   border-color: color-mix(in srgb, var(--accent-purple) 75%, transparent);
@@ -1704,9 +1685,9 @@ onUnmounted(() => {
   fill: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
 }
 
+/* The one `?`. Size comes from the family; only the glyph's weight is its
+   own, because a question mark at `--fs-xs` is not a legible target. */
 .ctrl-meta-help {
-  width: var(--btn-h-compact, 30px);
-  padding: 0;
   font-size: var(--fs-lg);
   font-weight: 800;
 }

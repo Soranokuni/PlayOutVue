@@ -294,7 +294,7 @@ const itemTooltip = computed(() => {
     <!-- Row actions -->
     <div class="rw-actions">
       <button
-        class="row-btn btn-play"
+        class="btn btn--icon btn--sm row-btn row-btn-play"
         :disabled="rundown.isRundownLocked"
         :title="rundown.isRundownLocked ? 'Rundown is Locked' : (item.type === 'gap' ? 'Play next content after this gap line' : `Play from #${index+1}`)"
         @click.stop="!rundown.isRundownLocked && emit('play')"
@@ -303,7 +303,7 @@ const itemTooltip = computed(() => {
       </button>
       <button
         v-if="!playProtected && !rundown.isRundownLocked"
-        class="row-btn row-btn-del"
+        class="btn btn--icon btn--sm row-btn row-btn-del"
         title="Remove (Del)"
         aria-label="Remove item"
         @click.stop="emit('delete')"
@@ -533,13 +533,18 @@ const itemTooltip = computed(() => {
    header can no longer read "DURATION AT" as one word. */
 .rw-dur     { width: 112px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 1px; text-align: right; font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: 0.02em; }
 .rw-at      { width: 84px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-shrink: 0; margin-left: 6px; text-align: right; }
-.rw-actions { width: 56px; display: flex; gap: 4px; flex-shrink: 0; justify-content: flex-end; }
+.rw-actions { width: calc(var(--control-h-sm) * 2 + 4px); display: flex; gap: 4px; flex-shrink: 0; justify-content: flex-end; }
 
 /* The delete control appears on hover or keyboard focus, so a 300-row list is
    not 300 delete buttons one mis-click away from the rundown. */
 .rw-actions .row-btn-del {
   opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform 90ms var(--ease-out);
 }
 
 .rw-row:hover .row-btn-del,
@@ -587,15 +592,35 @@ const itemTooltip = computed(() => {
   .rw-onair-dot { animation: none; }
 }
 
+/* §7.2: the row's two actions are `.btn--icon.btn--sm` now. What was here was
+   the family's rules written out again at a hard 26 px that ignored the
+   density setting, at `--radius-sm` instead of `--radius-md`, and on
+   `transition: 0.12s` -- the `transition: all` the rest of the app was audited
+   to remove. All that is left is the border the row's buttons need (the family
+   draws `--icon` borderless, but these sit on a tinted row and would vanish)
+   and the two tones. */
 .row-btn {
-  background: var(--bg-hover); border: 1px solid var(--border-medium); color: var(--text-secondary);
-  border-radius: 4px; cursor: pointer; width: 26px; height: 26px; font-size: var(--fs-sm);
-  display: flex; align-items: center; justify-content: center; transition: 0.12s; padding: 0;
+  flex-shrink: 0;
+  border-color: var(--border-medium);
+  background: var(--bg-hover);
 }
-.row-btn:hover { background: var(--bg-surface-elevated); color: var(--text-primary); border-color: var(--border-strong); }
-.btn-play { color: var(--accent-blue); border-color: color-mix(in srgb, var(--accent-blue) 35%, transparent); }
-.btn-play:hover { background: color-mix(in srgb, var(--accent-blue) 18%, transparent); color: var(--accent-blue); }
-.row-btn-del:hover { background: color-mix(in srgb, var(--accent-red) 18%, transparent); border-color: var(--accent-red); color: var(--accent-red); }
+.row-btn:hover:not(:disabled) {
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
+}
+.row-btn-play {
+  color: var(--accent-blue);
+  border-color: color-mix(in srgb, var(--accent-blue) 35%, transparent);
+}
+.row-btn-play:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
+  color: var(--accent-blue);
+}
+.row-btn-del:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-red) 18%, transparent);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
 
 .rw-ghost { opacity: 0.3; background: var(--bg-hover); }
 
