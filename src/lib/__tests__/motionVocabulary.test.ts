@@ -23,17 +23,14 @@ import { SRC, checkBudgets, declarations, styleSurfaces } from './styleGuard';
 
 /** Remaining `transition: all` per file. Drive to zero; it has no future. */
 const ALL_ALLOWLIST: Record<string, number> = {
-  'App.vue': 1,
 };
 
 /** Remaining duration literals per file. Lower these; never raise them. */
 const DURATION_ALLOWLIST: Record<string, number> = {
-  'App.vue': 20,
 };
 
 /** Remaining animated shadows per file. Lower these; never raise them. */
 const SHADOW_ALLOWLIST: Record<string, number> = {
-  'App.vue': 3,
 };
 
 function countTransitionAll(source: string): number {

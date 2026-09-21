@@ -20,7 +20,6 @@ import { checkBudgets, styleSurfaces } from './styleGuard';
 /** Remaining `!important` per file. Drive to zero. */
 const ALLOWLIST: Record<string, number> = {
   'components/RundownRow.vue': 4,
-  'App.vue': 1,
 };
 
 function countImportant(source: string): number {

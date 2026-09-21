@@ -1133,7 +1133,7 @@ onUnmounted(() => {
   grid-template-columns: var(--left-w) 8px 1fr;
   grid-template-rows: 1fr calc(58px * var(--ui-scale, 1.15) / 1.15);
   grid-template-areas: "library r1 rundown" "ctrl ctrl ctrl";
-  height: 100vh; gap: 0; padding: 5px; overflow: hidden;
+  height: 100vh; gap: 0; padding: var(--space-2); overflow: hidden;
   background: var(--bg-primary);
   user-select: none;
 }
@@ -1151,9 +1151,9 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  margin-top: 5px;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  margin-top: var(--space-2);
   position: relative;
   min-width: 0;
   overflow: visible;
@@ -1162,7 +1162,7 @@ onUnmounted(() => {
      every frame for a surface with the page background behind it. */
   background: var(--surface-panel-header);
   border-top: 1px solid var(--border-medium);
-  box-shadow: inset 0 1px 0 var(--highlight-top);
+  box-shadow: var(--shadow-highlight);
 }
 
 .ctrl-btn-glyph { flex-shrink:0; }
@@ -1173,24 +1173,24 @@ onUnmounted(() => {
   background: transparent;
   width: 100%;
   height: 100%;
-  transition: background 0.2s;
+  transition: background var(--dur-base);
 }
 .resizer:hover, .resizer:active {
   background: var(--bg-hover);
 }
 .resizer-left { grid-area: r1; }
 
-.ctrl-section    { display:flex; align-items:center; gap:6px; }
-.ctrl-label      { font-size:var(--fs-xs); color:var(--text-muted); letter-spacing:0.5px; font-weight:700; white-space:nowrap; }
-.ctrl-ingest { display:inline-flex; align-items:center; gap:4px; }
+.ctrl-section    { display:flex; align-items:center; gap:var(--space-2); }
+.ctrl-label      { font-size:var(--fs-xs); color:var(--text-muted); letter-spacing:var(--tracking-caps); font-weight:var(--fw-bold); white-space:nowrap; }
+.ctrl-ingest { display:inline-flex; align-items:center; gap:var(--space-1); }
 .ctrl-ingest .ctrl-label { font-size: var(--fs-xs); }
 .ctrl-value      {
-  font-size:var(--fs-md); color:var(--text-primary); font-weight:600; white-space:nowrap;
+  font-size:var(--fs-md); color:var(--text-primary); font-weight:var(--fw-semibold); white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; max-width:260px;
 }
 .ctrl-divider    { width:1px; height:26px; background:var(--border-subtle); flex-shrink:0; }
 .ctrl-play-wrap  { flex:0 0 auto; }
-.take-failure { display:flex; align-items:center; gap:5px; color:var(--accent-red); font-size:var(--fs-xs); font-weight:700; white-space:nowrap; }
+.take-failure { display:flex; align-items:center; gap:var(--space-2); color:var(--accent-red); font-size:var(--fs-xs); font-weight:var(--fw-bold); white-space:nowrap; }
 
 /* §7.2: a `.btn` with the control bar's metrics, and nothing else. Surface,
    border, radius, hover, focus ring, press and disabled all come from the
@@ -1210,8 +1210,8 @@ onUnmounted(() => {
    and the one disabled opacity, none of which it had. */
 .ctrl-btn {
   height: auto;
-  padding: 6px 14px;
-  gap: 6px;
+  padding: var(--space-2) var(--space-4);
+  gap: var(--space-2);
   line-height: inherit;
 }
 
@@ -1221,22 +1221,21 @@ onUnmounted(() => {
 
 .btn-play {
   background:var(--accent-cyan); border-color:var(--accent-cyan);
-  color:var(--text-on-accent); font-size:var(--fs-md); font-weight:800;
-  padding:6px 20px; letter-spacing:1px;
-  box-shadow:0 0 12px color-mix(in srgb, var(--accent-cyan) 35%, transparent);
+  color:var(--text-on-accent); font-size:var(--fs-md); font-weight:var(--fw-semibold);
+  padding:var(--space-2) var(--space-5); letter-spacing:var(--tracking-caps);
+  box-shadow:var(--glow-accent);
 }
 .btn-play:hover:not(:disabled) {
   background:color-mix(in srgb, var(--accent-cyan) 88%, var(--text-primary));
   border-color:color-mix(in srgb, var(--accent-cyan) 88%, var(--text-primary));
-  box-shadow:0 0 18px color-mix(in srgb, var(--accent-cyan) 60%, transparent);
 }
 
 .btn-stop {
   position: relative;
   background:var(--status-onair); border-color:var(--status-onair);
-  color:var(--text-on-danger); font-size:var(--fs-md); font-weight:800;
-  padding:6px 20px; letter-spacing:1px;
-  box-shadow:0 0 12px color-mix(in srgb, var(--status-onair) 40%, transparent);
+  color:var(--text-on-danger); font-size:var(--fs-md); font-weight:var(--fw-semibold);
+  padding:var(--space-2) var(--space-5); letter-spacing:var(--tracking-caps);
+  box-shadow:var(--glow-onair);
 }
 /* PERF F-22: STOP is visible for the whole playing session; its glow pulse
    used to repaint the button every frame (box-shadow keyframe). The peak
@@ -1247,26 +1246,9 @@ onUnmounted(() => {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 28px color-mix(in srgb, var(--status-onair) 80%, transparent);
-  animation: pulse-stop 1.5s ease-in-out infinite;
+  box-shadow: var(--glow-onair);
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
   will-change: opacity;
-}
-@keyframes pulse-stop {
-  0%,100% { opacity: 0; }
-  50%      { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .btn-stop::after,
-  .btn-live-now,
-  .btn-live-active,
-  .btn-live-armed,
-  .ctrl-nextup-dock.is-imminent,
-  .nextup-header,
-  .status-dot.pulse,
-  .halt-icon {
-    animation: none !important;
-  }
-  .btn-stop::after { opacity: 0.5; }
 }
 
 .btn-live {
@@ -1282,8 +1264,8 @@ onUnmounted(() => {
   position:relative;
   background:color-mix(in srgb, var(--status-onair) 12%, var(--bg-hover));
   border-color:var(--status-onair);
-  color:var(--status-onair); font-size:var(--fs-sm); font-weight:800;
-  padding:5px 12px; letter-spacing:0.5px; margin-left:0;
+  color:var(--status-onair); font-size:var(--fs-sm); font-weight:var(--fw-semibold);
+  padding:var(--space-2) var(--space-3); letter-spacing:var(--tracking-caps); margin-left:0;
 }
 /* PERF: the pill is on screen for the whole session, so the breathing glow
    lives on an overlay whose opacity animates on the compositor rather than a
@@ -1294,8 +1276,8 @@ onUnmounted(() => {
   inset:0;
   border-radius:inherit;
   pointer-events:none;
-  box-shadow:0 0 16px color-mix(in srgb, var(--status-onair) 50%, transparent);
-  animation:pulse-live-glow 2s ease-in-out infinite;
+  box-shadow:var(--glow-onair);
+  animation:onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
   will-change:opacity;
 }
 .btn-live-now:hover:not(:disabled) {
@@ -1306,8 +1288,8 @@ onUnmounted(() => {
 .btn-live-active {
   position:relative;
   background:var(--status-onair); border-color:var(--status-onair);
-  color:var(--text-on-danger); font-size:var(--fs-sm); font-weight:800;
-  padding:5px 12px; letter-spacing:0.5px; margin-left:0;
+  color:var(--text-on-danger); font-size:var(--fs-sm); font-weight:var(--fw-semibold);
+  padding:var(--space-2) var(--space-3); letter-spacing:var(--tracking-caps); margin-left:0;
 }
 .btn-live-active::after {
   content:'';
@@ -1315,28 +1297,27 @@ onUnmounted(() => {
   inset:0;
   border-radius:inherit;
   pointer-events:none;
-  box-shadow:0 0 24px color-mix(in srgb, var(--status-onair) 90%, transparent);
-  animation:pulse-live-glow 1s ease-in-out infinite;
+  box-shadow:var(--glow-onair);
+  animation:onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
   will-change:opacity;
 }
 .btn-live-active:hover:not(:disabled) {
   background:color-mix(in srgb, var(--status-onair) 85%, var(--text-primary));
 }
 
-@keyframes pulse-live-glow {
-  0%,100% { opacity:0.25; }
-  50%     { opacity:1; }
-}
 
 .lock-toggle-btn {
   display:flex;
   align-items:center;
-  gap:6px;
-  font-weight:700;
+  gap:var(--space-2);
+  font-weight:var(--fw-bold);
   font-size:var(--fs-xs);
-  padding:5px 12px;
-  border-radius:6px;
-  transition:all 0.15s;
+  padding:var(--space-2) var(--space-3);
+  border-radius:var(--radius-md);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
   user-select:none;
   background:color-mix(in srgb, var(--status-ready) 12%, transparent);
   border:1px solid color-mix(in srgb, var(--status-ready) 40%, transparent);
@@ -1360,14 +1341,14 @@ onUnmounted(() => {
    across the room has an edge of its own rather than floating on the strip. */
 .timecode {
   font-size: var(--fs-tc-hero);
-  font-weight: 700;
-  letter-spacing: 2.5px;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
   color: var(--accent-blue);
   text-shadow: 0 0 14px color-mix(in srgb, var(--accent-blue) 40%, transparent);
-  line-height: 1;
-  padding: 4px var(--space-3);
+  line-height: var(--lh-none);
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-md);
   background: var(--surface-inset);
   box-shadow: var(--shadow-inset);
@@ -1378,23 +1359,23 @@ onUnmounted(() => {
   width: 2px;
   height: 32px;
   background: var(--border-strong);
-  margin: 0 10px;
+  margin: 0 var(--space-3);
 }
 
 .ctrl-routing-fence {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   border: 1px solid color-mix(in srgb, var(--status-error) 35%, transparent);
-  border-radius: 6px;
-  padding: 2px 8px;
+  border-radius: var(--radius-md);
+  padding: var(--space-0) var(--space-2);
   background: color-mix(in srgb, var(--status-error) 6%, transparent);
 }
 
 .routing-fence-label {
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   color: var(--status-error);
   white-space: nowrap;
 }
@@ -1412,7 +1393,7 @@ onUnmounted(() => {
    never repaints. */
 .arm-ring {
   position: absolute;
-  inset: -3px;
+  inset: calc(var(--space-0) * -1);
   border-radius: inherit;
   pointer-events: none;
   background: conic-gradient(
@@ -1426,22 +1407,22 @@ onUnmounted(() => {
 }
 
 .control-bar .btn-live-now.btn-live-armed::after {
-  box-shadow: 0 0 22px color-mix(in srgb, var(--status-armed) 90%, transparent);
-  animation: pulse-live-glow 0.6s ease-in-out infinite;
+  box-shadow: var(--glow-armed);
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 /* §7 group 1: a status readout (not a control) beside its own action. */
 .ctrl-engine {
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .conn-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   color: var(--text-secondary);
   white-space: nowrap;
   cursor: default;
@@ -1449,7 +1430,7 @@ onUnmounted(() => {
 
 .conn-action-btn {
   font-size: var(--fs-xs);
-  padding: 5px 11px;
+  padding: var(--space-2) var(--space-3);
 }
 
 .conn-popover {
@@ -1457,8 +1438,8 @@ onUnmounted(() => {
   left: 0;
   bottom: calc(100% + 8px);
   width: 220px;
-  padding: 10px;
-  border-radius: 8px;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-medium);
   background: var(--bg-secondary);
   box-shadow: var(--shadow-3);
@@ -1469,12 +1450,12 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .conn-popover-title {
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--text-primary);
 }
 
@@ -1490,8 +1471,8 @@ onUnmounted(() => {
   font-size: var(--fs-xs);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-bottom: 10px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
 }
 
 .conn-popover-row {
@@ -1507,16 +1488,16 @@ onUnmounted(() => {
 .ctrl-telemetry-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .ctrl-nextup-dock {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 1px;
-  padding: 2px 8px;
-  border-radius: 6px;
+  gap: var(--space-0);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-md);
   background: var(--bg-surface-elevated);
   border: 1px solid var(--border-subtle);
   min-width: 140px;
@@ -1524,57 +1505,52 @@ onUnmounted(() => {
   height: 32px;
   box-sizing: border-box;
   /* PERF F-23: `all` also animated the dock width every time the label changed. */
-  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
 
 .ctrl-nextup-dock.is-imminent {
   border-color: var(--status-cued);
   background: color-mix(in srgb, var(--status-cued) 15%, transparent);
-  animation: pulse-imminent 1s infinite alternate;
-}
-
-@keyframes pulse-imminent {
-  0% { opacity: 0.35; }
-  100% { opacity: 1; }
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 .nextup-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
-  line-height: 1;
+  gap: var(--space-1);
+  line-height: var(--lh-none);
 }
 
 .nextup-kicker {
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   color: var(--text-muted);
 }
 
 .nextup-imminent-pill {
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-semibold);
   color: var(--text-on-warning);
   background: var(--status-armed);
-  padding: 0 3px;
-  border-radius: 2px;
-  line-height: 1.2;
-  animation: blink 1s step-end infinite;
+  padding: 0 var(--space-0);
+  border-radius: var(--radius-sm);
+  line-height: var(--lh-tight);
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 .nextup-body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  line-height: 1.2;
+  gap: var(--space-2);
+  line-height: var(--lh-tight);
 }
 
 .nextup-title {
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1585,12 +1561,12 @@ onUnmounted(() => {
 .nextup-duration-pill {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--accent-blue);
   font-variant-numeric: tabular-nums;
   background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
-  padding: 0 4px;
-  border-radius: 3px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
   white-space: nowrap;
 }
 
@@ -1600,54 +1576,45 @@ onUnmounted(() => {
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--border-strong);
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 .status-dot.connected,
 .status-dot.tone-ready {
   background: var(--status-ready);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--status-ready) 60%, transparent);
 }
 .status-dot.tone-warning {
   background: var(--status-warning);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--status-warning) 60%, transparent);
 }
 .status-dot.tone-error {
   background: var(--status-error);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--status-error) 70%, transparent);
 }
 .status-dot.tone-processing {
   background: var(--status-processing);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--status-processing) 70%, transparent);
 }
 .status-dot.tone-idle {
   background: var(--accent-purple);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-purple) 60%, transparent);
 }
 .status-dot.pulse {
-  animation: status-dot-pulse 1.4s ease-in-out infinite;
-}
-@keyframes status-dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.35; transform: scale(0.85); }
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 .monitor-badge {
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 1px 5px;
-  border-radius: 4px;
+  letter-spacing: var(--tracking-caps);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent-purple) 20%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent-purple) 50%, transparent);
   color: var(--accent-purple);
 }
 
 .ctrl-meta-dock {
-  margin-left: 8px;
+  margin-left: var(--space-2);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   position: relative;
 }
 
@@ -1655,15 +1622,14 @@ onUnmounted(() => {
    `--radius-md` everywhere but pills, and these two are pills. The bordered
    rest is the family's. */
 .ctrl-meta-btn {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border-color: var(--border-subtle);
   background: var(--bg-hover);
   transition:
     color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
     background-color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-fast) var(--ease-out),
-    transform 90ms var(--ease-out);
+    transform var(--dur-base) var(--ease-out);
 }
 
 .ctrl-meta-btn:hover:not(:disabled),
@@ -1671,7 +1637,6 @@ onUnmounted(() => {
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent);
   background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-secondary));
-  box-shadow: 0 0 16px color-mix(in srgb, var(--accent-blue) 15%, transparent);
 }
 
 /* Size and shape come from `.btn--icon.btn--sm` + `.ctrl-meta-btn`; this is
@@ -1687,7 +1652,6 @@ onUnmounted(() => {
 .ctrl-meta-brand.is-open {
   background: color-mix(in srgb, var(--accent-purple) 28%, transparent);
   border-color: color-mix(in srgb, var(--accent-purple) 75%, transparent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-purple) 45%, transparent);
   color: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
 }
 
@@ -1700,7 +1664,7 @@ onUnmounted(() => {
    own, because a question mark at `--fs-xs` is not a legible target. */
 .ctrl-meta-help {
   font-size: var(--fs-lg);
-  font-weight: 800;
+  font-weight: var(--fw-semibold);
 }
 
 .ctrl-meta-popover {
@@ -1708,8 +1672,8 @@ onUnmounted(() => {
   right: 0;
   bottom: calc(100% + 10px);
   width: 340px;
-  padding: 14px 14px 12px;
-  border-radius: 14px;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-radius: var(--radius-xl);
   border: 1px solid var(--border-medium);
   background: var(--bg-secondary);
   box-shadow: var(--shadow-3);
@@ -1725,55 +1689,55 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .ctrl-meta-kicker {
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.12em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
 .ctrl-meta-title {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   font-size: var(--fs-lg);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--text-primary);
 }
 
 .ctrl-meta-copy {
-  margin: 10px 0 0;
+  margin: var(--space-3) 0 0;
   font-size: var(--fs-sm);
-  line-height: 1.45;
+  line-height: var(--lh-body);
   color: var(--text-secondary);
 }
 
 .ctrl-meta-section-label {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
 .ctrl-meta-list {
-  margin: 10px 0 0;
-  padding-left: 16px;
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-4);
   display: grid;
-  gap: 7px;
+  gap: var(--space-2);
 }
 
 .ctrl-meta-list li {
   font-size: var(--fs-sm);
-  line-height: 1.42;
+  line-height: var(--lh-body);
   color: var(--text-secondary);
 }
 
 .ctrl-meta-close {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bg-hover);
   font-size: var(--fs-lg);
 }
@@ -1815,7 +1779,7 @@ onUnmounted(() => {
   display: none;
 }
 .control-bar:is([data-step='1'], [data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .ctrl-divider {
-  margin: 0 2px;
+  margin: 0 var(--space-0);
 }
 
 /* Step 2: the utilities keep their hit areas and lose their words. The lock's
@@ -1826,7 +1790,7 @@ onUnmounted(() => {
 }
 .control-bar:is([data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .ctrl-settings-btn,
 .control-bar:is([data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .lock-toggle-btn {
-  padding-inline: 10px;
+  padding-inline: var(--space-2);
 }
 
 /* Step 3: long labels become their short forms. The engine action keeps its
@@ -1835,7 +1799,7 @@ onUnmounted(() => {
   display: none;
 }
 .control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .conn-action-btn {
-  padding-inline: 10px;
+  padding-inline: var(--space-2);
 }
 
 .control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .btn-live-now .ctrl-btn-label,
@@ -1885,7 +1849,7 @@ onUnmounted(() => {
 .ctrl-utilities {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .ctrl-more-wrap {
@@ -1902,7 +1866,7 @@ onUnmounted(() => {
   min-width: 220px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0);
   z-index: var(--z-popover);
 }
 /* A status line, not a control: it reads the same as the rows around it but
@@ -1912,13 +1876,13 @@ onUnmounted(() => {
 }
 .popover-item-badge {
   margin-left: auto;
-  padding: 1px var(--space-2);
+  padding: var(--space-0) var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--bg-hover);
   color: var(--text-secondary);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
 }
 
 .halt-banner {
@@ -1929,22 +1893,22 @@ onUnmounted(() => {
   z-index: var(--z-banner);
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px 20px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
   background: color-mix(in srgb, var(--status-error) 15%, var(--bg-surface));
   border: 1px solid color-mix(in srgb, var(--status-error) 45%, transparent);
   backdrop-filter: blur(12px);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
   color: var(--text-primary);
   font-family: Inter, system-ui, sans-serif;
-  animation: slideDownFade 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slideDownFade var(--dur-slow) var(--ease-out);
 }
 
 .halt-content {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .persist-banner {
@@ -1961,7 +1925,7 @@ onUnmounted(() => {
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   max-width: min(480px, calc(100vw - 32px));
   pointer-events: none;
 }
@@ -1969,9 +1933,9 @@ onUnmounted(() => {
 .fault-toast {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 6px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--status-error) 14%, var(--bg-surface));
   border: 1px solid color-mix(in srgb, var(--status-error) 40%, transparent);
   backdrop-filter: blur(10px);
@@ -1979,15 +1943,15 @@ onUnmounted(() => {
   font-size: var(--fs-sm);
   font-family: Inter, system-ui, sans-serif;
   pointer-events: auto;
-  animation: slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slideDownFade var(--dur-slow) var(--ease-out);
 }
 
 .fault-source {
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   opacity: 0.85;
   text-transform: uppercase;
   font-size: var(--fs-xs);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
 }
 
 .fault-message {
@@ -2016,7 +1980,7 @@ onUnmounted(() => {
 
 .halt-icon {
   color: var(--status-error);
-  animation: pulseWarning 1.5s infinite ease-in-out;
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 .persist-banner .halt-icon {
@@ -2025,8 +1989,8 @@ onUnmounted(() => {
 
 .halt-text {
   font-size: var(--fs-md);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
 }
 
 .halt-dismiss-btn {
@@ -2034,13 +1998,13 @@ onUnmounted(() => {
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  padding: 6px 12px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
-  transition: background 0.2s, transform 0.1s;
+  transition: background var(--dur-base), transform var(--dur-fast);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-caps);
 }
 
 .halt-dismiss-btn:hover {
@@ -2062,17 +2026,5 @@ onUnmounted(() => {
   }
 }
 
-@keyframes pulseWarning {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  .arm-ring {
-    /* The sweep is a state readout, not decoration, so it stays -- but it is
-       driven by a property update, not an animation, so there is nothing to
-       disable here beyond documenting the intent. */
-    opacity: 0.9;
-  }
-}
 </style>
