@@ -73,7 +73,7 @@
 /* One disabled treatment, everywhere. */
 .btn:disabled,
 .btn[aria-disabled='true'] {
-  opacity: 0.4;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -176,7 +176,8 @@
 
 .input:disabled,
 .select:disabled {
-  opacity: 0.5;
+  /* §3.6: was 0.5 while every other disabled control in this file was 0.4. */
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -286,7 +287,7 @@
 }
 
 .popover-item:disabled {
-  opacity: 0.4;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -308,4 +309,20 @@
   .popover-surface {
     animation: none;
   }
+}
+
+/* §3.1 — the one uppercase micro-label.
+ *
+ * Twenty-six places re-declared the same four properties to say "this is a
+ * small capitalised label": column headers, STARTS, NEXT UP, ROUTING, the day
+ * separators, section headings in menus and Settings. They did not agree —
+ * nine sizes between 0.70 and 0.85rem and sixteen letter-spacings — so the
+ * labels that should have read as one family read as near-misses. */
+.label-caps {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  line-height: var(--lh-tight);
+  color: var(--text-muted);
 }

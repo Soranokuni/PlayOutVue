@@ -58,7 +58,6 @@
   --text-inverse: #0f172a;
 
   /* Borders & Glass */
-  --border-radius-base: 10px;
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-medium: rgba(255, 255, 255, 0.16);
   --border-strong: rgba(255, 255, 255, 0.28);
@@ -102,7 +101,6 @@
   --text-muted: #8b8c80;
   --text-inverse: #181915;
 
-  --border-radius-base: 8px;
   --border-subtle: rgba(255, 255, 255, 0.12);
   --border-medium: rgba(255, 255, 255, 0.22);
   --border-strong: rgba(255, 255, 255, 0.38);
@@ -147,7 +145,6 @@
   --text-muted: #64748b;
   --text-inverse: #ffffff;
 
-  --border-radius-base: 10px;
   --border-subtle: rgba(15, 23, 42, 0.12);
   --border-medium: rgba(15, 23, 42, 0.22);
   --border-strong: rgba(15, 23, 42, 0.38);
@@ -406,7 +403,6 @@
   --text-muted: #8a8c93;
   --text-inverse: #16171a;
 
-  --border-radius-base: 10px;
   --border-subtle: rgba(255, 255, 255, 0.07);
   --border-medium: rgba(255, 255, 255, 0.14);
   --border-strong: rgba(255, 255, 255, 0.26);
@@ -500,7 +496,6 @@
   --text-muted: #948a7c;
   --text-inverse: #171412;
 
-  --border-radius-base: 10px;
   --border-subtle: rgba(255, 255, 255, 0.07);
   --border-medium: rgba(255, 255, 255, 0.14);
   --border-strong: rgba(255, 255, 255, 0.26);
@@ -594,7 +589,6 @@
   --text-muted: #6b6560;
   --text-inverse: #fffdf9;
 
-  --border-radius-base: 10px;
   --border-subtle: rgba(28, 25, 23, 0.10);
   --border-medium: rgba(28, 25, 23, 0.20);
   --border-strong: rgba(28, 25, 23, 0.36);
@@ -667,31 +661,78 @@
   --z-toast: 1400;
   --z-banner: 1500;
 
+  /* §3.2 — the spacing grid. 2 · 4 · 8 · 12 · 16 · 20 · 24 · 32, and nothing
+     else. The recurring 6px / 10px / 14px of the old styles were not a scale;
+     they were 149 independent decisions. When 8 feels too wide between an icon
+     and its label, the answer is 4, never 6. */
+  --space-0: 2px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  --space-8: 32px;
 
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
+  /* §3.3 — the radius ladder. An element inside a padded container has
+     radius = outer − padding, floored at --radius-sm: a row (6) inside a panel
+     (12) with a 4–8px inset is correct by that rule. --radius-lg moved 10 → 8
+     because 8 was already the app's de-facto card radius in 17 places. */
+  --radius-sm: 4px;    /* chips, kbd, inline badges, menu items */
+  --radius-md: 6px;    /* buttons, inputs, rows */
+  --radius-lg: 8px;    /* cards, wells, docks, popovers */
+  --radius-xl: 12px;   /* panels, modals */
   --radius-pill: 999px;
+  /* Legacy alias. It used to be a *theme* property (10 / 8 / 10 across the
+     three themes), which made a panel's corner depend on its palette. */
+  --border-radius-base: var(--radius-xl);
 
-  /* Floor for user-facing text; micro-labels may not go below --fs-xs. */
-  --fs-xs: 0.7rem;
-  --fs-sm: 0.78rem;
-  --fs-md: 0.86rem;
-  --fs-lg: 0.95rem;
-  --fs-xl: 1.1rem;
+  /* §3.1 — type. Five sizes, four weights, three trackings, three leadings.
+     Floor for user-facing text; micro-labels may not go below --fs-xs. */
+  --fs-xs: 0.7rem;   /* micro-labels, chips, column headers. The floor. */
+  --fs-sm: 0.78rem;  /* secondary text, buttons, menu items */
+  --fs-md: 0.86rem;  /* body, row titles */
+  --fs-lg: 0.95rem;  /* panel titles, modal titles */
+  --fs-xl: 1.1rem;   /* the one display size outside timecode */
+
+  /* 800 and 900 are gone from the app: they were doing hierarchy work that
+     size and colour should do. */
+  --fw-regular: 400;  /* body copy, values */
+  --fw-medium: 500;   /* row titles, labels that must read at a glance */
+  --fw-semibold: 600; /* buttons, section titles, selected states */
+  --fw-bold: 700;     /* panel titles, timecode, the on-air pill. Nothing else. */
+
+  --tracking-tight: -0.01em; /* --fs-lg and up */
+  --tracking-normal: 0;
+  --tracking-caps: 0.06em;   /* every uppercase micro-label; the only tracking > 0 */
+
+  --lh-tight: 1.2;   /* single-line controls, titles */
+  --lh-body: 1.45;   /* paragraphs, hints, descriptions */
+  --lh-none: 1;      /* timecode, chips */
 
   --control-h-sm: var(--btn-h-compact);
   --control-h-md: var(--btn-h-standard);
 
-  --dur-fast: 120ms;
-  --dur-base: 180ms;
+  /* §3.4 — motion. Two durations for interaction, one for entrances, one
+     curve. `transition: all` is banned, and box-shadow is never transitioned
+     or animated: a glow that must pulse is a pseudo-element whose *opacity*
+     moves. */
+  --dur-fast: 120ms;  /* colour, opacity, border: hover/press/focus */
+  --dur-base: 180ms;  /* transform: things that move */
+  --dur-slow: 260ms;  /* modal scrim + panel entrance only */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* only the two on-air pulses */
+
+  /* §3.6 — two opacities. The app had six disabled treatments. */
+  --opacity-disabled: 0.4;
+  --opacity-muted: 0.6;   /* played rows, secondary decoration */
+
+  /* §3.7 — the emphasis border. Toasts and the trim panel's in/out markers
+     are the same device, so they are the same width. */
+  --border-accent-w: 3px;
+
+  /* §3.9 — the one stacking token a component could not express locally. */
+  --z-context-menu-nested: 1250;
 
   /* §3.5: the complete glow vocabulary. Three glows, one blur radius each,
      every one derived from a status token — so they are written once here

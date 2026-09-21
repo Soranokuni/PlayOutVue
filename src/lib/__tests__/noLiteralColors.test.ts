@@ -121,7 +121,9 @@ function themeBlocks(css: string, selector: string): string {
   return bodies.join('\n');
 }
 
-const LITERAL = /#[0-9a-f]{3,8}\b|rgba?\(/gi;
+/* §7.3: hsl(), oklch() and hwb() spell the same literal a different way; the
+   guard cannot be bypassed by changing colour space. */
+const LITERAL = /#[0-9a-f]{3,8}\b|(?:rgba?|hsla?|oklch|oklab|lch|lab|hwb)\(/gi;
 
 function vueFiles(dir: string): string[] {
   const out: string[] = [];
