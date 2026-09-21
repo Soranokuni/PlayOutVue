@@ -44,6 +44,7 @@ interface Harness {
     stateToPreset: (extra?: Record<string, unknown>) => Record<string, unknown>;
     stateFromPreset: (preset: Record<string, unknown>) => string[];
     coerceValue: (entry: SchemaEntry, raw: unknown) => unknown;
+    resolveFontFamily: (keyOrCss: unknown) => string;
 }
 
 function installGsapStub() {
@@ -87,7 +88,7 @@ function loadHarness(): Harness {
     let harness: Harness | undefined;
     for (const code of blocks) {
         const exported = code.includes('const CONTROL_SCHEMA')
-            ? code + '\n;return { CONTROL_SCHEMA, cgState, stateSet, stateGet, stateToPreset, stateFromPreset, coerceValue };'
+            ? code + '\n;return { CONTROL_SCHEMA, cgState, stateSet, stateGet, stateToPreset, stateFromPreset, coerceValue, resolveFontFamily };'
             : code;
         // eslint-disable-next-line no-new-func -- evaluating the template under test
         const result = new Function(exported).call(globalThis);
@@ -95,6 +96,27 @@ function loadHarness(): Harness {
     }
     if (!harness) throw new Error('CONTROL_SCHEMA block not found in the template');
     return harness;
+}
+
+/**
+ * Structural comparison that ignores key order.
+ *
+ * The Rust baker writes the sidecar with its keys sorted; the schema emits
+ * nested objects like descriptorTexts and tagTexts in schema order. Those are
+ * the same preset, and a JSON.stringify comparison would call them different.
+ */
+function sameValue(a: unknown, b: unknown): boolean {
+    const normalise = (v: unknown): unknown => {
+        if (Array.isArray(v)) return v.map(normalise);
+        if (v && typeof v === 'object') {
+            const src = v as Record<string, unknown>;
+            const out: Record<string, unknown> = {};
+            for (const k of Object.keys(src).sort()) out[k] = normalise(src[k]);
+            return out;
+        }
+        return v;
+    };
+    return JSON.stringify(normalise(a)) === JSON.stringify(normalise(b));
 }
 
 /** A deterministic value that is legal for this entry but not its default. */
@@ -244,18 +266,19 @@ describe('CG advisory: control schema', () => {
         const drifted: string[] = [];
         for (const [key, value] of Object.entries(sidecar)) {
             if (key === 'ratingFont') {
-                // Normalised on purpose: presets written before the font
-                // pickers store a resolved CSS stack here, and the schema
-                // stores the key it resolves from. Nothing is lost as long as
-                // the stack is still reachable, which fontFamily carries.
-                expect(String(out.fontFamily)).toBe(String(value));
+                // A preset may store either form here: older files hold a
+                // resolved CSS stack, ones saved by the current studio hold the
+                // key it resolves from. Both are correct, so the property to
+                // check is that no font information is lost -- not which of the
+                // two spellings happens to be on disk today.
+                expect(h.resolveFontFamily(out.ratingFont)).toBe(h.resolveFontFamily(value));
                 continue;
             }
             if (out[key] === undefined) {
                 drifted.push(`${key} was dropped`);
             } else if (typeof value === 'number' || typeof out[key] === 'number') {
                 if (Number(out[key]) !== Number(value)) drifted.push(`${key}: ${String(value)} -> ${String(out[key])}`);
-            } else if (JSON.stringify(out[key]) !== JSON.stringify(value)) {
+            } else if (!sameValue(out[key], value)) {
                 drifted.push(`${key}: ${JSON.stringify(value)} -> ${JSON.stringify(out[key])}`);
             }
         }
