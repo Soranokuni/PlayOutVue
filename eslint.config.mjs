@@ -21,6 +21,12 @@ export default defineConfigWithVueTs(
       'src-tauri/**',
       'public/**',
       'src/assets/templates/**',
+      // Fragments of the CG advisory template, not modules: they are
+      // concatenated into one classic <script> scope by
+      // scripts/build-advisory.mjs, so every cross-part reference reads as an
+      // undefined global and every handler as an unused function. The template's
+      // own guard tests cover it (advisoryBuild, advisoryOnAir, templatesParity).
+      'templates-src/**',
     ],
   },
   pluginVue.configs['flat/essential'],

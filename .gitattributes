@@ -1,0 +1,12 @@
+# The CG advisory template is assembled from templates-src/advisory/ by
+# scripts/build-advisory.mjs, and the two committed copies must be byte-identical
+# (src/lib/__tests__/templatesParity.test.ts). The build concatenates the parts
+# verbatim, so a checkout that rewrote their line endings would produce a mixed
+# file. Pin both the sources and the output to CRLF on every platform.
+templates-src/advisory/**  text eol=crlf
+templates-src/advisory/*.md text eol=lf
+public/templates/playout/*.html      text eol=crlf
+src/assets/templates/playout/*.html  text eol=crlf
+
+# Vendored faces are binary.
+*.woff2 binary

@@ -1,0 +1,19 @@
+    /* =========================================================================
+       CORE TRANSPARENCY FOUNDATION (CASPARCG BROADCAST OVERLAY LAYER 32)
+       100% transparent root, transparent body, and transparent canvas by default
+       ========================================================================= */
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: hidden !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      font-family: var(--cg-font-family);
+      color: #e2e8f0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+

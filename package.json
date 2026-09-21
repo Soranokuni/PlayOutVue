@@ -16,9 +16,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build:cg": "node scripts/build-advisory.mjs",
+    "predev": "npm run build:cg",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "build-only": "vite build",
+    "prebuild": "npm run build:cg",
     "type-check": "vue-tsc --build",
     "test": "vitest run",
     "lint": "eslint . --max-warnings=1000",
