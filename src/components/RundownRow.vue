@@ -336,7 +336,8 @@ const itemTooltip = computed(() => {
   cursor: pointer;
   user-select: none;
   transition: background 0.12s, border-color 0.12s, transform 0.12s;
-  background: var(--bg-secondary);
+  /* §5.3: a row is its own surface, not the panel it sits in. */
+  background: var(--surface-row);
 }
 .rw-row:hover { background: var(--bg-hover); }
 /* §6.2 precedence, top wins:
@@ -347,7 +348,7 @@ const itemTooltip = computed(() => {
    blue `!important`. */
 .rw-row.selected {
   background: var(--bg-active) !important;
-  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent) !important;
 }
 .rw-row.playing  {
   background: color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary)) !important;

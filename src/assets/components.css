@@ -61,7 +61,7 @@
 }
 
 .btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-hover));
   border-color: var(--border-strong);
 }
 
@@ -84,14 +84,14 @@
 }
 
 .btn--primary {
-  background: var(--accent-blue);
-  border-color: var(--accent-blue);
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
   color: var(--text-on-accent);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 85%, var(--text-primary));
-  border-color: color-mix(in srgb, var(--accent-blue) 85%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-primary) 85%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--accent-primary) 85%, var(--text-primary));
 }
 
 .btn--secondary {
@@ -170,7 +170,7 @@
 .input:focus,
 .select:focus {
   outline: none;
-  border-color: var(--accent-blue);
+  border-color: var(--accent-primary);
   box-shadow: var(--focus-ring);
 }
 
@@ -277,7 +277,7 @@
 }
 
 .popover-item:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
 }
 
 .popover-item:focus-visible {

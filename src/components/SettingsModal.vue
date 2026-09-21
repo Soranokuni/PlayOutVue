@@ -25,6 +25,8 @@ import BaseModal from './ui/BaseModal.vue';
 import BaseButton from './ui/BaseButton.vue';
 import ModalFooterActions from './ui/ModalFooterActions.vue';
 import RadioCardGroup from './ui/RadioCardGroup.vue';
+import { THEMES, DEFAULT_THEME_ID, type ThemeDefinition, type ThemeId } from '../config/themes';
+import { applyTheme, applyUiScale } from '../lib/theme';
 import AppIcon from './ui/AppIcon.vue';
 import type { IconName } from './ui/icons';
 
@@ -188,7 +190,7 @@ const localState = ref({
     localMediaPath: '',
     ffmpegBinPath: '',
     debugMode: false,
-    theme: 'dark' as 'dark' | 'monokai' | 'light',
+    theme: DEFAULT_THEME_ID as ThemeId,
     uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',
     qcSensitivity: 'production' as 'strict' | 'production' | 'lenient',
     decklinkOutputName: '',
@@ -485,32 +487,34 @@ const snapshotOf = (value: unknown) => JSON.stringify(value);
 
 const isDirty = computed(() => snapshotOf(localState.value) !== savedSnapshot.value);
 
+/* --- Appearance (§5.2: the cards and their swatches come from the registry) - */
+
+const themeOptions = (THEMES as readonly ThemeDefinition[]).map((theme) => ({
+    value: theme.id as string,
+    title: theme.title,
+    ...(theme.badge ? { badge: theme.badge } : {}),
+    description: theme.description,
+}));
+
+const swatchFor = (id: string) =>
+    (THEMES as readonly ThemeDefinition[]).find((theme) => theme.id === id)?.swatch ?? THEMES[0].swatch;
+
 /**
  * UI F-07: theme and density changed `localState` only, so the operator had to
  * Save and reopen the dialog to see a theme. They now apply to the document the
  * moment they change, and Cancel puts the previous pair back.
  *
- * This writes the same body class and data attribute the App.vue watcher does;
+ * This writes the same body class and data attribute the App.vue watcher does
+ * -- literally the same functions, since §2.1 moved both into `lib/theme.ts`;
  * once Save commits the value to the store, that watcher takes over again.
  */
-const applyThemePreview = (theme: string) => {
-    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme');
-    if (theme === 'light') document.body.classList.add('light-theme');
-    else if (theme === 'monokai') document.body.classList.add('monokai-theme');
-    else document.body.classList.add('dark-theme');
-};
-
-const applyScalePreview = (scale: string) => {
-    document.documentElement.setAttribute('data-ui-scale', scale || 'comfortable');
-};
-
-watch(() => localState.value.theme, (theme) => applyThemePreview(theme));
-watch(() => localState.value.uiScale, (scale) => applyScalePreview(scale));
+watch(() => localState.value.theme, (theme) => applyTheme(theme));
+watch(() => localState.value.uiScale, (scale) => applyUiScale(scale));
 
 /** Puts the document back to whatever the store still holds. */
 const revertAppearancePreview = () => {
-    applyThemePreview(settings.theme);
-    applyScalePreview(settings.uiScale);
+    applyTheme(settings.theme);
+    applyUiScale(settings.uiScale);
 };
 
 /* --- Validation (§4.3). Shown at the field, not in a modal wall of text. --- */
@@ -782,20 +786,12 @@ const openTemplateDir = async () => {
           <section class="settings-section">
             <h3 class="section-title">Theme</h3>
             <p class="section-hint">Applies immediately. Cancel puts the previous theme back.</p>
-            <RadioCardGroup
-              v-model="localState.theme"
-              label="Theme"
-              :options="[
-                { value: 'dark', title: 'Broadcast Midnight', badge: 'Default', description: 'Deep slate, low glare — for dim control rooms.' },
-                { value: 'monokai', title: 'Engineering Dark', description: 'Higher contrast charcoal with saturated accents.' },
-                { value: 'light', title: 'Studio Light', description: 'Daylight surfaces for well-lit rooms.' }
-              ]"
-            >
+            <RadioCardGroup v-model="localState.theme" label="Theme" :options="themeOptions">
               <template #preview="{ option }">
-                <span class="theme-swatch" :class="`swatch-${option.value}`" aria-hidden="true">
-                  <span class="swatch-panel"></span>
-                  <span class="swatch-row"></span>
-                  <span class="swatch-accent"></span>
+                <span class="theme-swatch" aria-hidden="true">
+                  <span class="swatch-chip" :style="{ background: swatchFor(option.value).panel }"></span>
+                  <span class="swatch-chip" :style="{ background: swatchFor(option.value).row }"></span>
+                  <span class="swatch-chip swatch-accent" :style="{ background: swatchFor(option.value).accent }"></span>
                 </span>
               </template>
             </RadioCardGroup>
@@ -1314,7 +1310,7 @@ const openTemplateDir = async () => {
 .settings-tab-btn.active {
     background: var(--bg-active);
     color: var(--text-primary);
-    border-color: color-mix(in srgb, var(--accent-blue) 35%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 35%, transparent);
 }
 
 .rail-empty {
@@ -1411,7 +1407,7 @@ const openTemplateDir = async () => {
 
 .range {
     width: 100%;
-    accent-color: var(--accent-blue);
+    accent-color: var(--accent-primary);
 }
 
 .server-actions {
@@ -1511,7 +1507,13 @@ const openTemplateDir = async () => {
     color: var(--text-secondary);
 }
 
-/* --- Theme swatch (§4.2: a real preview, not a text badge) -------------- */
+/* --- Theme swatch (§4.2: a real preview, not a text badge) --------------
+
+   A swatch has to paint its own theme's palette while a *different* theme is
+   active, so its three colours cannot be tokens. §5.2 moved them out of this
+   stylesheet into `config/themes.ts` and binds them through `:style`: they are
+   data about a theme, not a style of this component, and this file is now at
+   zero colour literals. */
 
 .theme-swatch {
     display: inline-flex;
@@ -1522,9 +1524,7 @@ const openTemplateDir = async () => {
     border-radius: var(--radius-sm);
 }
 
-.swatch-panel,
-.swatch-row,
-.swatch-accent {
+.swatch-chip {
     display: block;
     width: 10px;
     height: 14px;
@@ -1534,21 +1534,6 @@ const openTemplateDir = async () => {
 .swatch-accent {
     width: 6px;
 }
-
-/* The swatches show each theme's own palette, so they are the one place in
-   this file that names colours directly rather than following the active
-   theme -- a light swatch must look light while the dark theme is on. */
-.swatch-dark .swatch-panel { background: #0f172a; }
-.swatch-dark .swatch-row { background: #334155; }
-.swatch-dark .swatch-accent { background: #38bdf8; }
-
-.swatch-monokai .swatch-panel { background: #22231e; }
-.swatch-monokai .swatch-row { background: #3e4036; }
-.swatch-monokai .swatch-accent { background: #a6e22e; }
-
-.swatch-light .swatch-panel { background: #ffffff; }
-.swatch-light .swatch-row { background: #e2e8f0; }
-.swatch-light .swatch-accent { background: #0284c7; }
 
 /* --- Connection probe & danger zone ------------------------------------- */
 

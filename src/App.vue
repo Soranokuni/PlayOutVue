@@ -21,6 +21,7 @@ import AppIcon from './components/ui/AppIcon.vue';
 import ToastHost from './components/ui/ToastHost.vue';
 import Tooltip from './components/ui/Tooltip.vue';
 import { vTooltip } from './lib/tooltip';
+import { applyTheme, applyUiScale } from './lib/theme';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
@@ -262,18 +263,12 @@ const isResizing = ref<'left'|null>(null);
 let pendingResizeX = 0;
 let resizeFrame = 0;
 
-// Theme and Scale watchers
-watch(() => settings.theme, (theme) => {
-    document.body.classList.remove('light-theme', 'monokai-theme', 'dark-theme');
-    if (theme === 'light') document.body.classList.add('light-theme');
-    else if (theme === 'monokai') document.body.classList.add('monokai-theme');
-    else document.body.classList.add('dark-theme');
-}, { immediate: true });
+// Theme and Scale watchers. Both go through `lib/theme.ts`, which is also
+// what the Settings preview calls -- the two used to be copy-pasted, and §2.1
+// needs the transition suppression to happen on every path.
+watch(() => settings.theme, (theme) => applyTheme(theme), { immediate: true });
 
-watch(() => settings.uiScale, (scale) => {
-    const validScale = scale || 'comfortable';
-    document.documentElement.setAttribute('data-ui-scale', validScale);
-}, { immediate: true });
+watch(() => settings.uiScale, (scale) => applyUiScale(scale), { immediate: true });
 
 watch(
   () => ({

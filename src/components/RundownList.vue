@@ -1948,8 +1948,8 @@ onUnmounted(() => {
   border-color: var(--border-medium);
 }
 .playlist-tab.is-active {
-  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent);
-  background: color-mix(in srgb, var(--accent-blue) 14%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary));
 }
 
 /* §7.4: the active tab's 2 px underline. It is one element per tab rather than
@@ -1965,7 +1965,7 @@ onUnmounted(() => {
   bottom: 2px;
   height: 2px;
   border-radius: var(--radius-pill);
-  background: var(--accent-blue);
+  background: var(--accent-primary);
   transform: scaleX(0);
   transform-origin: center;
   transition: transform var(--dur-base) var(--ease-out);
@@ -2177,8 +2177,8 @@ onUnmounted(() => {
   min-width: 120px;
 }
 .crawl-input:focus {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary) 25%, transparent);
 }
 /* §7.2: surface, border, radius, hover, focus, press and disabled come from
    `.btn`. What is genuinely this control's own is its on-air tone and the

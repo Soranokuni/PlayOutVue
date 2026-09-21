@@ -159,8 +159,8 @@ const tabIndexFor = (option: RadioCardOption, index: number) => {
 }
 
 .radio-card.is-selected {
-  border-color: var(--accent-blue);
-  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-hover));
 }
 
 .radio-card.is-disabled {
@@ -185,7 +185,7 @@ const tabIndexFor = (option: RadioCardOption, index: number) => {
 }
 
 .radio-card.is-selected .radio-card-badge {
-  color: var(--accent-blue);
+  color: var(--accent-primary);
 }
 
 .radio-card-title {

@@ -337,7 +337,7 @@ const runSelected = () => {
 
 .palette-search-icon {
   font-size: 1.1rem;
-  color: var(--accent-blue);
+  color: var(--accent-primary);
 }
 
 .palette-input {

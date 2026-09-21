@@ -2959,8 +2959,8 @@ const menuItems = computed<MenuItem[]>(() => {
   color: var(--text-primary); border-radius: 6px; font-size: 0.84rem; padding: 6px 10px;
 }
 .glass-input:focus {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary) 25%, transparent);
 }
 
 
@@ -3029,7 +3029,8 @@ const menuItems = computed<MenuItem[]>(() => {
   border: 1px solid transparent;
   transition: background 0.12s ease, border-color 0.12s ease;
   cursor: pointer;
-  background: var(--bg-secondary);
+  /* §5.3: a row is its own surface, not the panel it sits in. */
+  background: var(--surface-row);
 }
 .lib-row.is-folder {
   background: var(--bg-hover);
@@ -3052,7 +3053,7 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-row.is-asset.is-selected:hover,
 .lib-row.is-folder.is-selected:hover {
   background: var(--bg-active);
-  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
 }
 
 /* Tree Indentation Guides */

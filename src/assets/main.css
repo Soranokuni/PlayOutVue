@@ -23,12 +23,23 @@
   --surface-panel: #0f172a;
   --surface-panel-header: #16203a;
   --surface-inset: #060a12;
+  /* §5.3: a row is not the panel it sits in. The two themes that give rows
+     their own step (Graphite, Paper) need the distinction to exist everywhere,
+     so every theme names it even where the value is the panel's. */
+  --surface-row: var(--bg-secondary);
   --highlight-top: rgba(255, 255, 255, 0.06);
   --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
   --danger-tint: color-mix(in srgb, var(--status-error) 6%, transparent);
   --danger-tint-strong: color-mix(in srgb, var(--status-error) 16%, transparent);
 
-  /* Accents */
+  /* Accents.
+
+     §5.1: `--accent-primary` is the action colour — primary buttons, focus,
+     selection, the active tab. `--accent-blue` keeps its *content* meaning
+     (type "show", processing, cued). They are the same hue in the three
+     original themes and deliberately different in Ember, whose primary is
+     amber; a theme with an amber primary cannot honestly be called blue. */
+  --accent-primary: var(--accent-blue);
   --accent-blue: #38bdf8;
   --accent-cyan: #00e5ff;
   --accent-red: #f43f5e;
@@ -70,11 +81,13 @@
   --surface-panel: #22231e;
   --surface-panel-header: #2d2f28;
   --surface-inset: #141510;
+  --surface-row: var(--bg-secondary);
   --highlight-top: rgba(255, 255, 255, 0.07);
   --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.4);
   --danger-tint: color-mix(in srgb, var(--status-error) 6%, transparent);
   --danger-tint-strong: color-mix(in srgb, var(--status-error) 16%, transparent);
 
+  --accent-primary: var(--accent-blue);
   --accent-blue: #66d9ef;
   --accent-cyan: #66d9ef;
   --accent-red: #f92672;
@@ -112,12 +125,14 @@
   --surface-panel: #ffffff;
   --surface-panel-header: #eef2f7;
   --surface-inset: #e2e8f0;
+  --surface-row: var(--bg-secondary);
   --highlight-top: rgba(255, 255, 255, 0.7);
   --shadow-inset: inset 0 1px 2px rgba(15, 23, 42, 0.12);
   --danger-tint: color-mix(in srgb, var(--status-error) 6%, transparent);
   --danger-tint-strong: color-mix(in srgb, var(--status-error) 14%, transparent);
 
   /* §10: white on #0284c7 is 4.10:1; #0369a1 is 5.93:1. */
+  --accent-primary: var(--accent-blue);
   --accent-blue: #0369a1;
   --accent-cyan: #0891b2;
   --accent-red: #dc2626;
@@ -203,7 +218,7 @@
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.45);
   --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.55);
 
-  --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-blue);
+  --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-primary);
 
   /* Floating surfaces (menus, popovers, dropdowns).
 
@@ -263,7 +278,7 @@
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.6);
 
-  --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-blue);
+  --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-primary);
 
   --surface-popover: #2c2e26;
   --surface-popover-border: rgba(255, 255, 255, 0.18);
@@ -317,7 +332,7 @@
   --shadow-2: 0 4px 12px rgba(15, 23, 42, 0.12);
   --shadow-3: 0 12px 32px rgba(15, 23, 42, 0.18);
 
-  --focus-ring: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--accent-blue);
+  --focus-ring: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--accent-primary);
 
   /* A light popover cannot go lighter than white, so it separates by border
      and shadow instead. */
@@ -327,6 +342,315 @@
   /* A light theme needs a lighter scrim: pure black at 72% reads as a fault. */
   --backdrop: rgba(15, 23, 42, 0.42);
   --backdrop-strong: rgba(15, 23, 42, 0.62);
+}
+
+/* ==========================================================================
+   FINAL POLISH §6 — three designed themes
+
+   Each is a deliberate answer to a room, not a recolour:
+
+   - Graphite is the *achromatic* dark. Broadcast Midnight is a blue slate, and
+     in a colour-critical room that blue cast biases the operator's eye against
+     the picture monitors. Graphite's greys carry no hue (#16171a is two units
+     of blue, the minimum that stops a grey reading brown). Its accent is a calm
+     sky blue and its status colours are the standard set, so nothing an
+     operator has learned moves.
+
+   - Ember is the *overnight* dark. Warm near-black surfaces and an amber
+     primary lower the blue-light load of a six-hour night shift. The on-air red
+     stays the standard #e11d48 — red is the one colour that must never be
+     re-tuned per theme — and the informational blue is kept but muted so
+     "show" and "processing" stay distinguishable from the amber.
+
+   - Paper is the *warm* light. Studio Light is a cool slate white; Paper is
+     off-white with ink text and a deep indigo primary, and its rows sit one
+     step below the panel so the list reads as sheets on a desk without needing
+     a border on every row.
+
+   Every foreground/background pair below clears the 4.5:1 floor that
+   `themeContrast.test.ts` enforces.
+   ========================================================================== */
+
+/* Graphite — achromatic dark for colour-critical rooms */
+.graphite-theme {
+  --bg-primary: #0e0f11;
+  --bg-secondary: #16171a;
+  --bg-tertiary: #1f2024;
+  --bg-surface: rgba(31, 32, 36, 0.92);
+  --bg-surface-elevated: #2a2b30;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(124, 196, 250, 0.16);
+  --bg-input: rgba(14, 15, 17, 0.85);
+
+  --surface-panel: #16171a;
+  --surface-panel-header: #1c1d21;
+  --surface-inset: #0a0b0d;
+  --surface-row: #1a1b1f;
+  --highlight-top: rgba(255, 255, 255, 0.05);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --danger-tint: color-mix(in srgb, var(--status-error) 6%, transparent);
+  --danger-tint-strong: color-mix(in srgb, var(--status-error) 16%, transparent);
+
+  --accent-primary: #7cc4fa;
+  --accent-blue: #7cc4fa;
+  --accent-cyan: #5eead4;
+  --accent-red: #f0506e;
+  --accent-green: #4ade80;
+  --accent-yellow: #fbbf24;
+  --accent-orange: #fb923c;
+  --accent-purple: #c084fc;
+  --onair-glow: rgba(225, 29, 72, 0.4);
+
+  --text-primary: #f2f2f0;
+  --text-secondary: #a8a9ae;
+  --text-muted: #8a8c93;
+  --text-inverse: #16171a;
+
+  --border-radius-base: 10px;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-medium: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.26);
+  --glass-border: rgba(255, 255, 255, 0.07);
+  --glass-bg: rgba(22, 23, 26, 0.92);
+  color-scheme: dark;
+}
+
+.graphite-theme {
+  --text-on-accent: #0b1a26;
+  --text-on-danger: #ffffff;
+  --text-on-warning: #1a1206;
+  --text-on-success: #04150c;
+
+  --status-ready: #4ade80;
+  --status-processing: #7cc4fa;
+  --status-warning: #fbbf24;
+  --status-error: #e11d48;
+  --status-offline: #6b6d73;
+  --status-onair: #e11d48;
+  --status-armed: #fb923c;
+  --status-cued: #5eead4;
+  --status-unsaved: #fbbf24;
+
+  --rating-k: #4ade80;
+  --rating-k-fg: #04150c;
+  --rating-8: #22d3ee;
+  --rating-8-fg: #04181c;
+  --rating-12: #facc15;
+  --rating-12-fg: #1a1602;
+  --rating-16: #fb923c;
+  --rating-16-fg: #1c0c02;
+  --rating-18: #dc2626;
+  --rating-18-fg: #ffffff;
+  --rating-tp: #9333ea;
+  --rating-tp-fg: #ffffff;
+
+  --type-movie: #f0506e;
+  --type-show: #7cc4fa;
+  --type-documentary: #c084fc;
+  --type-news: #4ade80;
+
+  --tag-spot: #fb923c;
+  --tag-telemarketing: #c084fc;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.6);
+
+  --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-primary);
+
+  --surface-popover: #1f2024;
+  --surface-popover-border: rgba(255, 255, 255, 0.12);
+
+  --backdrop: rgba(0, 0, 0, 0.72);
+  --backdrop-strong: rgba(0, 0, 0, 0.86);
+}
+
+/* Ember — warm near-black with an amber primary, for overnight shifts */
+.ember-theme {
+  --bg-primary: #0c0a09;
+  --bg-secondary: #171412;
+  --bg-tertiary: #221e1b;
+  --bg-surface: rgba(34, 30, 27, 0.92);
+  --bg-surface-elevated: #2d2724;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(245, 181, 63, 0.16);
+  --bg-input: rgba(12, 10, 9, 0.85);
+
+  --surface-panel: #171412;
+  --surface-panel-header: #1d1916;
+  --surface-inset: #080706;
+  --surface-row: #1b1715;
+  --highlight-top: rgba(255, 255, 255, 0.05);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+  --danger-tint: color-mix(in srgb, var(--status-error) 6%, transparent);
+  --danger-tint-strong: color-mix(in srgb, var(--status-error) 16%, transparent);
+
+  --accent-primary: #f5b53f;
+  --accent-blue: #8fb8e8;
+  --accent-cyan: #67e8f9;
+  --accent-red: #f0506e;
+  --accent-green: #4ade80;
+  --accent-yellow: #fbbf24;
+  --accent-orange: #fb923c;
+  --accent-purple: #c4a4f5;
+  --onair-glow: rgba(225, 29, 72, 0.4);
+
+  --text-primary: #f5efe6;
+  --text-secondary: #b8ad9f;
+  --text-muted: #948a7c;
+  --text-inverse: #171412;
+
+  --border-radius-base: 10px;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-medium: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.26);
+  --glass-border: rgba(255, 255, 255, 0.07);
+  --glass-bg: rgba(23, 20, 18, 0.92);
+  color-scheme: dark;
+}
+
+.ember-theme {
+  --text-on-accent: #1a1206;
+  --text-on-danger: #ffffff;
+  --text-on-warning: #1a1206;
+  --text-on-success: #04150c;
+
+  --status-ready: #4ade80;
+  --status-processing: #8fb8e8;
+  --status-warning: #fbbf24;
+  --status-error: #e11d48;
+  --status-offline: #6f665c;
+  --status-onair: #e11d48;
+  --status-armed: #fb923c;
+  --status-cued: #67e8f9;
+  --status-unsaved: #fbbf24;
+
+  --rating-k: #4ade80;
+  --rating-k-fg: #04150c;
+  --rating-8: #22d3ee;
+  --rating-8-fg: #04181c;
+  --rating-12: #facc15;
+  --rating-12-fg: #1a1602;
+  --rating-16: #fb923c;
+  --rating-16-fg: #1c0c02;
+  --rating-18: #dc2626;
+  --rating-18-fg: #ffffff;
+  --rating-tp: #9333ea;
+  --rating-tp-fg: #ffffff;
+
+  --type-movie: #f0506e;
+  --type-show: #8fb8e8;
+  --type-documentary: #c4a4f5;
+  --type-news: #4ade80;
+
+  --tag-spot: #fb923c;
+  --tag-telemarketing: #c4a4f5;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.55);
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.65);
+
+  --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-primary);
+
+  --surface-popover: #221e1b;
+  --surface-popover-border: rgba(255, 255, 255, 0.12);
+
+  --backdrop: rgba(0, 0, 0, 0.74);
+  --backdrop-strong: rgba(0, 0, 0, 0.88);
+}
+
+/* Paper — warm off-white with ink text and an indigo primary */
+.paper-theme {
+  --bg-primary: #f3efe7;
+  --bg-secondary: #fffdf9;
+  --bg-tertiary: #e8e2d6;
+  --bg-surface: #fffdf9;
+  --bg-surface-elevated: #faf7f1;
+  --bg-hover: rgba(28, 25, 23, 0.05);
+  --bg-active: rgba(67, 56, 202, 0.12);
+  --bg-input: #fffdf9;
+
+  --surface-panel: #fffdf9;
+  --surface-panel-header: #f5f1e9;
+  --surface-inset: #e8e2d6;
+  --surface-row: #f9f6f0;
+  --highlight-top: rgba(255, 255, 255, 0.8);
+  --shadow-inset: inset 0 1px 2px rgba(28, 25, 23, 0.12);
+  --danger-tint: color-mix(in srgb, var(--status-error) 6%, transparent);
+  --danger-tint-strong: color-mix(in srgb, var(--status-error) 14%, transparent);
+
+  --accent-primary: #4338ca;
+  --accent-blue: #1d4ed8;
+  --accent-cyan: #0f766e;
+  --accent-red: #b91c1c;
+  --accent-green: #15803d;
+  --accent-yellow: #b45309;
+  --accent-orange: #c2410c;
+  --accent-purple: #7e22ce;
+  --onair-glow: rgba(185, 28, 28, 0.25);
+
+  --text-primary: #1c1917;
+  --text-secondary: #44403c;
+  --text-muted: #6b6560;
+  --text-inverse: #fffdf9;
+
+  --border-radius-base: 10px;
+  --border-subtle: rgba(28, 25, 23, 0.10);
+  --border-medium: rgba(28, 25, 23, 0.20);
+  --border-strong: rgba(28, 25, 23, 0.36);
+  --glass-border: rgba(28, 25, 23, 0.10);
+  --glass-bg: #fffdf9;
+  color-scheme: light;
+}
+
+.paper-theme {
+  --text-on-accent: #ffffff;
+  --text-on-danger: #ffffff;
+  --text-on-warning: #ffffff;
+  --text-on-success: #ffffff;
+
+  --status-ready: #15803d;
+  --status-processing: #1d4ed8;
+  --status-warning: #b45309;
+  --status-error: #b91c1c;
+  --status-offline: #78716c;
+  --status-onair: #b91c1c;
+  --status-armed: #c2410c;
+  --status-cued: #0f766e;
+  --status-unsaved: #b45309;
+
+  --rating-k: #15803d;
+  --rating-k-fg: #ffffff;
+  --rating-8: #0e7490;
+  --rating-8-fg: #ffffff;
+  --rating-12: #a16207;
+  --rating-12-fg: #ffffff;
+  --rating-16: #c2410c;
+  --rating-16-fg: #ffffff;
+  --rating-18: #b91c1c;
+  --rating-18-fg: #ffffff;
+  --rating-tp: #7e22ce;
+  --rating-tp-fg: #ffffff;
+
+  --type-movie: #b91c1c;
+  --type-show: #1d4ed8;
+  --type-documentary: #7e22ce;
+  --type-news: #15803d;
+
+  --tag-spot: #c2410c;
+  --tag-telemarketing: #7e22ce;
+
+  --shadow-1: 0 1px 2px rgba(28, 25, 23, 0.08);
+  --shadow-2: 0 4px 12px rgba(28, 25, 23, 0.12);
+  --shadow-3: 0 12px 32px rgba(28, 25, 23, 0.18);
+
+  --focus-ring: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--accent-primary);
+
+  --surface-popover: #ffffff;
+  --surface-popover-border: rgba(28, 25, 23, 0.16);
+
+  --backdrop: rgba(28, 25, 23, 0.42);
+  --backdrop-strong: rgba(28, 25, 23, 0.62);
 }
 
 /* Theme-independent scales. Layers replace the 13 ad-hoc z-index literals the
@@ -368,6 +692,17 @@
   --dur-fast: 120ms;
   --dur-base: 180ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* §3.5: the complete glow vocabulary. Three glows, one blur radius each,
+     every one derived from a status token — so they are written once here
+     rather than per theme, and a theme that re-tunes `--status-onair` gets the
+     matching glow for free. Outside `main.css` the only permitted box-shadow
+     values are these, `--shadow-1/2/3`, `--shadow-inset`, `--shadow-highlight`
+     and `--focus-ring`. */
+  --shadow-highlight: inset 0 1px 0 var(--highlight-top);
+  --glow-onair: 0 0 0 1px color-mix(in srgb, var(--status-onair) 55%, transparent), 0 0 16px var(--onair-glow);
+  --glow-armed: 0 0 0 1px color-mix(in srgb, var(--status-armed) 55%, transparent), 0 0 12px color-mix(in srgb, var(--status-armed) 35%, transparent);
+  --glow-accent: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 45%, transparent), 0 0 12px color-mix(in srgb, var(--accent-primary) 30%, transparent);
 }
 
 /* ==========================================================================
@@ -441,11 +776,11 @@
 body {
   font-family: var(--font-ui);
   font-size: var(--font-size-base);
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--accent-blue) 10%, transparent), transparent 34%),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--accent-yellow) 10%, transparent), transparent 28%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 92%, black 8%), var(--bg-primary));
-  background-color: var(--bg-primary);
+  /* §2.5: two radial colour blobs over a vertical gradient used to paint here.
+     They were visible only through the shell's gutter and behind modal scrims,
+     and on a wall monitor the yellow one sat behind the rundown's top-right
+     controls. Depth is the three-surface system's job, not the page's. */
+  background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -476,7 +811,7 @@ textarea {
 }
 
 :focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent-blue) 80%, white 20%);
+  outline: 2px solid color-mix(in srgb, var(--accent-primary) 80%, white 20%);
   outline-offset: 2px;
 }
 
@@ -517,7 +852,7 @@ textarea {
 }
 
 .text-accent {
-  color: var(--accent-blue);
+  color: var(--accent-primary);
 }
 
 .text-danger {
@@ -556,7 +891,20 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--text-secondary) 70%, var(--accent-blue));
+  background: color-mix(in srgb, var(--text-secondary) 70%, var(--accent-primary));
+}
+
+/* §2.1: a theme switch is a discrete event, so nothing tweens across it.
+   `lib/theme.ts` puts this class on <body> for the two frames the restyle
+   needs. Without it, an element that names `background` in a transition keeps
+   painting the *previous* theme's resolved colour: Chromium does not reliably
+   restart a transition when the value behind a var() changes through an
+   ancestor class swap. This is the one !important in the app. */
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -83,7 +83,7 @@ const ICONS: Record<ToastTone, IconName> = {
   --toast-accent: var(--status-ready);
 }
 .tone-info {
-  --toast-accent: var(--accent-blue);
+  --toast-accent: var(--accent-primary);
 }
 .tone-warning {
   --toast-accent: var(--status-warning);
