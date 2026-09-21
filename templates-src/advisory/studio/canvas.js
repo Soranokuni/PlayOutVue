@@ -80,36 +80,40 @@
         let newX = Math.round(initialElemX + deltaX);
         let newY = Math.round(initialElemY + deltaY);
 
-        newX = Math.max(0, Math.min(1920 - activeDragTarget.offsetWidth, newX));
-        newY = Math.max(0, Math.min(1080 - activeDragTarget.offsetHeight, newY));
-
-        activeDragTarget.style.setProperty('left', `${newX}px`, 'important');
-        activeDragTarget.style.setProperty('top', `${newY}px`, 'important');
-        activeDragTarget.style.setProperty('right', 'auto', 'important');
-        activeDragTarget.style.setProperty('bottom', 'auto', 'important');
-
-        if (activeDragTarget.id === 'station-logo-stage') {
-          document.documentElement.style.setProperty('--cg-logo-left', `${newX}px`);
-          document.documentElement.style.setProperty('--cg-logo-top', `${newY}px`);
-          const sldTop = document.getElementById('sld-logo-top');
-          const sldLeft = document.getElementById('sld-logo-left');
-          const valTop = document.getElementById('val-logo-top');
-          const valLeft = document.getElementById('val-logo-left');
-          if (sldTop) sldTop.value = newY;
-          if (sldLeft) sldLeft.value = newX;
-          if (valTop) valTop.textContent = `${newY}px`;
-          if (valLeft) valLeft.textContent = `${newX}px`;
+        // Snap to the safe-area guides, the canvas centre lines and the other
+        // stage's edges. Alt places freely, for the cases that want to sit
+        // deliberately off a guide.
+        const otherStage = getStageEls().filter(function (st) { return st !== activeDragTarget; })[0];
+        if (!e.altKey) {
+          const sx = snapCoordinate('x', newX, activeDragTarget.offsetWidth, otherStage);
+          const sy = snapCoordinate('y', newY, activeDragTarget.offsetHeight, otherStage);
+          newX = sx.value;
+          newY = sy.value;
+          showSnapGuide('x', sx.label ? newX : null, sx.label);
+          showSnapGuide('y', sy.label ? newY : null, sy.label);
+        } else {
+          clearSnapGuides();
         }
+
+        // placeStage clamps to the canvas and writes through to the state, so
+        // a drag and a typed value land in exactly the same place.
+        const placed = placeStage(activeDragTarget, newX, newY);
+        newX = placed.x;
+        newY = placed.y;
 
         const hud = document.getElementById('drag-hud');
         if (hud) {
           hud.style.left = `${e.clientX + 14}px`;
           hud.style.top = `${e.clientY + 14}px`;
-          hud.textContent = `X: ${newX}px | Y: ${newY}px ${e.shiftKey ? '[Lock X]' : ''} ${e.ctrlKey ? '[Lock Y]' : ''}`;
+          // Distance from the safe edge, which is the number that decides
+          // whether a placement is legal, rather than raw X/Y alone.
+          hud.textContent = describeStagePosition(activeDragTarget, newX, newY)
+            + (e.shiftKey ? '  [lock X]' : '') + (e.ctrlKey ? '  [lock Y]' : '');
         }
       });
 
       window.addEventListener('mouseup', () => {
+        clearSnapGuides();
         if (activeDragTarget) {
           activeDragTarget.classList.remove('canvas-dragging');
           const isLogo = activeDragTarget.id === 'station-logo-stage';

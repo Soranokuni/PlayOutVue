@@ -105,16 +105,17 @@
     .console-body {
       flex: 1;
       display: grid;
-      grid-template-columns: 320px 1fr;
+      /* Timeline two-thirds, history one-third (§4.5). The timeline is the
+         thing being tuned; the history is a record of it. */
+      grid-template-columns: 2fr 1fr;
       min-height: 0;
       overflow: hidden;
     }
 
-    .console-inspector-col {
+    .console-timeline-col {
       border-right: 1px solid rgba(255, 255, 255, 0.08);
-      padding: 10px 14px;
-      overflow-y: auto;
       background: rgba(15, 23, 42, 0.4);
+      overflow: hidden;
     }
 
     .console-history-col {
@@ -224,3 +225,98 @@
       color: #ffffff;
     }
 
+
+    /* =========================================================================
+       TIMELINE BAR AND HISTORY (§4.5)
+       The console used to be "Live SVG Attributes" — a hand-written list that
+       restated ten rail values as text — beside an "Action History" that was
+       not undo. Both are gone.
+       ========================================================================= */
+    .console-timeline-col {
+      display: flex;
+      flex-direction: column;
+      gap: var(--ui-space-2);
+      min-width: 0;
+      padding: var(--ui-space-2) var(--ui-space-3);
+    }
+
+    .tl-bar {
+      position: relative;
+      height: 34px;
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      background: rgba(0, 0, 0, 0.35);
+      overflow: hidden;
+      cursor: ew-resize;
+      user-select: none;
+    }
+
+    .tl-bar:focus-visible {
+      outline: 2px solid var(--ui-accent);
+      outline-offset: 1px;
+    }
+
+    .tl-segments {
+      display: flex;
+      height: 100%;
+      width: 100%;
+    }
+
+    .tl-seg {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      border-right: 1px solid rgba(0, 0, 0, 0.55);
+      overflow: hidden;
+    }
+
+    .tl-seg:last-child { border-right: 0; }
+
+    /* Tweens are the part being tuned, so they read as the solid ones. */
+    .tl-seg-tween { background: rgba(56, 189, 248, 0.42); }
+    .tl-seg-hold { background: rgba(148, 163, 184, 0.18); }
+
+    .tl-seg-label {
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      color: var(--ui-ink);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 var(--ui-space-1);
+      pointer-events: none;
+    }
+
+    .tl-playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 2px;
+      margin-left: -1px;
+      background: var(--ui-ok);
+      box-shadow: 0 0 6px rgba(52, 211, 153, 0.8);
+      pointer-events: none;
+    }
+
+    .tl-legend {
+      font-size: var(--ui-text-xs);
+      font-variant-numeric: tabular-nums;
+      color: var(--ui-ink-faint);
+    }
+
+    .console-col-actions {
+      display: inline-flex;
+      gap: var(--ui-space-1);
+      margin-left: auto;
+    }
+
+    .console-empty {
+      padding: var(--ui-space-2);
+      font-size: var(--ui-text-xs);
+      font-style: italic;
+      color: var(--ui-ink-faint);
+    }

@@ -176,17 +176,17 @@
       replayTimeline();
     }
 
+    /**
+     * Preview the sequence without waiting out the real holds.
+     *
+     * This used to write 2 into the live hold values, replay, and restore them
+     * on a setTimeout(7000). Anything the operator did during those seven
+     * seconds — including Save & Deploy — raced the restore, so a preview could
+     * put two-second holds on air. The timeline bar owns this now: it builds a
+     * throwaway timeline and puts the state straight back, with no window in
+     * which the wrong values are the saved ones.
+     */
     function quickPreviewCycle() {
-      const origRatingHold = currentConfig.hold_time;
-      const origWarnHold = currentConfig.warning_hold_time;
-      currentConfig.hold_time = 2.0;
-      currentConfig.warning_hold_time = 2.0;
-      buildTimeline();
-      replayTimeline();
-      setTimeout(() => {
-        currentConfig.hold_time = origRatingHold;
-        currentConfig.warning_hold_time = origWarnHold;
-        buildTimeline();
-      }, 7000);
+      toggleShortHoldPreview();
     }
 

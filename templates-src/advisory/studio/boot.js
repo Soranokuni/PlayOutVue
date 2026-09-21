@@ -63,7 +63,23 @@
         return;
       }
 
+      // Fill the chrome icon slots. Studio only: the on-air branch returned
+      // above, so none of the workstation furniture is ever drawn on air.
+      hydrateStudioIcons();
+
+      // Give every slider a number field and every colour a hex field.
+      enhanceControlRail();
+      setControlTier('basic');
+
+      // Carry over anything the two retired save systems left behind, before
+      // the preset picker is populated.
+      const carried = migrateRetiredPresetStores();
+
       initCanvasDraggables();
+      initStageSelection();
+      initTimelineBar();
+      initHistoryShortcuts();
+      watchForModifications();
 
       // Master Presets: Load default or operator active preset
       const startupPresetId = localStorage.getItem('PLAYOUT_DEFAULT_PRESET_ID') || 'default';
@@ -73,10 +89,25 @@
       hydrateDefaultPreset().finally(() => {
         updateLogoFromControls();
         updateRatingFromControls();
+        syncRailFromState();
         resizeCanvas();
         setTimeout(resizeCanvas, 100);
         buildTimeline();
         window.play();
+
+        // Whatever hydrateDefaultPreset settled on is, by definition, what is
+        // deployed — it came from the bridge or the baked constant. From here
+        // the pill tracks divergence from it.
+        markDeployedState();
+        probeBridge();
+        if (carried) {
+          showStudioToast(
+            carried === 1
+              ? 'Recovered 1 preset from the old save system'
+              : 'Recovered ' + carried + ' presets from the old save systems',
+            'ok'
+          );
+        }
       });
     });
 

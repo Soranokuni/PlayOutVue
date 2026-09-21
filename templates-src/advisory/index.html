@@ -36,51 +36,81 @@
             <span class="studio-title-badge">BROADCAST</span>
             <span>Greek Advisory &amp; Vector Studio</span>
           </div>
-          <button class="preview-btn" style="padding: 2px 7px; font-size: 10px;" onclick="toggleWorkstationFullscreen()" title="Toggle Fullscreen On-Air View">⛶ Fullscreen</button>
+          <button class="preview-btn" style="padding: 2px 7px; font-size: 10px;" onclick="toggleWorkstationFullscreen()" title="Toggle Fullscreen On-Air View"><i class="cg-i" data-icon="fullscreen"></i> Fullscreen</button>
         </div>
-        <div class="studio-subtitle">Neumorphic Graphics &amp; NCRTV Compliance Engine</div>
+        <div class="studio-subtitle">Station branding and ΕΣΡ compliance</div>
       </div>
 
       <!-- Prominent Master Preset Chooser Bar -->
       <div class="studio-preset-bar">
         <div class="preset-select-wrapper">
-          <span class="preset-label-icon">🌟</span>
+          <span class="preset-label-icon"><i class="cg-i" data-icon="star"></i></span>
           <select id="sel-master-preset" class="studio-preset-dropdown" onchange="onSelectMasterPreset(this.value)">
             <optgroup label="Broadcast Standards">
-              <option value="default" selected>🌟 Sitia HD Standard (Default)</option>
-              <option value="live">🔴 Sitia Live Broadcast</option>
-              <option value="movie">🎬 Primetime Movie Night</option>
-              <option value="documentary">🌍 World Nature &amp; Docs</option>
-              <option value="telemarketing">🛒 Telemarketing Direct (ΤΠ)</option>
-              <option value="show">📺 Prime Drama Series</option>
-              <option value="news">📡 Breaking News &amp; Reports</option>
+              <option value="default" selected>Sitia HD Standard (Default)</option>
+              <option value="live">Sitia Live Broadcast</option>
+              <option value="movie">Primetime Movie Night</option>
+              <option value="documentary">World Nature &amp; Docs</option>
+              <option value="telemarketing">Telemarketing Direct (ΤΠ)</option>
+              <option value="show">Prime Drama Series</option>
+              <option value="news">Breaking News &amp; Reports</option>
             </optgroup>
             <optgroup label="User Custom Presets" id="optgroup-master-user-presets">
               <!-- Populated dynamically from localStorage -->
             </optgroup>
           </select>
         </div>
+        <!-- One state pill and one overflow menu. "Save & Deploy" and
+             "Set Default" used to be two buttons with overlapping effects:
+             both deployed, and one of them also silently made the preset the
+             startup default. Deploy deploys; the startup default is an
+             explicit choice in the menu. -->
         <div class="preset-quick-actions">
-          <button type="button" class="preset-pill-btn" id="btn-make-default" onclick="markActivePresetAsDefault()" title="Make this preset the startup default">★ Set Default</button>
-          <button type="button" class="preset-pill-btn" id="btn-delete-preset" style="display: none; color: #f87171;" onclick="deleteActiveMasterPreset()" title="Delete this custom preset">🗑️ Delete</button>
+          <span id="deploy-state" class="deploy-state state-modified" title="Whether what you see matches what is deployed">Modified</span>
+          <button type="button" class="preset-pill-btn" id="btn-preset-menu"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="preset-menu"
+                  onclick="togglePresetMenu()" title="More preset actions"><i class="cg-i" data-icon="more"></i></button>
+        </div>
+
+        <div id="preset-menu" class="preset-menu" role="menu" hidden>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); openSaveAsDialog();"><i class="cg-i" data-icon="save"></i> Save as new preset…</button>
+          <button type="button" role="menuitem" class="preset-menu-item" id="menu-make-default" onclick="closePresetMenu(); markActivePresetAsDefault();"><i class="cg-i" data-icon="star"></i> Use as startup default</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); exportActivePreset();"><i class="cg-i" data-icon="download"></i> Export preset JSON</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); importPresetFromFile();"><i class="cg-i" data-icon="copy"></i> Import preset JSON…</button>
+          <div class="preset-menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); copyLiveSvgCode('logo');"><i class="cg-i" data-icon="copy"></i> Copy Station ID SVG</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); copyLiveSvgCode('rating');"><i class="cg-i" data-icon="copy"></i> Copy rating badge SVG</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); downloadAllSvgs();"><i class="cg-i" data-icon="download"></i> Download SVGs</button>
+          <div class="preset-menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" class="preset-menu-item is-danger" id="menu-delete-preset" onclick="closePresetMenu(); deleteActiveMasterPreset();"><i class="cg-i" data-icon="trash"></i> Delete this preset</button>
         </div>
       </div>
 
       <!-- On-Air Display Mode Switcher -->
       <div class="studio-mode-bar">
-        <button class="studio-mode-btn" id="mode-btn-rating" onclick="setStudioDisplayMode('rating')">🏷️ Rating Only</button>
-        <button class="studio-mode-btn" id="mode-btn-logo" onclick="setStudioDisplayMode('logo')">📺 Station ID Only</button>
-        <button class="studio-mode-btn active" id="mode-btn-combo" onclick="setStudioDisplayMode('combo')">🌟 Combo (Both)</button>
+        <button class="studio-mode-btn" id="mode-btn-rating" onclick="setStudioDisplayMode('rating')"><i class="cg-i" data-icon="tag"></i> Rating Only</button>
+        <button class="studio-mode-btn" id="mode-btn-logo" onclick="setStudioDisplayMode('logo')"><i class="cg-i" data-icon="monitor"></i> Station ID Only</button>
+        <button class="studio-mode-btn active" id="mode-btn-combo" onclick="setStudioDisplayMode('combo')"><i class="cg-i" data-icon="star"></i> Combo (Both)</button>
       </div>
 
       <!-- Navigation Tabs -->
+      <!-- Basic shows the dozen things that get touched daily; Advanced adds
+           the light angle, bevel offsets, stencil offsets and the rest. The
+           tiers come from CONTROL_SCHEMA, so a new control is filed once. -->
+      <div class="studio-tier-bar" role="radiogroup" aria-label="Control detail">
+        <button type="button" class="studio-tier-btn active" data-tier="basic" role="radio" aria-checked="true"
+                onclick="setControlTier('basic')">Basic</button>
+        <button type="button" class="studio-tier-btn" data-tier="advanced" role="radio" aria-checked="false"
+                onclick="setControlTier('advanced')">Advanced</button>
+      </div>
+
       <div class="studio-tab-bar">
-        <button class="studio-tab-btn active" data-tab="content" onclick="switchStudioTab('content')">🏷️ Content</button>
-        <button class="studio-tab-btn" data-tab="station" onclick="switchStudioTab('station')">📺 Station Logo</button>
-        <button class="studio-tab-btn" data-tab="rating" onclick="switchStudioTab('rating')">🏷️ Rating Badge</button>
-        <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')">🎨 Blueprints</button>
-        <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')">📐 Geometry</button>
-        <button class="studio-tab-btn" data-tab="motion" onclick="switchStudioTab('motion')">⏱️ Motion</button>
+        <button class="studio-tab-btn active" data-tab="content" onclick="switchStudioTab('content')"><i class="cg-i" data-icon="tag"></i> Content</button>
+        <button class="studio-tab-btn" data-tab="station" onclick="switchStudioTab('station')"><i class="cg-i" data-icon="monitor"></i> Station Logo</button>
+        <button class="studio-tab-btn" data-tab="rating" onclick="switchStudioTab('rating')"><i class="cg-i" data-icon="tag"></i> Rating Badge</button>
+        <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')"><i class="cg-i" data-icon="palette"></i> Blueprints</button>
+        <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')"><i class="cg-i" data-icon="ruler"></i> Geometry</button>
+        <button class="studio-tab-btn" data-tab="motion" onclick="switchStudioTab('motion')"><i class="cg-i" data-icon="motion"></i> Motion</button>
       </div>
 
       <!-- Scrollable Tab Content Panels -->
@@ -90,7 +120,7 @@
         <div id="tab-pane-content" class="studio-tab-pane active">
           <!-- Age Rating Selection -->
           <div class="studio-group" id="content-group-rating">
-            <div class="studio-group-title">🏷️ Greek NCRTV Age Rating (ΕΣΡ)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="tag"></i> Age rating (ΕΣΡ)</div>
             <div class="studio-btn-row">
               <button class="studio-btn" data-rating="K" onclick="setStudioRating('K')">Κ (All)</button>
               <button class="studio-btn" data-rating="8" onclick="setStudioRating('8')">8+</button>
@@ -102,16 +132,16 @@
             <!-- Descriptors Toggle Chips with Live Glyph Previews -->
             <div class="studio-btn-row" style="margin-top: 4px;">
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-                <input type="checkbox" id="chk-violence" checked onchange="updateStudioPreview()"> ⚔️ Βία
+                <input type="checkbox" id="chk-violence" checked onchange="updateStudioPreview()"> <i class="cg-i" data-icon="violence"></i> Βία
               </label>
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-                <input type="checkbox" id="chk-sex" onchange="updateStudioPreview()"> ⚥ Σεξ
+                <input type="checkbox" id="chk-sex" onchange="updateStudioPreview()"> <i class="cg-i" data-icon="sex"></i> Σεξ
               </label>
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-                <input type="checkbox" id="chk-drugs" checked onchange="updateStudioPreview()"> 💊 Ουσίες
+                <input type="checkbox" id="chk-drugs" checked onchange="updateStudioPreview()"> <i class="cg-i" data-icon="substances"></i> Ουσίες
               </label>
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-                <input type="checkbox" id="chk-language" onchange="updateStudioPreview()"> 💬 Γλώσσα
+                <input type="checkbox" id="chk-language" onchange="updateStudioPreview()"> <i class="cg-i" data-icon="language"></i> Γλώσσα
               </label>
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
                 <input type="checkbox" id="chk-tp" onchange="updateStudioPreview()"> ΤΠ
@@ -124,7 +154,7 @@
 
           <!-- Greek Statutory Explanation Text Presets -->
           <div class="studio-group" id="content-group-legal">
-            <div class="studio-group-title">📜 Statutory Legal Presets (Greek NCRTV)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="legal"></i> Statutory wording (ΕΣΡ)</div>
             <div style="display: flex; flex-direction: column; gap: 4px;">
               <button class="studio-btn" style="text-align: left; font-size: 10px;" onclick="applyLegalTextPreset('ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ')">Κ: ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ</button>
               <button class="studio-btn" style="text-align: left; font-size: 10px;" onclick="applyLegalTextPreset('ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8 ΕΤΩΝ')">8: ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8 ΕΤΩΝ</button>
@@ -142,7 +172,7 @@
 
                     <!-- Greek NCRTV Advisory Warning Descriptors (Editable Phrasing) -->
           <div class="studio-group" id="group-warning-descriptors">
-            <div class="studio-group-title">🛡️ Warning Descriptors &amp; Phrasing (Content Advisory)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="shield"></i> Descriptor wording</div>
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
               Customize on-air phrasing for descriptors. Dynamically scales and animates next to rating badge.
             </div>
@@ -155,28 +185,28 @@
 
             <!-- 1. Violence -->
             <div class="show-tag-row" style="margin-bottom: 4px;">
-              <div class="tag-row-icon">⚔️</div>
+              <div class="tag-row-icon"><i class="cg-i" data-icon="violence"></i></div>
               <div class="tag-row-label" style="width: 82px;">Violence:</div>
               <input type="text" id="txt-warn-violence" class="studio-select tag-row-input" value="ΣΚΗΝΕΣ ΒΙΑΣ" placeholder="ΣΚΗΝΕΣ ΒΙΑΣ" oninput="onWarningTextEdited()">
             </div>
 
             <!-- 2. Substances -->
             <div class="show-tag-row" style="margin-bottom: 4px;">
-              <div class="tag-row-icon">💊</div>
+              <div class="tag-row-icon"><i class="cg-i" data-icon="substances"></i></div>
               <div class="tag-row-label" style="width: 82px;">Substances:</div>
               <input type="text" id="txt-warn-drugs" class="studio-select tag-row-input" value="ΧΡΗΣΗ ΟΥΣΙΩΝ" placeholder="ΣΚΗΝΕΣ ΜΕ ΧΡΗΣΗ ΟΥΣΙΩΝ" oninput="onWarningTextEdited()">
             </div>
 
             <!-- 3. Sex -->
             <div class="show-tag-row" style="margin-bottom: 4px;">
-              <div class="tag-row-icon">⚥</div>
+              <div class="tag-row-icon"><i class="cg-i" data-icon="sex"></i></div>
               <div class="tag-row-label" style="width: 82px;">Sex:</div>
               <input type="text" id="txt-warn-sex" class="studio-select tag-row-input" value="ΣΕΞ" placeholder="ΣΚΗΝΕΣ ΣΕΞΟΥΑΛΙΚΟΥ ΠΕΡΙΕΧΟΜΕΝΟΥ" oninput="onWarningTextEdited()">
             </div>
 
             <!-- 4. Language -->
             <div class="show-tag-row" style="margin-bottom: 4px;">
-              <div class="tag-row-icon">💬</div>
+              <div class="tag-row-icon"><i class="cg-i" data-icon="language"></i></div>
               <div class="tag-row-label" style="width: 82px;">Language:</div>
               <input type="text" id="txt-warn-language" class="studio-select tag-row-input" value="ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ" placeholder="ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ" oninput="onWarningTextEdited()">
             </div>
@@ -184,7 +214,7 @@
 
           <!-- Show Tag Content & Subtitles (Next to Station ID) -->
           <div class="studio-group" id="group-station-show-tags">
-            <div class="studio-group-title">🏷️ Show Tag Content &amp; Subtitles (Next to Station ID)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="tag"></i> Show tags</div>
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
               Edit the text that appears before or after the <strong>|</strong> next to your Station ID. Click <strong>Air This</strong> to switch on-air immediately.
             </div>
@@ -256,17 +286,17 @@
             <div style="margin-top: 10px; padding: 10px 12px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px;">
               <div style="font-size: 11px; font-weight: 700; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                 <span>Active Subtitle / Tagline</span>
-                <button type="button" class="studio-btn" style="padding: 2px 8px; font-size: 10px;" onclick="activateShowTag('none')">✕ Clean Station ID</button>
+                <button type="button" class="studio-btn" style="padding: 2px 8px; font-size: 10px;" onclick="activateShowTag('none')"><i class="cg-i" data-icon="close"></i> Clean Station ID</button>
               </div>
               <div style="display: flex; gap: 6px; align-items: center;">
                 <select id="sel-active-tag-icon" class="studio-select" style="width: 130px; font-size: 11px;" onchange="onManualIconSelected(this.value)">
                   <option value="none">No Icon (Text Only)</option>
-                  <option value="live">🔴 Live Dot</option>
-                  <option value="movie">🎬 Clapperboard</option>
-                  <option value="documentary">🌍 Globe</option>
-                  <option value="telemarketing">🛒 Sale Tag</option>
-                  <option value="show">📺 Screens</option>
-                  <option value="news">📡 Tower Dish</option>
+                  <option value="live">Live Dot</option>
+                  <option value="movie">Clapperboard</option>
+                  <option value="documentary">Globe</option>
+                  <option value="telemarketing">Sale Tag</option>
+                  <option value="show">Screens</option>
+                  <option value="news">Tower Dish</option>
                 </select>
                 <input type="text" id="txt-active-tagline" class="studio-select" style="flex: 1; font-weight: 700; text-transform: uppercase;" value="HD" placeholder="Custom Tagline" oninput="onActiveTaglineInput(this.value)">
               </div>
@@ -278,19 +308,19 @@
 
           <!-- Video Canvas Simulation & Transport Controls -->
           <div class="studio-group">
-            <div class="studio-group-title">🎬 Video Canvas Simulator</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="movie"></i> Backdrop</div>
             <div class="studio-btn-row">
-              <button class="studio-btn active" id="btn-bg-dark" onclick="setMonitorBg('dark')">🌑 Studio Dark</button>
-              <button class="studio-btn" id="btn-bg-bright" onclick="setMonitorBg('bright')">☀️ Bright Video</button>
-              <button class="studio-btn" id="btn-bg-movie" onclick="setMonitorBg('movie')">🎬 Moving Film</button>
-              <button class="studio-btn" id="btn-bg-checker" onclick="setMonitorBg('checker')">🏁 Checkerboard</button>
-              <button class="studio-btn" id="btn-bg-transp" onclick="setMonitorBg('transparent')">🌫️ Transparent</button>
+              <button class="studio-btn active" id="btn-bg-dark" onclick="setMonitorBg('dark')"><i class="cg-i" data-icon="moon"></i> Studio Dark</button>
+              <button class="studio-btn" id="btn-bg-bright" onclick="setMonitorBg('bright')"><i class="cg-i" data-icon="sun"></i> Bright Video</button>
+              <button class="studio-btn" id="btn-bg-movie" onclick="setMonitorBg('movie')"><i class="cg-i" data-icon="movie"></i> Moving Film</button>
+              <button class="studio-btn" id="btn-bg-checker" onclick="setMonitorBg('checker')"><i class="cg-i" data-icon="checker"></i> Checkerboard</button>
+              <button class="studio-btn" id="btn-bg-transp" onclick="setMonitorBg('transparent')"><i class="cg-i" data-icon="fog"></i> Transparent</button>
             </div>
             <div class="studio-btn-row" style="margin-top: 4px;">
-              <button class="studio-btn" style="background: rgba(34,197,94,0.25); color: #4ade80;" onclick="window.play()">▶ Play</button>
-              <button class="studio-btn" style="background: rgba(239,68,68,0.25); color: #f87171;" onclick="window.stop()">⏹ Stop</button>
-              <button class="studio-btn" onclick="replayTimeline()">↺ Replay</button>
-              <button class="studio-btn" style="background: rgba(56,189,248,0.2); color: #38bdf8;" onclick="quickPreviewCycle()">⚡ Test Cycle (2s)</button>
+              <button class="studio-btn" style="background: rgba(34,197,94,0.25); color: #4ade80;" onclick="window.play()"><i class="cg-i" data-icon="play"></i> Play</button>
+              <button class="studio-btn" style="background: rgba(239,68,68,0.25); color: #f87171;" onclick="window.stop()"><i class="cg-i" data-icon="stop"></i> Stop</button>
+              <button class="studio-btn" onclick="replayTimeline()"><i class="cg-i" data-icon="replay"></i> Replay</button>
+              <button class="studio-btn" style="background: rgba(56,189,248,0.2); color: #38bdf8;" onclick="quickPreviewCycle()"><i class="cg-i" data-icon="bolt"></i> Short holds</button>
             </div>
           </div>
         </div>
@@ -299,7 +329,7 @@
         <div id="tab-pane-station" class="studio-tab-pane">
           <!-- Station Wordmark & Tagline -->
           <div class="studio-group">
-            <div class="studio-group-title">🔤 Station Wordmark &amp; Branding</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Wordmark</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Station Wordmark</span>
               <input type="text" id="txt-logo-content" value="SITIA" class="studio-select" style="max-width: 140px; text-transform: uppercase;" oninput="updateLogoFromControls()">
@@ -324,7 +354,7 @@
 
                     <!-- Station Logo Positioning Sliders -->
           <div class="studio-group" id="group-logo-positioning">
-            <div class="studio-group-title">📍 Station Logo Screen Offsets</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="position"></i> Station ID position</div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
                 <span>Top Offset</span>
@@ -340,13 +370,13 @@
               <input type="range" id="sld-logo-left" min="10" max="600" step="2" value="60" class="studio-slider" oninput="onLogoPosSliderChanged()">
             </div>
             <div class="studio-btn-row" style="margin-top: 6px;">
-              <button type="button" class="studio-btn" style="font-size: 10px;" onclick="resetLogoPositionToDefault()">↺ Reset Logo Position (60px, 60px)</button>
+              <button type="button" class="studio-btn" style="font-size: 10px;" onclick="resetLogoPositionToDefault()"><i class="cg-i" data-icon="replay"></i> Reset position</button>
             </div>
           </div>
 
           <!-- Shape & Scale -->
           <div class="studio-group">
-            <div class="studio-group-title">📏 Scale &amp; Chassis Geometry</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Scale and chassis</div>
             <div class="studio-btn-row">
               <button class="studio-btn active" id="btn-logo-shape-squircle" onclick="setLogoShape('squircle')">Squircle (G2)</button>
               <button class="studio-btn" id="btn-logo-shape-circle" onclick="setLogoShape('circle')">Circle</button>
@@ -372,7 +402,7 @@
 
           <!-- Extrusion Physics & Virtual Light Angle -->
           <div class="studio-group">
-            <div class="studio-group-title">🎨 Neumorphic Extrusion &amp; Light Engine</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="palette"></i> Surface and lighting</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Extrusion Surface Mode</span>
               <select class="studio-select" id="sel-logo-extrusion" style="max-width: 140px;" onchange="updateLogoFromControls()">
@@ -392,7 +422,7 @@
             </div>
             <div style="margin-top: 6px;">
               <div class="studio-slider-label">
-                <span>Virtual Light Angle (Standard: -135°)</span>
+                <span>Light angle</span>
                 <span id="val-logo-grad-angle" class="studio-slider-val">135°</span>
               </div>
               <input type="range" min="0" max="360" value="135" id="sld-logo-grad-angle" class="studio-slider" oninput="updateLogoFromControls()">
@@ -401,7 +431,7 @@
 
           <!-- Dual-Shadow Engine & Micro-Border -->
           <div class="studio-group">
-            <div class="studio-group-title">💡 Dual-Shadows &amp; 1px Rim Micro-Border</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="light"></i> Shadows and rim</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1;">Specular Light Rim (-dx, -dy)</span>
               <input type="color" id="col-logo-specular" value="#f0f5fc" class="vector-color-input" oninput="updateLogoFromControls()">
@@ -426,7 +456,7 @@
 
           <!-- Wordmark Bevel Offsets -->
           <div class="studio-group">
-            <div class="studio-group-title">🔤 3D Bevel Offsets &amp; Colors</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Bevel offsets and colours</div>
             <div style="margin-top: 4px;">
               <div class="studio-slider-label">
                 <span>Text Horizontal Offset (X)</span>
@@ -463,7 +493,7 @@
         <div id="tab-pane-rating" class="studio-tab-pane">
           <!-- Stencil / Numeral Mode -->
           <div class="studio-group">
-            <div class="studio-group-title">📐 Numeral Execution Style</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Numeral style</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Numeral Render Mode</span>
               <select class="studio-select" id="sel-rating-cutout" style="max-width: 150px;" onchange="updateRatingFromControls()">
@@ -483,7 +513,7 @@
 
           <!-- Sizing & Tints -->
           <div class="studio-group">
-            <div class="studio-group-title">📏 Scale &amp; Broadcast Colors</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Scale and colours</div>
             <div>
               <div class="studio-slider-label">
                 <span>Badge Diameter</span>
@@ -510,7 +540,7 @@
 
           <!-- Stencil Typography & Offsets -->
           <div class="studio-group">
-            <div class="studio-group-title">🔤 Stencil Typography &amp; Offsets</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Stencil type and offsets</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1;">Font Family</span>
               <select class="studio-select" id="sel-rating-font" style="max-width: 150px;" onchange="updateRatingFromControls()">
@@ -543,50 +573,53 @@
         <!-- TAB 4: Neumorphic Themes & Blueprints -->
         <div id="tab-pane-theme" class="studio-tab-pane">
           <div class="studio-group">
-            <div class="studio-group-title">🎨 Broadcast Neumorphic Blueprints (Research Paper)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="palette"></i> Look blueprints</div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <div class="studio-theme-card active" data-theme="frosted" onclick="applyThemePreset('frosted')">
-                <div class="studio-theme-title">🌟 Option 4: Hybrid Glass-Neumorphic Frame (Default SOTA)</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="star"></i> Frosted glass</div>
                 <div class="studio-theme-desc">Extruded chassis with frosted glass center &amp; soft debossed stencil</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Luma 235 Max / 16 Min • Low CEF Load (~1.2ms)</div>
               </div>
               <div class="studio-theme-card" data-theme="matte-slate" onclick="applyThemePreset('matte-slate')">
-                <div class="studio-theme-title">🪨 Option 1: Matte Extruded Slate</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Matte slate</div>
                 <div class="studio-theme-desc">#E2E8F0 base with convex gradient, dual shadows &amp; 1px micro-border</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Luma 228 Max / 24 Min • Clean Alpha Key</div>
               </div>
               <div class="studio-theme-card" data-theme="vibrant-accent" onclick="applyThemePreset('vibrant-accent')">
-                <div class="studio-theme-title">💜 Option 2: Vibrant Accent Extrusion</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Vibrant accent</div>
                 <div class="studio-theme-desc">#E0E7FF lavender-blue base with radiant indigo drop shadow</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Luma 230 Max / 28 Min • High Visual Impact</div>
               </div>
               <div class="studio-theme-card" data-theme="inset-embossed" onclick="applyThemePreset('inset-embossed')">
-                <div class="studio-theme-title">🕳️ Option 3: Inset Embossed Slate</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Inset emboss</div>
                 <div class="studio-theme-desc">Sunken #D1D5DB base with deep internal shadows &amp; recessed trough</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Luma 215 Max / 32 Min • Tactile Stamp</div>
               </div>
               <div class="studio-theme-card" data-theme="dark-obsidian" onclick="applyThemePreset('dark-obsidian')">
-                <div class="studio-theme-title">🌑 Option 5: Obsidian Dark MCR</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="moon"></i> Obsidian</div>
                 <div class="studio-theme-desc">Master control dark slate with electric cyan rim lighting</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: High Contrast against Bright Outdoor Video</div>
               </div>
               <div class="studio-theme-card" data-theme="claymorphism" onclick="applyThemePreset('claymorphism')">
-                <div class="studio-theme-title">☁️ Option 6: Tactile Claymorphism</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Clay</div>
                 <div class="studio-theme-desc">Rounded 3D inflated pill geometry with pastel inner glows</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Friendly Modern Broadcast Overlays</div>
               </div>
             </div>
           </div>
 
-          <!-- User Custom Saved Themes -->
+          <!-- There used to be a second, six-field "Save Theme" here, and a
+               third invisible one behind it. Three saves that meant different
+               things and lost different work. Presets live in one place now:
+               the picker at the top of this rail, and Save as… beside Deploy.
+               Anything saved under the old two is migrated into it on first
+               load. -->
           <div class="studio-group">
-            <div class="studio-group-title">⭐ User Custom Presets</div>
-            <div style="display: flex; gap: 6px;">
-              <input type="text" id="txt-preset-name" placeholder="Preset Name (e.g. Primetime Look)" class="studio-select" style="flex: 1;">
-              <button class="action-btn-primary" style="width: auto; padding: 6px 12px;" onclick="saveCustomThemePreset()">+ Save Theme</button>
-            </div>
-            <div id="custom-themes-list" style="margin-top: 6px; display: flex; flex-direction: column; gap: 4px;">
-              <!-- Populated dynamically -->
+            <div class="studio-group-title"><i class="cg-i" data-icon="star"></i> Saved presets</div>
+            <div class="studio-group-note">
+              Presets are saved and chosen at the top of this rail.
+              <strong>Save as…</strong> keeps the current look under a new name;
+              <strong>Deploy</strong> sends the active one to CasparCG.
             </div>
           </div>
         </div>
@@ -594,18 +627,18 @@
         <!-- TAB 5: Geometry & Placement -->
         <div id="tab-pane-geometry" class="studio-tab-pane">
           <div class="studio-group">
-            <div class="studio-group-title">📍 Screen Anchor Corner</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="position"></i> Screen Anchor Corner</div>
             <div class="studio-btn-row">
-              <button class="studio-btn active" data-anchor="top-right" onclick="setAnchorPosition('top-right')">↗ Top-Right (Standard)</button>
-              <button class="studio-btn" data-anchor="top-left" onclick="setAnchorPosition('top-left')">↖ Top-Left</button>
-              <button class="studio-btn" data-anchor="bottom-right" onclick="setAnchorPosition('bottom-right')">↘ Bottom-Right</button>
-              <button class="studio-btn" data-anchor="bottom-left" onclick="setAnchorPosition('bottom-left')">↙ Bottom-Left</button>
+              <button class="studio-btn active" data-anchor="top-right" onclick="setAnchorPosition('top-right')"><i class="cg-i" data-icon="cornerTopRight"></i> Top-Right (Standard)</button>
+              <button class="studio-btn" data-anchor="top-left" onclick="setAnchorPosition('top-left')"><i class="cg-i" data-icon="cornerTopLeft"></i> Top-Left</button>
+              <button class="studio-btn" data-anchor="bottom-right" onclick="setAnchorPosition('bottom-right')"><i class="cg-i" data-icon="cornerBottomRight"></i> Bottom-Right</button>
+              <button class="studio-btn" data-anchor="bottom-left" onclick="setAnchorPosition('bottom-left')"><i class="cg-i" data-icon="cornerBottomLeft"></i> Bottom-Left</button>
             </div>
-            <button class="action-btn-secondary" style="margin-top: 6px;" onclick="flipStagePositions()">⇄ Flip Corners (Logo ⇄ Advisory)</button>
+            <button class="action-btn-secondary" style="margin-top: 6px;" onclick="flipStagePositions()"><i class="cg-i" data-icon="flip"></i> Swap corners</button>
           </div>
 
           <div class="studio-group">
-            <div class="studio-group-title">📐 EBU Broadcast Safe Margins</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Safe margins</div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
                 <span>Top / Bottom Margin</span>
@@ -622,21 +655,21 @@
             </div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
-                <span>↕️ Banner Vertical Offset Margin</span>
+                <span><i class="cg-i" data-icon="offsetY"></i> Banner vertical offset</span>
                 <span id="val-text-offset-y" class="studio-value-tag">0px</span>
               </div>
               <input type="range" id="sld-text-offset-y" min="-30" max="30" step="1" value="0" class="studio-slider" oninput="updateStudioStyles()">
             </div>
             <div class="studio-btn-row" style="margin-top: 4px;">
-              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('action')">🎯 Snap to Action Safe (48px)</button>
-              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('title')">🎯 Snap to Title Safe (96px)</button>
+              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('action')"><i class="cg-i" data-icon="target"></i> Snap to action safe</button>
+              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('title')"><i class="cg-i" data-icon="target"></i> Snap to title safe</button>
             </div>
           </div>
 
           
           <!-- Banner Accent Line Gradient Controls -->
           <div class="studio-group" id="group-accent-line-styling">
-            <div class="studio-group-title">✨ Banner Accent Line Gradient &amp; Colors</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="sparkles"></i> Accent line</div>
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
               Customize the dynamic underline accent gradient color, height, and glow.
             </div>
@@ -659,12 +692,12 @@
 
             <!-- Quick Color Preset Palette Chips -->
             <div style="display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap;">
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#38bdf8')" title="Broadcast Sky / Cyan (Default)">💎 Cyan/Sky</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#a855f7')" title="Regal Violet / Purple">💜 Purple</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#f59e0b')" title="Gold / Amber Glow">🌟 Amber/Gold</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#ef4444')" title="Vibrant Crimson / Red">🔴 Crimson</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#10b981')" title="Emerald Green">🟢 Emerald</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#e2e8f0')" title="Pure Neutral Monochromatic">⚪ White</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#38bdf8')" title="Broadcast Sky / Cyan (Default)"><i class="cg-i" data-icon="palette"></i> Cyan/Sky</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#a855f7')" title="Regal Violet / Purple"><i class="cg-i" data-icon="palette"></i> Purple</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#f59e0b')" title="Gold / Amber Glow"><i class="cg-i" data-icon="star"></i> Amber/Gold</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#ef4444')" title="Vibrant Crimson / Red"><i class="cg-i" data-icon="live"></i> Crimson</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#10b981')" title="Emerald Green"><i class="cg-i" data-icon="palette"></i> Emerald</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#e2e8f0')" title="Pure Neutral Monochromatic"><i class="cg-i" data-icon="palette"></i> White</button>
             </div>
 
             <!-- Line Thickness Slider -->
@@ -678,7 +711,7 @@
           </div>
 
           <div class="studio-group">
-            <div class="studio-group-title">🔤 Typography Hierarchy &amp; Fonts</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Type and fonts</div>
             <div class="vector-ctrl-row" style="margin-bottom: 10px;">
               <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 700;">Broadcast Font Family:</span>
               <select class="studio-select" id="sel-broadcast-font" style="max-width: 165px;" onchange="updateBroadcastFont(this.value)">
@@ -725,7 +758,7 @@
         <!-- TAB 6: Motion & Timings -->
         <div id="tab-pane-motion" class="studio-tab-pane">
           <div class="studio-group">
-            <div class="studio-group-title">⏱️ On-Air Hold Timings</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="motion"></i> Hold times</div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
                 <span>Rating Explanation Hold Time</span>
@@ -743,7 +776,7 @@
           </div>
 
           <div class="studio-group">
-            <div class="studio-group-title">✨ Animation Dynamics</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="sparkles"></i> Motion</div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
                 <span>Animation Transition Style</span>
@@ -761,9 +794,9 @@
 
       <!-- Footer Action Buttons (Bottom Left) -->
       <div class="studio-footer">
-        <button class="action-btn-primary" onclick="buildTimeline(); replayTimeline();" title="Replay on-air animation sequence">▶ Replay</button>
-        <button class="action-btn-secondary" id="btn-save-preset" onclick="saveCurrentActivePreset()" title="Overwrite active preset, update defaults, and deploy directly to CasparCG" style="background: rgba(16, 185, 129, 0.25); border-color: rgba(16, 185, 129, 0.7); color: #34d399; font-weight: 700;">💾 Save &amp; Deploy</button>
-        <button class="action-btn-secondary" onclick="openSaveAsDialog()" title="Save as a new named preset" style="background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.6); color: #38bdf8;">⭐ Save As...</button>
+        <button class="action-btn-secondary" onclick="replayTimeline()" title="Replay the on-air sequence"><i class="cg-i" data-icon="play"></i> Replay</button>
+        <button class="action-btn-primary" id="btn-deploy" onclick="saveCurrentActivePreset()" title="Write the active preset to CasparCG"><i class="cg-i" data-icon="deploy"></i> Deploy</button>
+        <button class="action-btn-secondary" onclick="openSaveAsDialog()" title="Save the current look under a new name"><i class="cg-i" data-icon="save"></i> Save as…</button>
       </div>
     </aside>
 
@@ -786,13 +819,13 @@
           <div class="preview-controls-group">
             <span class="preview-hint">Drag: Shift=Lock X | Ctrl=Lock Y</span>
             <button class="preview-btn" onclick="flipStagePositions()" title="Swap screen corners between Station ID and Rating">
-              ⇄ Flip Positions
+              <i class="cg-i" data-icon="flip"></i> Flip Positions
             </button>
             <button class="preview-btn" id="btn-toggle-safe-areas" onclick="toggleSafeAreas()">
-              🛡️ Safe Areas
+              <i class="cg-i" data-icon="shield"></i> Safe Areas
             </button>
             <button class="preview-btn" onclick="buildTimeline(); replayTimeline();" title="Replay animation sequence">
-              ▶ Replay
+              <i class="cg-i" data-icon="play"></i> Replay
             </button>
           </div>
         </div>
@@ -907,7 +940,7 @@
                 </div>
               </div>
 
-              <div class="stage-drag-handle" title="Drag to reposition">☩</div>
+              <div class="stage-drag-handle" title="Drag to reposition"><i class="cg-i" data-icon="drag"></i></div>
             </div>
 
             <!-- ================================================================= -->
@@ -982,7 +1015,7 @@
                 <div id="text-slot-mask" class="text-slot-mask"></div>
                 <div id="accent-line" class="accent-line"></div>
               </div>
-              <div class="stage-drag-handle" title="Drag to reposition">☩</div>
+              <div class="stage-drag-handle" title="Drag to reposition"><i class="cg-i" data-icon="drag"></i></div>
             </div>
 
           </div>
@@ -995,42 +1028,49 @@
       <section class="console-card">
         <div class="console-header">
           <div class="console-title-group">
-            <span class="console-icon">📟</span>
-            <span class="console-title">Live SVG Inspector &amp; Action History</span>
-            <span id="console-action-count" class="console-badge">0 actions</span>
+            <span class="console-icon"><i class="cg-i" data-icon="motion"></i></span>
+            <span class="console-title">Timeline</span>
+            <span id="tl-clock" class="console-badge">0.0s / 0.0s</span>
           </div>
 
           <div class="console-actions-group">
-            <button class="console-btn-primary" onclick="revertLastAction()" id="btn-revert-last" title="Undo the most recent change">
-              ↩️ Revert Last
+            <button class="console-btn" id="btn-tl-play" onclick="toggleTimelinePlayback()" title="Play or pause the on-air sequence">
+              <i class="cg-i" data-icon="play"></i> Play
             </button>
-            <button id="btn-copy-logo-svg" class="console-btn" onclick="copyLiveSvgCode('logo')" title="Copy Station Logo SVG markup">
-              📋 Copy Logo SVG
+            <button class="console-btn" id="btn-tl-loop" onclick="toggleTimelineLoop()" aria-pressed="false" title="Loop the sequence while you tune it">
+              <i class="cg-i" data-icon="replay"></i> Loop
             </button>
-            <button id="btn-copy-rating-svg" class="console-btn" onclick="copyLiveSvgCode('rating')" title="Copy Rating Badge SVG markup">
-              📋 Copy Rating SVG
-            </button>
-            <button class="console-btn" onclick="downloadAllSvgs()" title="Download SVGs">
-              💾 Download SVGs
-            </button>
-            <button class="console-btn" onclick="clearConsoleHistory()" title="Clear action history">
-              🗑️ Clear
+            <button class="console-btn" id="btn-tl-short" onclick="toggleShortHoldPreview()" aria-pressed="false"
+                    title="Preview with 2-second holds. Builds a separate timeline; the real hold times are not touched.">
+              <i class="cg-i" data-icon="bolt"></i> Short holds
             </button>
           </div>
         </div>
 
         <div class="console-body">
-          <!-- Left: Live SVG Attributes Inspector -->
-          <div class="console-inspector-col">
-            <div class="console-col-title">Live SVG Attributes</div>
-            <div id="console-live-attributes" class="console-attrib-stream">
-              <!-- Dynamically populated -->
+          <!-- Left: the timeline the operator is tuning, drawn to scale. Hold
+               times are compressed past five seconds, or a thirty-second hold
+               would flatten every half-second tween into nothing. -->
+          <div class="console-timeline-col">
+            <div class="console-col-title">On-air sequence</div>
+            <div id="tl-bar" class="tl-bar" role="slider" tabindex="0"
+                 aria-label="Timeline position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="tl-segments" class="tl-segments"><!-- built from the master timeline --></div>
+              <div id="tl-playhead" class="tl-playhead"></div>
             </div>
+            <div id="tl-legend" class="tl-legend"><!-- built alongside the segments --></div>
           </div>
 
-          <!-- Right: Action History Stream with 1-Click Revert -->
+          <!-- Right: real undo/redo over the state, not the ad-hoc closures the
+               old "Action History" stored — most of which reverted nothing. -->
           <div class="console-history-col">
-            <div class="console-col-title">Action History (1-Click Revert)</div>
+            <div class="console-col-title">
+              History
+              <span class="console-col-actions">
+                <button class="console-btn" onclick="undoState()" title="Undo (Ctrl+Z)"><i class="cg-i" data-icon="undo"></i></button>
+                <button class="console-btn" onclick="redoState()" title="Redo (Ctrl+Shift+Z)"><i class="cg-i" data-icon="redo"></i></button>
+              </span>
+            </div>
             <div id="console-action-list" class="console-history-stream">
               <!-- Dynamically populated -->
             </div>
@@ -1047,7 +1087,7 @@
   <!-- Save As Modal Dialog -->
   <div id="save-as-modal" class="studio-modal-overlay">
     <div class="studio-modal-card">
-      <div class="studio-modal-title">⭐ Save As New Broadcast Preset</div>
+      <div class="studio-modal-title"><i class="cg-i" data-icon="star"></i> Save as new preset</div>
       <div class="studio-modal-desc">
         Save the current station branding, wordmark, show tags, rating badge, theme, and geometry under a custom preset name.
       </div>

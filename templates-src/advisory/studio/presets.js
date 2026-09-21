@@ -40,7 +40,7 @@
     const MASTER_STANDARD_PRESETS = {
       'default': {
         id: 'default',
-        name: '🌟 Sitia HD Standard (Default)',
+        name: 'Sitia HD Standard (Default)',
         wordmark: 'SITIA',
         subtitle: 'HD',
         showTag: 'none',
@@ -72,7 +72,7 @@
       },
       'live': {
         id: 'live',
-        name: '🔴 Sitia Live Broadcast',
+        name: 'Sitia Live Broadcast',
         wordmark: 'SITIA',
         subtitle: 'LIVE',
         showTag: 'live',
@@ -103,7 +103,7 @@
       },
       'movie': {
         id: 'movie',
-        name: '🎬 Primetime Movie Night',
+        name: 'Primetime Movie Night',
         wordmark: 'SITIA',
         subtitle: 'MOVIE TIME',
         showTag: 'movie',
@@ -134,7 +134,7 @@
       },
       'documentary': {
         id: 'documentary',
-        name: '🌍 World Nature & Docs',
+        name: 'World Nature & Docs',
         wordmark: 'SITIA',
         subtitle: 'DOCUMENTARY',
         showTag: 'documentary',
@@ -165,7 +165,7 @@
       },
       'telemarketing': {
         id: 'telemarketing',
-        name: '🛒 Telemarketing Direct (ΤΠ)',
+        name: 'Telemarketing Direct (ΤΠ)',
         wordmark: 'SITIA',
         subtitle: 'TELEMARKETING',
         showTag: 'telemarketing',
@@ -196,7 +196,7 @@
       },
       'show': {
         id: 'show',
-        name: '📺 Prime Drama Series',
+        name: 'Prime Drama Series',
         wordmark: 'SITIA',
         subtitle: 'SERIES',
         showTag: 'show',
@@ -227,7 +227,7 @@
       },
       'news': {
         id: 'news',
-        name: '📡 Breaking News & Reports',
+        name: 'Breaking News & Reports',
         wordmark: 'SITIA',
         subtitle: 'NEWS',
         showTag: 'news',
@@ -284,16 +284,17 @@
         btnDel.style.display = (currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_')) ? 'inline-flex' : 'none';
       }
 
+      // The menu item says whether this preset is already the one the studio
+      // opens with, so the operator is not guessing.
       const defaultId = localStorage.getItem('PLAYOUT_DEFAULT_PRESET_ID') || 'default';
-      const btnDef = document.getElementById('btn-make-default');
-      if (btnDef) {
-        if (currentMasterPresetId === defaultId) {
-          btnDef.classList.add('active-default');
-          btnDef.textContent = '★ Default';
-        } else {
-          btnDef.classList.remove('active-default');
-          btnDef.textContent = '★ Set Default';
-        }
+      const menuDefault = document.getElementById('menu-make-default');
+      if (menuDefault) {
+        const isDefault = currentMasterPresetId === defaultId;
+        menuDefault.classList.toggle('is-current', isDefault);
+        menuDefault.lastChild.textContent = isDefault
+          ? ' Already the startup default'
+          : ' Use as startup default';
+        menuDefault.disabled = isDefault;
       }
     }
 
@@ -352,22 +353,64 @@
       }
     }
 
-    function showStudioToast(msg) {
+    /**
+     * The one toast. Three tones (ok / warn / error), bottom-right of the
+     * preview, never blocking. It replaces the alert() calls that stopped the
+     * operator's hands mid-design to say "copied to clipboard", and the
+     * confirm() that guarded preset deletion.
+     *
+     * @param {string} msg
+     * @param {'ok'|'warn'|'error'} [tone]
+     * @param {{label: string, run: Function}} [action] an inline button, which
+     *        is how a destructive action asks now instead of confirm().
+     */
+    function showStudioToast(msg, tone, action) {
       let toast = document.getElementById('studio-toast');
       if (!toast) {
         toast = document.createElement('div');
         toast.id = 'studio-toast';
-        toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 99999; background: #0f172a; border: 1px solid #38bdf8; color: #f0fdf4; padding: 12px 20px; border-radius: 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13.5px; font-weight: 600; box-shadow: 0 10px 25px rgba(0,0,0,0.8), 0 0 15px rgba(56,189,248,0.4); display: flex; align-items: center; gap: 8px; pointer-events: none; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform: translateY(20px); opacity: 0;';
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
         document.body.appendChild(toast);
       }
-      toast.textContent = msg;
-      toast.style.transform = 'translateY(0)';
-      toast.style.opacity = '1';
+
+      toast.className = 'studio-toast tone-' + (tone || 'ok');
+      toast.textContent = '';
+
+      const icon = document.createElement('i');
+      icon.className = 'cg-i';
+      icon.innerHTML = cgIconMarkup(tone === 'error' ? 'close' : tone === 'warn' ? 'shield' : 'check', 15);
+      toast.appendChild(icon);
+
+      const text = document.createElement('span');
+      text.className = 'studio-toast-text';
+      text.textContent = msg;
+      toast.appendChild(text);
+
       clearTimeout(toast._timeout);
-      toast._timeout = setTimeout(() => {
-        toast.style.transform = 'translateY(20px)';
-        toast.style.opacity = '0';
-      }, 4000);
+
+      if (action && typeof action.run === 'function') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'studio-toast-action';
+        btn.textContent = action.label;
+        btn.addEventListener('click', () => {
+          hideStudioToast();
+          action.run();
+        });
+        toast.appendChild(btn);
+      }
+
+      toast.classList.add('is-open');
+      // An offer to act stays long enough to read and decide on.
+      toast._timeout = setTimeout(hideStudioToast, action ? 9000 : 4000);
+    }
+
+    function hideStudioToast() {
+      const toast = document.getElementById('studio-toast');
+      if (!toast) return;
+      clearTimeout(toast._timeout);
+      toast.classList.remove('is-open');
     }
 
     async function markActivePresetAsDefault() {
@@ -376,7 +419,7 @@
       localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', 'default');
       const pkg = captureCurrentPresetPackage(null);
       pkg.id = 'default';
-      pkg.name = '🌟 Sitia HD Standard (Default)';
+      pkg.name = 'Sitia HD Standard (Default)';
       MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], pkg);
       localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
 
@@ -388,25 +431,40 @@
       try {
         const res = await postToBridge('/api/deploy', pkg);
         if (res && res.success) {
-          showStudioToast('✓ Set as startup default and deployed to CasparCG!');
+          setBridgeReachable(true);
+          markDeployedState();
+          showStudioToast('Startup default set, and deployed', 'ok');
           return;
         }
       } catch (e) {
         try {
           await postToBridge('/api/save-default-preset', pkg);
-          showStudioToast('✓ Marked as default and synchronized with templates!');
+          setBridgeReachable(true);
+          markDeployedState();
+          showStudioToast('Startup default set, and saved to the template', 'warn');
           return;
         } catch (_) {}
       }
-      showStudioToast('⚠ Saved to browser storage only (Studio bridge offline at port 6258)');
+      setBridgeReachable(false);
+      showStudioToast('Bridge offline — saved in this browser only', 'error');
     }
 
+    /**
+     * Deploy: write the active preset to the bridge, which bakes it into both
+     * template copies and redeploys them to CasparCG.
+     *
+     * This used to also set PLAYOUT_DEFAULT_PRESET_ID, so deploying a preset
+     * silently made it the thing the studio opened with next time. That was
+     * invisible and it was the same effect as the separate "Set Default"
+     * button, which also deployed. Deploy deploys; the startup default is a
+     * deliberate choice in the overflow menu (§4.1, owner decision 6).
+     */
     async function saveCurrentActivePreset() {
       const pkg = captureCurrentPresetPackage(null);
       const isUserPreset = currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_');
 
       if (isUserPreset) {
-        let userPresets = getUserPresetsList();
+        const userPresets = getUserPresetsList();
         const idx = userPresets.findIndex(p => p.id === currentMasterPresetId);
         if (idx !== -1) {
           pkg.id = currentMasterPresetId;
@@ -428,39 +486,73 @@
         }
         MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], pkg);
         localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
-        localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', pid);
-        recordAction('PRESET', `Updated "${pkg.name || 'Default'}" and saved as active default`);
+        recordAction('PRESET', `Updated "${pkg.name || 'Default'}"`);
       }
 
-      // Automatically sync active preset with Playout backend and CasparCG
+      setDeployInFlight(true);
       try {
-        const res = await postToBridge('/api/deploy', pkg);
-        if (res && res.success) {
-          showStudioToast(`✓ Overwrote settings and deployed to CasparCG!`);
-          return;
-        }
-      } catch (e) {
         try {
-          await postToBridge('/api/save-default-preset', pkg);
-          showStudioToast(`✓ Overwrote settings and synchronized with templates!`);
-          return;
-        } catch (_) {}
+          const res = await postToBridge('/api/deploy', pkg);
+          if (res && res.success) {
+            setBridgeReachable(true);
+            markDeployedState();
+            showStudioToast('Deployed to CasparCG', 'ok');
+            return;
+          }
+        } catch (e) {
+          // The bridge may be up but the CasparCG redeploy unavailable; saving
+          // the preset alone still gets it onto the next template deploy.
+          try {
+            await postToBridge('/api/save-default-preset', pkg);
+            setBridgeReachable(true);
+            markDeployedState();
+            showStudioToast('Saved to the template. Redeploy CasparCG to put it on air.', 'warn');
+            return;
+          } catch (_) {}
+        }
+        setBridgeReachable(false);
+        showStudioToast('Bridge offline — saved in this browser only. Reopen CG Studio from PlayOut to deploy.', 'error');
+      } finally {
+        setDeployInFlight(false);
       }
-      showStudioToast(`⚠ Saved "${pkg.name || 'Default'}" to browser storage only (Studio bridge offline at port 6258)`);
     }
 
     const deployFromStudio = saveCurrentActivePreset;
 
+    /**
+     * Deletes the active user preset, asking in the toast rather than in a
+     * modal confirm() that blocks the whole window. The deleted preset is kept
+     * long enough to put back, so a misclick costs one click, not the work.
+     */
     function deleteActiveMasterPreset() {
       if (!currentMasterPresetId || !String(currentMasterPresetId).startsWith('preset_')) return;
-      if (!confirm('Are you sure you want to delete this custom preset?')) return;
 
-      let userPresets = getUserPresetsList();
-      userPresets = userPresets.filter(p => p.id !== currentMasterPresetId);
-      localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(userPresets));
-      currentMasterPresetId = 'default';
-      window.currentMasterPresetId = 'default';
-      onSelectMasterPreset('default');
+      const doomedId = currentMasterPresetId;
+      const doomed = getUserPresetsList().find(p => p.id === doomedId);
+      if (!doomed) return;
+
+      showStudioToast('Delete "' + doomed.name + '"?', 'warn', {
+        label: 'Delete',
+        run: function () {
+          const remaining = getUserPresetsList().filter(p => p.id !== doomedId);
+          localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(remaining));
+          currentMasterPresetId = 'default';
+          window.currentMasterPresetId = 'default';
+          onSelectMasterPreset('default');
+
+          showStudioToast('Deleted "' + doomed.name + '"', 'ok', {
+            label: 'Undo',
+            run: function () {
+              const list = getUserPresetsList();
+              list.push(doomed);
+              localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(list));
+              refreshMasterPresetDropdown();
+              onSelectMasterPreset(doomedId);
+              showStudioToast('Restored "' + doomed.name + '"', 'ok');
+            }
+          });
+        }
+      });
     }
 
     function captureCurrentPresetPackage(name) {

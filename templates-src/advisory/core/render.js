@@ -206,7 +206,7 @@
           fitWordmarkSvgText(textSize);
         }
       }
-      updateLiveInspector();
+      if (typeof renderTimelineBar === 'function') renderTimelineBar();
     }
 
     function fitRatingStencilText() {
@@ -380,7 +380,7 @@
         }
       });
       fitRatingStencilText();
-      updateLiveInspector();
+      if (typeof renderTimelineBar === 'function') renderTimelineBar();
     }
 
     function applyThemePreset(themeKey) {
@@ -486,6 +486,18 @@
 
     let currentStudioDisplayMode = 'combo'; // 'rating' | 'logo' | 'combo'
 
+    /** What the rating was before "Station ID only" hid the advisory stage. */
+    let ratingBeforeLogoOnly = null;
+
+    /** Puts the operator's rating back when the advisory stage returns. */
+    function restoreRatingForDisplayMode() {
+      if (currentConfig.rating !== 'NONE') return;
+      currentConfig.rating = ratingBeforeLogoOnly || '16';
+      document.querySelectorAll('[data-rating]').forEach(function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-rating') === currentConfig.rating);
+      });
+    }
+
     function setStudioDisplayMode(mode) {
       currentStudioDisplayMode = mode;
       document.querySelectorAll('.studio-mode-btn').forEach(btn => {
@@ -527,7 +539,7 @@
         if (logoStage) logoStage.style.display = 'none';
         if (advStage) advStage.style.display = 'flex';
 
-        if (currentConfig.rating === 'NONE') currentConfig.rating = '16';
+        restoreRatingForDisplayMode();
         currentConfig.show_station_logo = false;
 
         if (currentActiveTab === 'station') {
@@ -550,6 +562,9 @@
         if (logoStage) logoStage.style.display = 'flex';
         if (advStage) advStage.style.display = 'none';
 
+        // Remember what the operator picked, so switching back restores it
+        // instead of resetting to 16.
+        if (currentConfig.rating !== 'NONE') ratingBeforeLogoOnly = currentConfig.rating;
         currentConfig.rating = 'NONE';
         currentConfig.show_station_logo = true;
 
@@ -572,7 +587,7 @@
         if (logoStage) logoStage.style.display = 'flex';
         if (advStage) advStage.style.display = 'flex';
 
-        if (currentConfig.rating === 'NONE') currentConfig.rating = '16';
+        restoreRatingForDisplayMode();
         currentConfig.show_station_logo = true;
       }
 

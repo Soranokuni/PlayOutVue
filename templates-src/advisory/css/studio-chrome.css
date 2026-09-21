@@ -188,9 +188,15 @@
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       padding-bottom: 4px;
       display: flex;
-      justify-content: space-between;
+      /* flex-start, not space-between: the leading icon is a flex item now,
+         and space-between would push it away from its own label. Anything
+         that wants the right edge asks for it with margin-left: auto. */
+      justify-content: flex-start;
       align-items: center;
+      gap: 6px;
     }
+
+    .studio-group-title > .cg-i { color: #64748b; }
 
     .studio-btn-row {
       display: flex;

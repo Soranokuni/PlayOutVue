@@ -177,7 +177,7 @@
 
       buildTimeline();
       replayTimeline();
-      updateLiveInspector();
+      if (typeof renderTimelineBar === 'function') renderTimelineBar();
       recordAction('THEME', 'Changed Broadcast Font: ' + fontKey);
     }
   

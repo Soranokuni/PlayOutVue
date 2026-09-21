@@ -25,7 +25,7 @@
       const input = document.getElementById('txt-save-as-name');
       const name = input ? input.value.trim() : '';
       if (!name) {
-        alert('Please enter a preset name.');
+        showStudioToast('Give the preset a name first', 'warn');
         return;
       }
 
@@ -40,7 +40,7 @@
         recordAction('PRESET', `Saved new custom preset: "${name}"`);
         showStudioToast(`✓ Successfully saved custom preset: "${name}"!`);
       } catch (err) {
-        alert('Failed to save preset: ' + err.message);
+        showStudioToast('Could not save: ' + err.message, 'error');
       }
     }
 

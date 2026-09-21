@@ -1,61 +1,80 @@
     // =========================================================================
-    // ACTION HISTORY & LIVE SVG INSPECTOR CONSOLE
+    // HISTORY (§4.5)
+    //
+    // The old "Action History" was not undo. It stored ad-hoc closures, most
+    // recordAction calls passed no revert function at all, and the ones that
+    // did passed the wrong thing — a reposition's "Revert" ran
+    // resetToFactoryDefaults and wiped fourteen unrelated controls. So the
+    // button removed a row and, usually, changed nothing.
+    //
+    // Undo is state snapshots now (core/store.js). This list is a view of that
+    // stack: clicking an entry rolls back to it, and the snapshot survives so
+    // redo can roll forward again.
     // =========================================================================
+
     const actionHistory = [];
 
-    function recordAction(type, desc, revertFn) {
+    /**
+     * Records a labelled point the operator can come back to.
+     *
+     * @param {string} type  short badge: LAYOUT, THEME, PRESET, BADGE
+     * @param {string} desc  what happened, in the operator's words
+     */
+    function recordAction(type, desc) {
       // The console card is display:none on air, so every on-air update was
       // re-rendering a list nobody can see (audit 2.3.6).
       if (document.documentElement.classList.contains('on-air')) return;
-      const item = {
-        id: 'act_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+
+      pushUndoSnapshot(desc);
+      actionHistory.unshift({
+        id: 'act_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
         time: new Date().toLocaleTimeString(),
         type: type,
         desc: desc,
-        revertFn: revertFn
-      };
-      actionHistory.unshift(item);
+        depth: undoStack.length
+      });
       if (actionHistory.length > 50) actionHistory.pop();
       renderConsole();
-      updateLiveInspector();
     }
 
+    /** Rolls back to just before the given entry. */
     function revertAction(id) {
       const idx = actionHistory.findIndex(a => a.id === id);
-      if (idx !== -1) {
-        const act = actionHistory[idx];
-        if (typeof act.revertFn === 'function') {
-          act.revertFn();
-        }
-        actionHistory.splice(idx, 1);
-        renderConsole();
-        updateLiveInspector();
+      if (idx === -1) return;
+      // Everything above it in the list happened after it, so undo through
+      // them too — otherwise "revert" would leave a state that never existed.
+      for (let i = 0; i <= idx; i++) {
+        if (!undoState()) break;
       }
+      actionHistory.splice(0, idx + 1);
+      renderConsole();
+      showStudioToast('Reverted to before "' + escapeHtml(actionHistory.length ? actionHistory[0].desc : 'the first change') + '"', 'ok', {
+        label: 'Redo',
+        run: function () { redoState(); renderConsole(); }
+      });
     }
 
     function revertLastAction() {
-      if (actionHistory.length > 0) {
-        revertAction(actionHistory[0].id);
-      }
+      if (actionHistory.length) revertAction(actionHistory[0].id);
     }
 
     function clearConsoleHistory() {
       actionHistory.length = 0;
       renderConsole();
-      updateLiveInspector();
     }
 
     function renderConsole() {
-      const countEl = document.getElementById('console-action-count');
       const listEl = document.getElementById('console-action-list');
       const revertLastBtn = document.getElementById('btn-revert-last');
-      
-      if (countEl) countEl.textContent = `${actionHistory.length} actions`;
-      if (revertLastBtn) revertLastBtn.disabled = (actionHistory.length === 0);
-
+      if (revertLastBtn) revertLastBtn.disabled = actionHistory.length === 0;
       if (!listEl) return;
+
       if (actionHistory.length === 0) {
-        listEl.innerHTML = '<div style="font-size: 11px; color: #64748b; font-style: italic; padding: 6px;">No actions recorded yet. Adjust controls to see live change events.</div>';
+        listEl.textContent = '';
+        const empty = document.createElement('div');
+        empty.className = 'console-empty';
+        empty.textContent = 'Nothing to undo yet.';
+        listEl.appendChild(empty);
         return;
       }
 
@@ -63,40 +82,31 @@
         <div class="console-item">
           <div class="console-item-left">
             <span class="console-item-time">${escapeHtml(item.time)}</span>
-            <span class="console-item-badge ${escapeHtml(item.type.toLowerCase())}">${escapeHtml(item.type)}</span>
+            <span class="console-item-badge ${escapeHtml(String(item.type).toLowerCase())}">${escapeHtml(item.type)}</span>
             <span class="console-item-desc" title="${escapeHtml(item.desc)}">${escapeHtml(item.desc)}</span>
           </div>
-          <button class="console-item-revert-btn" onclick="revertAction('${escapeHtml(item.id)}')" title="Undo this change">↩️ Revert</button>
+          <button class="console-item-revert-btn" onclick="revertAction('${escapeHtml(item.id)}')" title="Roll back to before this change">Revert</button>
         </div>
       `).join('');
     }
 
-    function updateLiveInspector() {
-      const stream = document.getElementById('console-live-attributes');
-      if (!stream) return;
-
-      const logoSize = document.getElementById('sld-logo-size')?.value || 76;
-      const logoRadius = document.getElementById('sld-logo-radius')?.value || 52;
-      const logoExtrusion = document.getElementById('sel-logo-extrusion')?.value || 'convex';
-      const logoBase = document.getElementById('col-logo-base')?.value || '#702177';
-      const logoWordmark = document.getElementById('txt-logo-content')?.value || 'SITIA';
-      const ratingSize = document.getElementById('sld-rating-size')?.value || 54;
-      const ratingCutout = document.getElementById('sel-rating-cutout')?.value || 'frosted';
-
-      const subEl = document.getElementById('txt-logo-subtitle');
-      const subVal = (subEl && subEl.value) ? String(subEl.value).trim().toUpperCase() : '(none)';
-      stream.innerHTML = `
-        <div class="console-attrib-row"><span class="console-attrib-key">Station Wordmark</span><span class="console-attrib-val">"${escapeHtml(logoWordmark)}"</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Station Subtitle Tag</span><span class="console-attrib-val">"${escapeHtml(subVal)}"</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Logo Dimensions</span><span class="console-attrib-val">${escapeHtml(logoSize)}px (G2: rx=${escapeHtml(logoRadius)})</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Neumorphic Extrusion</span><span class="console-attrib-val">${escapeHtml(logoExtrusion)}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Base Palette</span><span class="console-attrib-val">${escapeHtml(logoBase)}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Rating Badge Size</span><span class="console-attrib-val">${escapeHtml(ratingSize)}px</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Cutout Stencil Mode</span><span class="console-attrib-val">${escapeHtml(ratingCutout)}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Hold Durations</span><span class="console-attrib-val">Exp: ${escapeHtml(currentConfig.hold_time)}s | Adv: ${escapeHtml(currentConfig.warning_hold_time)}s</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Active Theme</span><span class="console-attrib-val">${escapeHtml(currentConfig.theme)}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Screen Anchor</span><span class="console-attrib-val">${currentLayoutOrientation === 'default' ? 'Logo Left • Rating Right' : 'Rating Left • Logo Right'}</span></div>
-      `;
+    /** Ctrl+Z / Ctrl+Shift+Z, the shortcuts every other tool uses. */
+    function initHistoryShortcuts() {
+      document.addEventListener('keydown', function (e) {
+        if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+        const t = e.target;
+        // Leave the browser's own undo alone inside a text field.
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && t.type !== 'range') return;
+        e.preventDefault();
+        const moved = e.shiftKey ? redoState() : undoState();
+        if (!moved) {
+          showStudioToast(e.shiftKey ? 'Nothing to redo' : 'Nothing to undo', 'warn');
+          return;
+        }
+        if (!e.shiftKey) actionHistory.shift();
+        renderConsole();
+        syncRailFromState();
+      });
     }
 
     function copyLiveSvgCode(target) {
@@ -105,10 +115,11 @@
         : document.getElementById('rating-badge-container');
       if (!container) return;
       const svgCode = container.innerHTML.trim();
+      const what = target === 'logo' ? 'Station ID' : 'Rating badge';
       navigator.clipboard.writeText(svgCode).then(() => {
-        alert(`✓ Standalone ${target === 'logo' ? 'Station Logo' : 'Rating Badge'} SVG copied to clipboard!`);
+        showStudioToast(what + ' SVG copied', 'ok');
       }).catch(() => {
-        alert('Failed to copy SVG: ' + svgCode);
+        showStudioToast('Could not reach the clipboard', 'error');
       });
     }
 
@@ -126,108 +137,74 @@
       URL.revokeObjectURL(url);
     }
 
-    function saveBroadcastDefaults() {
-      const defaults = {
-        logoSize: document.getElementById('sld-logo-size')?.value,
-        logoRadius: document.getElementById('sld-logo-radius')?.value,
-        logoWordmark: document.getElementById('txt-logo-content')?.value,
-        logoSubtitle: document.getElementById('txt-logo-subtitle')?.value,
-        ratingSize: document.getElementById('sld-rating-size')?.value,
-        theme: currentConfig.theme,
-        orientation: currentLayoutOrientation
-      };
+    /**
+     * Copies whatever the two retired save systems left in localStorage into
+     * the real user-preset list, once, and marks them done.
+     *
+     * There used to be three ways to save a look: `cg_advisory_defaults` (six
+     * fields, no name, invisible), `PLAYOUT_CUSTOM_THEMES` (six fields, named,
+     * on the Blueprints tab) and the actual preset package (everything, named,
+     * deployable). An operator could not tell which "save" they had used or why
+     * the other two lost their work, so the two partial ones are gone. Nothing
+     * saved under them is lost: they become ordinary presets here.
+     */
+    function migrateRetiredPresetStores() {
+      const MIGRATED_FLAG = 'PLAYOUT_LEGACY_PRESETS_MIGRATED';
       try {
-        localStorage.setItem('cg_advisory_defaults', JSON.stringify(defaults));
-        alert('✓ Saved broadcast studio defaults to local storage!');
-      } catch (e) {
-        alert('Failed to save defaults: ' + e.message);
+        if (localStorage.getItem(MIGRATED_FLAG)) return 0;
+      } catch (_) {
+        return 0;
       }
-    }
 
-    function loadSavedDefaults() {
-      try {
-        const raw = localStorage.getItem('cg_advisory_defaults');
-        if (!raw) return;
-        const d = JSON.parse(raw);
-        if (d.logoSize && document.getElementById('sld-logo-size')) document.getElementById('sld-logo-size').value = d.logoSize;
-        if (d.logoRadius && document.getElementById('sld-logo-radius')) document.getElementById('sld-logo-radius').value = d.logoRadius;
-        if (d.logoWordmark && document.getElementById('txt-logo-content')) document.getElementById('txt-logo-content').value = d.logoWordmark;
-        if (d.logoSubtitle && document.getElementById('txt-logo-subtitle')) document.getElementById('txt-logo-subtitle').value = d.logoSubtitle;
-        if (d.ratingSize && document.getElementById('sld-rating-size')) document.getElementById('sld-rating-size').value = d.ratingSize;
-        if (d.theme) applyThemePreset(d.theme);
-        if (d.orientation && d.orientation !== currentLayoutOrientation) flipStagePositions();
-      } catch (e) {}
-    }
-
-    function saveCustomThemePreset() {
-      const nameInput = document.getElementById('txt-preset-name');
-      const name = (nameInput && nameInput.value.trim()) ? nameInput.value.trim() : 'Custom Look ' + new Date().toLocaleTimeString();
-      const customPreset = {
-        id: 'theme_' + Date.now(),
-        name: name,
-        logoSize: document.getElementById('sld-logo-size')?.value || 76,
-        logoRadius: document.getElementById('sld-logo-radius')?.value || 52,
-        logoWordmark: document.getElementById('txt-logo-content')?.value || 'SITIA',
-        logoSubtitle: document.getElementById('txt-logo-subtitle')?.value || 'HD',
-        ratingSize: document.getElementById('sld-rating-size')?.value || 54,
-        theme: currentConfig.theme
-      };
-      try {
-        let stored = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
-        stored.push(customPreset);
-        localStorage.setItem('PLAYOUT_CUSTOM_THEMES', JSON.stringify(stored));
-        loadUserCustomThemes();
-        if (nameInput) nameInput.value = '';
-        alert(`✓ Saved preset: "${name}"!`);
-      } catch (err) {
-        alert('Failed to save preset: ' + err.message);
-      }
-    }
-
-    function loadUserCustomThemes() {
-      try {
-        const list = document.getElementById('custom-themes-list');
-        if (!list) return;
-        const stored = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
-        if (stored.length === 0) {
-          list.innerHTML = '<div style="font-size: 11px; color: #64748b; font-style: italic;">No custom presets saved yet.</div>';
-          return;
+      const carried = [];
+      const lift = (old, fallbackName) => {
+        if (!old || typeof old !== 'object') return;
+        // The six fields those stores held, mapped onto schema keys. Everything
+        // else in the resulting preset is the current default, which is what
+        // the partial save would have produced anyway.
+        const preset = stateToPreset({
+          id: 'preset_' + Date.now() + '_' + carried.length,
+          name: old.name || fallbackName
+        });
+        if (old.logoSize) preset.logoSize = parseFloat(old.logoSize);
+        if (old.logoRadius) preset.logoRadius = parseFloat(old.logoRadius);
+        if (old.logoWordmark) preset.wordmark = old.logoWordmark;
+        if (old.logoSubtitle) preset.subtitle = old.logoSubtitle;
+        if (old.ratingSize) {
+          preset.ratingSize = parseFloat(old.ratingSize);
+          preset.badgeSizePx = parseFloat(old.ratingSize);
         }
-        list.innerHTML = stored.map((t, idx) => `
-          <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;">
-            <span style="font-size: 11.5px; font-weight: 600; color: #f1f5f9;">${escapeHtml(t.name)}</span>
-            <div style="display: flex; gap: 4px;">
-              <button class="studio-btn" style="padding: 2px 7px; font-size: 10px;" onclick="applyUserCustomTheme(${idx})">Apply</button>
-              <button class="studio-btn" style="padding: 2px 6px; font-size: 10px; color: #f87171;" onclick="deleteUserCustomTheme(${idx})">✕</button>
-            </div>
-          </div>
-        `).join('');
-      } catch (e) {}
-    }
+        if (old.theme) { preset.theme = old.theme; preset.themeName = old.theme; }
+        if (old.orientation) preset.orientation = old.orientation;
+        carried.push(preset);
+      };
 
-    function applyUserCustomTheme(idx) {
       try {
-        const stored = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
-        const t = stored[idx];
-        if (!t) return;
-        if (t.logoSize) document.getElementById('sld-logo-size').value = t.logoSize;
-        if (t.logoRadius) document.getElementById('sld-logo-radius').value = t.logoRadius;
-        if (t.logoWordmark) document.getElementById('txt-logo-content').value = t.logoWordmark;
-        if (t.logoSubtitle) document.getElementById('txt-logo-subtitle').value = t.logoSubtitle;
-        if (t.ratingSize) document.getElementById('sld-rating-size').value = t.ratingSize;
-        if (t.theme) applyThemePreset(t.theme);
-        updateLogoFromControls();
-        updateRatingFromControls();
-      } catch (e) {}
-    }
+        const defaults = JSON.parse(localStorage.getItem('cg_advisory_defaults') || 'null');
+        lift(defaults, 'Recovered studio defaults');
+      } catch (_) {}
 
-    function deleteUserCustomTheme(idx) {
       try {
-        let stored = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
-        stored.splice(idx, 1);
-        localStorage.setItem('PLAYOUT_CUSTOM_THEMES', JSON.stringify(stored));
-        loadUserCustomThemes();
-      } catch (e) {}
+        const themes = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
+        if (Array.isArray(themes)) themes.forEach((t, i) => lift(t, 'Recovered look ' + (i + 1)));
+      } catch (_) {}
+
+      if (carried.length) {
+        try {
+          const existing = getUserPresetsList();
+          localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(existing.concat(carried)));
+        } catch (_) {
+          return 0;
+        }
+      }
+
+      try {
+        localStorage.setItem(MIGRATED_FLAG, String(Date.now()));
+        localStorage.removeItem('cg_advisory_defaults');
+        localStorage.removeItem('PLAYOUT_CUSTOM_THEMES');
+      } catch (_) {}
+
+      return carried.length;
     }
 
     // "Factory" used to hard-code sizes 76/54 while the default preset said

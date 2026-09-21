@@ -446,9 +446,15 @@
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       padding-bottom: 4px;
       display: flex;
-      justify-content: space-between;
+      /* flex-start, not space-between: the leading icon is a flex item now,
+         and space-between would push it away from its own label. Anything
+         that wants the right edge asks for it with margin-left: auto. */
+      justify-content: flex-start;
       align-items: center;
+      gap: 6px;
     }
+
+    .studio-group-title > .cg-i { color: #64748b; }
 
     .studio-btn-row {
       display: flex;
@@ -1568,16 +1574,17 @@
     .console-body {
       flex: 1;
       display: grid;
-      grid-template-columns: 320px 1fr;
+      /* Timeline two-thirds, history one-third (§4.5). The timeline is the
+         thing being tuned; the history is a record of it. */
+      grid-template-columns: 2fr 1fr;
       min-height: 0;
       overflow: hidden;
     }
 
-    .console-inspector-col {
+    .console-timeline-col {
       border-right: 1px solid rgba(255, 255, 255, 0.08);
-      padding: 10px 14px;
-      overflow-y: auto;
       background: rgba(15, 23, 42, 0.4);
+      overflow: hidden;
     }
 
     .console-history-col {
@@ -1687,6 +1694,101 @@
       color: #ffffff;
     }
 
+
+    /* =========================================================================
+       TIMELINE BAR AND HISTORY (§4.5)
+       The console used to be "Live SVG Attributes" — a hand-written list that
+       restated ten rail values as text — beside an "Action History" that was
+       not undo. Both are gone.
+       ========================================================================= */
+    .console-timeline-col {
+      display: flex;
+      flex-direction: column;
+      gap: var(--ui-space-2);
+      min-width: 0;
+      padding: var(--ui-space-2) var(--ui-space-3);
+    }
+
+    .tl-bar {
+      position: relative;
+      height: 34px;
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      background: rgba(0, 0, 0, 0.35);
+      overflow: hidden;
+      cursor: ew-resize;
+      user-select: none;
+    }
+
+    .tl-bar:focus-visible {
+      outline: 2px solid var(--ui-accent);
+      outline-offset: 1px;
+    }
+
+    .tl-segments {
+      display: flex;
+      height: 100%;
+      width: 100%;
+    }
+
+    .tl-seg {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      border-right: 1px solid rgba(0, 0, 0, 0.55);
+      overflow: hidden;
+    }
+
+    .tl-seg:last-child { border-right: 0; }
+
+    /* Tweens are the part being tuned, so they read as the solid ones. */
+    .tl-seg-tween { background: rgba(56, 189, 248, 0.42); }
+    .tl-seg-hold { background: rgba(148, 163, 184, 0.18); }
+
+    .tl-seg-label {
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      color: var(--ui-ink);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 var(--ui-space-1);
+      pointer-events: none;
+    }
+
+    .tl-playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 2px;
+      margin-left: -1px;
+      background: var(--ui-ok);
+      box-shadow: 0 0 6px rgba(52, 211, 153, 0.8);
+      pointer-events: none;
+    }
+
+    .tl-legend {
+      font-size: var(--ui-text-xs);
+      font-variant-numeric: tabular-nums;
+      color: var(--ui-ink-faint);
+    }
+
+    .console-col-actions {
+      display: inline-flex;
+      gap: var(--ui-space-1);
+      margin-left: auto;
+    }
+
+    .console-empty {
+      padding: var(--ui-space-2);
+      font-size: var(--ui-text-xs);
+      font-style: italic;
+      color: var(--ui-ink-faint);
+    }
     /* =========================================================================
        CASPARCG BROADCAST LAYER 32 ON-AIR OVERRIDE & TRANSPARENCY PIPELINE
        Guaranteed 100% transparent root, transparent canvas, zero workstation UI
@@ -2060,6 +2162,417 @@
       font-weight: 800;
     }
 
+
+    /* =========================================================================
+       STUDIO CHROME TOKENS AND ICONOGRAPHY (§4.6)
+       Dark only: the studio is an MCR tool and the preview needs a dark
+       surround to judge a broadcast overlay against.
+       ========================================================================= */
+    :root {
+      /* Type scale: four sizes, two weights. */
+      --ui-text-xs: 11px;
+      --ui-text-sm: 12px;
+      --ui-text-md: 13px;
+      --ui-text-lg: 15px;
+      --ui-weight-normal: 500;
+      --ui-weight-strong: 700;
+
+      /* Radius and the 4px spacing grid. */
+      --ui-radius-sm: 6px;
+      --ui-radius-md: 10px;
+      --ui-radius-lg: 16px;
+      --ui-space-1: 4px;
+      --ui-space-2: 8px;
+      --ui-space-3: 12px;
+      --ui-space-4: 16px;
+
+      /* Motion: 120ms for a state change, 180ms when layout moves. */
+      --ui-motion-state: 120ms;
+      --ui-motion-layout: 180ms;
+      --ui-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+      /* Surfaces and ink. */
+      --ui-ink: #e2e8f0;
+      --ui-ink-dim: #94a3b8;
+      --ui-ink-faint: #64748b;
+      --ui-accent: #38bdf8;
+      --ui-ok: #34d399;
+      --ui-warn: #fbbf24;
+      --ui-error: #f87171;
+      --ui-line: rgba(255, 255, 255, 0.08);
+      --ui-surface: rgba(255, 255, 255, 0.04);
+      --ui-surface-hover: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Icon slot. Filled once at boot by hydrateStudioIcons(); sized by the
+       SVG itself so an unfilled slot collapses instead of leaving a hole. */
+    .cg-i {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      vertical-align: -0.18em;
+      line-height: 0;
+    }
+
+    .cg-i > svg {
+      display: block;
+    }
+
+    /* Buttons and rows put a little air between an icon and its label without
+       every call site having to remember to. */
+    .studio-btn,
+    .studio-mode-btn,
+    .studio-tab-btn,
+    .action-btn-primary,
+    .action-btn-secondary,
+    .preset-pill-btn,
+    .preview-btn,
+    .console-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--ui-space-1);
+    }
+
+    .tag-row-icon > .cg-i {
+      color: var(--ui-ink-dim);
+    }
+
+    /* -------------------------------------------------------------
+       NUMERIC AND HEX ENTRY (§4.2)
+       Every value is typeable. The slider stays: it is the right tool for
+       finding a value, and the field is the right tool for hitting one.
+       ------------------------------------------------------------- */
+    .ui-num-wrap {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 1px;
+      margin-left: auto;
+    }
+
+    .ui-num {
+      width: 52px;
+      padding: 2px var(--ui-space-1);
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font-family: inherit;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      transition: border-color var(--ui-motion-state) var(--ui-ease),
+                  background var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .ui-num:hover { background: var(--ui-surface-hover); }
+
+    .ui-num:focus-visible {
+      outline: none;
+      border-color: var(--ui-accent);
+      background: var(--ui-surface-hover);
+    }
+
+    /* The spinners are 20px of chrome on a 52px field and the arrow keys do
+       the same job. */
+    .ui-num::-webkit-outer-spin-button,
+    .ui-num::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .ui-num { -moz-appearance: textfield; }
+
+    .ui-num-unit {
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-normal);
+      color: var(--ui-ink-faint);
+      min-width: 12px;
+    }
+
+    /* The old read-only readout is the field now. It stays in the DOM because
+       existing code writes textContent into it, and that write is mirrored
+       into the field it replaced. */
+    .ui-readout-replaced {
+      display: none !important;
+    }
+
+    .ui-hex {
+      width: 74px;
+      margin-left: var(--ui-space-1);
+      padding: 2px var(--ui-space-1);
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font-family: 'Roboto Mono', ui-monospace, Consolas, monospace;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-normal);
+      text-transform: lowercase;
+      transition: border-color var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .ui-hex:hover { background: var(--ui-surface-hover); }
+
+    .ui-hex:focus-visible {
+      outline: none;
+      border-color: var(--ui-accent);
+    }
+
+    /* -------------------------------------------------------------
+       TOAST (§4.7) — one component, three tones, never blocking.
+       It replaced the alert() calls that stopped the operator's hands to say
+       "copied to clipboard", and the confirm() that guarded a delete.
+       ------------------------------------------------------------- */
+    .studio-toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      gap: var(--ui-space-2);
+      max-width: 420px;
+      padding: 10px var(--ui-space-3);
+      background: #0b1220;
+      border: 1px solid var(--ui-line);
+      border-left-width: 3px;
+      border-radius: var(--ui-radius-md);
+      color: var(--ui-ink);
+      font-family: inherit;
+      font-size: var(--ui-text-md);
+      font-weight: var(--ui-weight-normal);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+      transform: translateY(12px);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform var(--ui-motion-layout) var(--ui-ease),
+                  opacity var(--ui-motion-layout) var(--ui-ease);
+    }
+
+    .studio-toast.is-open {
+      transform: translateY(0);
+      opacity: 1;
+      /* Only interactive once it carries a button to press. */
+      pointer-events: auto;
+    }
+
+    .studio-toast-text { flex: 1 1 auto; }
+
+    .studio-toast.tone-ok { border-left-color: var(--ui-ok); }
+    .studio-toast.tone-ok > .cg-i { color: var(--ui-ok); }
+    .studio-toast.tone-warn { border-left-color: var(--ui-warn); }
+    .studio-toast.tone-warn > .cg-i { color: var(--ui-warn); }
+    .studio-toast.tone-error { border-left-color: var(--ui-error); }
+    .studio-toast.tone-error > .cg-i { color: var(--ui-error); }
+
+    .studio-toast-action {
+      flex: 0 0 auto;
+      padding: var(--ui-space-1) var(--ui-space-2);
+      background: var(--ui-surface-hover);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font: inherit;
+      font-size: var(--ui-text-sm);
+      font-weight: var(--ui-weight-strong);
+      cursor: pointer;
+      transition: background var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .studio-toast-action:hover { background: rgba(255, 255, 255, 0.14); }
+    .studio-toast-action:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
+
+    /* -------------------------------------------------------------
+       DEPLOY STATE PILL (§4.1)
+       Nothing used to tell the operator whether what they were looking at was
+       what was on air. Three states: matching, modified, offline.
+       ------------------------------------------------------------- */
+    .deploy-state {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--ui-space-1);
+      padding: 2px var(--ui-space-2);
+      border: 1px solid var(--ui-line);
+      border-radius: 999px;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      transition: color var(--ui-motion-state) var(--ui-ease),
+                  border-color var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .deploy-state::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      flex: 0 0 auto;
+    }
+
+    .deploy-state.state-deployed { color: var(--ui-ok); border-color: rgba(52, 211, 153, 0.35); }
+    .deploy-state.state-modified { color: var(--ui-warn); border-color: rgba(251, 191, 36, 0.35); }
+    .deploy-state.state-deploying { color: var(--ui-accent); border-color: rgba(56, 189, 248, 0.35); }
+    .deploy-state.state-offline { color: var(--ui-ink-faint); border-color: var(--ui-line); }
+
+    .studio-group-note {
+      font-size: var(--ui-text-xs);
+      line-height: 1.5;
+      color: var(--ui-ink-dim);
+    }
+
+    .studio-group-note strong { color: var(--ui-ink); font-weight: var(--ui-weight-strong); }
+
+    /* -------------------------------------------------------------
+       PRESET OVERFLOW MENU (§4.1)
+       Save as, startup default, export/import and the SVG exports used to be
+       scattered across the footer, the Blueprints tab and the console. One
+       menu, next to the preset it acts on.
+       ------------------------------------------------------------- */
+    .studio-preset-bar { position: relative; }
+
+    .preset-menu {
+      position: absolute;
+      top: calc(100% + var(--ui-space-1));
+      right: 0;
+      z-index: 500;
+      min-width: 244px;
+      padding: var(--ui-space-1);
+      background: #0b1220;
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-md);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .preset-menu[hidden] { display: none; }
+
+    .preset-menu-item {
+      display: flex;
+      align-items: center;
+      gap: var(--ui-space-2);
+      width: 100%;
+      padding: var(--ui-space-2) var(--ui-space-2);
+      background: transparent;
+      border: 0;
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font: inherit;
+      font-size: var(--ui-text-sm);
+      font-weight: var(--ui-weight-normal);
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .preset-menu-item > .cg-i { color: var(--ui-ink-faint); }
+    .preset-menu-item:hover:not(:disabled) { background: var(--ui-surface-hover); }
+    .preset-menu-item:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
+    .preset-menu-item:disabled { color: var(--ui-ink-faint); cursor: default; }
+    .preset-menu-item.is-danger { color: var(--ui-error); }
+    .preset-menu-item.is-danger > .cg-i { color: var(--ui-error); }
+    .preset-menu-item[hidden] { display: none; }
+
+    .preset-menu-sep {
+      height: 1px;
+      margin: var(--ui-space-1) 0;
+      background: var(--ui-line);
+    }
+
+    /* -------------------------------------------------------------
+       CANVAS SELECTION AND SNAP GUIDES (§4.4)
+       Selection is studio furniture and lives behind .studio-mode, so a
+       selected stage can never leak into the on-air render.
+       ------------------------------------------------------------- */
+    body.studio-mode .canvas-draggable.is-selected {
+      outline: 1.5px solid var(--ui-accent);
+      outline-offset: 5px;
+    }
+
+    body.studio-mode .canvas-draggable:focus-visible {
+      outline: 2px solid var(--ui-accent);
+      outline-offset: 5px;
+    }
+
+    body.studio-mode .snap-guide {
+      position: absolute;
+      z-index: 40;
+      background: var(--ui-accent);
+      pointer-events: none;
+      opacity: 0.85;
+    }
+
+    body.studio-mode .snap-guide-x {
+      top: 0;
+      bottom: 0;
+      width: 1px;
+    }
+
+    body.studio-mode .snap-guide-y {
+      left: 0;
+      right: 0;
+      height: 1px;
+    }
+
+    /* The guide says which line it is, because "centre" and "title safe" are
+       six pixels apart and look identical. */
+    body.studio-mode .snap-guide::after {
+      content: attr(data-label);
+      position: absolute;
+      padding: 2px 6px;
+      background: var(--ui-accent);
+      border-radius: 3px;
+      color: #06121d;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    body.studio-mode .snap-guide-x::after { top: 8px; left: 5px; }
+    body.studio-mode .snap-guide-y::after { left: 8px; top: 5px; }
+
+    /* -------------------------------------------------------------
+       BASIC / ADVANCED TIER BAR (§4.2)
+       ------------------------------------------------------------- */
+    .studio-tier-bar {
+      display: inline-flex;
+      align-self: flex-start;
+      margin: 0 var(--ui-space-4) var(--ui-space-2);
+      padding: 2px;
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: 999px;
+    }
+
+    .studio-tier-btn {
+      padding: 3px var(--ui-space-3);
+      background: transparent;
+      border: 0;
+      border-radius: 999px;
+      color: var(--ui-ink-dim);
+      font: inherit;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      cursor: pointer;
+      transition: background var(--ui-motion-state) var(--ui-ease),
+                  color var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .studio-tier-btn:hover { color: var(--ui-ink); }
+    .studio-tier-btn:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
+
+    .studio-tier-btn.active {
+      background: var(--ui-surface-hover);
+      color: var(--ui-ink);
+    }
+
+    .is-advanced-hidden { display: none !important; }
   </style>
 </head>
 <body>
@@ -2079,51 +2592,81 @@
             <span class="studio-title-badge">BROADCAST</span>
             <span>Greek Advisory &amp; Vector Studio</span>
           </div>
-          <button class="preview-btn" style="padding: 2px 7px; font-size: 10px;" onclick="toggleWorkstationFullscreen()" title="Toggle Fullscreen On-Air View">⛶ Fullscreen</button>
+          <button class="preview-btn" style="padding: 2px 7px; font-size: 10px;" onclick="toggleWorkstationFullscreen()" title="Toggle Fullscreen On-Air View"><i class="cg-i" data-icon="fullscreen"></i> Fullscreen</button>
         </div>
-        <div class="studio-subtitle">Neumorphic Graphics &amp; NCRTV Compliance Engine</div>
+        <div class="studio-subtitle">Station branding and ΕΣΡ compliance</div>
       </div>
 
       <!-- Prominent Master Preset Chooser Bar -->
       <div class="studio-preset-bar">
         <div class="preset-select-wrapper">
-          <span class="preset-label-icon">🌟</span>
+          <span class="preset-label-icon"><i class="cg-i" data-icon="star"></i></span>
           <select id="sel-master-preset" class="studio-preset-dropdown" onchange="onSelectMasterPreset(this.value)">
             <optgroup label="Broadcast Standards">
-              <option value="default" selected>🌟 Sitia HD Standard (Default)</option>
-              <option value="live">🔴 Sitia Live Broadcast</option>
-              <option value="movie">🎬 Primetime Movie Night</option>
-              <option value="documentary">🌍 World Nature &amp; Docs</option>
-              <option value="telemarketing">🛒 Telemarketing Direct (ΤΠ)</option>
-              <option value="show">📺 Prime Drama Series</option>
-              <option value="news">📡 Breaking News &amp; Reports</option>
+              <option value="default" selected>Sitia HD Standard (Default)</option>
+              <option value="live">Sitia Live Broadcast</option>
+              <option value="movie">Primetime Movie Night</option>
+              <option value="documentary">World Nature &amp; Docs</option>
+              <option value="telemarketing">Telemarketing Direct (ΤΠ)</option>
+              <option value="show">Prime Drama Series</option>
+              <option value="news">Breaking News &amp; Reports</option>
             </optgroup>
             <optgroup label="User Custom Presets" id="optgroup-master-user-presets">
               <!-- Populated dynamically from localStorage -->
             </optgroup>
           </select>
         </div>
+        <!-- One state pill and one overflow menu. "Save & Deploy" and
+             "Set Default" used to be two buttons with overlapping effects:
+             both deployed, and one of them also silently made the preset the
+             startup default. Deploy deploys; the startup default is an
+             explicit choice in the menu. -->
         <div class="preset-quick-actions">
-          <button type="button" class="preset-pill-btn" id="btn-make-default" onclick="markActivePresetAsDefault()" title="Make this preset the startup default">★ Set Default</button>
-          <button type="button" class="preset-pill-btn" id="btn-delete-preset" style="display: none; color: #f87171;" onclick="deleteActiveMasterPreset()" title="Delete this custom preset">🗑️ Delete</button>
+          <span id="deploy-state" class="deploy-state state-modified" title="Whether what you see matches what is deployed">Modified</span>
+          <button type="button" class="preset-pill-btn" id="btn-preset-menu"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="preset-menu"
+                  onclick="togglePresetMenu()" title="More preset actions"><i class="cg-i" data-icon="more"></i></button>
+        </div>
+
+        <div id="preset-menu" class="preset-menu" role="menu" hidden>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); openSaveAsDialog();"><i class="cg-i" data-icon="save"></i> Save as new preset…</button>
+          <button type="button" role="menuitem" class="preset-menu-item" id="menu-make-default" onclick="closePresetMenu(); markActivePresetAsDefault();"><i class="cg-i" data-icon="star"></i> Use as startup default</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); exportActivePreset();"><i class="cg-i" data-icon="download"></i> Export preset JSON</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); importPresetFromFile();"><i class="cg-i" data-icon="copy"></i> Import preset JSON…</button>
+          <div class="preset-menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); copyLiveSvgCode('logo');"><i class="cg-i" data-icon="copy"></i> Copy Station ID SVG</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); copyLiveSvgCode('rating');"><i class="cg-i" data-icon="copy"></i> Copy rating badge SVG</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); downloadAllSvgs();"><i class="cg-i" data-icon="download"></i> Download SVGs</button>
+          <div class="preset-menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" class="preset-menu-item is-danger" id="menu-delete-preset" onclick="closePresetMenu(); deleteActiveMasterPreset();"><i class="cg-i" data-icon="trash"></i> Delete this preset</button>
         </div>
       </div>
 
       <!-- On-Air Display Mode Switcher -->
       <div class="studio-mode-bar">
-        <button class="studio-mode-btn" id="mode-btn-rating" onclick="setStudioDisplayMode('rating')">🏷️ Rating Only</button>
-        <button class="studio-mode-btn" id="mode-btn-logo" onclick="setStudioDisplayMode('logo')">📺 Station ID Only</button>
-        <button class="studio-mode-btn active" id="mode-btn-combo" onclick="setStudioDisplayMode('combo')">🌟 Combo (Both)</button>
+        <button class="studio-mode-btn" id="mode-btn-rating" onclick="setStudioDisplayMode('rating')"><i class="cg-i" data-icon="tag"></i> Rating Only</button>
+        <button class="studio-mode-btn" id="mode-btn-logo" onclick="setStudioDisplayMode('logo')"><i class="cg-i" data-icon="monitor"></i> Station ID Only</button>
+        <button class="studio-mode-btn active" id="mode-btn-combo" onclick="setStudioDisplayMode('combo')"><i class="cg-i" data-icon="star"></i> Combo (Both)</button>
       </div>
 
       <!-- Navigation Tabs -->
+      <!-- Basic shows the dozen things that get touched daily; Advanced adds
+           the light angle, bevel offsets, stencil offsets and the rest. The
+           tiers come from CONTROL_SCHEMA, so a new control is filed once. -->
+      <div class="studio-tier-bar" role="radiogroup" aria-label="Control detail">
+        <button type="button" class="studio-tier-btn active" data-tier="basic" role="radio" aria-checked="true"
+                onclick="setControlTier('basic')">Basic</button>
+        <button type="button" class="studio-tier-btn" data-tier="advanced" role="radio" aria-checked="false"
+                onclick="setControlTier('advanced')">Advanced</button>
+      </div>
+
       <div class="studio-tab-bar">
-        <button class="studio-tab-btn active" data-tab="content" onclick="switchStudioTab('content')">🏷️ Content</button>
-        <button class="studio-tab-btn" data-tab="station" onclick="switchStudioTab('station')">📺 Station Logo</button>
-        <button class="studio-tab-btn" data-tab="rating" onclick="switchStudioTab('rating')">🏷️ Rating Badge</button>
-        <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')">🎨 Blueprints</button>
-        <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')">📐 Geometry</button>
-        <button class="studio-tab-btn" data-tab="motion" onclick="switchStudioTab('motion')">⏱️ Motion</button>
+        <button class="studio-tab-btn active" data-tab="content" onclick="switchStudioTab('content')"><i class="cg-i" data-icon="tag"></i> Content</button>
+        <button class="studio-tab-btn" data-tab="station" onclick="switchStudioTab('station')"><i class="cg-i" data-icon="monitor"></i> Station Logo</button>
+        <button class="studio-tab-btn" data-tab="rating" onclick="switchStudioTab('rating')"><i class="cg-i" data-icon="tag"></i> Rating Badge</button>
+        <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')"><i class="cg-i" data-icon="palette"></i> Blueprints</button>
+        <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')"><i class="cg-i" data-icon="ruler"></i> Geometry</button>
+        <button class="studio-tab-btn" data-tab="motion" onclick="switchStudioTab('motion')"><i class="cg-i" data-icon="motion"></i> Motion</button>
       </div>
 
       <!-- Scrollable Tab Content Panels -->
@@ -2133,7 +2676,7 @@
         <div id="tab-pane-content" class="studio-tab-pane active">
           <!-- Age Rating Selection -->
           <div class="studio-group" id="content-group-rating">
-            <div class="studio-group-title">🏷️ Greek NCRTV Age Rating (ΕΣΡ)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="tag"></i> Age rating (ΕΣΡ)</div>
             <div class="studio-btn-row">
               <button class="studio-btn" data-rating="K" onclick="setStudioRating('K')">Κ (All)</button>
               <button class="studio-btn" data-rating="8" onclick="setStudioRating('8')">8+</button>
@@ -2145,16 +2688,16 @@
             <!-- Descriptors Toggle Chips with Live Glyph Previews -->
             <div class="studio-btn-row" style="margin-top: 4px;">
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-                <input type="checkbox" id="chk-violence" checked onchange="updateStudioPreview()"> ⚔️ Βία
+                <input type="checkbox" id="chk-violence" checked onchange="updateStudioPreview()"> <i class="cg-i" data-icon="violence"></i> Βία
               </label>
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-                <input type="checkbox" id="chk-sex" onchange="updateStudioPreview()"> ⚥ Σεξ
+                <input type="checkbox" id="chk-sex" onchange="updateStudioPreview()"> <i class="cg-i" data-icon="sex"></i> Σεξ
               </label>
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-                <input type="checkbox" id="chk-drugs" checked onchange="updateStudioPreview()"> 💊 Ουσίες
+                <input type="checkbox" id="chk-drugs" checked onchange="updateStudioPreview()"> <i class="cg-i" data-icon="substances"></i> Ουσίες
               </label>
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
-                <input type="checkbox" id="chk-language" onchange="updateStudioPreview()"> 💬 Γλώσσα
+                <input type="checkbox" id="chk-language" onchange="updateStudioPreview()"> <i class="cg-i" data-icon="language"></i> Γλώσσα
               </label>
               <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
                 <input type="checkbox" id="chk-tp" onchange="updateStudioPreview()"> ΤΠ
@@ -2167,7 +2710,7 @@
 
           <!-- Greek Statutory Explanation Text Presets -->
           <div class="studio-group" id="content-group-legal">
-            <div class="studio-group-title">📜 Statutory Legal Presets (Greek NCRTV)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="legal"></i> Statutory wording (ΕΣΡ)</div>
             <div style="display: flex; flex-direction: column; gap: 4px;">
               <button class="studio-btn" style="text-align: left; font-size: 10px;" onclick="applyLegalTextPreset('ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ')">Κ: ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ</button>
               <button class="studio-btn" style="text-align: left; font-size: 10px;" onclick="applyLegalTextPreset('ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8 ΕΤΩΝ')">8: ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8 ΕΤΩΝ</button>
@@ -2185,7 +2728,7 @@
 
                     <!-- Greek NCRTV Advisory Warning Descriptors (Editable Phrasing) -->
           <div class="studio-group" id="group-warning-descriptors">
-            <div class="studio-group-title">🛡️ Warning Descriptors &amp; Phrasing (Content Advisory)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="shield"></i> Descriptor wording</div>
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
               Customize on-air phrasing for descriptors. Dynamically scales and animates next to rating badge.
             </div>
@@ -2198,28 +2741,28 @@
 
             <!-- 1. Violence -->
             <div class="show-tag-row" style="margin-bottom: 4px;">
-              <div class="tag-row-icon">⚔️</div>
+              <div class="tag-row-icon"><i class="cg-i" data-icon="violence"></i></div>
               <div class="tag-row-label" style="width: 82px;">Violence:</div>
               <input type="text" id="txt-warn-violence" class="studio-select tag-row-input" value="ΣΚΗΝΕΣ ΒΙΑΣ" placeholder="ΣΚΗΝΕΣ ΒΙΑΣ" oninput="onWarningTextEdited()">
             </div>
 
             <!-- 2. Substances -->
             <div class="show-tag-row" style="margin-bottom: 4px;">
-              <div class="tag-row-icon">💊</div>
+              <div class="tag-row-icon"><i class="cg-i" data-icon="substances"></i></div>
               <div class="tag-row-label" style="width: 82px;">Substances:</div>
               <input type="text" id="txt-warn-drugs" class="studio-select tag-row-input" value="ΧΡΗΣΗ ΟΥΣΙΩΝ" placeholder="ΣΚΗΝΕΣ ΜΕ ΧΡΗΣΗ ΟΥΣΙΩΝ" oninput="onWarningTextEdited()">
             </div>
 
             <!-- 3. Sex -->
             <div class="show-tag-row" style="margin-bottom: 4px;">
-              <div class="tag-row-icon">⚥</div>
+              <div class="tag-row-icon"><i class="cg-i" data-icon="sex"></i></div>
               <div class="tag-row-label" style="width: 82px;">Sex:</div>
               <input type="text" id="txt-warn-sex" class="studio-select tag-row-input" value="ΣΕΞ" placeholder="ΣΚΗΝΕΣ ΣΕΞΟΥΑΛΙΚΟΥ ΠΕΡΙΕΧΟΜΕΝΟΥ" oninput="onWarningTextEdited()">
             </div>
 
             <!-- 4. Language -->
             <div class="show-tag-row" style="margin-bottom: 4px;">
-              <div class="tag-row-icon">💬</div>
+              <div class="tag-row-icon"><i class="cg-i" data-icon="language"></i></div>
               <div class="tag-row-label" style="width: 82px;">Language:</div>
               <input type="text" id="txt-warn-language" class="studio-select tag-row-input" value="ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ" placeholder="ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ" oninput="onWarningTextEdited()">
             </div>
@@ -2227,7 +2770,7 @@
 
           <!-- Show Tag Content & Subtitles (Next to Station ID) -->
           <div class="studio-group" id="group-station-show-tags">
-            <div class="studio-group-title">🏷️ Show Tag Content &amp; Subtitles (Next to Station ID)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="tag"></i> Show tags</div>
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
               Edit the text that appears before or after the <strong>|</strong> next to your Station ID. Click <strong>Air This</strong> to switch on-air immediately.
             </div>
@@ -2299,17 +2842,17 @@
             <div style="margin-top: 10px; padding: 10px 12px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px;">
               <div style="font-size: 11px; font-weight: 700; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                 <span>Active Subtitle / Tagline</span>
-                <button type="button" class="studio-btn" style="padding: 2px 8px; font-size: 10px;" onclick="activateShowTag('none')">✕ Clean Station ID</button>
+                <button type="button" class="studio-btn" style="padding: 2px 8px; font-size: 10px;" onclick="activateShowTag('none')"><i class="cg-i" data-icon="close"></i> Clean Station ID</button>
               </div>
               <div style="display: flex; gap: 6px; align-items: center;">
                 <select id="sel-active-tag-icon" class="studio-select" style="width: 130px; font-size: 11px;" onchange="onManualIconSelected(this.value)">
                   <option value="none">No Icon (Text Only)</option>
-                  <option value="live">🔴 Live Dot</option>
-                  <option value="movie">🎬 Clapperboard</option>
-                  <option value="documentary">🌍 Globe</option>
-                  <option value="telemarketing">🛒 Sale Tag</option>
-                  <option value="show">📺 Screens</option>
-                  <option value="news">📡 Tower Dish</option>
+                  <option value="live">Live Dot</option>
+                  <option value="movie">Clapperboard</option>
+                  <option value="documentary">Globe</option>
+                  <option value="telemarketing">Sale Tag</option>
+                  <option value="show">Screens</option>
+                  <option value="news">Tower Dish</option>
                 </select>
                 <input type="text" id="txt-active-tagline" class="studio-select" style="flex: 1; font-weight: 700; text-transform: uppercase;" value="HD" placeholder="Custom Tagline" oninput="onActiveTaglineInput(this.value)">
               </div>
@@ -2321,19 +2864,19 @@
 
           <!-- Video Canvas Simulation & Transport Controls -->
           <div class="studio-group">
-            <div class="studio-group-title">🎬 Video Canvas Simulator</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="movie"></i> Backdrop</div>
             <div class="studio-btn-row">
-              <button class="studio-btn active" id="btn-bg-dark" onclick="setMonitorBg('dark')">🌑 Studio Dark</button>
-              <button class="studio-btn" id="btn-bg-bright" onclick="setMonitorBg('bright')">☀️ Bright Video</button>
-              <button class="studio-btn" id="btn-bg-movie" onclick="setMonitorBg('movie')">🎬 Moving Film</button>
-              <button class="studio-btn" id="btn-bg-checker" onclick="setMonitorBg('checker')">🏁 Checkerboard</button>
-              <button class="studio-btn" id="btn-bg-transp" onclick="setMonitorBg('transparent')">🌫️ Transparent</button>
+              <button class="studio-btn active" id="btn-bg-dark" onclick="setMonitorBg('dark')"><i class="cg-i" data-icon="moon"></i> Studio Dark</button>
+              <button class="studio-btn" id="btn-bg-bright" onclick="setMonitorBg('bright')"><i class="cg-i" data-icon="sun"></i> Bright Video</button>
+              <button class="studio-btn" id="btn-bg-movie" onclick="setMonitorBg('movie')"><i class="cg-i" data-icon="movie"></i> Moving Film</button>
+              <button class="studio-btn" id="btn-bg-checker" onclick="setMonitorBg('checker')"><i class="cg-i" data-icon="checker"></i> Checkerboard</button>
+              <button class="studio-btn" id="btn-bg-transp" onclick="setMonitorBg('transparent')"><i class="cg-i" data-icon="fog"></i> Transparent</button>
             </div>
             <div class="studio-btn-row" style="margin-top: 4px;">
-              <button class="studio-btn" style="background: rgba(34,197,94,0.25); color: #4ade80;" onclick="window.play()">▶ Play</button>
-              <button class="studio-btn" style="background: rgba(239,68,68,0.25); color: #f87171;" onclick="window.stop()">⏹ Stop</button>
-              <button class="studio-btn" onclick="replayTimeline()">↺ Replay</button>
-              <button class="studio-btn" style="background: rgba(56,189,248,0.2); color: #38bdf8;" onclick="quickPreviewCycle()">⚡ Test Cycle (2s)</button>
+              <button class="studio-btn" style="background: rgba(34,197,94,0.25); color: #4ade80;" onclick="window.play()"><i class="cg-i" data-icon="play"></i> Play</button>
+              <button class="studio-btn" style="background: rgba(239,68,68,0.25); color: #f87171;" onclick="window.stop()"><i class="cg-i" data-icon="stop"></i> Stop</button>
+              <button class="studio-btn" onclick="replayTimeline()"><i class="cg-i" data-icon="replay"></i> Replay</button>
+              <button class="studio-btn" style="background: rgba(56,189,248,0.2); color: #38bdf8;" onclick="quickPreviewCycle()"><i class="cg-i" data-icon="bolt"></i> Short holds</button>
             </div>
           </div>
         </div>
@@ -2342,7 +2885,7 @@
         <div id="tab-pane-station" class="studio-tab-pane">
           <!-- Station Wordmark & Tagline -->
           <div class="studio-group">
-            <div class="studio-group-title">🔤 Station Wordmark &amp; Branding</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Wordmark</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Station Wordmark</span>
               <input type="text" id="txt-logo-content" value="SITIA" class="studio-select" style="max-width: 140px; text-transform: uppercase;" oninput="updateLogoFromControls()">
@@ -2367,7 +2910,7 @@
 
                     <!-- Station Logo Positioning Sliders -->
           <div class="studio-group" id="group-logo-positioning">
-            <div class="studio-group-title">📍 Station Logo Screen Offsets</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="position"></i> Station ID position</div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
                 <span>Top Offset</span>
@@ -2383,13 +2926,13 @@
               <input type="range" id="sld-logo-left" min="10" max="600" step="2" value="60" class="studio-slider" oninput="onLogoPosSliderChanged()">
             </div>
             <div class="studio-btn-row" style="margin-top: 6px;">
-              <button type="button" class="studio-btn" style="font-size: 10px;" onclick="resetLogoPositionToDefault()">↺ Reset Logo Position (60px, 60px)</button>
+              <button type="button" class="studio-btn" style="font-size: 10px;" onclick="resetLogoPositionToDefault()"><i class="cg-i" data-icon="replay"></i> Reset position</button>
             </div>
           </div>
 
           <!-- Shape & Scale -->
           <div class="studio-group">
-            <div class="studio-group-title">📏 Scale &amp; Chassis Geometry</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Scale and chassis</div>
             <div class="studio-btn-row">
               <button class="studio-btn active" id="btn-logo-shape-squircle" onclick="setLogoShape('squircle')">Squircle (G2)</button>
               <button class="studio-btn" id="btn-logo-shape-circle" onclick="setLogoShape('circle')">Circle</button>
@@ -2415,7 +2958,7 @@
 
           <!-- Extrusion Physics & Virtual Light Angle -->
           <div class="studio-group">
-            <div class="studio-group-title">🎨 Neumorphic Extrusion &amp; Light Engine</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="palette"></i> Surface and lighting</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Extrusion Surface Mode</span>
               <select class="studio-select" id="sel-logo-extrusion" style="max-width: 140px;" onchange="updateLogoFromControls()">
@@ -2435,7 +2978,7 @@
             </div>
             <div style="margin-top: 6px;">
               <div class="studio-slider-label">
-                <span>Virtual Light Angle (Standard: -135°)</span>
+                <span>Light angle</span>
                 <span id="val-logo-grad-angle" class="studio-slider-val">135°</span>
               </div>
               <input type="range" min="0" max="360" value="135" id="sld-logo-grad-angle" class="studio-slider" oninput="updateLogoFromControls()">
@@ -2444,7 +2987,7 @@
 
           <!-- Dual-Shadow Engine & Micro-Border -->
           <div class="studio-group">
-            <div class="studio-group-title">💡 Dual-Shadows &amp; 1px Rim Micro-Border</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="light"></i> Shadows and rim</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1;">Specular Light Rim (-dx, -dy)</span>
               <input type="color" id="col-logo-specular" value="#f0f5fc" class="vector-color-input" oninput="updateLogoFromControls()">
@@ -2469,7 +3012,7 @@
 
           <!-- Wordmark Bevel Offsets -->
           <div class="studio-group">
-            <div class="studio-group-title">🔤 3D Bevel Offsets &amp; Colors</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Bevel offsets and colours</div>
             <div style="margin-top: 4px;">
               <div class="studio-slider-label">
                 <span>Text Horizontal Offset (X)</span>
@@ -2506,7 +3049,7 @@
         <div id="tab-pane-rating" class="studio-tab-pane">
           <!-- Stencil / Numeral Mode -->
           <div class="studio-group">
-            <div class="studio-group-title">📐 Numeral Execution Style</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Numeral style</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Numeral Render Mode</span>
               <select class="studio-select" id="sel-rating-cutout" style="max-width: 150px;" onchange="updateRatingFromControls()">
@@ -2526,7 +3069,7 @@
 
           <!-- Sizing & Tints -->
           <div class="studio-group">
-            <div class="studio-group-title">📏 Scale &amp; Broadcast Colors</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Scale and colours</div>
             <div>
               <div class="studio-slider-label">
                 <span>Badge Diameter</span>
@@ -2553,7 +3096,7 @@
 
           <!-- Stencil Typography & Offsets -->
           <div class="studio-group">
-            <div class="studio-group-title">🔤 Stencil Typography &amp; Offsets</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Stencil type and offsets</div>
             <div class="vector-ctrl-row">
               <span style="font-size: 11.5px; color: #cbd5e1;">Font Family</span>
               <select class="studio-select" id="sel-rating-font" style="max-width: 150px;" onchange="updateRatingFromControls()">
@@ -2586,50 +3129,53 @@
         <!-- TAB 4: Neumorphic Themes & Blueprints -->
         <div id="tab-pane-theme" class="studio-tab-pane">
           <div class="studio-group">
-            <div class="studio-group-title">🎨 Broadcast Neumorphic Blueprints (Research Paper)</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="palette"></i> Look blueprints</div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <div class="studio-theme-card active" data-theme="frosted" onclick="applyThemePreset('frosted')">
-                <div class="studio-theme-title">🌟 Option 4: Hybrid Glass-Neumorphic Frame (Default SOTA)</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="star"></i> Frosted glass</div>
                 <div class="studio-theme-desc">Extruded chassis with frosted glass center &amp; soft debossed stencil</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Luma 235 Max / 16 Min • Low CEF Load (~1.2ms)</div>
               </div>
               <div class="studio-theme-card" data-theme="matte-slate" onclick="applyThemePreset('matte-slate')">
-                <div class="studio-theme-title">🪨 Option 1: Matte Extruded Slate</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Matte slate</div>
                 <div class="studio-theme-desc">#E2E8F0 base with convex gradient, dual shadows &amp; 1px micro-border</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Luma 228 Max / 24 Min • Clean Alpha Key</div>
               </div>
               <div class="studio-theme-card" data-theme="vibrant-accent" onclick="applyThemePreset('vibrant-accent')">
-                <div class="studio-theme-title">💜 Option 2: Vibrant Accent Extrusion</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Vibrant accent</div>
                 <div class="studio-theme-desc">#E0E7FF lavender-blue base with radiant indigo drop shadow</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Luma 230 Max / 28 Min • High Visual Impact</div>
               </div>
               <div class="studio-theme-card" data-theme="inset-embossed" onclick="applyThemePreset('inset-embossed')">
-                <div class="studio-theme-title">🕳️ Option 3: Inset Embossed Slate</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Inset emboss</div>
                 <div class="studio-theme-desc">Sunken #D1D5DB base with deep internal shadows &amp; recessed trough</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Luma 215 Max / 32 Min • Tactile Stamp</div>
               </div>
               <div class="studio-theme-card" data-theme="dark-obsidian" onclick="applyThemePreset('dark-obsidian')">
-                <div class="studio-theme-title">🌑 Option 5: Obsidian Dark MCR</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="moon"></i> Obsidian</div>
                 <div class="studio-theme-desc">Master control dark slate with electric cyan rim lighting</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: High Contrast against Bright Outdoor Video</div>
               </div>
               <div class="studio-theme-card" data-theme="claymorphism" onclick="applyThemePreset('claymorphism')">
-                <div class="studio-theme-title">☁️ Option 6: Tactile Claymorphism</div>
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Clay</div>
                 <div class="studio-theme-desc">Rounded 3D inflated pill geometry with pastel inner glows</div>
                 <div class="studio-theme-luma">ITU-R Rec.709: Friendly Modern Broadcast Overlays</div>
               </div>
             </div>
           </div>
 
-          <!-- User Custom Saved Themes -->
+          <!-- There used to be a second, six-field "Save Theme" here, and a
+               third invisible one behind it. Three saves that meant different
+               things and lost different work. Presets live in one place now:
+               the picker at the top of this rail, and Save as… beside Deploy.
+               Anything saved under the old two is migrated into it on first
+               load. -->
           <div class="studio-group">
-            <div class="studio-group-title">⭐ User Custom Presets</div>
-            <div style="display: flex; gap: 6px;">
-              <input type="text" id="txt-preset-name" placeholder="Preset Name (e.g. Primetime Look)" class="studio-select" style="flex: 1;">
-              <button class="action-btn-primary" style="width: auto; padding: 6px 12px;" onclick="saveCustomThemePreset()">+ Save Theme</button>
-            </div>
-            <div id="custom-themes-list" style="margin-top: 6px; display: flex; flex-direction: column; gap: 4px;">
-              <!-- Populated dynamically -->
+            <div class="studio-group-title"><i class="cg-i" data-icon="star"></i> Saved presets</div>
+            <div class="studio-group-note">
+              Presets are saved and chosen at the top of this rail.
+              <strong>Save as…</strong> keeps the current look under a new name;
+              <strong>Deploy</strong> sends the active one to CasparCG.
             </div>
           </div>
         </div>
@@ -2637,18 +3183,18 @@
         <!-- TAB 5: Geometry & Placement -->
         <div id="tab-pane-geometry" class="studio-tab-pane">
           <div class="studio-group">
-            <div class="studio-group-title">📍 Screen Anchor Corner</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="position"></i> Screen Anchor Corner</div>
             <div class="studio-btn-row">
-              <button class="studio-btn active" data-anchor="top-right" onclick="setAnchorPosition('top-right')">↗ Top-Right (Standard)</button>
-              <button class="studio-btn" data-anchor="top-left" onclick="setAnchorPosition('top-left')">↖ Top-Left</button>
-              <button class="studio-btn" data-anchor="bottom-right" onclick="setAnchorPosition('bottom-right')">↘ Bottom-Right</button>
-              <button class="studio-btn" data-anchor="bottom-left" onclick="setAnchorPosition('bottom-left')">↙ Bottom-Left</button>
+              <button class="studio-btn active" data-anchor="top-right" onclick="setAnchorPosition('top-right')"><i class="cg-i" data-icon="cornerTopRight"></i> Top-Right (Standard)</button>
+              <button class="studio-btn" data-anchor="top-left" onclick="setAnchorPosition('top-left')"><i class="cg-i" data-icon="cornerTopLeft"></i> Top-Left</button>
+              <button class="studio-btn" data-anchor="bottom-right" onclick="setAnchorPosition('bottom-right')"><i class="cg-i" data-icon="cornerBottomRight"></i> Bottom-Right</button>
+              <button class="studio-btn" data-anchor="bottom-left" onclick="setAnchorPosition('bottom-left')"><i class="cg-i" data-icon="cornerBottomLeft"></i> Bottom-Left</button>
             </div>
-            <button class="action-btn-secondary" style="margin-top: 6px;" onclick="flipStagePositions()">⇄ Flip Corners (Logo ⇄ Advisory)</button>
+            <button class="action-btn-secondary" style="margin-top: 6px;" onclick="flipStagePositions()"><i class="cg-i" data-icon="flip"></i> Swap corners</button>
           </div>
 
           <div class="studio-group">
-            <div class="studio-group-title">📐 EBU Broadcast Safe Margins</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Safe margins</div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
                 <span>Top / Bottom Margin</span>
@@ -2665,21 +3211,21 @@
             </div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
-                <span>↕️ Banner Vertical Offset Margin</span>
+                <span><i class="cg-i" data-icon="offsetY"></i> Banner vertical offset</span>
                 <span id="val-text-offset-y" class="studio-value-tag">0px</span>
               </div>
               <input type="range" id="sld-text-offset-y" min="-30" max="30" step="1" value="0" class="studio-slider" oninput="updateStudioStyles()">
             </div>
             <div class="studio-btn-row" style="margin-top: 4px;">
-              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('action')">🎯 Snap to Action Safe (48px)</button>
-              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('title')">🎯 Snap to Title Safe (96px)</button>
+              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('action')"><i class="cg-i" data-icon="target"></i> Snap to action safe</button>
+              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('title')"><i class="cg-i" data-icon="target"></i> Snap to title safe</button>
             </div>
           </div>
 
           
           <!-- Banner Accent Line Gradient Controls -->
           <div class="studio-group" id="group-accent-line-styling">
-            <div class="studio-group-title">✨ Banner Accent Line Gradient &amp; Colors</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="sparkles"></i> Accent line</div>
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
               Customize the dynamic underline accent gradient color, height, and glow.
             </div>
@@ -2702,12 +3248,12 @@
 
             <!-- Quick Color Preset Palette Chips -->
             <div style="display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap;">
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#38bdf8')" title="Broadcast Sky / Cyan (Default)">💎 Cyan/Sky</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#a855f7')" title="Regal Violet / Purple">💜 Purple</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#f59e0b')" title="Gold / Amber Glow">🌟 Amber/Gold</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#ef4444')" title="Vibrant Crimson / Red">🔴 Crimson</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#10b981')" title="Emerald Green">🟢 Emerald</button>
-              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#e2e8f0')" title="Pure Neutral Monochromatic">⚪ White</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#38bdf8')" title="Broadcast Sky / Cyan (Default)"><i class="cg-i" data-icon="palette"></i> Cyan/Sky</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#a855f7')" title="Regal Violet / Purple"><i class="cg-i" data-icon="palette"></i> Purple</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#f59e0b')" title="Gold / Amber Glow"><i class="cg-i" data-icon="star"></i> Amber/Gold</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#ef4444')" title="Vibrant Crimson / Red"><i class="cg-i" data-icon="live"></i> Crimson</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#10b981')" title="Emerald Green"><i class="cg-i" data-icon="palette"></i> Emerald</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#e2e8f0')" title="Pure Neutral Monochromatic"><i class="cg-i" data-icon="palette"></i> White</button>
             </div>
 
             <!-- Line Thickness Slider -->
@@ -2721,7 +3267,7 @@
           </div>
 
           <div class="studio-group">
-            <div class="studio-group-title">🔤 Typography Hierarchy &amp; Fonts</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Type and fonts</div>
             <div class="vector-ctrl-row" style="margin-bottom: 10px;">
               <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 700;">Broadcast Font Family:</span>
               <select class="studio-select" id="sel-broadcast-font" style="max-width: 165px;" onchange="updateBroadcastFont(this.value)">
@@ -2768,7 +3314,7 @@
         <!-- TAB 6: Motion & Timings -->
         <div id="tab-pane-motion" class="studio-tab-pane">
           <div class="studio-group">
-            <div class="studio-group-title">⏱️ On-Air Hold Timings</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="motion"></i> Hold times</div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
                 <span>Rating Explanation Hold Time</span>
@@ -2786,7 +3332,7 @@
           </div>
 
           <div class="studio-group">
-            <div class="studio-group-title">✨ Animation Dynamics</div>
+            <div class="studio-group-title"><i class="cg-i" data-icon="sparkles"></i> Motion</div>
             <div class="studio-slider-row">
               <div class="studio-slider-header">
                 <span>Animation Transition Style</span>
@@ -2804,9 +3350,9 @@
 
       <!-- Footer Action Buttons (Bottom Left) -->
       <div class="studio-footer">
-        <button class="action-btn-primary" onclick="buildTimeline(); replayTimeline();" title="Replay on-air animation sequence">▶ Replay</button>
-        <button class="action-btn-secondary" id="btn-save-preset" onclick="saveCurrentActivePreset()" title="Overwrite active preset, update defaults, and deploy directly to CasparCG" style="background: rgba(16, 185, 129, 0.25); border-color: rgba(16, 185, 129, 0.7); color: #34d399; font-weight: 700;">💾 Save &amp; Deploy</button>
-        <button class="action-btn-secondary" onclick="openSaveAsDialog()" title="Save as a new named preset" style="background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.6); color: #38bdf8;">⭐ Save As...</button>
+        <button class="action-btn-secondary" onclick="replayTimeline()" title="Replay the on-air sequence"><i class="cg-i" data-icon="play"></i> Replay</button>
+        <button class="action-btn-primary" id="btn-deploy" onclick="saveCurrentActivePreset()" title="Write the active preset to CasparCG"><i class="cg-i" data-icon="deploy"></i> Deploy</button>
+        <button class="action-btn-secondary" onclick="openSaveAsDialog()" title="Save the current look under a new name"><i class="cg-i" data-icon="save"></i> Save as…</button>
       </div>
     </aside>
 
@@ -2829,13 +3375,13 @@
           <div class="preview-controls-group">
             <span class="preview-hint">Drag: Shift=Lock X | Ctrl=Lock Y</span>
             <button class="preview-btn" onclick="flipStagePositions()" title="Swap screen corners between Station ID and Rating">
-              ⇄ Flip Positions
+              <i class="cg-i" data-icon="flip"></i> Flip Positions
             </button>
             <button class="preview-btn" id="btn-toggle-safe-areas" onclick="toggleSafeAreas()">
-              🛡️ Safe Areas
+              <i class="cg-i" data-icon="shield"></i> Safe Areas
             </button>
             <button class="preview-btn" onclick="buildTimeline(); replayTimeline();" title="Replay animation sequence">
-              ▶ Replay
+              <i class="cg-i" data-icon="play"></i> Replay
             </button>
           </div>
         </div>
@@ -2950,7 +3496,7 @@
                 </div>
               </div>
 
-              <div class="stage-drag-handle" title="Drag to reposition">☩</div>
+              <div class="stage-drag-handle" title="Drag to reposition"><i class="cg-i" data-icon="drag"></i></div>
             </div>
 
             <!-- ================================================================= -->
@@ -3025,7 +3571,7 @@
                 <div id="text-slot-mask" class="text-slot-mask"></div>
                 <div id="accent-line" class="accent-line"></div>
               </div>
-              <div class="stage-drag-handle" title="Drag to reposition">☩</div>
+              <div class="stage-drag-handle" title="Drag to reposition"><i class="cg-i" data-icon="drag"></i></div>
             </div>
 
           </div>
@@ -3038,42 +3584,49 @@
       <section class="console-card">
         <div class="console-header">
           <div class="console-title-group">
-            <span class="console-icon">📟</span>
-            <span class="console-title">Live SVG Inspector &amp; Action History</span>
-            <span id="console-action-count" class="console-badge">0 actions</span>
+            <span class="console-icon"><i class="cg-i" data-icon="motion"></i></span>
+            <span class="console-title">Timeline</span>
+            <span id="tl-clock" class="console-badge">0.0s / 0.0s</span>
           </div>
 
           <div class="console-actions-group">
-            <button class="console-btn-primary" onclick="revertLastAction()" id="btn-revert-last" title="Undo the most recent change">
-              ↩️ Revert Last
+            <button class="console-btn" id="btn-tl-play" onclick="toggleTimelinePlayback()" title="Play or pause the on-air sequence">
+              <i class="cg-i" data-icon="play"></i> Play
             </button>
-            <button id="btn-copy-logo-svg" class="console-btn" onclick="copyLiveSvgCode('logo')" title="Copy Station Logo SVG markup">
-              📋 Copy Logo SVG
+            <button class="console-btn" id="btn-tl-loop" onclick="toggleTimelineLoop()" aria-pressed="false" title="Loop the sequence while you tune it">
+              <i class="cg-i" data-icon="replay"></i> Loop
             </button>
-            <button id="btn-copy-rating-svg" class="console-btn" onclick="copyLiveSvgCode('rating')" title="Copy Rating Badge SVG markup">
-              📋 Copy Rating SVG
-            </button>
-            <button class="console-btn" onclick="downloadAllSvgs()" title="Download SVGs">
-              💾 Download SVGs
-            </button>
-            <button class="console-btn" onclick="clearConsoleHistory()" title="Clear action history">
-              🗑️ Clear
+            <button class="console-btn" id="btn-tl-short" onclick="toggleShortHoldPreview()" aria-pressed="false"
+                    title="Preview with 2-second holds. Builds a separate timeline; the real hold times are not touched.">
+              <i class="cg-i" data-icon="bolt"></i> Short holds
             </button>
           </div>
         </div>
 
         <div class="console-body">
-          <!-- Left: Live SVG Attributes Inspector -->
-          <div class="console-inspector-col">
-            <div class="console-col-title">Live SVG Attributes</div>
-            <div id="console-live-attributes" class="console-attrib-stream">
-              <!-- Dynamically populated -->
+          <!-- Left: the timeline the operator is tuning, drawn to scale. Hold
+               times are compressed past five seconds, or a thirty-second hold
+               would flatten every half-second tween into nothing. -->
+          <div class="console-timeline-col">
+            <div class="console-col-title">On-air sequence</div>
+            <div id="tl-bar" class="tl-bar" role="slider" tabindex="0"
+                 aria-label="Timeline position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="tl-segments" class="tl-segments"><!-- built from the master timeline --></div>
+              <div id="tl-playhead" class="tl-playhead"></div>
             </div>
+            <div id="tl-legend" class="tl-legend"><!-- built alongside the segments --></div>
           </div>
 
-          <!-- Right: Action History Stream with 1-Click Revert -->
+          <!-- Right: real undo/redo over the state, not the ad-hoc closures the
+               old "Action History" stored — most of which reverted nothing. -->
           <div class="console-history-col">
-            <div class="console-col-title">Action History (1-Click Revert)</div>
+            <div class="console-col-title">
+              History
+              <span class="console-col-actions">
+                <button class="console-btn" onclick="undoState()" title="Undo (Ctrl+Z)"><i class="cg-i" data-icon="undo"></i></button>
+                <button class="console-btn" onclick="redoState()" title="Redo (Ctrl+Shift+Z)"><i class="cg-i" data-icon="redo"></i></button>
+              </span>
+            </div>
             <div id="console-action-list" class="console-history-stream">
               <!-- Dynamically populated -->
             </div>
@@ -3537,7 +4090,7 @@
 
       buildTimeline();
       replayTimeline();
-      updateLiveInspector();
+      if (typeof renderTimelineBar === 'function') renderTimelineBar();
       recordAction('THEME', 'Changed Broadcast Font: ' + fontKey);
     }
   
@@ -3799,150 +4352,150 @@
 
     const CONTROL_SCHEMA = [
       // --- Station ID: chassis -------------------------------------------
-      { key: 'logo.shape', preset: 'logoShape', control: null, type: 'enum', section: 'logo', tier: 'basic',
+      { key: 'logo.shape', label: "Shape", preset: 'logoShape', control: null, type: 'enum', section: 'logo', tier: 'basic',
         options: ['squircle', 'circle', 'pill', 'shield', 'diamond'], default: 'squircle', invalidates: 'logo' },
-      { key: 'logo.size', preset: 'logoSize', control: 'sld-logo-size', type: 'px', section: 'logo', tier: 'basic',
+      { key: 'logo.size', label: "Size", preset: 'logoSize', control: 'sld-logo-size', type: 'px', section: 'logo', tier: 'basic',
         min: 40, max: 180, step: 1, default: 88, apply: cssVar('--cg-logo-size', 'px'), invalidates: 'logo' },
-      { key: 'logo.radius', preset: 'logoRadius', control: 'sld-logo-radius', type: 'px', section: 'logo', tier: 'basic',
+      { key: 'logo.radius', label: "Corner radius", preset: 'logoRadius', control: 'sld-logo-radius', type: 'px', section: 'logo', tier: 'basic',
         min: 0, max: 60, step: 1, default: 54, invalidates: 'logo',
         when: function (s) { return s['logo.shape'] === 'squircle'; } },
-      { key: 'logo.extrusion', preset: 'logoExtrusion', control: 'sel-logo-extrusion', type: 'enum', section: 'logo', tier: 'advanced',
+      { key: 'logo.extrusion', label: "Surface", preset: 'logoExtrusion', control: 'sel-logo-extrusion', type: 'enum', section: 'logo', tier: 'advanced',
         options: ['convex', 'concave', 'flat', 'inset'], default: 'convex', invalidates: 'logo' },
-      { key: 'logo.microBorder', preset: 'microBorder', control: 'chk-logo-microborder', type: 'bool', section: 'logo', tier: 'advanced',
+      { key: 'logo.microBorder', label: "Rim border", preset: 'microBorder', control: 'chk-logo-microborder', type: 'bool', section: 'logo', tier: 'advanced',
         default: true, invalidates: 'logo' },
 
       // --- Station ID: surface -------------------------------------------
-      { key: 'logo.base', preset: 'logoBase', control: 'col-logo-base', type: 'color', section: 'logo.surface', tier: 'basic',
+      { key: 'logo.base', label: "Base colour", preset: 'logoBase', control: 'col-logo-base', type: 'color', section: 'logo.surface', tier: 'basic',
         default: '#702177', invalidates: 'logo' },
-      { key: 'logo.grad', preset: 'logoGrad', control: 'col-logo-grad', type: 'color', section: 'logo.surface', tier: 'advanced',
+      { key: 'logo.grad', label: "Gradient end", preset: 'logoGrad', control: 'col-logo-grad', type: 'color', section: 'logo.surface', tier: 'advanced',
         default: '#46104c', invalidates: 'logo' },
-      { key: 'logo.specular', preset: 'logoSpecular', control: 'col-logo-specular', type: 'color', section: 'logo.surface', tier: 'advanced',
+      { key: 'logo.specular', label: "Highlight", preset: 'logoSpecular', control: 'col-logo-specular', type: 'color', section: 'logo.surface', tier: 'advanced',
         default: '#f0f5fc', invalidates: 'logo' },
-      { key: 'logo.shadow', preset: 'logoShadow', control: 'col-logo-shadow', type: 'color', section: 'logo.surface', tier: 'advanced',
+      { key: 'logo.shadow', label: "Shadow", preset: 'logoShadow', control: 'col-logo-shadow', type: 'color', section: 'logo.surface', tier: 'advanced',
         default: '#18031d', invalidates: 'logo' },
-      { key: 'logo.lightAngle', preset: 'lightAngleDeg', control: 'sld-logo-grad-angle', type: 'deg', section: 'logo.surface', tier: 'advanced',
+      { key: 'logo.lightAngle', label: "Light angle", preset: 'lightAngleDeg', control: 'sld-logo-grad-angle', type: 'deg', section: 'logo.surface', tier: 'advanced',
         min: 0, max: 360, step: 1, default: 135, invalidates: 'logo' },
-      { key: 'logo.shadowBlur', preset: 'shadowBlurPx', control: 'sld-logo-blur', type: 'px', section: 'logo.surface', tier: 'advanced',
+      { key: 'logo.shadowBlur', label: "Shadow blur", preset: 'shadowBlurPx', control: 'sld-logo-blur', type: 'px', section: 'logo.surface', tier: 'advanced',
         min: 0, max: 25, step: 1, default: 18, invalidates: 'logo' },
 
       // --- Station ID: placement -----------------------------------------
-      { key: 'logo.pos.top', preset: 'logoTopPx', control: 'sld-logo-top', type: 'px', section: 'logo.position', tier: 'basic',
+      { key: 'logo.pos.top', label: "Top", preset: 'logoTopPx', control: 'sld-logo-top', type: 'px', section: 'logo.position', tier: 'basic',
         min: 10, max: 400, step: 1, default: 60, apply: cssVar('--cg-logo-top', 'px'), invalidates: 'logo' },
-      { key: 'logo.pos.left', preset: 'logoLeftPx', control: 'sld-logo-left', type: 'px', section: 'logo.position', tier: 'basic',
+      { key: 'logo.pos.left', label: "Left", preset: 'logoLeftPx', control: 'sld-logo-left', type: 'px', section: 'logo.position', tier: 'basic',
         min: 10, max: 600, step: 1, default: 60, apply: cssVar('--cg-logo-left', 'px'), invalidates: 'logo' },
 
       // --- Wordmark -------------------------------------------------------
-      { key: 'wordmark.text', preset: 'wordmark', control: 'txt-logo-content', type: 'text', section: 'wordmark', tier: 'basic',
+      { key: 'wordmark.text', label: "Wordmark", preset: 'wordmark', control: 'txt-logo-content', type: 'text', section: 'wordmark', tier: 'basic',
         default: 'SITIA', invalidates: 'logo' },
-      { key: 'wordmark.font', preset: 'logoFont', control: 'sel-logo-font', type: 'enum', section: 'wordmark', tier: 'basic',
+      { key: 'wordmark.font', label: "Wordmark font", preset: 'logoFont', control: 'sel-logo-font', type: 'enum', section: 'wordmark', tier: 'basic',
         options: ['system', 'roboto', 'mono', 'display', 'geometric', 'inter', 'serif'], default: 'system', invalidates: 'logo',
         ingest: function (v) { return fontKeyFromCss(v); } },
-      { key: 'wordmark.size', preset: 'wordmarkSizePx', control: 'sld-logo-text-size', type: 'px', section: 'wordmark', tier: 'advanced',
+      { key: 'wordmark.size', label: "Wordmark size", preset: 'wordmarkSizePx', control: 'sld-logo-text-size', type: 'px', section: 'wordmark', tier: 'advanced',
         min: 16, max: 64, step: 1, default: 40, invalidates: 'logo' },
-      { key: 'wordmark.x', preset: 'wordmarkX', control: 'sld-logo-text-x', type: 'px', section: 'wordmark', tier: 'advanced',
+      { key: 'wordmark.x', label: "Wordmark X", preset: 'wordmarkX', control: 'sld-logo-text-x', type: 'px', section: 'wordmark', tier: 'advanced',
         min: -40, max: 40, step: 1, default: 0, invalidates: 'logo' },
-      { key: 'wordmark.y', preset: 'wordmarkY', control: 'sld-logo-text-y', type: 'px', section: 'wordmark', tier: 'advanced',
+      { key: 'wordmark.y', label: "Wordmark Y", preset: 'wordmarkY', control: 'sld-logo-text-y', type: 'px', section: 'wordmark', tier: 'advanced',
         min: -40, max: 40, step: 1, default: 0, invalidates: 'logo' },
-      { key: 'wordmark.color', preset: 'logoTextColor', control: 'col-logo-text', type: 'color', section: 'wordmark', tier: 'advanced',
+      { key: 'wordmark.color', label: "Wordmark colour", preset: 'logoTextColor', control: 'col-logo-text', type: 'color', section: 'wordmark', tier: 'advanced',
         default: '#f7edf9', invalidates: 'logo' },
-      { key: 'wordmark.shadowColor', preset: 'logoTextShadowColor', control: 'col-logo-textshadow', type: 'color', section: 'wordmark', tier: 'advanced',
+      { key: 'wordmark.shadowColor', label: "Wordmark shadow", preset: 'logoTextShadowColor', control: 'col-logo-textshadow', type: 'color', section: 'wordmark', tier: 'advanced',
         default: '#200324', invalidates: 'logo' },
-      { key: 'wordmark.subtitle', preset: 'subtitle', control: 'txt-logo-subtitle', type: 'text', section: 'wordmark', tier: 'basic',
+      { key: 'wordmark.subtitle', label: "Subtitle", preset: 'subtitle', control: 'txt-logo-subtitle', type: 'text', section: 'wordmark', tier: 'basic',
         default: 'HD', invalidates: 'subtitle' },
 
       // --- Rating badge ----------------------------------------------------
-      { key: 'badge.shape', preset: 'badgeShape', legacy: ['ratingShape'], control: null, type: 'enum', section: 'badge', tier: 'basic',
+      { key: 'badge.shape', label: "Badge shape", preset: 'badgeShape', legacy: ['ratingShape'], control: null, type: 'enum', section: 'badge', tier: 'basic',
         options: ['circle', 'squircle', 'pill'], default: 'circle', invalidates: 'badge' },
-      { key: 'badge.size', preset: 'badgeSizePx', legacy: ['ratingSize'], control: 'sld-rating-size', type: 'px', section: 'badge', tier: 'basic',
+      { key: 'badge.size', label: "Badge size", preset: 'badgeSizePx', legacy: ['ratingSize'], control: 'sld-rating-size', type: 'px', section: 'badge', tier: 'basic',
         min: 36, max: 100, step: 1, default: 54, apply: cssVar('--cg-badge-size', 'px'), invalidates: 'badge' },
-      { key: 'badge.fontSize', preset: 'badgeFontSizePx', legacy: ['ratingFontSize'], control: 'sld-rating-font-size', type: 'px', section: 'badge', tier: 'basic',
+      { key: 'badge.fontSize', label: "Numeral size", preset: 'badgeFontSizePx', legacy: ['ratingFontSize'], control: 'sld-rating-font-size', type: 'px', section: 'badge', tier: 'basic',
         min: 16, max: 42, step: 1, default: 27, apply: cssVar('--cg-badge-font-size', 'px'), invalidates: 'badge' },
-      { key: 'badge.cutout', preset: 'ratingCutout', control: 'sel-rating-cutout', type: 'enum', section: 'badge', tier: 'advanced',
+      { key: 'badge.cutout', label: "Cut-out", preset: 'ratingCutout', control: 'sel-rating-cutout', type: 'enum', section: 'badge', tier: 'advanced',
         // 'stencil' shipped in the master presets and was never an option here;
         // normalizeRatingCutout reads it as an alias for the frosted default.
         options: ['frosted', 'embossed', 'inset', 'contrast', 'none'], default: 'frosted', invalidates: 'badge' },
-      { key: 'badge.stencil.x', preset: 'stencilOffsetX', control: 'sld-rating-text-x', type: 'px', section: 'badge', tier: 'advanced',
+      { key: 'badge.stencil.x', label: "Numeral X", preset: 'stencilOffsetX', control: 'sld-rating-text-x', type: 'px', section: 'badge', tier: 'advanced',
         min: -20, max: 20, step: 1, default: 0, invalidates: 'badge' },
-      { key: 'badge.stencil.y', preset: 'stencilOffsetY', control: 'sld-rating-text-y', type: 'px', section: 'badge', tier: 'advanced',
+      { key: 'badge.stencil.y', label: "Numeral Y", preset: 'stencilOffsetY', control: 'sld-rating-text-y', type: 'px', section: 'badge', tier: 'advanced',
         min: -20, max: 20, step: 1, default: 0, invalidates: 'badge' },
       // Null means "follow the blueprint"; a hex means the operator overrode it.
-      { key: 'badge.tint', preset: 'badgeTint', control: 'col-rating-tint', type: 'color', section: 'badge', tier: 'advanced',
+      { key: 'badge.tint', label: "Fill tint", preset: 'badgeTint', control: 'col-rating-tint', type: 'color', section: 'badge', tier: 'advanced',
         nullable: true, default: null, invalidates: 'badge' },
-      { key: 'badge.rim', preset: 'badgeRim', control: 'col-rating-stroke', type: 'color', section: 'badge', tier: 'advanced',
+      { key: 'badge.rim', label: "Rim stroke", preset: 'badgeRim', control: 'col-rating-stroke', type: 'color', section: 'badge', tier: 'advanced',
         nullable: true, default: null, invalidates: 'badge' },
       // ingest: presets written before the font pickers store a resolved CSS
       // stack here rather than a key, and the enum would drop them.
-      { key: 'badge.font', preset: 'ratingFont', control: 'sel-rating-font', type: 'enum', section: 'badge', tier: 'basic',
+      { key: 'badge.font', label: "Broadcast font", preset: 'ratingFont', control: 'sel-rating-font', type: 'enum', section: 'badge', tier: 'basic',
         ingest: function (v) { return fontKeyFromCss(v); },
         options: ['system', 'roboto', 'mono', 'outfit', 'inter', 'montserrat', 'serif'], default: 'system', invalidates: 'badge' },
 
       // --- Banner ----------------------------------------------------------
-      { key: 'banner.font.explanation', preset: 'explanationFontSizePx', control: 'sld-explanation-font', type: 'px', section: 'banner', tier: 'basic',
+      { key: 'banner.font.explanation', label: "Explanation size", preset: 'explanationFontSizePx', control: 'sld-explanation-font', type: 'px', section: 'banner', tier: 'basic',
         min: 10, max: 22, step: 0.5, default: 13, apply: cssVar('--cg-explanation-font-size', 'px'), invalidates: 'timeline' },
-      { key: 'banner.font.body', preset: 'warningBodyFontSizePx', control: 'sld-warning-body-font', type: 'px', section: 'banner', tier: 'basic',
+      { key: 'banner.font.body', label: "Descriptor size", preset: 'warningBodyFontSizePx', control: 'sld-warning-body-font', type: 'px', section: 'banner', tier: 'basic',
         min: 9, max: 20, step: 0.5, default: 12, apply: cssVar('--cg-warning-body-font-size', 'px'), invalidates: 'timeline' },
-      { key: 'banner.font.lead', preset: 'warningLeadFontSizePx', control: 'sld-warning-lead-font', type: 'px', section: 'banner', tier: 'advanced',
+      { key: 'banner.font.lead', label: "Lead size", preset: 'warningLeadFontSizePx', control: 'sld-warning-lead-font', type: 'px', section: 'banner', tier: 'advanced',
         min: 8, max: 16, step: 0.5, default: 10.5, apply: cssVar('--cg-warning-lead-font-size', 'px'), invalidates: 'timeline' },
-      { key: 'banner.icon.size', preset: 'warningIconSizePx', control: 'sld-warning-icon-size', type: 'px', section: 'banner', tier: 'advanced',
+      { key: 'banner.icon.size', label: "Icon size", preset: 'warningIconSizePx', control: 'sld-warning-icon-size', type: 'px', section: 'banner', tier: 'advanced',
         min: 16, max: 48, step: 1, default: 28, apply: cssVar('--cg-warning-icon-size', 'px'), invalidates: 'timeline' },
-      { key: 'banner.accent.start', preset: 'accentStart', control: 'col-accent-start', type: 'color', section: 'banner', tier: 'advanced',
+      { key: 'banner.accent.start', label: "Accent start", preset: 'accentStart', control: 'col-accent-start', type: 'color', section: 'banner', tier: 'advanced',
         default: '#ffffff', invalidates: 'accent' },
-      { key: 'banner.accent.mid', preset: 'accentColor', legacy: ['accentMid'], control: 'col-accent-mid', type: 'color', section: 'banner', tier: 'basic',
+      { key: 'banner.accent.mid', label: "Accent colour", preset: 'accentColor', legacy: ['accentMid'], control: 'col-accent-mid', type: 'color', section: 'banner', tier: 'basic',
         default: '#38bdf8', invalidates: 'accent' },
-      { key: 'banner.accent.height', preset: 'accentLineHeightPx', control: 'sld-accent-line-height', type: 'px', section: 'banner', tier: 'advanced',
+      { key: 'banner.accent.height', label: "Accent thickness", preset: 'accentLineHeightPx', control: 'sld-accent-line-height', type: 'px', section: 'banner', tier: 'advanced',
         min: 1, max: 6, step: 0.5, default: 2, invalidates: 'accent' },
-      { key: 'banner.customText', preset: 'customText', control: 'txt-custom-advisory', type: 'text', section: 'banner', tier: 'basic',
+      { key: 'banner.customText', label: "Custom banner text", preset: 'customText', control: 'txt-custom-advisory', type: 'text', section: 'banner', tier: 'basic',
         default: '', invalidates: 'timeline' },
 
       // --- Banner copy: the lead line and the four descriptor phrasings -----
-      { key: 'banner.text.lead', preset: 'descriptorTexts.lead', control: 'txt-warn-lead', type: 'text', section: 'banner.copy', tier: 'basic',
+      { key: 'banner.text.lead', label: "Lead line", preset: 'descriptorTexts.lead', control: 'txt-warn-lead', type: 'text', section: 'banner.copy', tier: 'basic',
         default: 'ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ', invalidates: 'timeline' },
-      { key: 'banner.text.violence', preset: 'descriptorTexts.violence', control: 'txt-warn-violence', type: 'text', section: 'banner.copy', tier: 'basic',
+      { key: 'banner.text.violence', label: "Violence wording", preset: 'descriptorTexts.violence', control: 'txt-warn-violence', type: 'text', section: 'banner.copy', tier: 'basic',
         default: 'ΣΚΗΝΕΣ ΒΙΑΣ', invalidates: 'timeline' },
-      { key: 'banner.text.drugs', preset: 'descriptorTexts.drugs', control: 'txt-warn-drugs', type: 'text', section: 'banner.copy', tier: 'basic',
+      { key: 'banner.text.drugs', label: "Substances wording", preset: 'descriptorTexts.drugs', control: 'txt-warn-drugs', type: 'text', section: 'banner.copy', tier: 'basic',
         default: 'ΧΡΗΣΗ ΟΥΣΙΩΝ', invalidates: 'timeline' },
-      { key: 'banner.text.sex', preset: 'descriptorTexts.sex', control: 'txt-warn-sex', type: 'text', section: 'banner.copy', tier: 'basic',
+      { key: 'banner.text.sex', label: "Sex wording", preset: 'descriptorTexts.sex', control: 'txt-warn-sex', type: 'text', section: 'banner.copy', tier: 'basic',
         default: 'ΣΕΞ', invalidates: 'timeline' },
-      { key: 'banner.text.language', preset: 'descriptorTexts.language', control: 'txt-warn-language', type: 'text', section: 'banner.copy', tier: 'basic',
+      { key: 'banner.text.language', label: "Language wording", preset: 'descriptorTexts.language', control: 'txt-warn-language', type: 'text', section: 'banner.copy', tier: 'basic',
         default: 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ', invalidates: 'timeline' },
 
       // --- Layout -----------------------------------------------------------
-      { key: 'layout.margin.top', preset: 'topOffsetPx', control: 'sld-top-margin', type: 'px', section: 'layout', tier: 'basic',
+      { key: 'layout.margin.top', label: "Top margin", preset: 'topOffsetPx', control: 'sld-top-margin', type: 'px', section: 'layout', tier: 'basic',
         min: 20, max: 160, step: 1, default: 60, invalidates: 'layout' },
-      { key: 'layout.margin.side', preset: 'rightOffsetPx', control: 'sld-right-margin', type: 'px', section: 'layout', tier: 'basic',
+      { key: 'layout.margin.side', label: "Side margin", preset: 'rightOffsetPx', control: 'sld-right-margin', type: 'px', section: 'layout', tier: 'basic',
         min: 20, max: 180, step: 1, default: 60, invalidates: 'layout' },
-      { key: 'layout.textOffsetY', preset: 'textOffsetYPx', control: 'sld-text-offset-y', type: 'px', section: 'layout', tier: 'advanced',
+      { key: 'layout.textOffsetY', label: "Banner vertical offset", preset: 'textOffsetYPx', control: 'sld-text-offset-y', type: 'px', section: 'layout', tier: 'advanced',
         min: -30, max: 30, step: 1, default: 0, apply: cssVar('--cg-text-offset-y', 'px') },
-      { key: 'layout.anchor', preset: 'anchorPosition', control: null, type: 'enum', section: 'layout', tier: 'basic',
+      { key: 'layout.anchor', label: "Anchor corner", preset: 'anchorPosition', control: null, type: 'enum', section: 'layout', tier: 'basic',
         options: ['top-right', 'top-left', 'bottom-right', 'bottom-left'], default: 'top-right', invalidates: 'layout' },
-      { key: 'layout.orientation', preset: 'orientation', control: null, type: 'enum', section: 'layout', tier: 'advanced',
+      { key: 'layout.orientation', label: "Corner order", preset: 'orientation', control: null, type: 'enum', section: 'layout', tier: 'advanced',
         options: ['default', 'flipped'], default: 'default', invalidates: 'timeline' },
-      { key: 'layout.displayMode', preset: 'displayMode', control: null, type: 'enum', section: 'layout', tier: 'basic',
+      { key: 'layout.displayMode', label: "What is on air", preset: 'displayMode', control: null, type: 'enum', section: 'layout', tier: 'basic',
         options: ['combo', 'rating', 'logo'], default: 'combo', invalidates: 'timeline' },
 
       // --- Motion ------------------------------------------------------------
-      { key: 'motion.hold.rating', preset: 'ratingHoldSec', legacy: ['hold_time'], control: 'sld-rating-hold', type: 's', section: 'motion', tier: 'basic',
+      { key: 'motion.hold.rating', label: "Rating hold", preset: 'ratingHoldSec', legacy: ['hold_time'], control: 'sld-rating-hold', type: 's', section: 'motion', tier: 'basic',
         min: 1, max: 60, step: 1, default: 30, invalidates: 'timeline' },
-      { key: 'motion.hold.warning', preset: 'warningHoldSec', legacy: ['warning_hold_time'], control: 'sld-warning-hold', type: 's', section: 'motion', tier: 'basic',
+      { key: 'motion.hold.warning', label: "Descriptor hold", preset: 'warningHoldSec', legacy: ['warning_hold_time'], control: 'sld-warning-hold', type: 's', section: 'motion', tier: 'basic',
         min: 1, max: 60, step: 1, default: 30, invalidates: 'timeline' },
-      { key: 'motion.curve', preset: 'motionCurve', control: 'sel-motion-curve', type: 'enum', section: 'motion', tier: 'advanced',
+      { key: 'motion.curve', label: "Transition", preset: 'motionCurve', control: 'sel-motion-curve', type: 'enum', section: 'motion', tier: 'advanced',
         options: ['elastic', 'smooth', 'fade'], default: 'elastic', invalidates: 'timeline' },
 
       // --- Look ---------------------------------------------------------------
-      { key: 'look.theme', preset: 'themeName', legacy: ['theme'], control: null, type: 'enum', section: 'look', tier: 'basic',
+      { key: 'look.theme', label: "Blueprint", preset: 'themeName', legacy: ['theme'], control: null, type: 'enum', section: 'look', tier: 'basic',
         options: ['frosted', 'matte-slate', 'obsidian', 'aurora', 'newsroom', 'cinema', 'kids'], default: 'frosted', invalidates: 'theme' },
 
       // --- Show tag ------------------------------------------------------------
-      { key: 'tag.key', preset: 'showTag', control: null, type: 'enum', section: 'tag', tier: 'basic',
+      { key: 'tag.key', label: "Show tag", preset: 'showTag', control: null, type: 'enum', section: 'tag', tier: 'basic',
         options: ['none', 'live', 'movie', 'documentary', 'telemarketing', 'show', 'news'], default: 'none', invalidates: 'subtitle' },
-      { key: 'tag.active', preset: 'activeTagline', control: 'txt-active-tagline', type: 'text', section: 'tag', tier: 'basic',
+      { key: 'tag.active', label: "Tag text", preset: 'activeTagline', control: 'txt-active-tagline', type: 'text', section: 'tag', tier: 'basic',
         default: '', invalidates: 'subtitle' },
-      { key: 'tag.text.live', preset: 'tagTexts.live', control: 'txt-tag-live', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'LIVE' },
-      { key: 'tag.text.movie', preset: 'tagTexts.movie', control: 'txt-tag-movie', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'MOVIE TIME' },
-      { key: 'tag.text.documentary', preset: 'tagTexts.documentary', control: 'txt-tag-documentary', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'DOCUMENTARY' },
-      { key: 'tag.text.telemarketing', preset: 'tagTexts.telemarketing', control: 'txt-tag-telemarketing', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'TELEMARKETING' },
-      { key: 'tag.text.show', preset: 'tagTexts.show', control: 'txt-tag-show', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'SERIES' },
-      { key: 'tag.text.news', preset: 'tagTexts.news', control: 'txt-tag-news', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'NEWS' }
+      { key: 'tag.text.live', label: "LIVE text", preset: 'tagTexts.live', control: 'txt-tag-live', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'LIVE' },
+      { key: 'tag.text.movie', label: "MOVIE text", preset: 'tagTexts.movie', control: 'txt-tag-movie', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'MOVIE TIME' },
+      { key: 'tag.text.documentary', label: "DOCUMENTARY text", preset: 'tagTexts.documentary', control: 'txt-tag-documentary', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'DOCUMENTARY' },
+      { key: 'tag.text.telemarketing', label: "TELEMARKETING text", preset: 'tagTexts.telemarketing', control: 'txt-tag-telemarketing', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'TELEMARKETING' },
+      { key: 'tag.text.show', label: "SERIES text", preset: 'tagTexts.show', control: 'txt-tag-show', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'SERIES' },
+      { key: 'tag.text.news', label: "NEWS text", preset: 'tagTexts.news', control: 'txt-tag-news', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'NEWS' }
     ];
 
     /** key -> entry, for the hot paths that look entries up per change. */
@@ -4574,7 +5127,7 @@
           fitWordmarkSvgText(textSize);
         }
       }
-      updateLiveInspector();
+      if (typeof renderTimelineBar === 'function') renderTimelineBar();
     }
 
     function fitRatingStencilText() {
@@ -4748,7 +5301,7 @@
         }
       });
       fitRatingStencilText();
-      updateLiveInspector();
+      if (typeof renderTimelineBar === 'function') renderTimelineBar();
     }
 
     function applyThemePreset(themeKey) {
@@ -4854,6 +5407,18 @@
 
     let currentStudioDisplayMode = 'combo'; // 'rating' | 'logo' | 'combo'
 
+    /** What the rating was before "Station ID only" hid the advisory stage. */
+    let ratingBeforeLogoOnly = null;
+
+    /** Puts the operator's rating back when the advisory stage returns. */
+    function restoreRatingForDisplayMode() {
+      if (currentConfig.rating !== 'NONE') return;
+      currentConfig.rating = ratingBeforeLogoOnly || '16';
+      document.querySelectorAll('[data-rating]').forEach(function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-rating') === currentConfig.rating);
+      });
+    }
+
     function setStudioDisplayMode(mode) {
       currentStudioDisplayMode = mode;
       document.querySelectorAll('.studio-mode-btn').forEach(btn => {
@@ -4895,7 +5460,7 @@
         if (logoStage) logoStage.style.display = 'none';
         if (advStage) advStage.style.display = 'flex';
 
-        if (currentConfig.rating === 'NONE') currentConfig.rating = '16';
+        restoreRatingForDisplayMode();
         currentConfig.show_station_logo = false;
 
         if (currentActiveTab === 'station') {
@@ -4918,6 +5483,9 @@
         if (logoStage) logoStage.style.display = 'flex';
         if (advStage) advStage.style.display = 'none';
 
+        // Remember what the operator picked, so switching back restores it
+        // instead of resetting to 16.
+        if (currentConfig.rating !== 'NONE') ratingBeforeLogoOnly = currentConfig.rating;
         currentConfig.rating = 'NONE';
         currentConfig.show_station_logo = true;
 
@@ -4940,7 +5508,7 @@
         if (logoStage) logoStage.style.display = 'flex';
         if (advStage) advStage.style.display = 'flex';
 
-        if (currentConfig.rating === 'NONE') currentConfig.rating = '16';
+        restoreRatingForDisplayMode();
         currentConfig.show_station_logo = true;
       }
 
@@ -5129,18 +5697,18 @@
       replayTimeline();
     }
 
+    /**
+     * Preview the sequence without waiting out the real holds.
+     *
+     * This used to write 2 into the live hold values, replay, and restore them
+     * on a setTimeout(7000). Anything the operator did during those seven
+     * seconds — including Save & Deploy — raced the restore, so a preview could
+     * put two-second holds on air. The timeline bar owns this now: it builds a
+     * throwaway timeline and puts the state straight back, with no window in
+     * which the wrong values are the saved ones.
+     */
     function quickPreviewCycle() {
-      const origRatingHold = currentConfig.hold_time;
-      const origWarnHold = currentConfig.warning_hold_time;
-      currentConfig.hold_time = 2.0;
-      currentConfig.warning_hold_time = 2.0;
-      buildTimeline();
-      replayTimeline();
-      setTimeout(() => {
-        currentConfig.hold_time = origRatingHold;
-        currentConfig.warning_hold_time = origWarnHold;
-        buildTimeline();
-      }, 7000);
+      toggleShortHoldPreview();
     }
 
     function buildTimeline() {
@@ -5745,6 +6313,560 @@
     }
 
     // =========================================================================
+    // STUDIO ICON SET
+    //
+    // The workstation chrome used fifty-five distinct emoji. They render
+    // differently on every operator's machine, they carry no consistent weight
+    // next to broadcast-grade output, and several of them were doing real work
+    // — the descriptor rows and the show-tag rows used emoji as the only
+    // indication of what each row meant.
+    //
+    // One geometric set instead: 24x24 box drawn at 16px, 1.5px stroke,
+    // currentColor, so an icon inherits the colour of whatever it sits in and
+    // weighs the same everywhere.
+    //
+    // Markup writes <i class="cg-i" data-icon="tag"></i> and hydrateStudioIcons
+    // fills it once at boot. On air none of this loads: the chrome is
+    // display:none and the hydrator never runs.
+    // =========================================================================
+
+    const STUDIO_ICONS = {
+      // --- content ---------------------------------------------------------
+      rating: '<circle cx="12" cy="12" r="9"/><path d="M9 9h6M12 9v6"/>',
+      shield: '<path d="M12 3l7 3v5.5c0 4-2.9 7.6-7 9.5-4.1-1.9-7-5.5-7-9.5V6z"/>',
+      tag: '<path d="M3 11.5V4h7.5l9.5 9.5-7.5 7.5z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+      legal: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7M9 17h5"/>',
+      type: '<path d="M4 6V4h16v2"/><path d="M12 4v16"/><path d="M9 20h6"/>',
+
+      // --- stages ----------------------------------------------------------
+      logo: '<rect x="4" y="4" width="16" height="16" rx="5"/><path d="M8.5 14.5h7"/>',
+      badge: '<circle cx="12" cy="12" r="8.5"/><path d="M9.5 10.5h5M12 8.5v7"/>',
+      banner: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M6 11h8M6 14h5"/>',
+      layout: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/>',
+
+      // --- descriptors -----------------------------------------------------
+      violence: '<path d="M14.5 3.5L20 3l-.5 5.5L9 19l-4-4z"/><path d="M4 20l3-3"/>',
+      substances: '<rect x="3" y="9" width="18" height="7" rx="3.5"/><path d="M12 9v7"/>',
+      sex: '<circle cx="12" cy="9" r="4.5"/><path d="M12 13.5V21M9 18h6"/>',
+      language: '<path d="M4 5h16v10H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
+
+      // --- show tags -------------------------------------------------------
+      live: '<circle cx="12" cy="12" r="3.2"/><path d="M6.5 6.5a7.8 7.8 0 000 11M17.5 6.5a7.8 7.8 0 010 11"/>',
+      movie: '<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M3.5 8l16-3 .5 3"/><path d="M8 5.6L10 8M13 4.6L15 7.4"/>',
+      documentary: '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="3.7" ry="9"/><path d="M3 12h18"/>',
+      telemarketing: '<path d="M20 13l-7 7-9-9V4h7z"/><circle cx="7.8" cy="7.8" r="1.3"/>',
+      series: '<rect x="3" y="8" width="14" height="11" rx="2"/><path d="M7 5h12a2 2 0 012 2v9"/><path d="M8.5 11.5l4 2-4 2z"/>',
+      news: '<path d="M12 5l-5 15h10z"/><path d="M9.5 14h5"/><circle cx="12" cy="3.6" r="1.6"/>',
+
+      // --- workstation -----------------------------------------------------
+      palette: '<path d="M12 3a9 9 0 000 18c1.2 0 1.8-.8 1.8-1.7 0-1.6 1-2.3 2.4-2.3H18a3 3 0 003-3c0-5-4-11-9-11z"/><circle cx="8" cy="10" r="1.1"/><circle cx="12" cy="7.5" r="1.1"/><circle cx="16" cy="10.5" r="1.1"/>',
+      motion: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+      position: '<path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/>',
+      ruler: '<rect x="2" y="8" width="20" height="8" rx="1.5"/><path d="M7 8v3M12 8v4M17 8v3"/>',
+      target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
+      light: '<path d="M9.5 18h5M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.8c.6.5.9 1.1 1 1.8h5c.1-.7.4-1.3 1-1.8A6 6 0 0012 3z"/>',
+      sparkles: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M18.5 16l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+      star: '<path d="M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6.1-5.3-3-5.3 3 1.1-6.1L3.4 9.9l6-.8z"/>',
+      monitor: '<rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8.5 21h7M12 17v4"/>',
+
+      // --- transport & actions ---------------------------------------------
+      play: '<path d="M7 4.5l12 7.5-12 7.5z"/>',
+      pause: '<path d="M9 5v14M15 5v14"/>',
+      stop: '<rect x="5.5" y="5.5" width="13" height="13" rx="2"/>',
+      replay: '<path d="M4 12a8 8 0 108-8"/><path d="M4 4v5h5"/>',
+      undo: '<path d="M4 9h11a5 5 0 010 10H9"/><path d="M4 9l4-4M4 9l4 4"/>',
+      redo: '<path d="M20 9H9a5 5 0 000 10h6"/><path d="M20 9l-4-4M20 9l-4 4"/>',
+      bolt: '<path d="M13.5 3L5 13.5h6L10.5 21 19 10.5h-6z"/>',
+
+      deploy: '<path d="M12 19V5"/><path d="M6 11l6-6 6 6"/><path d="M4 21h16"/>',
+      save: '<path d="M5 4h11l3 3v13H5z"/><path d="M8.5 4v5h6V4"/><rect x="8" y="13" width="8" height="7"/>',
+      copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4V4h11v1"/>',
+      download: '<path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M4 20h16"/>',
+      trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>',
+      more: '<circle cx="5.5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18.5" cy="12" r="1.4"/>',
+      check: '<path d="M4.5 12.5l5 5 10-11"/>',
+      close: '<path d="M6 6l12 12M18 6L6 18"/>',
+      drag: '<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
+      flip: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+      snap: '<path d="M4 4v16h16"/><path d="M8 16l4-6 4 3 4-6"/>',
+      safeArea: '<rect x="2.5" y="4.5" width="19" height="15" rx="1.5" stroke-dasharray="3 2.5"/><rect x="6" y="7.5" width="12" height="9" rx="1"/>',
+      fullscreen: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+
+      // --- backdrops --------------------------------------------------------
+      moon: '<path d="M20 14.5A8.5 8.5 0 019.5 4a8.5 8.5 0 1010.5 10.5z"/>',
+      sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M5 5l1.8 1.8M17.2 17.2L19 19M19 5l-1.8 1.8M6.8 17.2L5 19"/>',
+      checker: '<rect x="3" y="3" width="18" height="18" rx="1.5"/><path d="M3 12h18M12 3v18"/><path d="M3 3h9v9h-9zM12 12h9v9h-9z" fill="currentColor" stroke="none" opacity="0.35"/>',
+      fog: '<path d="M4 9h16M6 13h12M4 17h16" stroke-dasharray="4 3"/>',
+
+      // --- corners ----------------------------------------------------------
+      cornerTopRight: '<path d="M6 18L18 6"/><path d="M11 6h7v7"/>',
+      cornerTopLeft: '<path d="M18 18L6 6"/><path d="M13 6H6v7"/>',
+      cornerBottomRight: '<path d="M6 6l12 12"/><path d="M18 11v7h-7"/>',
+      cornerBottomLeft: '<path d="M18 6L6 18"/><path d="M6 11v7h7"/>',
+      offsetY: '<path d="M12 4v16"/><path d="M8.5 7.5L12 4l3.5 3.5M8.5 16.5L12 20l3.5-3.5"/>'
+    };
+
+    /** Inline SVG for one icon, or '' when the name is unknown. */
+    function cgIconMarkup(name, size) {
+      const body = STUDIO_ICONS[name];
+      if (!body) return '';
+      const px = size || 16;
+      return '<svg width="' + px + '" height="' + px + '" viewBox="0 0 24 24" fill="none" '
+        + 'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" '
+        + 'aria-hidden="true" focusable="false">' + body + '</svg>';
+    }
+
+    /**
+     * Fills every <i data-icon="name"> that is still empty. Safe to call again
+     * after inserting markup; it skips the ones already drawn.
+     */
+    function hydrateStudioIcons(root) {
+      const scope = root || document;
+      const slots = scope.querySelectorAll('[data-icon]');
+      for (let i = 0; i < slots.length; i++) {
+        const el = slots[i];
+        if (el.firstElementChild) continue;
+        const markup = cgIconMarkup(el.getAttribute('data-icon'), el.getAttribute('data-icon-size'));
+        if (markup) el.innerHTML = markup;
+      }
+    }
+    // =========================================================================
+    // CONTROL RAIL — numeric entry and hex entry, generated from the schema
+    //
+    // Every adjustable value was a slider and nothing else. A 2px step on a
+    // 460px-wide rail cannot hit a specific number, there was no keyboard
+    // nudge, and the colours were bare <input type="color"> with no way to
+    // type or read a hex — except the accent line, which had the hex field
+    // everything else should have had.
+    //
+    // Rather than rewrite the markup, this walks CONTROL_SCHEMA at boot and
+    // upgrades the control each entry names: a slider gains a number field and
+    // its unit, a colour gains a hex field. Both write back through the
+    // original input and dispatch its `input` event, so every existing handler
+    // keeps working and there is one code path per control, not two.
+    // =========================================================================
+
+    /** Unit suffix shown after a numeric field. */
+    const UNIT_LABEL = { px: 'px', deg: '°', s: 's', int: '' };
+
+    /**
+     * Writes a value into the original control and lets its own handlers run,
+     * so the number field and the slider cannot disagree about what happened.
+     */
+    function commitControlValue(el, value) {
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function clampToEntry(entry, raw) {
+      let n = parseFloat(raw);
+      if (!isFinite(n)) return null;
+      if (entry.min !== undefined) n = Math.max(entry.min, n);
+      if (entry.max !== undefined) n = Math.min(entry.max, n);
+      const step = entry.step || 1;
+      // Snap to the step so typing 12.3 on a 0.5-step control cannot produce a
+      // value the slider is unable to represent.
+      return Math.round(n / step) * step;
+    }
+
+    /** Adds `label · slider · number · unit` to one range control. */
+    function attachNumericField(el, entry) {
+      if (el.parentNode.querySelector('.ui-num')) return;
+
+      const readout = document.getElementById('val-' + el.id.slice(4));
+      const wrap = document.createElement('span');
+      wrap.className = 'ui-num-wrap';
+
+      const num = document.createElement('input');
+      num.type = 'number';
+      num.className = 'ui-num';
+      num.value = el.value;
+      if (entry.min !== undefined) num.min = entry.min;
+      if (entry.max !== undefined) num.max = entry.max;
+      num.step = entry.step || 1;
+      num.setAttribute('aria-label', (entry.label || entry.key) + ' value');
+
+      const unit = UNIT_LABEL[entry.type];
+      wrap.appendChild(num);
+      if (unit) {
+        const u = document.createElement('span');
+        u.className = 'ui-num-unit';
+        u.textContent = unit;
+        wrap.appendChild(u);
+      }
+
+      // The readout span becomes the number field. Nothing else changes: the
+      // existing code keeps writing textContent into the span, and that write
+      // is mirrored back here, so a value set from a preset shows up.
+      if (readout) {
+        readout.classList.add('ui-readout-replaced');
+        readout.parentNode.insertBefore(wrap, readout.nextSibling);
+      } else {
+        el.parentNode.insertBefore(wrap, el.nextSibling);
+      }
+
+      el.addEventListener('input', function () { num.value = el.value; });
+
+      num.addEventListener('change', function () {
+        const next = clampToEntry(entry, num.value);
+        if (next === null) { num.value = el.value; return; }
+        num.value = next;
+        commitControlValue(el, next);
+      });
+
+      // Shift with the arrow keys moves ten steps, which is how you cross a
+      // 0..600 range without dragging.
+      num.addEventListener('keydown', function (e) {
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        if (!e.shiftKey) return;
+        e.preventDefault();
+        const step = (entry.step || 1) * 10;
+        const next = clampToEntry(entry, parseFloat(num.value || el.value) + (e.key === 'ArrowUp' ? step : -step));
+        if (next === null) return;
+        num.value = next;
+        commitControlValue(el, next);
+      });
+    }
+
+    /** Adds a typed hex field beside one colour swatch. */
+    function attachHexField(el, entry) {
+      if (el.parentNode.querySelector('[data-hex-for="' + el.id + '"]')) return;
+
+      const hex = document.createElement('input');
+      hex.type = 'text';
+      hex.className = 'ui-hex';
+      hex.value = el.value;
+      hex.spellcheck = false;
+      hex.maxLength = 7;
+      hex.setAttribute('data-hex-for', el.id);
+      hex.setAttribute('aria-label', (entry.label || entry.key) + ' hex');
+      el.parentNode.insertBefore(hex, el.nextSibling);
+
+      el.addEventListener('input', function () { hex.value = el.value; });
+
+      const commit = function () {
+        let v = String(hex.value).trim().toLowerCase();
+        if (v && v[0] !== '#') v = '#' + v;
+        if (/^#[0-9a-f]{3}$/.test(v)) {
+          v = '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
+        }
+        if (!/^#[0-9a-f]{6}$/.test(v)) { hex.value = el.value; return; }
+        hex.value = v;
+        commitControlValue(el, v);
+      };
+      hex.addEventListener('change', commit);
+      hex.addEventListener('keydown', function (e) { if (e.key === 'Enter') commit(); });
+    }
+
+    /**
+     * Upgrades every control the schema names. Safe to call again; each
+     * attach* returns early when its field is already there.
+     */
+    function enhanceControlRail() {
+      for (let i = 0; i < CONTROL_SCHEMA.length; i++) {
+        const entry = CONTROL_SCHEMA[i];
+        if (!entry.control) continue;
+        const el = document.getElementById(entry.control);
+        if (!el) continue;
+        if (el.type === 'range') attachNumericField(el, entry);
+        else if (el.type === 'color') attachHexField(el, entry);
+      }
+      syncRailFromState();
+    }
+
+    /** Pushes the current state into the number and hex fields. */
+    function syncRailFromState() {
+      for (let i = 0; i < CONTROL_SCHEMA.length; i++) {
+        const entry = CONTROL_SCHEMA[i];
+        if (!entry.control) continue;
+        const el = document.getElementById(entry.control);
+        if (!el) continue;
+        if (el.type === 'range') {
+          const num = el.parentNode.querySelector('.ui-num');
+          if (num) num.value = el.value;
+        } else if (el.type === 'color') {
+          const hex = el.parentNode.querySelector('[data-hex-for="' + el.id + '"]');
+          if (hex) hex.value = el.value;
+        }
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // BASIC / ADVANCED (§4.2)
+    //
+    // Sixty-odd controls on one rail is too many to scan for the dozen that get
+    // touched daily. Each schema entry declares its tier, so Basic hides the
+    // advanced ones and no control has to be filed twice.
+    // -------------------------------------------------------------------------
+
+    let currentControlTier = 'basic';
+
+    /**
+     * The row a control lives in, so hiding it hides its label and readout too.
+     * The markup nests controls a few different ways, so this walks up to the
+     * nearest recognised row rather than assuming one shape.
+     */
+    function controlRow(el) {
+      const ROW_CLASSES = ['studio-slider-row', 'vector-ctrl-row', 'studio-field-row', 'show-tag-row'];
+      let node = el;
+      for (let depth = 0; node && depth < 5; depth++) {
+        for (let i = 0; i < ROW_CLASSES.length; i++) {
+          if (node.classList && node.classList.contains(ROW_CLASSES[i])) return node;
+        }
+        node = node.parentElement;
+      }
+      // No recognised row: hide the control's own wrapper rather than nothing,
+      // but never the whole group, which would take basic controls with it.
+      return el.parentElement && !el.parentElement.classList.contains('studio-group')
+        ? el.parentElement
+        : el;
+    }
+
+    function setControlTier(tier) {
+      currentControlTier = tier === 'advanced' ? 'advanced' : 'basic';
+
+      document.querySelectorAll('.studio-tier-btn').forEach(function (btn) {
+        const on = btn.getAttribute('data-tier') === currentControlTier;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-checked', String(on));
+      });
+
+      const showAdvanced = currentControlTier === 'advanced';
+      for (let i = 0; i < CONTROL_SCHEMA.length; i++) {
+        const entry = CONTROL_SCHEMA[i];
+        if (!entry.control || entry.tier !== 'advanced') continue;
+        const el = document.getElementById(entry.control);
+        if (!el) continue;
+        const row = controlRow(el);
+        if (row) row.classList.toggle('is-advanced-hidden', !showAdvanced);
+      }
+
+      // A group whose every row is hidden is an empty heading.
+      document.querySelectorAll('.studio-group').forEach(function (group) {
+        const rows = group.querySelectorAll('.studio-slider-row, .vector-ctrl-row, .show-tag-row');
+        if (!rows.length) return;
+        const allHidden = Array.prototype.every.call(rows, function (r) {
+          return r.classList.contains('is-advanced-hidden');
+        });
+        group.classList.toggle('is-advanced-hidden', allHidden);
+      });
+    }
+    // =========================================================================
+    // HEADER: DEPLOY STATE AND THE OVERFLOW MENU (§4.1, §2.5)
+    //
+    // Nothing used to tell the operator whether what they were looking at
+    // matched what was on air. And there were two buttons with overlapping
+    // effects: "Save & Deploy" wrote the active preset to the bridge and also
+    // silently made it the startup default, while "Set Default" did both too.
+    //
+    // Deploy deploys. The startup default is a deliberate choice in the menu.
+    // A pill next to them says which of three things is true: what you see is
+    // deployed, what you see is modified, or the bridge is not there.
+    // =========================================================================
+
+    /** Serialised preset as it was at the last successful deploy or load. */
+    let deployedPresetFingerprint = null;
+    let bridgeReachable = true;
+
+    /**
+     * Asks the bridge whether it is there, so "Bridge offline" appears before
+     * the operator spends twenty minutes designing and only then finds out
+     * they cannot deploy. Quiet on failure: being offline is a normal state
+     * for a studio page opened straight in a browser.
+     */
+    async function probeBridge() {
+      try {
+        const res = await getFromBridge('/api/ping');
+        setBridgeReachable(!!(res && res.ok));
+      } catch (_) {
+        setBridgeReachable(false);
+      }
+    }
+
+    /**
+     * Presets carry their own id and name, which change when the operator
+     * renames or saves-as and have nothing to do with whether the *look*
+     * differs from what is deployed.
+     */
+    function presetFingerprint(preset) {
+      if (!preset) return null;
+      const copy = Object.assign({}, preset);
+      delete copy.id;
+      delete copy.name;
+      const keys = Object.keys(copy).sort();
+      return JSON.stringify(keys.map(function (k) { return [k, copy[k]]; }));
+    }
+
+    /** Records that what is in the rail right now is what is deployed. */
+    function markDeployedState() {
+      deployedPresetFingerprint = presetFingerprint(captureCurrentPresetPackage(null));
+      refreshDeployState();
+    }
+
+    function setBridgeReachable(ok) {
+      bridgeReachable = !!ok;
+      refreshDeployState();
+    }
+
+    function refreshDeployState() {
+      const pill = document.getElementById('deploy-state');
+      if (!pill) return;
+
+      let state = 'modified';
+      let label = 'Modified';
+
+      if (!bridgeReachable) {
+        state = 'offline';
+        label = 'Bridge offline';
+      } else if (deployedPresetFingerprint === null) {
+        state = 'modified';
+        label = 'Not deployed';
+      } else if (presetFingerprint(captureCurrentPresetPackage(null)) === deployedPresetFingerprint) {
+        state = 'deployed';
+        label = 'Deployed';
+      }
+
+      pill.className = 'deploy-state state-' + state;
+      pill.textContent = label;
+      pill.title = state === 'deployed'
+        ? 'What you see is what is deployed to CasparCG'
+        : state === 'offline'
+          ? 'PlayOut’s studio bridge is not reachable, so Deploy will fail. Reopen CG Studio from PlayOut.'
+          : 'This look has changed since the last deploy';
+    }
+
+    /** Shown while a deploy is in flight, so the button is not just dead. */
+    function setDeployInFlight(inFlight) {
+      const pill = document.getElementById('deploy-state');
+      const btn = document.getElementById('btn-deploy');
+      if (btn) btn.disabled = !!inFlight;
+      if (!pill || !inFlight) { if (!inFlight) refreshDeployState(); return; }
+      pill.className = 'deploy-state state-deploying';
+      pill.textContent = 'Deploying…';
+    }
+
+    /**
+     * The rail is a lot of inputs with a lot of handlers, and a change in any
+     * of them can make the look differ from what is deployed. One delegated
+     * listener rather than fifty.
+     */
+    function watchForModifications() {
+      const rail = document.querySelector('.controls-card') || document.body;
+      const bump = function () {
+        clearTimeout(watchForModifications._t);
+        watchForModifications._t = setTimeout(refreshDeployState, 150);
+      };
+      rail.addEventListener('input', bump);
+      rail.addEventListener('change', bump);
+      rail.addEventListener('click', bump);
+    }
+
+    // -------------------------------------------------------------------------
+    // Overflow menu
+    // -------------------------------------------------------------------------
+
+    function togglePresetMenu() {
+      const menu = document.getElementById('preset-menu');
+      if (!menu) return;
+      if (menu.hidden) openPresetMenu(); else closePresetMenu();
+    }
+
+    function openPresetMenu() {
+      const menu = document.getElementById('preset-menu');
+      const btn = document.getElementById('btn-preset-menu');
+      if (!menu) return;
+
+      // Delete only means something for a preset the operator made.
+      const isUserPreset = currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_');
+      const del = document.getElementById('menu-delete-preset');
+      if (del) del.hidden = !isUserPreset;
+
+      menu.hidden = false;
+      if (btn) btn.setAttribute('aria-expanded', 'true');
+      const first = menu.querySelector('.preset-menu-item:not([hidden])');
+      if (first) first.focus();
+
+      setTimeout(function () {
+        document.addEventListener('click', closePresetMenuOnOutside);
+        document.addEventListener('keydown', closePresetMenuOnEscape);
+      }, 0);
+    }
+
+    function closePresetMenu() {
+      const menu = document.getElementById('preset-menu');
+      const btn = document.getElementById('btn-preset-menu');
+      if (menu) menu.hidden = true;
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('click', closePresetMenuOnOutside);
+      document.removeEventListener('keydown', closePresetMenuOnEscape);
+    }
+
+    function closePresetMenuOnOutside(e) {
+      const menu = document.getElementById('preset-menu');
+      const btn = document.getElementById('btn-preset-menu');
+      if (!menu || menu.contains(e.target) || (btn && btn.contains(e.target))) return;
+      closePresetMenu();
+    }
+
+    function closePresetMenuOnEscape(e) {
+      if (e.key !== 'Escape') return;
+      closePresetMenu();
+      const btn = document.getElementById('btn-preset-menu');
+      if (btn) btn.focus();
+    }
+
+    // -------------------------------------------------------------------------
+    // Export / import
+    // -------------------------------------------------------------------------
+
+    function exportActivePreset() {
+      const preset = captureCurrentPresetPackage(null);
+      const name = String(preset.name || 'preset').replace(/[^\w.-]+/g, '-').toLowerCase();
+      const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cg-preset-' + name + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showStudioToast('Exported ' + a.download, 'ok');
+    }
+
+    function importPresetFromFile() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json,.json';
+      input.addEventListener('change', function () {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function () {
+          let preset;
+          try {
+            preset = JSON.parse(String(reader.result));
+          } catch (err) {
+            showStudioToast('That file is not valid JSON', 'error');
+            return;
+          }
+          if (!preset || typeof preset !== 'object' || Array.isArray(preset)) {
+            showStudioToast('That file does not contain a preset', 'error');
+            return;
+          }
+          // fromPreset clamps and coerces, so an edited file cannot put an
+          // out-of-range value on air.
+          applyPresetPackage(preset);
+          syncRailFromState();
+          refreshDeployState();
+          showStudioToast('Loaded ' + (preset.name || file.name) + '. Deploy to put it on air.', 'ok');
+        };
+        reader.readAsText(file);
+      });
+      input.click();
+    }
+    // =========================================================================
     // CANVAS CENTERING & RESPONSIVE SCALING
     // =========================================================================
     function resizeCanvas() {
@@ -5826,36 +6948,40 @@
         let newX = Math.round(initialElemX + deltaX);
         let newY = Math.round(initialElemY + deltaY);
 
-        newX = Math.max(0, Math.min(1920 - activeDragTarget.offsetWidth, newX));
-        newY = Math.max(0, Math.min(1080 - activeDragTarget.offsetHeight, newY));
-
-        activeDragTarget.style.setProperty('left', `${newX}px`, 'important');
-        activeDragTarget.style.setProperty('top', `${newY}px`, 'important');
-        activeDragTarget.style.setProperty('right', 'auto', 'important');
-        activeDragTarget.style.setProperty('bottom', 'auto', 'important');
-
-        if (activeDragTarget.id === 'station-logo-stage') {
-          document.documentElement.style.setProperty('--cg-logo-left', `${newX}px`);
-          document.documentElement.style.setProperty('--cg-logo-top', `${newY}px`);
-          const sldTop = document.getElementById('sld-logo-top');
-          const sldLeft = document.getElementById('sld-logo-left');
-          const valTop = document.getElementById('val-logo-top');
-          const valLeft = document.getElementById('val-logo-left');
-          if (sldTop) sldTop.value = newY;
-          if (sldLeft) sldLeft.value = newX;
-          if (valTop) valTop.textContent = `${newY}px`;
-          if (valLeft) valLeft.textContent = `${newX}px`;
+        // Snap to the safe-area guides, the canvas centre lines and the other
+        // stage's edges. Alt places freely, for the cases that want to sit
+        // deliberately off a guide.
+        const otherStage = getStageEls().filter(function (st) { return st !== activeDragTarget; })[0];
+        if (!e.altKey) {
+          const sx = snapCoordinate('x', newX, activeDragTarget.offsetWidth, otherStage);
+          const sy = snapCoordinate('y', newY, activeDragTarget.offsetHeight, otherStage);
+          newX = sx.value;
+          newY = sy.value;
+          showSnapGuide('x', sx.label ? newX : null, sx.label);
+          showSnapGuide('y', sy.label ? newY : null, sy.label);
+        } else {
+          clearSnapGuides();
         }
+
+        // placeStage clamps to the canvas and writes through to the state, so
+        // a drag and a typed value land in exactly the same place.
+        const placed = placeStage(activeDragTarget, newX, newY);
+        newX = placed.x;
+        newY = placed.y;
 
         const hud = document.getElementById('drag-hud');
         if (hud) {
           hud.style.left = `${e.clientX + 14}px`;
           hud.style.top = `${e.clientY + 14}px`;
-          hud.textContent = `X: ${newX}px | Y: ${newY}px ${e.shiftKey ? '[Lock X]' : ''} ${e.ctrlKey ? '[Lock Y]' : ''}`;
+          // Distance from the safe edge, which is the number that decides
+          // whether a placement is legal, rather than raw X/Y alone.
+          hud.textContent = describeStagePosition(activeDragTarget, newX, newY)
+            + (e.shiftKey ? '  [lock X]' : '') + (e.ctrlKey ? '  [lock Y]' : '');
         }
       });
 
       window.addEventListener('mouseup', () => {
+        clearSnapGuides();
         if (activeDragTarget) {
           activeDragTarget.classList.remove('canvas-dragging');
           const isLogo = activeDragTarget.id === 'station-logo-stage';
@@ -5886,63 +7012,538 @@
     }
 
     // =========================================================================
-    // ACTION HISTORY & LIVE SVG INSPECTOR CONSOLE
+    // CANVAS SELECTION, SNAPPING AND KEYBOARD NUDGE (§4.4)
+    //
+    // Nothing on the canvas was selectable, and the only way to move a stage
+    // was to drag it with the mouse. A drag cannot hit a specific pixel and it
+    // cannot line an element up with the safe area, so the operator dragged,
+    // squinted, and dragged again.
+    //
+    // Click to select. Arrow keys nudge by 1, shift by 10. A drag that comes
+    // within six canvas pixels of a safe-area guide, a centre line or the
+    // other stage's edge snaps to it and shows the line it snapped to.
     // =========================================================================
+
+    /** How close, in canvas pixels, a drag has to get before it snaps. */
+    const SNAP_THRESHOLD = 6;
+
+    /** EBU safe areas, as insets from each edge of the 1920x1080 canvas. */
+    const SAFE_ACTION = 48;
+    const SAFE_TITLE = 96;
+
+    let selectedStageId = null;
+
+    function getStageEls() {
+      return [
+        document.getElementById('station-logo-stage'),
+        document.getElementById('advisory-stage')
+      ].filter(Boolean);
+    }
+
+    /** Selection is what the inspector and the arrow keys act on. */
+    function selectStage(el) {
+      selectedStageId = el ? el.id : null;
+      getStageEls().forEach(function (s) {
+        s.classList.toggle('is-selected', !!el && s.id === el.id);
+      });
+      if (el) {
+        // The stage has to be focusable for the arrow keys to reach it.
+        if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+        el.focus({ preventScroll: true });
+      }
+    }
+
+    function clearStageSelection() {
+      selectStage(null);
+    }
+
+    /**
+     * Candidate snap positions for one axis.
+     *
+     * @param {'x'|'y'} axis
+     * @param {number} size the dragged element's extent on that axis
+     * @param {Element} other the other stage, so edges can line up with it
+     */
+    function snapCandidates(axis, size, other) {
+      const extent = axis === 'x' ? 1920 : 1080;
+      const out = [];
+
+      const push = (start, label) => { out.push({ start: start, label: label }); };
+
+      // Safe-area edges, leading and trailing.
+      push(SAFE_ACTION, 'action safe');
+      push(extent - SAFE_ACTION - size, 'action safe');
+      push(SAFE_TITLE, 'title safe');
+      push(extent - SAFE_TITLE - size, 'title safe');
+
+      // Canvas centre.
+      push((extent - size) / 2, 'centre');
+
+      // The other stage's near and far edges, so the two line up.
+      if (other) {
+        const rect = stageBoxInCanvas(other);
+        if (rect) {
+          if (axis === 'x') {
+            push(rect.left, 'aligned');
+            push(rect.right - size, 'aligned');
+          } else {
+            push(rect.top, 'aligned');
+            push(rect.bottom - size, 'aligned');
+          }
+        }
+      }
+
+      return out;
+    }
+
+    /** An element's box in canvas coordinates rather than screen pixels. */
+    function stageBoxInCanvas(el) {
+      const canvas = document.getElementById('broadcast-canvas');
+      if (!canvas) return null;
+      const scale = getCanvasScale() || 1;
+      const c = canvas.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      return {
+        left: (r.left - c.left) / scale,
+        top: (r.top - c.top) / scale,
+        right: (r.right - c.left) / scale,
+        bottom: (r.bottom - c.top) / scale
+      };
+    }
+
+    /**
+     * Snaps one coordinate if a candidate is within the threshold.
+     * @returns {{value: number, label: string|null}}
+     */
+    function snapCoordinate(axis, value, size, other) {
+      const candidates = snapCandidates(axis, size, other);
+      let best = null;
+      for (let i = 0; i < candidates.length; i++) {
+        const d = Math.abs(candidates[i].start - value);
+        if (d <= SNAP_THRESHOLD && (best === null || d < best.d)) {
+          best = { d: d, start: candidates[i].start, label: candidates[i].label };
+        }
+      }
+      if (!best) return { value: value, label: null };
+      return { value: Math.round(best.start), label: best.label };
+    }
+
+    /** Draws the guide the drag snapped to, or clears it. */
+    function showSnapGuide(axis, canvasPos, label) {
+      const id = 'snap-guide-' + axis;
+      let guide = document.getElementById(id);
+      if (canvasPos === null) {
+        if (guide) guide.remove();
+        return;
+      }
+      if (!guide) {
+        guide = document.createElement('div');
+        guide.id = id;
+        guide.className = 'snap-guide snap-guide-' + axis;
+        const canvas = document.getElementById('broadcast-canvas');
+        if (!canvas) return;
+        canvas.appendChild(guide);
+      }
+      guide.dataset.label = label || '';
+      if (axis === 'x') guide.style.left = canvasPos + 'px';
+      else guide.style.top = canvasPos + 'px';
+    }
+
+    function clearSnapGuides() {
+      showSnapGuide('x', null);
+      showSnapGuide('y', null);
+    }
+
+    /** Moves a stage to an absolute canvas position and syncs the rail. */
+    function placeStage(el, x, y) {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const nx = Math.max(0, Math.min(1920 - w, Math.round(x)));
+      const ny = Math.max(0, Math.min(1080 - h, Math.round(y)));
+
+      el.style.setProperty('left', nx + 'px', 'important');
+      el.style.setProperty('top', ny + 'px', 'important');
+      el.style.setProperty('right', 'auto', 'important');
+      el.style.setProperty('bottom', 'auto', 'important');
+
+      if (el.id === 'station-logo-stage') {
+        stateSet('logo.pos.left', nx);
+        stateSet('logo.pos.top', ny);
+        writeStateToDom(['logo.pos.left', 'logo.pos.top']);
+        syncRailFromState();
+        document.documentElement.style.setProperty('--cg-logo-left', nx + 'px');
+        document.documentElement.style.setProperty('--cg-logo-top', ny + 'px');
+      }
+      return { x: nx, y: ny };
+    }
+
+    /** Distance from each safe edge, which is what the operator actually needs. */
+    function describeStagePosition(el, x, y) {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const fromLeft = x - SAFE_ACTION;
+      const fromTop = y - SAFE_ACTION;
+      const fromRight = 1920 - SAFE_ACTION - (x + w);
+      const fromBottom = 1080 - SAFE_ACTION - (y + h);
+      const nearest = Math.min(fromLeft, fromTop, fromRight, fromBottom);
+      return 'X ' + x + '  Y ' + y + '   ·   ' + Math.round(nearest) + 'px inside action safe';
+    }
+
+    /**
+     * Click to select, arrow keys to nudge. Attached once at boot alongside
+     * initCanvasDraggables.
+     */
+    function initStageSelection() {
+      const canvas = document.getElementById('broadcast-canvas');
+      if (!canvas) return;
+
+      getStageEls().forEach(function (el) {
+        el.setAttribute('tabindex', '0');
+        el.setAttribute('role', 'group');
+        el.setAttribute('aria-label',
+          el.id === 'station-logo-stage' ? 'Station ID stage' : 'Advisory stage');
+
+        el.addEventListener('mousedown', function () {
+          if (document.body.classList.contains('on-air')) return;
+          selectStage(el);
+        });
+
+        el.addEventListener('keydown', function (e) {
+          const step = e.shiftKey ? 10 : 1;
+          let dx = 0;
+          let dy = 0;
+          if (e.key === 'ArrowLeft') dx = -step;
+          else if (e.key === 'ArrowRight') dx = step;
+          else if (e.key === 'ArrowUp') dy = -step;
+          else if (e.key === 'ArrowDown') dy = step;
+          else if (e.key === 'Escape') { clearStageSelection(); return; }
+          else return;
+
+          e.preventDefault();
+          const box = stageBoxInCanvas(el);
+          if (!box) return;
+          const moved = placeStage(el, box.left + dx, box.top + dy);
+          const hud = document.getElementById('drag-hud');
+          if (hud) {
+            hud.style.display = 'block';
+            hud.textContent = describeStagePosition(el, moved.x, moved.y);
+            clearTimeout(initStageSelection._hud);
+            initStageSelection._hud = setTimeout(function () { hud.style.display = 'none'; }, 1200);
+          }
+        });
+      });
+
+      // Clicking the empty canvas deselects.
+      canvas.addEventListener('mousedown', function (e) {
+        if (e.target === canvas) clearStageSelection();
+      });
+    }
+    // =========================================================================
+    // TIMELINE BAR (§4.5)
+    //
+    // Motion tuning was blind. Hold times were two sliders and the only way to
+    // see the result was to watch the whole thirty-second sequence play out.
+    // "Test Cycle (2s)" fudged the real hold values and put them back with a
+    // setTimeout(7000) that raced anything the operator did in between — so a
+    // preview could leave the preset carrying 2-second holds.
+    //
+    // This draws the master timeline to scale, with a scrubbable playhead, and
+    // the short-hold preview builds a *separate* timeline instead of touching
+    // the values that go on air.
+    // =========================================================================
+
+    /**
+     * Past this many seconds a hold is drawn on a log scale.
+     * A 30s hold beside a 0.4s tween would otherwise leave the tween a
+     * sub-pixel sliver, which is the part being tuned.
+     */
+    const TL_LINEAR_LIMIT = 5;
+
+    let tlLooping = false;
+    let tlShortHolds = false;
+    let tlScrubbing = false;
+    let tlRafHandle = null;
+
+    /** Drawn width of a segment: linear up to the limit, then compressed. */
+    function tlWeight(seconds) {
+      if (seconds <= TL_LINEAR_LIMIT) return seconds;
+      return TL_LINEAR_LIMIT + Math.log10(1 + (seconds - TL_LINEAR_LIMIT)) * 3;
+    }
+
+    /**
+     * Segments of the current sequence, in order.
+     *
+     * The master timeline is built by buildTimeline() from the same holds the
+     * rail carries, so the shape is derived from state rather than read back
+     * out of GSAP — which would mean reading private internals.
+     */
+    function tlSegments() {
+      const ratingHold = Number(stateGet('motion.hold.rating')) || 0;
+      const warningHold = Number(stateGet('motion.hold.warning')) || 0;
+      const warnings = (currentConfig.warnings || []).filter(Boolean);
+      const showsExplanation = currentConfig.show_explanation !== false;
+
+      const segs = [{ label: 'In', seconds: 0.9, kind: 'tween' }];
+      if (showsExplanation) {
+        segs.push({ label: 'Rating', seconds: ratingHold, kind: 'hold' });
+      }
+      if (warnings.length) {
+        segs.push({ label: 'Descriptors', seconds: warningHold, kind: 'hold' });
+      }
+      segs.push({ label: 'Out', seconds: 0.6, kind: 'tween' });
+      return segs;
+    }
+
+    /** Redraws the bar. Cheap enough to call whenever the sequence changes. */
+    function renderTimelineBar() {
+      const host = document.getElementById('tl-segments');
+      const legend = document.getElementById('tl-legend');
+      if (!host) return;
+
+      const segs = tlSegments();
+      const total = segs.reduce((a, s) => a + tlWeight(s.seconds), 0) || 1;
+
+      host.textContent = '';
+      segs.forEach(function (seg) {
+        const div = document.createElement('div');
+        div.className = 'tl-seg tl-seg-' + seg.kind;
+        div.style.flexBasis = ((tlWeight(seg.seconds) / total) * 100).toFixed(3) + '%';
+        div.title = seg.label + ' — ' + seg.seconds.toFixed(1) + 's'
+          + (seg.seconds > TL_LINEAR_LIMIT ? ' (drawn compressed)' : '');
+        const label = document.createElement('span');
+        label.className = 'tl-seg-label';
+        label.textContent = seg.label;
+        div.appendChild(label);
+        host.appendChild(div);
+      });
+
+      if (legend) {
+        legend.textContent = segs
+          .map(function (s) { return s.label + ' ' + s.seconds.toFixed(1) + 's'; })
+          .join('   ·   ');
+      }
+      updateTimelineClock();
+    }
+
+    function tlDuration() {
+      return masterTL && masterTL.totalDuration ? masterTL.totalDuration() : 0;
+    }
+
+    function updateTimelineClock() {
+      const clock = document.getElementById('tl-clock');
+      if (!clock) return;
+      const dur = tlDuration();
+      const at = masterTL && masterTL.time ? masterTL.time() : 0;
+      clock.textContent = at.toFixed(1) + 's / ' + dur.toFixed(1) + 's';
+    }
+
+    /** Follows the playhead while the sequence runs. */
+    function tlTick() {
+      tlRafHandle = requestAnimationFrame(tlTick);
+      if (tlScrubbing || !masterTL) return;
+
+      const head = document.getElementById('tl-playhead');
+      const bar = document.getElementById('tl-bar');
+      const progress = masterTL.progress ? masterTL.progress() : 0;
+      if (head) head.style.left = (progress * 100).toFixed(3) + '%';
+      if (bar) bar.setAttribute('aria-valuenow', Math.round(progress * 100));
+      updateTimelineClock();
+
+      const btn = document.getElementById('btn-tl-play');
+      if (btn) {
+        const playing = masterTL.isActive ? masterTL.isActive() : false;
+        const wanted = playing ? 'pause' : 'play';
+        if (btn.getAttribute('data-state') !== wanted) {
+          btn.setAttribute('data-state', wanted);
+          btn.innerHTML = cgIconMarkup(wanted, 16) + (playing ? ' Pause' : ' Play');
+        }
+      }
+    }
+
+    function toggleTimelinePlayback() {
+      if (!masterTL) return;
+      if (masterTL.isActive && masterTL.isActive()) masterTL.pause();
+      else masterTL.play();
+    }
+
+    function toggleTimelineLoop() {
+      tlLooping = !tlLooping;
+      const btn = document.getElementById('btn-tl-loop');
+      if (btn) btn.setAttribute('aria-pressed', String(tlLooping));
+      if (masterTL && masterTL.eventCallback) {
+        masterTL.eventCallback('onComplete', tlLooping ? function () { masterTL.restart(); } : null);
+      }
+    }
+
+    /**
+     * Preview the shape of the sequence without waiting out the real holds.
+     *
+     * The old Test Cycle wrote 2 into the hold controls, replayed, and restored
+     * them on a setTimeout — so a click during those seven seconds could save a
+     * preset with two-second holds on air. This builds a throwaway timeline
+     * from a temporary state instead and never touches the rail.
+     */
+    function toggleShortHoldPreview() {
+      tlShortHolds = !tlShortHolds;
+      const btn = document.getElementById('btn-tl-short');
+      if (btn) btn.setAttribute('aria-pressed', String(tlShortHolds));
+
+      const realRating = stateGet('motion.hold.rating');
+      const realWarning = stateGet('motion.hold.warning');
+
+      if (tlShortHolds) {
+        // Build with short holds, then put the state straight back. The rail
+        // and the preset never see the preview values.
+        cgState['motion.hold.rating'] = 2;
+        cgState['motion.hold.warning'] = 2;
+        currentConfig.hold_time = 2;
+        currentConfig.warning_hold_time = 2;
+        buildTimeline();
+        cgState['motion.hold.rating'] = realRating;
+        cgState['motion.hold.warning'] = realWarning;
+        currentConfig.hold_time = realRating;
+        currentConfig.warning_hold_time = realWarning;
+        showStudioToast('Previewing with 2-second holds. The saved holds are unchanged.', 'ok');
+      } else {
+        buildTimeline();
+      }
+      replayTimeline();
+      renderTimelineBar();
+    }
+
+    /** Scrubbing: the playhead follows the pointer and drives the timeline. */
+    function initTimelineBar() {
+      const bar = document.getElementById('tl-bar');
+      if (!bar) return;
+
+      const seek = function (clientX) {
+        const r = bar.getBoundingClientRect();
+        const p = Math.max(0, Math.min(1, (clientX - r.left) / (r.width || 1)));
+        const head = document.getElementById('tl-playhead');
+        if (head) head.style.left = (p * 100).toFixed(3) + '%';
+        bar.setAttribute('aria-valuenow', Math.round(p * 100));
+        if (masterTL && masterTL.progress) masterTL.progress(p).pause();
+        updateTimelineClock();
+      };
+
+      bar.addEventListener('mousedown', function (e) {
+        tlScrubbing = true;
+        seek(e.clientX);
+        e.preventDefault();
+      });
+      window.addEventListener('mousemove', function (e) {
+        if (tlScrubbing) seek(e.clientX);
+      });
+      window.addEventListener('mouseup', function () {
+        tlScrubbing = false;
+      });
+
+      bar.addEventListener('keydown', function (e) {
+        if (!masterTL || !masterTL.progress) return;
+        const step = e.shiftKey ? 0.1 : 0.02;
+        let p = masterTL.progress();
+        if (e.key === 'ArrowLeft') p -= step;
+        else if (e.key === 'ArrowRight') p += step;
+        else if (e.key === 'Home') p = 0;
+        else if (e.key === 'End') p = 1;
+        else if (e.key === ' ') { e.preventDefault(); toggleTimelinePlayback(); return; }
+        else return;
+        e.preventDefault();
+        masterTL.progress(Math.max(0, Math.min(1, p))).pause();
+        tlTickOnce();
+      });
+
+      renderTimelineBar();
+      if (tlRafHandle === null) tlTick();
+    }
+
+    function tlTickOnce() {
+      const wasScrubbing = tlScrubbing;
+      tlScrubbing = false;
+      const head = document.getElementById('tl-playhead');
+      if (head && masterTL && masterTL.progress) {
+        head.style.left = (masterTL.progress() * 100).toFixed(3) + '%';
+      }
+      updateTimelineClock();
+      tlScrubbing = wasScrubbing;
+    }
+    // =========================================================================
+    // HISTORY (§4.5)
+    //
+    // The old "Action History" was not undo. It stored ad-hoc closures, most
+    // recordAction calls passed no revert function at all, and the ones that
+    // did passed the wrong thing — a reposition's "Revert" ran
+    // resetToFactoryDefaults and wiped fourteen unrelated controls. So the
+    // button removed a row and, usually, changed nothing.
+    //
+    // Undo is state snapshots now (core/store.js). This list is a view of that
+    // stack: clicking an entry rolls back to it, and the snapshot survives so
+    // redo can roll forward again.
+    // =========================================================================
+
     const actionHistory = [];
 
-    function recordAction(type, desc, revertFn) {
+    /**
+     * Records a labelled point the operator can come back to.
+     *
+     * @param {string} type  short badge: LAYOUT, THEME, PRESET, BADGE
+     * @param {string} desc  what happened, in the operator's words
+     */
+    function recordAction(type, desc) {
       // The console card is display:none on air, so every on-air update was
       // re-rendering a list nobody can see (audit 2.3.6).
       if (document.documentElement.classList.contains('on-air')) return;
-      const item = {
-        id: 'act_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+
+      pushUndoSnapshot(desc);
+      actionHistory.unshift({
+        id: 'act_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
         time: new Date().toLocaleTimeString(),
         type: type,
         desc: desc,
-        revertFn: revertFn
-      };
-      actionHistory.unshift(item);
+        depth: undoStack.length
+      });
       if (actionHistory.length > 50) actionHistory.pop();
       renderConsole();
-      updateLiveInspector();
     }
 
+    /** Rolls back to just before the given entry. */
     function revertAction(id) {
       const idx = actionHistory.findIndex(a => a.id === id);
-      if (idx !== -1) {
-        const act = actionHistory[idx];
-        if (typeof act.revertFn === 'function') {
-          act.revertFn();
-        }
-        actionHistory.splice(idx, 1);
-        renderConsole();
-        updateLiveInspector();
+      if (idx === -1) return;
+      // Everything above it in the list happened after it, so undo through
+      // them too — otherwise "revert" would leave a state that never existed.
+      for (let i = 0; i <= idx; i++) {
+        if (!undoState()) break;
       }
+      actionHistory.splice(0, idx + 1);
+      renderConsole();
+      showStudioToast('Reverted to before "' + escapeHtml(actionHistory.length ? actionHistory[0].desc : 'the first change') + '"', 'ok', {
+        label: 'Redo',
+        run: function () { redoState(); renderConsole(); }
+      });
     }
 
     function revertLastAction() {
-      if (actionHistory.length > 0) {
-        revertAction(actionHistory[0].id);
-      }
+      if (actionHistory.length) revertAction(actionHistory[0].id);
     }
 
     function clearConsoleHistory() {
       actionHistory.length = 0;
       renderConsole();
-      updateLiveInspector();
     }
 
     function renderConsole() {
-      const countEl = document.getElementById('console-action-count');
       const listEl = document.getElementById('console-action-list');
       const revertLastBtn = document.getElementById('btn-revert-last');
-      
-      if (countEl) countEl.textContent = `${actionHistory.length} actions`;
-      if (revertLastBtn) revertLastBtn.disabled = (actionHistory.length === 0);
-
+      if (revertLastBtn) revertLastBtn.disabled = actionHistory.length === 0;
       if (!listEl) return;
+
       if (actionHistory.length === 0) {
-        listEl.innerHTML = '<div style="font-size: 11px; color: #64748b; font-style: italic; padding: 6px;">No actions recorded yet. Adjust controls to see live change events.</div>';
+        listEl.textContent = '';
+        const empty = document.createElement('div');
+        empty.className = 'console-empty';
+        empty.textContent = 'Nothing to undo yet.';
+        listEl.appendChild(empty);
         return;
       }
 
@@ -5950,40 +7551,31 @@
         <div class="console-item">
           <div class="console-item-left">
             <span class="console-item-time">${escapeHtml(item.time)}</span>
-            <span class="console-item-badge ${escapeHtml(item.type.toLowerCase())}">${escapeHtml(item.type)}</span>
+            <span class="console-item-badge ${escapeHtml(String(item.type).toLowerCase())}">${escapeHtml(item.type)}</span>
             <span class="console-item-desc" title="${escapeHtml(item.desc)}">${escapeHtml(item.desc)}</span>
           </div>
-          <button class="console-item-revert-btn" onclick="revertAction('${escapeHtml(item.id)}')" title="Undo this change">↩️ Revert</button>
+          <button class="console-item-revert-btn" onclick="revertAction('${escapeHtml(item.id)}')" title="Roll back to before this change">Revert</button>
         </div>
       `).join('');
     }
 
-    function updateLiveInspector() {
-      const stream = document.getElementById('console-live-attributes');
-      if (!stream) return;
-
-      const logoSize = document.getElementById('sld-logo-size')?.value || 76;
-      const logoRadius = document.getElementById('sld-logo-radius')?.value || 52;
-      const logoExtrusion = document.getElementById('sel-logo-extrusion')?.value || 'convex';
-      const logoBase = document.getElementById('col-logo-base')?.value || '#702177';
-      const logoWordmark = document.getElementById('txt-logo-content')?.value || 'SITIA';
-      const ratingSize = document.getElementById('sld-rating-size')?.value || 54;
-      const ratingCutout = document.getElementById('sel-rating-cutout')?.value || 'frosted';
-
-      const subEl = document.getElementById('txt-logo-subtitle');
-      const subVal = (subEl && subEl.value) ? String(subEl.value).trim().toUpperCase() : '(none)';
-      stream.innerHTML = `
-        <div class="console-attrib-row"><span class="console-attrib-key">Station Wordmark</span><span class="console-attrib-val">"${escapeHtml(logoWordmark)}"</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Station Subtitle Tag</span><span class="console-attrib-val">"${escapeHtml(subVal)}"</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Logo Dimensions</span><span class="console-attrib-val">${escapeHtml(logoSize)}px (G2: rx=${escapeHtml(logoRadius)})</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Neumorphic Extrusion</span><span class="console-attrib-val">${escapeHtml(logoExtrusion)}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Base Palette</span><span class="console-attrib-val">${escapeHtml(logoBase)}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Rating Badge Size</span><span class="console-attrib-val">${escapeHtml(ratingSize)}px</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Cutout Stencil Mode</span><span class="console-attrib-val">${escapeHtml(ratingCutout)}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Hold Durations</span><span class="console-attrib-val">Exp: ${escapeHtml(currentConfig.hold_time)}s | Adv: ${escapeHtml(currentConfig.warning_hold_time)}s</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Active Theme</span><span class="console-attrib-val">${escapeHtml(currentConfig.theme)}</span></div>
-        <div class="console-attrib-row"><span class="console-attrib-key">Screen Anchor</span><span class="console-attrib-val">${currentLayoutOrientation === 'default' ? 'Logo Left • Rating Right' : 'Rating Left • Logo Right'}</span></div>
-      `;
+    /** Ctrl+Z / Ctrl+Shift+Z, the shortcuts every other tool uses. */
+    function initHistoryShortcuts() {
+      document.addEventListener('keydown', function (e) {
+        if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+        const t = e.target;
+        // Leave the browser's own undo alone inside a text field.
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && t.type !== 'range') return;
+        e.preventDefault();
+        const moved = e.shiftKey ? redoState() : undoState();
+        if (!moved) {
+          showStudioToast(e.shiftKey ? 'Nothing to redo' : 'Nothing to undo', 'warn');
+          return;
+        }
+        if (!e.shiftKey) actionHistory.shift();
+        renderConsole();
+        syncRailFromState();
+      });
     }
 
     function copyLiveSvgCode(target) {
@@ -5992,10 +7584,11 @@
         : document.getElementById('rating-badge-container');
       if (!container) return;
       const svgCode = container.innerHTML.trim();
+      const what = target === 'logo' ? 'Station ID' : 'Rating badge';
       navigator.clipboard.writeText(svgCode).then(() => {
-        alert(`✓ Standalone ${target === 'logo' ? 'Station Logo' : 'Rating Badge'} SVG copied to clipboard!`);
+        showStudioToast(what + ' SVG copied', 'ok');
       }).catch(() => {
-        alert('Failed to copy SVG: ' + svgCode);
+        showStudioToast('Could not reach the clipboard', 'error');
       });
     }
 
@@ -6013,108 +7606,74 @@
       URL.revokeObjectURL(url);
     }
 
-    function saveBroadcastDefaults() {
-      const defaults = {
-        logoSize: document.getElementById('sld-logo-size')?.value,
-        logoRadius: document.getElementById('sld-logo-radius')?.value,
-        logoWordmark: document.getElementById('txt-logo-content')?.value,
-        logoSubtitle: document.getElementById('txt-logo-subtitle')?.value,
-        ratingSize: document.getElementById('sld-rating-size')?.value,
-        theme: currentConfig.theme,
-        orientation: currentLayoutOrientation
-      };
+    /**
+     * Copies whatever the two retired save systems left in localStorage into
+     * the real user-preset list, once, and marks them done.
+     *
+     * There used to be three ways to save a look: `cg_advisory_defaults` (six
+     * fields, no name, invisible), `PLAYOUT_CUSTOM_THEMES` (six fields, named,
+     * on the Blueprints tab) and the actual preset package (everything, named,
+     * deployable). An operator could not tell which "save" they had used or why
+     * the other two lost their work, so the two partial ones are gone. Nothing
+     * saved under them is lost: they become ordinary presets here.
+     */
+    function migrateRetiredPresetStores() {
+      const MIGRATED_FLAG = 'PLAYOUT_LEGACY_PRESETS_MIGRATED';
       try {
-        localStorage.setItem('cg_advisory_defaults', JSON.stringify(defaults));
-        alert('✓ Saved broadcast studio defaults to local storage!');
-      } catch (e) {
-        alert('Failed to save defaults: ' + e.message);
+        if (localStorage.getItem(MIGRATED_FLAG)) return 0;
+      } catch (_) {
+        return 0;
       }
-    }
 
-    function loadSavedDefaults() {
-      try {
-        const raw = localStorage.getItem('cg_advisory_defaults');
-        if (!raw) return;
-        const d = JSON.parse(raw);
-        if (d.logoSize && document.getElementById('sld-logo-size')) document.getElementById('sld-logo-size').value = d.logoSize;
-        if (d.logoRadius && document.getElementById('sld-logo-radius')) document.getElementById('sld-logo-radius').value = d.logoRadius;
-        if (d.logoWordmark && document.getElementById('txt-logo-content')) document.getElementById('txt-logo-content').value = d.logoWordmark;
-        if (d.logoSubtitle && document.getElementById('txt-logo-subtitle')) document.getElementById('txt-logo-subtitle').value = d.logoSubtitle;
-        if (d.ratingSize && document.getElementById('sld-rating-size')) document.getElementById('sld-rating-size').value = d.ratingSize;
-        if (d.theme) applyThemePreset(d.theme);
-        if (d.orientation && d.orientation !== currentLayoutOrientation) flipStagePositions();
-      } catch (e) {}
-    }
-
-    function saveCustomThemePreset() {
-      const nameInput = document.getElementById('txt-preset-name');
-      const name = (nameInput && nameInput.value.trim()) ? nameInput.value.trim() : 'Custom Look ' + new Date().toLocaleTimeString();
-      const customPreset = {
-        id: 'theme_' + Date.now(),
-        name: name,
-        logoSize: document.getElementById('sld-logo-size')?.value || 76,
-        logoRadius: document.getElementById('sld-logo-radius')?.value || 52,
-        logoWordmark: document.getElementById('txt-logo-content')?.value || 'SITIA',
-        logoSubtitle: document.getElementById('txt-logo-subtitle')?.value || 'HD',
-        ratingSize: document.getElementById('sld-rating-size')?.value || 54,
-        theme: currentConfig.theme
-      };
-      try {
-        let stored = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
-        stored.push(customPreset);
-        localStorage.setItem('PLAYOUT_CUSTOM_THEMES', JSON.stringify(stored));
-        loadUserCustomThemes();
-        if (nameInput) nameInput.value = '';
-        alert(`✓ Saved preset: "${name}"!`);
-      } catch (err) {
-        alert('Failed to save preset: ' + err.message);
-      }
-    }
-
-    function loadUserCustomThemes() {
-      try {
-        const list = document.getElementById('custom-themes-list');
-        if (!list) return;
-        const stored = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
-        if (stored.length === 0) {
-          list.innerHTML = '<div style="font-size: 11px; color: #64748b; font-style: italic;">No custom presets saved yet.</div>';
-          return;
+      const carried = [];
+      const lift = (old, fallbackName) => {
+        if (!old || typeof old !== 'object') return;
+        // The six fields those stores held, mapped onto schema keys. Everything
+        // else in the resulting preset is the current default, which is what
+        // the partial save would have produced anyway.
+        const preset = stateToPreset({
+          id: 'preset_' + Date.now() + '_' + carried.length,
+          name: old.name || fallbackName
+        });
+        if (old.logoSize) preset.logoSize = parseFloat(old.logoSize);
+        if (old.logoRadius) preset.logoRadius = parseFloat(old.logoRadius);
+        if (old.logoWordmark) preset.wordmark = old.logoWordmark;
+        if (old.logoSubtitle) preset.subtitle = old.logoSubtitle;
+        if (old.ratingSize) {
+          preset.ratingSize = parseFloat(old.ratingSize);
+          preset.badgeSizePx = parseFloat(old.ratingSize);
         }
-        list.innerHTML = stored.map((t, idx) => `
-          <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;">
-            <span style="font-size: 11.5px; font-weight: 600; color: #f1f5f9;">${escapeHtml(t.name)}</span>
-            <div style="display: flex; gap: 4px;">
-              <button class="studio-btn" style="padding: 2px 7px; font-size: 10px;" onclick="applyUserCustomTheme(${idx})">Apply</button>
-              <button class="studio-btn" style="padding: 2px 6px; font-size: 10px; color: #f87171;" onclick="deleteUserCustomTheme(${idx})">✕</button>
-            </div>
-          </div>
-        `).join('');
-      } catch (e) {}
-    }
+        if (old.theme) { preset.theme = old.theme; preset.themeName = old.theme; }
+        if (old.orientation) preset.orientation = old.orientation;
+        carried.push(preset);
+      };
 
-    function applyUserCustomTheme(idx) {
       try {
-        const stored = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
-        const t = stored[idx];
-        if (!t) return;
-        if (t.logoSize) document.getElementById('sld-logo-size').value = t.logoSize;
-        if (t.logoRadius) document.getElementById('sld-logo-radius').value = t.logoRadius;
-        if (t.logoWordmark) document.getElementById('txt-logo-content').value = t.logoWordmark;
-        if (t.logoSubtitle) document.getElementById('txt-logo-subtitle').value = t.logoSubtitle;
-        if (t.ratingSize) document.getElementById('sld-rating-size').value = t.ratingSize;
-        if (t.theme) applyThemePreset(t.theme);
-        updateLogoFromControls();
-        updateRatingFromControls();
-      } catch (e) {}
-    }
+        const defaults = JSON.parse(localStorage.getItem('cg_advisory_defaults') || 'null');
+        lift(defaults, 'Recovered studio defaults');
+      } catch (_) {}
 
-    function deleteUserCustomTheme(idx) {
       try {
-        let stored = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
-        stored.splice(idx, 1);
-        localStorage.setItem('PLAYOUT_CUSTOM_THEMES', JSON.stringify(stored));
-        loadUserCustomThemes();
-      } catch (e) {}
+        const themes = JSON.parse(localStorage.getItem('PLAYOUT_CUSTOM_THEMES') || '[]');
+        if (Array.isArray(themes)) themes.forEach((t, i) => lift(t, 'Recovered look ' + (i + 1)));
+      } catch (_) {}
+
+      if (carried.length) {
+        try {
+          const existing = getUserPresetsList();
+          localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(existing.concat(carried)));
+        } catch (_) {
+          return 0;
+        }
+      }
+
+      try {
+        localStorage.setItem(MIGRATED_FLAG, String(Date.now()));
+        localStorage.removeItem('cg_advisory_defaults');
+        localStorage.removeItem('PLAYOUT_CUSTOM_THEMES');
+      } catch (_) {}
+
+      return carried.length;
     }
 
     // "Factory" used to hard-code sizes 76/54 while the default preset said
@@ -6219,7 +7778,23 @@
         return;
       }
 
+      // Fill the chrome icon slots. Studio only: the on-air branch returned
+      // above, so none of the workstation furniture is ever drawn on air.
+      hydrateStudioIcons();
+
+      // Give every slider a number field and every colour a hex field.
+      enhanceControlRail();
+      setControlTier('basic');
+
+      // Carry over anything the two retired save systems left behind, before
+      // the preset picker is populated.
+      const carried = migrateRetiredPresetStores();
+
       initCanvasDraggables();
+      initStageSelection();
+      initTimelineBar();
+      initHistoryShortcuts();
+      watchForModifications();
 
       // Master Presets: Load default or operator active preset
       const startupPresetId = localStorage.getItem('PLAYOUT_DEFAULT_PRESET_ID') || 'default';
@@ -6229,10 +7804,25 @@
       hydrateDefaultPreset().finally(() => {
         updateLogoFromControls();
         updateRatingFromControls();
+        syncRailFromState();
         resizeCanvas();
         setTimeout(resizeCanvas, 100);
         buildTimeline();
         window.play();
+
+        // Whatever hydrateDefaultPreset settled on is, by definition, what is
+        // deployed — it came from the bridge or the baked constant. From here
+        // the pill tracks divergence from it.
+        markDeployedState();
+        probeBridge();
+        if (carried) {
+          showStudioToast(
+            carried === 1
+              ? 'Recovered 1 preset from the old save system'
+              : 'Recovered ' + carried + ' presets from the old save systems',
+            'ok'
+          );
+        }
       });
     });
 
@@ -6415,7 +8005,7 @@
     const MASTER_STANDARD_PRESETS = {
       'default': {
         id: 'default',
-        name: '🌟 Sitia HD Standard (Default)',
+        name: 'Sitia HD Standard (Default)',
         wordmark: 'SITIA',
         subtitle: 'HD',
         showTag: 'none',
@@ -6447,7 +8037,7 @@
       },
       'live': {
         id: 'live',
-        name: '🔴 Sitia Live Broadcast',
+        name: 'Sitia Live Broadcast',
         wordmark: 'SITIA',
         subtitle: 'LIVE',
         showTag: 'live',
@@ -6478,7 +8068,7 @@
       },
       'movie': {
         id: 'movie',
-        name: '🎬 Primetime Movie Night',
+        name: 'Primetime Movie Night',
         wordmark: 'SITIA',
         subtitle: 'MOVIE TIME',
         showTag: 'movie',
@@ -6509,7 +8099,7 @@
       },
       'documentary': {
         id: 'documentary',
-        name: '🌍 World Nature & Docs',
+        name: 'World Nature & Docs',
         wordmark: 'SITIA',
         subtitle: 'DOCUMENTARY',
         showTag: 'documentary',
@@ -6540,7 +8130,7 @@
       },
       'telemarketing': {
         id: 'telemarketing',
-        name: '🛒 Telemarketing Direct (ΤΠ)',
+        name: 'Telemarketing Direct (ΤΠ)',
         wordmark: 'SITIA',
         subtitle: 'TELEMARKETING',
         showTag: 'telemarketing',
@@ -6571,7 +8161,7 @@
       },
       'show': {
         id: 'show',
-        name: '📺 Prime Drama Series',
+        name: 'Prime Drama Series',
         wordmark: 'SITIA',
         subtitle: 'SERIES',
         showTag: 'show',
@@ -6602,7 +8192,7 @@
       },
       'news': {
         id: 'news',
-        name: '📡 Breaking News & Reports',
+        name: 'Breaking News & Reports',
         wordmark: 'SITIA',
         subtitle: 'NEWS',
         showTag: 'news',
@@ -6659,16 +8249,17 @@
         btnDel.style.display = (currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_')) ? 'inline-flex' : 'none';
       }
 
+      // The menu item says whether this preset is already the one the studio
+      // opens with, so the operator is not guessing.
       const defaultId = localStorage.getItem('PLAYOUT_DEFAULT_PRESET_ID') || 'default';
-      const btnDef = document.getElementById('btn-make-default');
-      if (btnDef) {
-        if (currentMasterPresetId === defaultId) {
-          btnDef.classList.add('active-default');
-          btnDef.textContent = '★ Default';
-        } else {
-          btnDef.classList.remove('active-default');
-          btnDef.textContent = '★ Set Default';
-        }
+      const menuDefault = document.getElementById('menu-make-default');
+      if (menuDefault) {
+        const isDefault = currentMasterPresetId === defaultId;
+        menuDefault.classList.toggle('is-current', isDefault);
+        menuDefault.lastChild.textContent = isDefault
+          ? ' Already the startup default'
+          : ' Use as startup default';
+        menuDefault.disabled = isDefault;
       }
     }
 
@@ -6727,22 +8318,64 @@
       }
     }
 
-    function showStudioToast(msg) {
+    /**
+     * The one toast. Three tones (ok / warn / error), bottom-right of the
+     * preview, never blocking. It replaces the alert() calls that stopped the
+     * operator's hands mid-design to say "copied to clipboard", and the
+     * confirm() that guarded preset deletion.
+     *
+     * @param {string} msg
+     * @param {'ok'|'warn'|'error'} [tone]
+     * @param {{label: string, run: Function}} [action] an inline button, which
+     *        is how a destructive action asks now instead of confirm().
+     */
+    function showStudioToast(msg, tone, action) {
       let toast = document.getElementById('studio-toast');
       if (!toast) {
         toast = document.createElement('div');
         toast.id = 'studio-toast';
-        toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 99999; background: #0f172a; border: 1px solid #38bdf8; color: #f0fdf4; padding: 12px 20px; border-radius: 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13.5px; font-weight: 600; box-shadow: 0 10px 25px rgba(0,0,0,0.8), 0 0 15px rgba(56,189,248,0.4); display: flex; align-items: center; gap: 8px; pointer-events: none; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); transform: translateY(20px); opacity: 0;';
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
         document.body.appendChild(toast);
       }
-      toast.textContent = msg;
-      toast.style.transform = 'translateY(0)';
-      toast.style.opacity = '1';
+
+      toast.className = 'studio-toast tone-' + (tone || 'ok');
+      toast.textContent = '';
+
+      const icon = document.createElement('i');
+      icon.className = 'cg-i';
+      icon.innerHTML = cgIconMarkup(tone === 'error' ? 'close' : tone === 'warn' ? 'shield' : 'check', 15);
+      toast.appendChild(icon);
+
+      const text = document.createElement('span');
+      text.className = 'studio-toast-text';
+      text.textContent = msg;
+      toast.appendChild(text);
+
       clearTimeout(toast._timeout);
-      toast._timeout = setTimeout(() => {
-        toast.style.transform = 'translateY(20px)';
-        toast.style.opacity = '0';
-      }, 4000);
+
+      if (action && typeof action.run === 'function') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'studio-toast-action';
+        btn.textContent = action.label;
+        btn.addEventListener('click', () => {
+          hideStudioToast();
+          action.run();
+        });
+        toast.appendChild(btn);
+      }
+
+      toast.classList.add('is-open');
+      // An offer to act stays long enough to read and decide on.
+      toast._timeout = setTimeout(hideStudioToast, action ? 9000 : 4000);
+    }
+
+    function hideStudioToast() {
+      const toast = document.getElementById('studio-toast');
+      if (!toast) return;
+      clearTimeout(toast._timeout);
+      toast.classList.remove('is-open');
     }
 
     async function markActivePresetAsDefault() {
@@ -6751,7 +8384,7 @@
       localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', 'default');
       const pkg = captureCurrentPresetPackage(null);
       pkg.id = 'default';
-      pkg.name = '🌟 Sitia HD Standard (Default)';
+      pkg.name = 'Sitia HD Standard (Default)';
       MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], pkg);
       localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
 
@@ -6763,25 +8396,40 @@
       try {
         const res = await postToBridge('/api/deploy', pkg);
         if (res && res.success) {
-          showStudioToast('✓ Set as startup default and deployed to CasparCG!');
+          setBridgeReachable(true);
+          markDeployedState();
+          showStudioToast('Startup default set, and deployed', 'ok');
           return;
         }
       } catch (e) {
         try {
           await postToBridge('/api/save-default-preset', pkg);
-          showStudioToast('✓ Marked as default and synchronized with templates!');
+          setBridgeReachable(true);
+          markDeployedState();
+          showStudioToast('Startup default set, and saved to the template', 'warn');
           return;
         } catch (_) {}
       }
-      showStudioToast('⚠ Saved to browser storage only (Studio bridge offline at port 6258)');
+      setBridgeReachable(false);
+      showStudioToast('Bridge offline — saved in this browser only', 'error');
     }
 
+    /**
+     * Deploy: write the active preset to the bridge, which bakes it into both
+     * template copies and redeploys them to CasparCG.
+     *
+     * This used to also set PLAYOUT_DEFAULT_PRESET_ID, so deploying a preset
+     * silently made it the thing the studio opened with next time. That was
+     * invisible and it was the same effect as the separate "Set Default"
+     * button, which also deployed. Deploy deploys; the startup default is a
+     * deliberate choice in the overflow menu (§4.1, owner decision 6).
+     */
     async function saveCurrentActivePreset() {
       const pkg = captureCurrentPresetPackage(null);
       const isUserPreset = currentMasterPresetId && String(currentMasterPresetId).startsWith('preset_');
 
       if (isUserPreset) {
-        let userPresets = getUserPresetsList();
+        const userPresets = getUserPresetsList();
         const idx = userPresets.findIndex(p => p.id === currentMasterPresetId);
         if (idx !== -1) {
           pkg.id = currentMasterPresetId;
@@ -6803,39 +8451,73 @@
         }
         MASTER_STANDARD_PRESETS['default'] = Object.assign({}, MASTER_STANDARD_PRESETS['default'], pkg);
         localStorage.setItem('PLAYOUT_DEFAULT_PRESET_PACKAGE', JSON.stringify(pkg));
-        localStorage.setItem('PLAYOUT_DEFAULT_PRESET_ID', pid);
-        recordAction('PRESET', `Updated "${pkg.name || 'Default'}" and saved as active default`);
+        recordAction('PRESET', `Updated "${pkg.name || 'Default'}"`);
       }
 
-      // Automatically sync active preset with Playout backend and CasparCG
+      setDeployInFlight(true);
       try {
-        const res = await postToBridge('/api/deploy', pkg);
-        if (res && res.success) {
-          showStudioToast(`✓ Overwrote settings and deployed to CasparCG!`);
-          return;
-        }
-      } catch (e) {
         try {
-          await postToBridge('/api/save-default-preset', pkg);
-          showStudioToast(`✓ Overwrote settings and synchronized with templates!`);
-          return;
-        } catch (_) {}
+          const res = await postToBridge('/api/deploy', pkg);
+          if (res && res.success) {
+            setBridgeReachable(true);
+            markDeployedState();
+            showStudioToast('Deployed to CasparCG', 'ok');
+            return;
+          }
+        } catch (e) {
+          // The bridge may be up but the CasparCG redeploy unavailable; saving
+          // the preset alone still gets it onto the next template deploy.
+          try {
+            await postToBridge('/api/save-default-preset', pkg);
+            setBridgeReachable(true);
+            markDeployedState();
+            showStudioToast('Saved to the template. Redeploy CasparCG to put it on air.', 'warn');
+            return;
+          } catch (_) {}
+        }
+        setBridgeReachable(false);
+        showStudioToast('Bridge offline — saved in this browser only. Reopen CG Studio from PlayOut to deploy.', 'error');
+      } finally {
+        setDeployInFlight(false);
       }
-      showStudioToast(`⚠ Saved "${pkg.name || 'Default'}" to browser storage only (Studio bridge offline at port 6258)`);
     }
 
     const deployFromStudio = saveCurrentActivePreset;
 
+    /**
+     * Deletes the active user preset, asking in the toast rather than in a
+     * modal confirm() that blocks the whole window. The deleted preset is kept
+     * long enough to put back, so a misclick costs one click, not the work.
+     */
     function deleteActiveMasterPreset() {
       if (!currentMasterPresetId || !String(currentMasterPresetId).startsWith('preset_')) return;
-      if (!confirm('Are you sure you want to delete this custom preset?')) return;
 
-      let userPresets = getUserPresetsList();
-      userPresets = userPresets.filter(p => p.id !== currentMasterPresetId);
-      localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(userPresets));
-      currentMasterPresetId = 'default';
-      window.currentMasterPresetId = 'default';
-      onSelectMasterPreset('default');
+      const doomedId = currentMasterPresetId;
+      const doomed = getUserPresetsList().find(p => p.id === doomedId);
+      if (!doomed) return;
+
+      showStudioToast('Delete "' + doomed.name + '"?', 'warn', {
+        label: 'Delete',
+        run: function () {
+          const remaining = getUserPresetsList().filter(p => p.id !== doomedId);
+          localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(remaining));
+          currentMasterPresetId = 'default';
+          window.currentMasterPresetId = 'default';
+          onSelectMasterPreset('default');
+
+          showStudioToast('Deleted "' + doomed.name + '"', 'ok', {
+            label: 'Undo',
+            run: function () {
+              const list = getUserPresetsList();
+              list.push(doomed);
+              localStorage.setItem('PLAYOUT_USER_PRESETS', JSON.stringify(list));
+              refreshMasterPresetDropdown();
+              onSelectMasterPreset(doomedId);
+              showStudioToast('Restored "' + doomed.name + '"', 'ok');
+            }
+          });
+        }
+      });
     }
 
     function captureCurrentPresetPackage(name) {
@@ -7221,7 +8903,7 @@
       const input = document.getElementById('txt-save-as-name');
       const name = input ? input.value.trim() : '';
       if (!name) {
-        alert('Please enter a preset name.');
+        showStudioToast('Give the preset a name first', 'warn');
         return;
       }
 
@@ -7236,7 +8918,7 @@
         recordAction('PRESET', `Saved new custom preset: "${name}"`);
         showStudioToast(`✓ Successfully saved custom preset: "${name}"!`);
       } catch (err) {
-        alert('Failed to save preset: ' + err.message);
+        showStudioToast('Could not save: ' + err.message, 'error');
       }
     }
 
@@ -7244,7 +8926,7 @@
   <!-- Save As Modal Dialog -->
   <div id="save-as-modal" class="studio-modal-overlay">
     <div class="studio-modal-card">
-      <div class="studio-modal-title">⭐ Save As New Broadcast Preset</div>
+      <div class="studio-modal-title"><i class="cg-i" data-icon="star"></i> Save as new preset</div>
       <div class="studio-modal-desc">
         Save the current station branding, wordmark, show tags, rating badge, theme, and geometry under a custom preset name.
       </div>

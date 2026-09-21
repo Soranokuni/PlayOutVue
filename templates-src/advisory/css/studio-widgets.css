@@ -300,3 +300,414 @@
       font-weight: 800;
     }
 
+
+    /* =========================================================================
+       STUDIO CHROME TOKENS AND ICONOGRAPHY (§4.6)
+       Dark only: the studio is an MCR tool and the preview needs a dark
+       surround to judge a broadcast overlay against.
+       ========================================================================= */
+    :root {
+      /* Type scale: four sizes, two weights. */
+      --ui-text-xs: 11px;
+      --ui-text-sm: 12px;
+      --ui-text-md: 13px;
+      --ui-text-lg: 15px;
+      --ui-weight-normal: 500;
+      --ui-weight-strong: 700;
+
+      /* Radius and the 4px spacing grid. */
+      --ui-radius-sm: 6px;
+      --ui-radius-md: 10px;
+      --ui-radius-lg: 16px;
+      --ui-space-1: 4px;
+      --ui-space-2: 8px;
+      --ui-space-3: 12px;
+      --ui-space-4: 16px;
+
+      /* Motion: 120ms for a state change, 180ms when layout moves. */
+      --ui-motion-state: 120ms;
+      --ui-motion-layout: 180ms;
+      --ui-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+      /* Surfaces and ink. */
+      --ui-ink: #e2e8f0;
+      --ui-ink-dim: #94a3b8;
+      --ui-ink-faint: #64748b;
+      --ui-accent: #38bdf8;
+      --ui-ok: #34d399;
+      --ui-warn: #fbbf24;
+      --ui-error: #f87171;
+      --ui-line: rgba(255, 255, 255, 0.08);
+      --ui-surface: rgba(255, 255, 255, 0.04);
+      --ui-surface-hover: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Icon slot. Filled once at boot by hydrateStudioIcons(); sized by the
+       SVG itself so an unfilled slot collapses instead of leaving a hole. */
+    .cg-i {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      vertical-align: -0.18em;
+      line-height: 0;
+    }
+
+    .cg-i > svg {
+      display: block;
+    }
+
+    /* Buttons and rows put a little air between an icon and its label without
+       every call site having to remember to. */
+    .studio-btn,
+    .studio-mode-btn,
+    .studio-tab-btn,
+    .action-btn-primary,
+    .action-btn-secondary,
+    .preset-pill-btn,
+    .preview-btn,
+    .console-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--ui-space-1);
+    }
+
+    .tag-row-icon > .cg-i {
+      color: var(--ui-ink-dim);
+    }
+
+    /* -------------------------------------------------------------
+       NUMERIC AND HEX ENTRY (§4.2)
+       Every value is typeable. The slider stays: it is the right tool for
+       finding a value, and the field is the right tool for hitting one.
+       ------------------------------------------------------------- */
+    .ui-num-wrap {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 1px;
+      margin-left: auto;
+    }
+
+    .ui-num {
+      width: 52px;
+      padding: 2px var(--ui-space-1);
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font-family: inherit;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      transition: border-color var(--ui-motion-state) var(--ui-ease),
+                  background var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .ui-num:hover { background: var(--ui-surface-hover); }
+
+    .ui-num:focus-visible {
+      outline: none;
+      border-color: var(--ui-accent);
+      background: var(--ui-surface-hover);
+    }
+
+    /* The spinners are 20px of chrome on a 52px field and the arrow keys do
+       the same job. */
+    .ui-num::-webkit-outer-spin-button,
+    .ui-num::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .ui-num { -moz-appearance: textfield; }
+
+    .ui-num-unit {
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-normal);
+      color: var(--ui-ink-faint);
+      min-width: 12px;
+    }
+
+    /* The old read-only readout is the field now. It stays in the DOM because
+       existing code writes textContent into it, and that write is mirrored
+       into the field it replaced. */
+    .ui-readout-replaced {
+      display: none !important;
+    }
+
+    .ui-hex {
+      width: 74px;
+      margin-left: var(--ui-space-1);
+      padding: 2px var(--ui-space-1);
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font-family: 'Roboto Mono', ui-monospace, Consolas, monospace;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-normal);
+      text-transform: lowercase;
+      transition: border-color var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .ui-hex:hover { background: var(--ui-surface-hover); }
+
+    .ui-hex:focus-visible {
+      outline: none;
+      border-color: var(--ui-accent);
+    }
+
+    /* -------------------------------------------------------------
+       TOAST (§4.7) — one component, three tones, never blocking.
+       It replaced the alert() calls that stopped the operator's hands to say
+       "copied to clipboard", and the confirm() that guarded a delete.
+       ------------------------------------------------------------- */
+    .studio-toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      gap: var(--ui-space-2);
+      max-width: 420px;
+      padding: 10px var(--ui-space-3);
+      background: #0b1220;
+      border: 1px solid var(--ui-line);
+      border-left-width: 3px;
+      border-radius: var(--ui-radius-md);
+      color: var(--ui-ink);
+      font-family: inherit;
+      font-size: var(--ui-text-md);
+      font-weight: var(--ui-weight-normal);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+      transform: translateY(12px);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform var(--ui-motion-layout) var(--ui-ease),
+                  opacity var(--ui-motion-layout) var(--ui-ease);
+    }
+
+    .studio-toast.is-open {
+      transform: translateY(0);
+      opacity: 1;
+      /* Only interactive once it carries a button to press. */
+      pointer-events: auto;
+    }
+
+    .studio-toast-text { flex: 1 1 auto; }
+
+    .studio-toast.tone-ok { border-left-color: var(--ui-ok); }
+    .studio-toast.tone-ok > .cg-i { color: var(--ui-ok); }
+    .studio-toast.tone-warn { border-left-color: var(--ui-warn); }
+    .studio-toast.tone-warn > .cg-i { color: var(--ui-warn); }
+    .studio-toast.tone-error { border-left-color: var(--ui-error); }
+    .studio-toast.tone-error > .cg-i { color: var(--ui-error); }
+
+    .studio-toast-action {
+      flex: 0 0 auto;
+      padding: var(--ui-space-1) var(--ui-space-2);
+      background: var(--ui-surface-hover);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font: inherit;
+      font-size: var(--ui-text-sm);
+      font-weight: var(--ui-weight-strong);
+      cursor: pointer;
+      transition: background var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .studio-toast-action:hover { background: rgba(255, 255, 255, 0.14); }
+    .studio-toast-action:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
+
+    /* -------------------------------------------------------------
+       DEPLOY STATE PILL (§4.1)
+       Nothing used to tell the operator whether what they were looking at was
+       what was on air. Three states: matching, modified, offline.
+       ------------------------------------------------------------- */
+    .deploy-state {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--ui-space-1);
+      padding: 2px var(--ui-space-2);
+      border: 1px solid var(--ui-line);
+      border-radius: 999px;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      transition: color var(--ui-motion-state) var(--ui-ease),
+                  border-color var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .deploy-state::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      flex: 0 0 auto;
+    }
+
+    .deploy-state.state-deployed { color: var(--ui-ok); border-color: rgba(52, 211, 153, 0.35); }
+    .deploy-state.state-modified { color: var(--ui-warn); border-color: rgba(251, 191, 36, 0.35); }
+    .deploy-state.state-deploying { color: var(--ui-accent); border-color: rgba(56, 189, 248, 0.35); }
+    .deploy-state.state-offline { color: var(--ui-ink-faint); border-color: var(--ui-line); }
+
+    .studio-group-note {
+      font-size: var(--ui-text-xs);
+      line-height: 1.5;
+      color: var(--ui-ink-dim);
+    }
+
+    .studio-group-note strong { color: var(--ui-ink); font-weight: var(--ui-weight-strong); }
+
+    /* -------------------------------------------------------------
+       PRESET OVERFLOW MENU (§4.1)
+       Save as, startup default, export/import and the SVG exports used to be
+       scattered across the footer, the Blueprints tab and the console. One
+       menu, next to the preset it acts on.
+       ------------------------------------------------------------- */
+    .studio-preset-bar { position: relative; }
+
+    .preset-menu {
+      position: absolute;
+      top: calc(100% + var(--ui-space-1));
+      right: 0;
+      z-index: 500;
+      min-width: 244px;
+      padding: var(--ui-space-1);
+      background: #0b1220;
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-md);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .preset-menu[hidden] { display: none; }
+
+    .preset-menu-item {
+      display: flex;
+      align-items: center;
+      gap: var(--ui-space-2);
+      width: 100%;
+      padding: var(--ui-space-2) var(--ui-space-2);
+      background: transparent;
+      border: 0;
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font: inherit;
+      font-size: var(--ui-text-sm);
+      font-weight: var(--ui-weight-normal);
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .preset-menu-item > .cg-i { color: var(--ui-ink-faint); }
+    .preset-menu-item:hover:not(:disabled) { background: var(--ui-surface-hover); }
+    .preset-menu-item:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
+    .preset-menu-item:disabled { color: var(--ui-ink-faint); cursor: default; }
+    .preset-menu-item.is-danger { color: var(--ui-error); }
+    .preset-menu-item.is-danger > .cg-i { color: var(--ui-error); }
+    .preset-menu-item[hidden] { display: none; }
+
+    .preset-menu-sep {
+      height: 1px;
+      margin: var(--ui-space-1) 0;
+      background: var(--ui-line);
+    }
+
+    /* -------------------------------------------------------------
+       CANVAS SELECTION AND SNAP GUIDES (§4.4)
+       Selection is studio furniture and lives behind .studio-mode, so a
+       selected stage can never leak into the on-air render.
+       ------------------------------------------------------------- */
+    body.studio-mode .canvas-draggable.is-selected {
+      outline: 1.5px solid var(--ui-accent);
+      outline-offset: 5px;
+    }
+
+    body.studio-mode .canvas-draggable:focus-visible {
+      outline: 2px solid var(--ui-accent);
+      outline-offset: 5px;
+    }
+
+    body.studio-mode .snap-guide {
+      position: absolute;
+      z-index: 40;
+      background: var(--ui-accent);
+      pointer-events: none;
+      opacity: 0.85;
+    }
+
+    body.studio-mode .snap-guide-x {
+      top: 0;
+      bottom: 0;
+      width: 1px;
+    }
+
+    body.studio-mode .snap-guide-y {
+      left: 0;
+      right: 0;
+      height: 1px;
+    }
+
+    /* The guide says which line it is, because "centre" and "title safe" are
+       six pixels apart and look identical. */
+    body.studio-mode .snap-guide::after {
+      content: attr(data-label);
+      position: absolute;
+      padding: 2px 6px;
+      background: var(--ui-accent);
+      border-radius: 3px;
+      color: #06121d;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    body.studio-mode .snap-guide-x::after { top: 8px; left: 5px; }
+    body.studio-mode .snap-guide-y::after { left: 8px; top: 5px; }
+
+    /* -------------------------------------------------------------
+       BASIC / ADVANCED TIER BAR (§4.2)
+       ------------------------------------------------------------- */
+    .studio-tier-bar {
+      display: inline-flex;
+      align-self: flex-start;
+      margin: 0 var(--ui-space-4) var(--ui-space-2);
+      padding: 2px;
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: 999px;
+    }
+
+    .studio-tier-btn {
+      padding: 3px var(--ui-space-3);
+      background: transparent;
+      border: 0;
+      border-radius: 999px;
+      color: var(--ui-ink-dim);
+      font: inherit;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      cursor: pointer;
+      transition: background var(--ui-motion-state) var(--ui-ease),
+                  color var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .studio-tier-btn:hover { color: var(--ui-ink); }
+    .studio-tier-btn:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
+
+    .studio-tier-btn.active {
+      background: var(--ui-surface-hover);
+      color: var(--ui-ink);
+    }
+
+    .is-advanced-hidden { display: none !important; }
