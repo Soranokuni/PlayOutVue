@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import { usePlaylistFile } from '../composables/usePlaylistFile';
 import AppIcon from './ui/AppIcon.vue';
+import BaseButton from './ui/BaseButton.vue';
 
 /**
  * UI/UX plan §6.3 — this used to be a second header: it repeated the playlist
@@ -131,10 +132,18 @@ const commitGapLine = () => {
         @blur="commitStartFrom"
         @keydown.enter.prevent="commitStartFrom"
       >
-      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" v-tooltip="'Insert a hard start line'" aria-label="Insert a hard start line">
-        <AppIcon name="gap" :size="14" />
+      <BaseButton
+        v-if="!showGapInput"
+        variant="secondary"
+        size="sm"
+        class="pl-btn"
+        icon="gap"
+        label="Insert a hard start line"
+        v-tooltip="'Insert a hard start line'"
+        @click="addGapLine"
+      >
         <span class="pl-btn-text">Hard start</span>
-      </button>
+      </BaseButton>
       <template v-else>
         <input
           v-model="gapTimeDraft"
@@ -148,8 +157,24 @@ const commitGapLine = () => {
           @keydown.enter.prevent="commitGapLine"
           @keydown.esc.prevent="cancelGapLine"
         >
-        <button class="pl-btn is-confirm" @click="commitGapLine" title="Insert the hard start line at this time" aria-label="Insert the hard start line at this time"><AppIcon name="check" :size="14" /></button>
-        <button class="pl-btn" @click="cancelGapLine" title="Cancel" aria-label="Cancel"><AppIcon name="close" :size="14" /></button>
+        <BaseButton
+          variant="secondary"
+          size="sm"
+          class="pl-btn is-confirm"
+          icon="check"
+          label="Insert the hard start line at this time"
+          v-tooltip="'Insert the hard start line at this time'"
+          @click="commitGapLine"
+        />
+        <BaseButton
+          variant="secondary"
+          size="sm"
+          class="pl-btn"
+          icon="close"
+          label="Cancel"
+          v-tooltip="'Cancel'"
+          @click="cancelGapLine"
+        />
       </template>
     </div>
     <div v-else class="pl-onair-note">
@@ -270,37 +295,16 @@ const commitGapLine = () => {
   font-family: var(--font-mono);
 }
 
+/* §7.2: a `BaseButton` now. Its surface, border, radius, height, hover, focus,
+   press and disabled all come from `.btn--secondary.btn--sm`; what is left is
+   the tighter gap this dense strip wants and the confirm tone. */
 .pl-btn {
-  display: inline-flex;
-  align-items: center;
   gap: var(--space-1);
-  background: var(--bg-hover);
-  border: 1px solid var(--border-medium);
-  color: var(--text-secondary);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  padding: 0 var(--space-2);
-  height: var(--control-h-sm);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-
-.pl-btn:hover {
-  background: var(--bg-surface-elevated);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
 }
 
 .pl-btn.is-confirm {
   color: var(--status-ready);
   border-color: color-mix(in srgb, var(--status-ready) 45%, transparent);
-}
-
-.pl-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
 }
 
 @media (max-width: 1280px) {

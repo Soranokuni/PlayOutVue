@@ -1491,7 +1491,7 @@ onUnmounted(() => {
           autofocus
         />
         <button 
-          class="crawl-btn" 
+          class="btn btn--sm crawl-btn"
           :class="{ 'is-active': settings.cgCrawlActive }"
           @click="toggleCrawlTicker"
           title="Toggle On-Demand Ticker Overlay"
@@ -2180,26 +2180,19 @@ onUnmounted(() => {
   border-color: var(--accent-blue);
   box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
 }
+/* §7.2: surface, border, radius, hover, focus, press and disabled come from
+   `.btn`. What is genuinely this control's own is its on-air tone and the
+   status dot beside the label. */
 .crawl-btn {
-  display: flex;
-  align-items: center;
   gap: 6px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border-medium);
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
   font-weight: 700;
   letter-spacing: 0.5px;
-  padding: 5px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
-  white-space: nowrap;
-}
-.crawl-btn:hover {
-  background: var(--bg-surface-elevated);
-  color: var(--text-primary);
-  border-color: var(--border-strong);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    transform 90ms var(--ease-out);
 }
 .crawl-btn.is-active {
   background: color-mix(in srgb, var(--accent-red) 16%, transparent);
