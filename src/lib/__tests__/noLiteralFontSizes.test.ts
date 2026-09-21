@@ -33,7 +33,6 @@ const SRC = join(process.cwd(), 'src');
  */
 const ALLOWLIST: Record<string, number> = {
   'components/DeckLinkWizard.vue': 21,
-  'components/TrimPanel.vue': 21,
   'components/ComplianceModule.vue': 15,
   'components/RecycleBinModal.vue': 11,
   'components/MediaInspector.vue': 9,

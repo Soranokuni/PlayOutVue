@@ -23,7 +23,6 @@ import { SRC, checkBudgets, declarations, styleSurfaces } from './styleGuard';
 
 /** Remaining `transition: all` per file. Drive to zero; it has no future. */
 const ALL_ALLOWLIST: Record<string, number> = {
-  'components/TrimPanel.vue': 6,
   'components/ComplianceModule.vue': 3,
   'components/DeckLinkWizard.vue': 3,
   'components/RecycleBinModal.vue': 2,
@@ -35,7 +34,6 @@ const ALL_ALLOWLIST: Record<string, number> = {
 const DURATION_ALLOWLIST: Record<string, number> = {
   'App.vue': 20,
   'components/RundownList.vue': 20,
-  'components/TrimPanel.vue': 8,
   'components/RundownRow.vue': 6,
   'components/RecycleBinModal.vue': 5,
   'components/ComplianceModule.vue': 4,

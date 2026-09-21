@@ -28,7 +28,6 @@ const SPACING = /padding|padding-top|padding-right|padding-bottom|padding-left|m
 /** Remaining off-grid spacing values per file. Lower these; never raise them. */
 const ALLOWLIST: Record<string, number> = {
   'App.vue': 36,
-  'components/TrimPanel.vue': 36,
   'components/ComplianceModule.vue': 25,
   'components/DeckLinkWizard.vue': 25,
   'components/RundownList.vue': 24,
