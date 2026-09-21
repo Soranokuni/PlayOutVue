@@ -326,7 +326,7 @@ const itemTooltip = computed(() => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--rw-col-gap);
   min-height: var(--row-h-rundown, 48px);
   height: var(--row-h-rundown, 48px);
   padding: 0 var(--space-2);
@@ -477,9 +477,9 @@ const itemTooltip = computed(() => {
 }
 
 
-.rw-handle { color: var(--text-muted); cursor: grab; font-size: var(--fs-lg); width: 18px; text-align: center; flex-shrink: 0; }
-.rw-num     { width: 22px; text-align: center; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--text-secondary); flex-shrink: 0; font-family: var(--font-mono); }
-.rw-status { width: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.rw-handle { color: var(--text-muted); cursor: grab; font-size: var(--fs-lg); width: var(--rw-col-handle); text-align: center; flex-shrink: 0; }
+.rw-num     { width: var(--rw-col-num); text-align: center; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--text-secondary); flex-shrink: 0; font-family: var(--font-mono); }
+.rw-status { width: var(--rw-col-status); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .rw-signal {
   width: 5px;
   height: 18px;
@@ -487,10 +487,10 @@ const itemTooltip = computed(() => {
   background: var(--border-medium);
   border: 1px solid var(--border-subtle);
 }
-.rw-type-icon { width: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.rw-type-icon { width: var(--rw-col-type); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 /* F-03: the one flexible column, and the only one allowed to shrink. */
-.rw-name    { flex: 1 1 auto; min-width: 180px; font-size: var(--fs-lg); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rw-flags   { width: 88px; display: flex; align-items: center; justify-content: flex-start; gap: var(--space-1); flex-shrink: 0; overflow: hidden; }
+.rw-name    { flex: 1 1 auto; min-width: var(--rw-col-title-min); font-size: var(--fs-lg); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rw-flags   { width: var(--rw-col-flags); display: flex; align-items: center; justify-content: flex-start; gap: var(--space-1); flex-shrink: 0; overflow: hidden; }
 .rw-rating-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 34px; padding: var(--space-0) var(--space-2); border-radius: var(--radius-pill);
@@ -523,15 +523,15 @@ const itemTooltip = computed(() => {
    and anything longer ellipses with the full `IN … OUT …` in the tooltip
    rather than spilling into the duration column. */
 .rw-inout   {
-  width: 86px; text-align: center; flex-shrink: 0;
+  width: var(--rw-col-trim); text-align: right; flex-shrink: 0;
   font-size: var(--fs-xs); color: var(--text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-caps);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Both timing columns are right-aligned to the same edge, 12 px apart, so the
    header can no longer read "DURATION AT" as one word. */
-.rw-dur     { width: 112px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--space-0); text-align: right; font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: var(--tracking-caps); }
-.rw-at      { width: 84px; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); flex-shrink: 0; margin-left: var(--space-2); text-align: right; }
-.rw-actions { width: calc(var(--control-h-sm) * 2 + 4px); display: flex; gap: var(--space-1); flex-shrink: 0; justify-content: flex-end; }
+.rw-dur     { width: var(--rw-col-dur); display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--space-0); text-align: right; font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: var(--tracking-caps); }
+.rw-at      { width: var(--rw-col-at); display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); flex-shrink: 0; margin-left: var(--space-2); text-align: right; }
+.rw-actions { width: var(--rw-col-actions); display: flex; gap: var(--space-1); flex-shrink: 0; justify-content: flex-end; }
 
 /* The delete control appears on hover or keyboard focus, so a 300-row list is
    not 300 delete buttons one mis-click away from the rundown. */
@@ -716,7 +716,7 @@ const itemTooltip = computed(() => {
 }
 
 @container rundown (max-width: 520px) {
-  .rw-flags { width: 26px; }
+  .rw-flags { width: var(--rw-col-flags-narrow); }
   .rw-flags .rw-tag-badge { display: none; }
 }
 </style>

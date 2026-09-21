@@ -1570,22 +1570,9 @@ onUnmounted(() => {
          at the bottom of the panel below the rundown it does not control. -->
     <PlaylistControls />
 
-    <!-- Column labels -->
-    <div class="rw-cols-label" aria-hidden="true">
-      <span class="col-handle"></span>
-      <span class="col-num">#</span>
-      <span class="col-status"></span>
-      <span class="col-type"></span>
-      <span class="col-title">Title</span>
-      <span class="col-flags">Flags</span>
-      <span class="col-trim">Trim</span>
-      <span class="col-dur">Duration</span>
-      <span class="col-at">At</span>
-
-      <span class="col-actions">Actions</span>
-    </div>
-
-    <!-- List -->
+    <!-- List. The column header is its first child, sticky: §2.2 -- outside
+         the list it was a different box with a different padding and, once the
+         list overflowed, a different width. -->
     <div
       class="rw-list custom-scroll"
       ref="rundownListRef"
@@ -1600,6 +1587,20 @@ onUnmounted(() => {
       @dragover.prevent
       @drop.prevent="onExternalFileDrop"
     >
+      <!-- Column labels -->
+      <div class="rw-cols-label" aria-hidden="true">
+        <span class="col-handle"></span>
+        <span class="col-num">#</span>
+        <span class="col-status"></span>
+        <span class="col-type"></span>
+        <span class="col-title">Title</span>
+        <span class="col-flags">Flags</span>
+        <span class="col-trim">Trim</span>
+        <span class="col-dur">Duration</span>
+        <span class="col-at">At</span>
+        <span class="col-actions">Actions</span>
+      </div>
+
       <div
         v-for="(item, index) in store.activeItems"
         :key="item.id"
@@ -1748,9 +1749,10 @@ onUnmounted(() => {
 }
 
 .rw-header {
-  padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle);
+  height: var(--panel-header-h);
+  padding: 0 var(--space-3); border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-panel-header);
-  box-shadow: inset 0 1px 0 var(--highlight-top);
+  box-shadow: var(--shadow-highlight);
   display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
 }
 .trim-warning-banner {
@@ -1931,11 +1933,13 @@ onUnmounted(() => {
 
 .playlist-tabs-row {
   display: flex;
+  align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2);
+  height: var(--panel-toolbar-h);
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-panel-header);
-  box-shadow: inset 0 1px 0 var(--highlight-top);
+  box-shadow: var(--shadow-highlight);
   overflow-x: auto;
   flex-shrink: 0;
 }
@@ -2097,12 +2101,63 @@ onUnmounted(() => {
   border-color: var(--accent-blue);
 }
 
-.rw-cols-label {
-  display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2);
-  font-size: var(--fs-xs); letter-spacing: var(--tracking-caps); color: var(--text-muted); font-weight: var(--fw-bold); text-transform: uppercase;
-  border-bottom: 1px solid var(--border-subtle); background: var(--bg-tertiary); flex-shrink: 0;
+/* §2.2 — the column template, defined once.
+ *
+ * The header strip and the rows used to carry their own copies of these ten
+ * widths, in two files, and the two had already diverged: Actions was 56px in
+ * the header against `2 x --control-h-sm + 4` in the row, which is 64 at
+ * comfortable density. `.rw-row` inherits these through the panel, so there is
+ * one place to change a column and no way for the two halves to disagree. */
+.rundown-wrapper {
+  --rw-col-handle: 18px;
+  --rw-col-num: 22px;
+  /* §4: the status dot and the type icon are one 20px cell each, so the title
+     starts at the same x whether or not either is present. */
+  --rw-col-status: 20px;
+  --rw-col-type: 20px;
+  --rw-col-title-min: 180px;
+  --rw-col-flags: 88px;
+  --rw-col-flags-narrow: 26px;
+  --rw-col-trim: 86px;
+  --rw-col-dur: 112px;
+  --rw-col-at: 84px;
+  --rw-col-actions: calc(var(--control-h-sm) * 2 + var(--space-1));
+  --rw-col-gap: var(--space-2);
+  /* The list's horizontal padding: the one inset between the panel edge and a
+     row, and now also between the panel edge and the header. */
+  --rw-list-inset: var(--space-2);
 }
-.rw-list { flex: 1; overflow-y: auto; padding: var(--space-2) var(--space-2) var(--space-3); min-height: 0; transition: background var(--dur-fast); contain: strict; position: relative; }
+
+.rw-cols-label {
+  position: sticky;
+  top: 0;
+  /* Above the rows that scroll under it, and above the delete overlay, which
+     is itself sticky at the top of this list. */
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--rw-col-gap);
+  /* A row's box, to the pixel: the same transparent border and the same
+     padding, so every label sits over its own column. */
+  border: 1px solid transparent;
+  border-bottom-color: var(--border-subtle);
+  padding: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-2);
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+}
+.rw-list {
+  flex: 1;
+  overflow-y: auto;
+  /* A stable gutter means the rows do not shift sideways the moment the list
+     grows past the panel, which is the one time an operator is reading it. */
+  scrollbar-gutter: stable;
+  padding: 0 var(--rw-list-inset) var(--space-3);
+  min-height: 0;
+  transition: background var(--dur-fast);
+  contain: strict;
+  position: relative;
+}
 
 /* §5.2: the third cue, over the thing that will actually be lost. Opacity only
    (perf), no pointer events, and it never intercepts a click. */
@@ -2305,24 +2360,24 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.rw-cols-label .col-handle { width: 18px; flex-shrink: 0; }
-.rw-cols-label .col-num { width: 22px; text-align: center; flex-shrink: 0; }
-.rw-cols-label .col-status { width: 16px; flex-shrink: 0; }
-.rw-cols-label .col-type { width: 18px; flex-shrink: 0; }
-.rw-cols-label .col-title { flex: 1 1 auto; min-width: 180px; }
-.rw-cols-label .col-flags { width: 88px; flex-shrink: 0; }
-.rw-cols-label .col-trim { width: 86px; text-align: center; flex-shrink: 0; }
+.rw-cols-label .col-handle { width: var(--rw-col-handle); flex-shrink: 0; }
+.rw-cols-label .col-num { width: var(--rw-col-num); text-align: center; flex-shrink: 0; }
+.rw-cols-label .col-status { width: var(--rw-col-status); flex-shrink: 0; }
+.rw-cols-label .col-type { width: var(--rw-col-type); flex-shrink: 0; }
+.rw-cols-label .col-title { flex: 1 1 auto; min-width: var(--rw-col-title-min); }
+.rw-cols-label .col-flags { width: var(--rw-col-flags); flex-shrink: 0; }
+/* §4: the Trim column's content is right-aligned, so its label is too. */
+.rw-cols-label .col-trim { width: var(--rw-col-trim); text-align: right; flex-shrink: 0; }
 /* §3.2: both timing columns right-aligned to the same edge with a 12 px
    gutter between them. Right-aligned "DURATION" followed by left-aligned "AT"
    6 px away read as one word, "DURATIONAT". */
-.rw-cols-label .col-dur { width: 112px; text-align: right; flex-shrink: 0; }
-.rw-cols-label .col-at { width: 84px; text-align: right; flex-shrink: 0; margin-left: var(--space-2); }
-.rw-cols-label .col-actions { width: 56px; text-align: right; flex-shrink: 0; }
+.rw-cols-label .col-dur { width: var(--rw-col-dur); text-align: right; flex-shrink: 0; }
+.rw-cols-label .col-at { width: var(--rw-col-at); text-align: right; flex-shrink: 0; margin-left: var(--space-2); }
+.rw-cols-label .col-actions { width: var(--rw-col-actions); text-align: right; flex-shrink: 0; }
 
-/* The panel is the container the row and header columns respond to, so the
-   library split width is accounted for (same reasoning as F-01). */
-.rw-list,
-.rw-cols-label {
+/* One container for both, now that the header lives inside the list: two
+   containers 8px apart shed their columns at two different window widths. */
+.rw-list {
   container: rundown / inline-size;
 }
 
@@ -2331,7 +2386,7 @@ onUnmounted(() => {
 }
 
 @container rundown (max-width: 520px) {
-  .rw-cols-label .col-flags { width: 26px; }
+  .rw-cols-label .col-flags { width: var(--rw-col-flags-narrow); }
 }
 
 /* --- Day separator -------------------------------------------------------- */

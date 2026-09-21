@@ -197,14 +197,14 @@ const commitGapLine = () => {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-1) var(--space-3);
+  height: var(--panel-strip-h);
+  padding: 0 var(--space-3);
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-subtle);
   pointer-events: auto;
   position: relative;
   z-index: var(--z-panel);
   flex-shrink: 0;
-  min-height: 32px;
 }
 
 .pl-schedule {

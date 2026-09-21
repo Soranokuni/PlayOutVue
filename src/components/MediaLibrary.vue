@@ -2639,15 +2639,19 @@ const menuItems = computed<MenuItem[]>(() => {
 
 <style scoped>
 .lib-wrap { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+/* §2.3: a fixed height with the content centred in it, rather than padding
+   letting a two-line title set the height. The subtitle is real information
+   (11 assets, 5h 39m 7s) and stays; it just no longer decides the seam. */
 .lib-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
+  height: var(--panel-header-h);
+  padding: 0 var(--space-3); border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
   background: var(--bg-secondary);
 }
 .lib-header-actions { display: flex; align-items: center; gap: var(--space-2); }
-.lib-header-copy { display: flex; flex-direction: column; gap: var(--space-0); }
-.lib-title { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--text-primary); }
-.lib-subtitle { color: var(--text-secondary); font-size: var(--fs-xs); }
+.lib-header-copy { display: flex; flex-direction: column; justify-content: center; gap: var(--space-0); min-width: 0; }
+.lib-title { font-size: var(--fs-lg); font-weight: var(--fw-bold); line-height: var(--lh-tight); color: var(--text-primary); }
+.lib-subtitle { color: var(--text-secondary); font-size: var(--fs-xs); line-height: var(--lh-tight); }
 
 /* §2.1: one row, fixed priority order, never wrapping. It used to be
    `flex-wrap: wrap`, so at a narrow library width the `New` button dropped to
@@ -2659,7 +2663,8 @@ const menuItems = computed<MenuItem[]>(() => {
   align-items: center;
   flex-wrap: nowrap;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  height: var(--panel-toolbar-h);
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-panel-header);
   box-shadow: var(--shadow-highlight);
@@ -2964,7 +2969,8 @@ const menuItems = computed<MenuItem[]>(() => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  height: var(--panel-strip-h);
+  padding: 0 var(--space-3);
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-subtle);
   font-size: var(--fs-sm);

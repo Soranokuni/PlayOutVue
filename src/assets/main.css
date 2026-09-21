@@ -733,6 +733,19 @@
      are the same device, so they are the same width. */
   --border-accent-w: 3px;
 
+  /* §2.2: a list that reserves a stable scrollbar gutter has to agree with
+     everything measured against it about how wide that gutter is. */
+  --scrollbar-w: 8px;
+
+  /* §2.3 — the panel strips.
+     The library's header was 59px and the rundown's 54, so the divider under
+     them stepped across the 8px resizer, and every strip below inherited the
+     offset. One height each, and the content is centred in it rather than
+     setting it: 56 is 7 x 8, and both scale with density like everything else. */
+  --panel-header-h: calc(56px * var(--ui-scale) / 1.15);
+  --panel-toolbar-h: calc(44px * var(--ui-scale) / 1.15);
+  --panel-strip-h: calc(40px * var(--ui-scale) / 1.15);
+
   /* §3.9 — the one stacking token a component could not express locally. */
   --z-context-menu-nested: 1250;
 
@@ -920,8 +933,8 @@ textarea {
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: var(--scrollbar-w);
+  height: var(--scrollbar-w);
 }
 
 ::-webkit-scrollbar-track {

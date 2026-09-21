@@ -1130,8 +1130,8 @@ onUnmounted(() => {
 <style scoped>
 .app-shell {
   display: grid;
-  grid-template-columns: var(--left-w) 8px 1fr;
-  grid-template-rows: 1fr calc(58px * var(--ui-scale, 1.15) / 1.15);
+  grid-template-columns: var(--left-w) var(--space-2) 1fr;
+  grid-template-rows: 1fr calc(var(--control-h-md) + var(--space-2) * 3);
   grid-template-areas: "library r1 rundown" "ctrl ctrl ctrl";
   height: 100vh; gap: 0; padding: var(--space-2); overflow: hidden;
   background: var(--bg-primary);
@@ -1188,7 +1188,7 @@ onUnmounted(() => {
   font-size:var(--fs-md); color:var(--text-primary); font-weight:var(--fw-semibold); white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; max-width:260px;
 }
-.ctrl-divider    { width:1px; height:26px; background:var(--border-subtle); flex-shrink:0; }
+.ctrl-divider    { width:1px; height:calc(var(--control-h-md) * 0.6); background:var(--border-subtle); flex-shrink:0; }
 .ctrl-play-wrap  { flex:0 0 auto; }
 .take-failure { display:flex; align-items:center; gap:var(--space-2); color:var(--accent-red); font-size:var(--fs-xs); font-weight:var(--fw-bold); white-space:nowrap; }
 
@@ -1209,8 +1209,8 @@ onUnmounted(() => {
    measured, both in the PR. What it gains is the focus ring, the press state
    and the one disabled opacity, none of which it had. */
 .ctrl-btn {
-  height: auto;
-  padding: var(--space-2) var(--space-4);
+  height: var(--control-h-md);
+  padding: 0 var(--space-4);
   gap: var(--space-2);
   line-height: inherit;
 }
@@ -1222,7 +1222,7 @@ onUnmounted(() => {
 .btn-play {
   background:var(--accent-cyan); border-color:var(--accent-cyan);
   color:var(--text-on-accent); font-size:var(--fs-md); font-weight:var(--fw-semibold);
-  padding:var(--space-2) var(--space-5); letter-spacing:var(--tracking-caps);
+  padding:0 var(--space-5); letter-spacing:var(--tracking-caps);
   box-shadow:var(--glow-accent);
 }
 .btn-play:hover:not(:disabled) {
@@ -1234,7 +1234,7 @@ onUnmounted(() => {
   position: relative;
   background:var(--status-onair); border-color:var(--status-onair);
   color:var(--text-on-danger); font-size:var(--fs-md); font-weight:var(--fw-semibold);
-  padding:var(--space-2) var(--space-5); letter-spacing:var(--tracking-caps);
+  padding:0 var(--space-5); letter-spacing:var(--tracking-caps);
   box-shadow:var(--glow-onair);
 }
 /* PERF F-22: STOP is visible for the whole playing session; its glow pulse
@@ -1265,7 +1265,7 @@ onUnmounted(() => {
   background:color-mix(in srgb, var(--status-onair) 12%, var(--bg-hover));
   border-color:var(--status-onair);
   color:var(--status-onair); font-size:var(--fs-sm); font-weight:var(--fw-semibold);
-  padding:var(--space-2) var(--space-3); letter-spacing:var(--tracking-caps); margin-left:0;
+  padding:0 var(--space-3); letter-spacing:var(--tracking-caps); margin-left:0;
 }
 /* PERF: the pill is on screen for the whole session, so the breathing glow
    lives on an overlay whose opacity animates on the compositor rather than a
@@ -1289,7 +1289,7 @@ onUnmounted(() => {
   position:relative;
   background:var(--status-onair); border-color:var(--status-onair);
   color:var(--text-on-danger); font-size:var(--fs-sm); font-weight:var(--fw-semibold);
-  padding:var(--space-2) var(--space-3); letter-spacing:var(--tracking-caps); margin-left:0;
+  padding:0 var(--space-3); letter-spacing:var(--tracking-caps); margin-left:0;
 }
 .btn-live-active::after {
   content:'';
@@ -1312,7 +1312,7 @@ onUnmounted(() => {
   gap:var(--space-2);
   font-weight:var(--fw-bold);
   font-size:var(--fs-xs);
-  padding:var(--space-2) var(--space-3);
+  padding:0 var(--space-3);
   border-radius:var(--radius-md);
   transition:
     background-color var(--dur-fast) var(--ease-out),
@@ -1348,8 +1348,11 @@ onUnmounted(() => {
   color: var(--accent-blue);
   text-shadow: 0 0 14px color-mix(in srgb, var(--accent-blue) 40%, transparent);
   line-height: var(--lh-none);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  height: calc(var(--control-h-md) + var(--space-1));
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-lg);
   background: var(--surface-inset);
   box-shadow: var(--shadow-inset);
 }
@@ -1357,7 +1360,7 @@ onUnmounted(() => {
 /* A heavier rule than .ctrl-divider: specificity, not !important. */
 .control-bar .ctrl-divider.barrier-fence-divider {
   width: 2px;
-  height: 32px;
+  height: calc(var(--control-h-md) * 0.8);
   background: var(--border-strong);
   margin: 0 var(--space-3);
 }
@@ -1496,13 +1499,13 @@ onUnmounted(() => {
   flex-direction: column;
   justify-content: center;
   gap: var(--space-0);
-  padding: var(--space-0) var(--space-2);
-  border-radius: var(--radius-md);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-lg);
   background: var(--bg-surface-elevated);
   border: 1px solid var(--border-subtle);
   min-width: 140px;
   max-width: 195px;
-  height: 32px;
+  height: calc(var(--control-h-md) + var(--space-1));
   box-sizing: border-box;
   /* PERF F-23: `all` also animated the dock width every time the label changed. */
   transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
@@ -1622,6 +1625,8 @@ onUnmounted(() => {
    `--radius-md` everywhere but pills, and these two are pills. The bordered
    rest is the family's. */
 .ctrl-meta-btn {
+  height: var(--control-h-md);
+  width: var(--control-h-md);
   border-radius: var(--radius-pill);
   border-color: var(--border-subtle);
   background: var(--bg-hover);
