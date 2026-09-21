@@ -2380,7 +2380,7 @@ const menuItems = computed<MenuItem[]>(() => {
           :style="{ '--lib-depth': 1 }"
         >
           <span class="chevron-spacer"></span>
-          <span class="lib-icon"><AppIcon name="folder" :size="16" /></span>
+          <span class="lib-icon"><AppIcon name="folder" /></span>
           <input
             v-model="newFolderNameValue"
             class="lib-inline-rename lib-new-folder-input"
@@ -2405,7 +2405,7 @@ const menuItems = computed<MenuItem[]>(() => {
         @dragleave="isTrashDragOver = false"
         @drop.prevent="onTrashDrop($event)"
       >
-        <span class="lib-icon"><AppIcon name="trash" :size="16" /></span>
+        <span class="lib-icon"><AppIcon name="trash" /></span>
         <span class="lib-text">Recycle Bin</span>
         <span v-if="mediaLibrary.recycleBinAssets.length > 0" class="recycle-bin-count-badge">
           {{ mediaLibrary.recycleBinAssets.length }}
@@ -2481,7 +2481,7 @@ const menuItems = computed<MenuItem[]>(() => {
               variant="dot"
               :tooltip="getAssetTooltip(asset)"
             />
-            <AppIcon name="film" :size="16" />
+            <AppIcon name="film" />
           </span>
 
           <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">
@@ -2543,7 +2543,7 @@ const menuItems = computed<MenuItem[]>(() => {
             aria-label="Asset actions"
             @click.stop="onAssetContextMenu($event, asset)"
           >
-            <AppIcon name="more-vertical" :size="16" />
+            <AppIcon name="more-vertical" />
           </button>
         </div>
       </div>

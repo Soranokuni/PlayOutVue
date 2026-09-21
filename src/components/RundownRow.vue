@@ -232,7 +232,7 @@ const itemTooltip = computed(() => {
     </div>
 
     <div class="rw-type-icon" :style="{ color: typeColor(item.type) }" :title="typeLabel(item.type)">
-      <AppIcon :name="typeIcon(item.type)" :size="16" />
+      <AppIcon :name="typeIcon(item.type)" />
     </div>
 
     <!-- UI F-03: the title is the only flexible column, and carries nothing
@@ -345,20 +345,11 @@ const itemTooltip = computed(() => {
    6 content-type (a 3px left bar only) · 7 rating (its chip only).
    The content tints used to be full-row backgrounds that lowered the contrast
    of selected and next-up underneath them, and whose :hover collapsed to one
-   blue `!important`. */
-.rw-row.selected {
-  background: var(--bg-active) !important;
-  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent) !important;
-}
-.rw-row.playing  {
-  background: color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary)) !important;
-  border-color: color-mix(in srgb, var(--accent-red) 45%, transparent) !important;
-}
+   blue `!important`.
+
+   The rules that carry that precedence are further down, in one ordered
+   block — see "§3.10". */
 .rw-row.played   { opacity: var(--opacity-muted); }
-.rw-row.next-up {
-  background: color-mix(in srgb, var(--accent-yellow) 12%, var(--bg-secondary));
-  border-color: color-mix(in srgb, var(--accent-yellow) 35%, transparent);
-}
 .rw-row.next-up-imminent::after {
   content: '';
   position: absolute;
@@ -420,8 +411,37 @@ const itemTooltip = computed(() => {
   font-style: italic;
 }
 
-/* Flat tints, so the row paints once when it starts playing rather than four
-   times a second for the length of the clip. */
+/* --- §3.10 · the row's states, in precedence order ------------------------
+ *
+ * Every one of these selectors has the same specificity, so the file's order
+ * *is* the precedence. That was true before as well; what was missing was
+ * saying so. Instead, `.selected` and `.playing` were written above the tints
+ * that would otherwise beat them and given four `!important`s to win anyway —
+ * which is how the green progress tint became unreachable: an `!important`
+ * red always covered it.
+ *
+ * Weakest first. The one `:not()` is the real relationship — the progress
+ * tints do not compete with "playing", they *are* playing, coloured by how far
+ * through the clip it is.
+ *
+ * Flat tints, so the row paints once when it starts playing rather than four
+ * times a second for the length of the clip.
+ */
+.rw-row.selected {
+  background: var(--bg-active);
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
+}
+
+.rw-row.next-up {
+  background: color-mix(in srgb, var(--accent-yellow) 12%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-yellow) 35%, transparent);
+}
+
+.rw-row.playing:not([data-progress-tone]) {
+  background: color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-red) 45%, transparent);
+}
+
 .rw-row[data-progress-tone='green'] {
   background: color-mix(in srgb, var(--status-ready) 12%, var(--bg-secondary));
   border-color: color-mix(in srgb, var(--status-ready) 40%, transparent);

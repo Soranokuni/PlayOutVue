@@ -292,7 +292,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
         @click.stop="!btn.disabled && (btn.action(), emit('close'))"
       >
         <span class="action-icon">
-          <AppIcon :name="topActionIcon(btn)" :size="16" />
+          <AppIcon :name="topActionIcon(btn)" />
         </span>
       </button>
     </div>
@@ -380,8 +380,11 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 .win11-context-menu {
   position: fixed;
   z-index: var(--z-context-menu);
-  min-width: 240px;
-  max-width: 320px;
+  /* §2.6: the Greek compliance labels truncated at ~26 characters in a menu
+     whose width was chosen for English. A regulatory term the operator cannot
+     read is worse than a wide menu. */
+  min-width: 280px;
+  max-width: 360px;
   font-family: var(--font-ui);
   padding: var(--space-1) 0;
   transition: opacity var(--dur-fast) var(--ease-out);
@@ -498,11 +501,14 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 
 /* Teleported Submenu Flyout specific settings */
 .submenu-flyout {
-  min-width: 240px;
-  max-width: 320px;
+  /* §2.6: the Greek compliance labels truncated at ~26 characters in a menu
+     whose width was chosen for English. A regulatory term the operator cannot
+     read is worse than a wide menu. */
+  min-width: 280px;
+  max-width: 360px;
   max-height: 50vh;
   overflow-y: auto;
-  z-index: calc(var(--z-context-menu) + 5);
+  z-index: var(--z-context-menu-nested);
 }
 
 .submenu-flyout::before {

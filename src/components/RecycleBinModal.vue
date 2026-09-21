@@ -470,7 +470,8 @@ async function executePurgeConfirmed() {
   letter-spacing: var(--tracking-caps);
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-subtle);
-  z-index: 2;
+  /* §3.9: local stacking — the sticky header over the rows it pins. */
+  z-index: 1;
 }
 
 .bin-row {

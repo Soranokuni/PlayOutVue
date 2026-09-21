@@ -192,7 +192,7 @@ const panelClasses = computed(() => ['modal-panel', `modal-panel--${props.size}`
               title="Close"
               @click="requestClose"
             >
-              <AppIcon name="close" :size="16" />
+              <AppIcon name="close" />
             </button>
           </div>
         </header>

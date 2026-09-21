@@ -838,7 +838,7 @@ const saveAsSubclip = () => {
             <button class="t-btn t-btn-step" @click="nudge(-10)" title="Back 10 frames [Shift+Left]">-10f</button>
             <button class="t-btn t-btn-step" @click="nudge(-1)" title="Back 1 frame [Left]">-1f</button>
             <button class="t-btn t-btn-play" :class="{ 'is-playing': isVideoPlaying }" @click="togglePlayback" title="Play / Pause [Space / K]">
-              <span class="play-icon"><AppIcon :name="isVideoPlaying ? 'pause' : 'play'" :size="16" /></span>
+              <span class="play-icon"><AppIcon :name="isVideoPlaying ? 'pause' : 'play'" /></span>
               <span class="play-text">{{ isVideoPlaying ? 'PAUSE' : 'PLAY' }}</span>
             </button>
             <button class="t-btn t-btn-step" @click="nudge(1)" title="Forward 1 frame [Right]">+1f</button>
@@ -1400,7 +1400,9 @@ const saveAsSubclip = () => {
   top: 0;
   bottom: 0;
   width: 0;
-  z-index: 10;
+  /* §3.9: local stacking inside the scrubber. 1 is the waveform, 2 the
+     handles' rail, 3 a handle the operator is dragging. */
+  z-index: 2;
 }
 
 .tm-handle {
@@ -1448,7 +1450,7 @@ const saveAsSubclip = () => {
   bottom: -6px;
   width: 14px;
   cursor: ew-resize;
-  z-index: 20;
+  z-index: 3;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;

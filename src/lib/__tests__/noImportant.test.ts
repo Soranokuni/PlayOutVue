@@ -17,10 +17,11 @@ import { checkBudgets, styleSurfaces } from './styleGuard';
  * A discrete event is exactly the case `!important` exists for.
  */
 
-/** Remaining `!important` per file. Drive to zero. */
-const ALLOWLIST: Record<string, number> = {
-  'components/RundownRow.vue': 4,
-};
+/**
+ * Empty, and it stays empty: there is no `!important` left in a component
+ * style, and a budget here would be a licence to add one back.
+ */
+const ALLOWLIST: Record<string, number> = {};
 
 function countImportant(source: string): number {
   return [...styleSurfaces(source).matchAll(/!\s*important/gi)].length;

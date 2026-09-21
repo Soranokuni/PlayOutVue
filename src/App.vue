@@ -879,7 +879,7 @@ onUnmounted(() => {
           @click="playSelected"
           v-tooltip="!isPrimaryInstance ? 'Disabled in Monitor Mode (Read-Only)' : (rundown.isRundownLocked ? 'Rundown is Locked (Unlock to Play)' : 'Play playlist from selected item (or beginning)')"
         >
-          <AppIcon name="play" :size="16" :stroke-width="2.5" />
+          <AppIcon name="play" :stroke-width="2.5" />
           <span>PLAY</span>
         </button>
         <button
@@ -889,7 +889,7 @@ onUnmounted(() => {
           @click="stopPlayback"
           title="Stop playback"
         >
-          <AppIcon name="stop" :size="16" :stroke-width="2.5" />
+          <AppIcon name="stop" :stroke-width="2.5" />
           <span>STOP</span>
         </button>
       </div>
@@ -1007,7 +1007,7 @@ onUnmounted(() => {
           @focus="preloadSettingsModal()"
           @click="showSettings = true"
         >
-          <AppIcon class="ctrl-btn-glyph" name="settings" :size="16" />
+          <AppIcon class="ctrl-btn-glyph" name="settings" />
           <span class="ctrl-btn-label">Settings</span>
         </button>
       </div>
@@ -1024,7 +1024,7 @@ onUnmounted(() => {
           data-testid="control-bar-more"
           @click.stop="toggleControlBarMore"
         >
-          <AppIcon class="ctrl-btn-glyph" name="more-horizontal" :size="16" />
+          <AppIcon class="ctrl-btn-glyph" name="more-horizontal" />
         </button>
         <div v-if="showControlBarMore" class="ctrl-more-menu popover-surface" role="menu" @click.stop>
           <button class="popover-item" role="menuitem" @click="rundown.toggleRundownLock()">

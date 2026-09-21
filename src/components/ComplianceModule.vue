@@ -212,7 +212,7 @@ const clearComplianceOverlay = async () => {
   <div class="compliance-module">
     <div class="module-header">
       <div class="title-with-badge">
-        <AppIcon class="greek-mark" name="shield" :size="16" />
+        <AppIcon class="greek-mark" name="shield" />
         <h3 class="text-warning">Greek NCRTV (ΕΣΡ) Compliance</h3>
       </div>
       <span v-if="selectedRating !== 'none'" class="active-badge" :class="'badge-' + selectedRating">

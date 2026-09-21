@@ -700,25 +700,22 @@ const ctxSetIndicator = (indicator: LibraryIndicator) => {
   closeContextMenu();
 };
 
-const topActionItems = computed<TopAction[]>(() => {
-  const item = contextMenu.value.item;
-  if (!item) return [];
+/**
+ * §2.6: this used to be a one-icon top action bar — a full-height row holding
+ * a single centred red trash glyph, with no label and no shortcut, above a
+ * "CLIP" heading. It reads as a rendering fault. (F-05 had already deleted the
+ * three dead stubs that used to keep it company, which is what left it alone
+ * up there.)
+ *
+ * The action is unchanged and so is its guard; it is a labelled row in a final
+ * group now, where every other action in this menu lives. The bar itself stays
+ * for the library, whose four icons do read as a bar.
+ */
+const topActionItems = computed<TopAction[]>(() => []);
 
-  const isDeleteDisabled = isProtectedPlayingRow(contextMenu.value.index) || store.isRundownLocked;
-  
-  // UI F-05: trim / rename / purge were permanently disabled stubs on every
-  // rundown row -- three dead controls above the only live one. A top action
-  // that can never apply to this node type is not rendered at all.
-  return [
-    {
-      id: 'delete',
-      tone: 'danger',
-      tooltip: store.isRundownLocked ? 'Rundown Locked' : (isDeleteDisabled ? 'Delete (Protected)' : 'Delete Item'),
-      action: ctxDelete,
-      disabled: isDeleteDisabled
-    }
-  ];
-});
+const isDeleteBlocked = computed(
+  () => isProtectedPlayingRow(contextMenu.value.index) || store.isRundownLocked
+);
 
 const menuItems = computed<MenuItem[]>(() => {
   const item = contextMenu.value.item;
@@ -871,6 +868,20 @@ const menuItems = computed<MenuItem[]>(() => {
     );
   }
   
+  list.push(
+    { type: 'divider' },
+    {
+      type: 'action',
+      icon: 'trash',
+      tone: 'danger',
+      danger: true,
+      label: 'Remove from rundown',
+      shortcut: 'Del',
+      disabled: isDeleteBlocked.value,
+      action: ctxDelete
+    }
+  );
+
   return list;
 });
 
@@ -1507,7 +1518,7 @@ onUnmounted(() => {
 
     <!-- Trim Duration Warning Banner -->
     <div v-if="store.lastTrimWarning" class="trim-warning-banner" role="status">
-      <AppIcon class="tw-icon" name="alert" :size="16" />
+      <AppIcon class="tw-icon" name="alert" />
       <span class="tw-msg">
         Duration updated for <strong>{{ store.lastTrimWarning.filename }}</strong>: 
         Playlist total time adjusted by 
@@ -1782,7 +1793,7 @@ onUnmounted(() => {
 }
 .clock-display {
   font-family: var(--font-mono); font-size: var(--fs-tc); font-weight: var(--fw-bold);
-  letter-spacing: var(--tracking-caps); color: var(--text-primary); text-shadow: 0 0 10px var(--glass-border);
+  letter-spacing: var(--tracking-caps); color: var(--text-primary); text-shadow: none;
   font-variant-numeric: tabular-nums;
 }
 .rw-ticker-toggle-btn {
@@ -2165,6 +2176,8 @@ onUnmounted(() => {
 .rw-delete-overlay {
   position: sticky;
   top: 0;
+  /* §3.9: local stacking inside the list — 1 the rows, 2 this overlay,
+     3 the column header above both. */
   z-index: 2;
   display: flex;
   align-items: center;

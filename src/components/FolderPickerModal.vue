@@ -245,7 +245,7 @@ watch(
     <!-- Search & Filter Bar -->
     <div class="search-bar-row">
       <div class="search-input-wrapper">
-        <AppIcon class="search-icon" name="search" :size="16" />
+        <AppIcon class="search-icon" name="search" />
         <input
           v-model="searchQuery"
           type="text"

@@ -45,7 +45,7 @@ defineProps<{
   >
     <span class="menu-item-rail" aria-hidden="true">
       <span v-if="item.swatch" class="menu-item-swatch" :style="{ background: item.swatch }" />
-      <AppIcon v-else-if="item.icon" class="menu-item-icon" :name="item.icon" :size="16" />
+      <AppIcon v-else-if="item.icon" class="menu-item-icon" :name="item.icon" />
     </span>
 
     <span class="menu-item-label">{{ item.label }}</span>

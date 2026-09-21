@@ -243,7 +243,7 @@ const runSelected = () => {
         tabindex="-1"
       >
         <div class="palette-input-wrapper">
-          <span class="palette-search-icon"><AppIcon name="search" :size="16" /></span>
+          <span class="palette-search-icon"><AppIcon name="search" /></span>
           <input
             ref="inputRef"
             v-model="query"

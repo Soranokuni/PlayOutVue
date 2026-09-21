@@ -709,13 +709,13 @@ function formatError(error: unknown, fallback: string) {
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
 }
 
 .modal-header,
 .modal-footer {
   padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -724,7 +724,7 @@ function formatError(error: unknown, fallback: string) {
 
 .modal-footer {
   border-bottom: 0;
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .subtitle {
@@ -780,7 +780,7 @@ function formatError(error: unknown, fallback: string) {
 .glass-input,
 .xml-editor {
   background: var(--bg-tertiary);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
   color: var(--text-primary);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
@@ -832,7 +832,7 @@ function formatError(error: unknown, fallback: string) {
 
 .tab-btn {
   background: transparent;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   border-radius: var(--radius-pill);
   padding: var(--space-2) var(--space-3);
@@ -863,7 +863,7 @@ function formatError(error: unknown, fallback: string) {
 
 .channel-card,
 .consumer-card {
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: var(--space-3);
   background: var(--bg-hover);

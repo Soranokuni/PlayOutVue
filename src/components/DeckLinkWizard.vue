@@ -426,7 +426,7 @@ watch(
             <h2 class="text-accent">{{ stepTitle }}</h2>
           </div>
           <button class="glass-btn btn-icon" aria-label="Close wizard" title="Close wizard" @click="$emit('close')" :disabled="applying">
-            <AppIcon name="close" :size="16" />
+            <AppIcon name="close" />
           </button>
         </div>
 

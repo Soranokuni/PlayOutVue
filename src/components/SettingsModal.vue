@@ -762,7 +762,7 @@ const openTemplateDir = async () => {
       <!-- UI §4.1: left rail. Class pinned by SettingsModalConfirmation.test.ts. -->
       <nav class="settings-rail" aria-label="Settings sections">
         <div class="rail-filter">
-          <AppIcon class="rail-filter-icon" name="search" :size="16" />
+          <AppIcon class="rail-filter-icon" name="search" />
           <input v-model="sectionFilter" class="input rail-filter-input" type="search" placeholder="Find a setting…" />
         </div>
         <button
@@ -774,7 +774,7 @@ const openTemplateDir = async () => {
           :aria-current="activeSection === entry.id ? 'true' : undefined"
           @click="selectSection(entry.id)"
         >
-          <AppIcon :name="entry.icon" :size="16" />
+          <AppIcon :name="entry.icon" />
           <span>{{ entry.label }}</span>
         </button>
         <p v-if="!visibleRail.length" class="rail-empty">No section matches “{{ sectionFilter }}”.</p>

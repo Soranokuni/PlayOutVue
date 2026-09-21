@@ -216,7 +216,7 @@ const getDisplayName = (item: any) => {
           <!-- Warnings Box (if any) -->
           <div v-if="warningsList.length > 0" class="inspector-section warnings-box">
             <div class="warnings-header">
-              <AppIcon class="warn-icon" name="alert" :size="16" />
+              <AppIcon class="warn-icon" name="alert" />
               <h4 class="warnings-title">QC Validation Advisories ({{ warningsList.length }})</h4>
             </div>
             <ul class="warnings-list">
@@ -367,7 +367,7 @@ const getDisplayName = (item: any) => {
 
 .inspector-card {
   background: var(--bg-surface);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
   display: flex;
@@ -497,7 +497,7 @@ const getDisplayName = (item: any) => {
 .nudge-display {
   padding: var(--space-1) var(--space-3);
   background: var(--bg-input);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-weight: var(--fw-bold);

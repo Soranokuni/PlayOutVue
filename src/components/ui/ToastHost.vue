@@ -23,7 +23,7 @@ const ICONS: Record<ToastTone, IconName> = {
     <div class="toast-host" role="status" aria-live="polite">
       <TransitionGroup name="toast">
         <div v-for="toast in toasts" :key="toast.id" class="toast" :class="`tone-${toast.tone}`">
-          <AppIcon class="toast-icon" :name="ICONS[toast.tone]" :size="16" />
+          <AppIcon class="toast-icon" :name="ICONS[toast.tone]" />
           <div class="toast-text">
             <p class="toast-message">{{ toast.message }}</p>
             <p v-if="toast.detail" class="toast-detail">{{ toast.detail }}</p>
