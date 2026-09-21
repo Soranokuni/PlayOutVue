@@ -63,6 +63,8 @@ describe('UI F-10 · AppIcon', () => {
       'components/CommandPaletteModal.vue',
       'components/FolderPickerModal.vue',
       'components/ui/AppIcon.vue',
+      // Round 3 §5.2: the toast host owns the Undo affordance's glyph.
+      'components/ui/ToastHost.vue',
     ]
       .map((f) => readFileSync(join(process.cwd(), 'src', f), 'utf8'))
       .join('\n');
@@ -74,7 +76,8 @@ describe('UI F-10 · AppIcon', () => {
     // deleted rather than carried.
     // Shrinks as the phases land; it may never grow. These three are consumed
     // by dialogs the migration has not reached yet.
-    const expectedPending = ['chevron-down', 'help', 'arrow-up'];
+    // Round 3 §4 consumes `more-horizontal` in the control bar's More popover.
+    const expectedPending = ['chevron-down', 'help', 'arrow-up', 'more-horizontal'];
 
     expect(unused.filter((n) => !expectedPending.includes(n))).toEqual([]);
   });

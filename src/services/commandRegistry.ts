@@ -765,6 +765,63 @@ commandRegistry.register({
   }
 });
 
+/**
+ * Round 3 §5.4 — the playlist file actions get keys.
+ *
+ * They are the three things the operator does constantly that had no shortcut
+ * at all, so they cost a mouse trip to the header every time. Each one only
+ * dispatches an event; `RundownList` owns the dialogs and the store writes, so
+ * the registry stays free of file I/O and these are safe in any non-text
+ * scope. The router returns early on text inputs, which is what keeps Ctrl+S
+ * out of a rename field.
+ *
+ * Delete deliberately has no key. It is the one destructive action here, and
+ * §5.2's whole point is that the operator should be looking at the target.
+ */
+const dispatchPlaylistFileAction = (action: 'save' | 'load' | 'append') => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('playout:playlist-file', { detail: { action } }));
+};
+
+commandRegistry.register({
+  id: 'playlist.save',
+  label: 'Save Playlist…',
+  scopes: ['rundown', 'library', 'global'],
+  defaultShortcut: 'Ctrl/Cmd+S',
+  category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
+  isVisible: () => true,
+  isEnabled: () => true,
+  execute: () => dispatchPlaylistFileAction('save')
+});
+
+commandRegistry.register({
+  id: 'playlist.load',
+  label: 'Load Playlist…',
+  scopes: ['rundown', 'library', 'global'],
+  defaultShortcut: 'Ctrl/Cmd+O',
+  category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
+  isVisible: () => true,
+  isEnabled: () => true,
+  execute: () => dispatchPlaylistFileAction('load')
+});
+
+commandRegistry.register({
+  id: 'playlist.append',
+  label: 'Append Playlist…',
+  scopes: ['rundown', 'library', 'global'],
+  defaultShortcut: 'Ctrl/Cmd+Shift+O',
+  category: 'Rundown',
+  safety: 'safe',
+  paletteVisible: true,
+  isVisible: () => true,
+  isEnabled: () => true,
+  execute: () => dispatchPlaylistFileAction('append')
+});
+
 commandRegistry.register({
   id: 'global.inspectSelected',
   label: 'Inspect Clip Metadata & QC',

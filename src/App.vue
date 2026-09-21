@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useStorage } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -8,6 +8,7 @@ import MediaLibrary from './components/MediaLibrary.vue';
 import RundownList from './components/RundownList.vue';
 import MediaInspector from './components/MediaInspector.vue';
 import { lazyComponent } from './lib/lazyComponent';
+import { fitToWidth, MAX_FIT_STEP } from './lib/fitToWidth';
 import CommandPaletteModal from './components/CommandPaletteModal.vue';
 // PERF F-14: Settings is 1.8k lines and opened rarely; load it on demand and
 // mount it only while open so its watchers/listeners do not run at startup.
@@ -123,27 +124,59 @@ const footerMetaRef = ref<HTMLElement | null>(null);
 const showProductInfo = ref(false);
 const showQuickGuide = ref(false);
 
-// UI F-01: the control bar used to wrap below 1280px, and the wrapped second
-// row fell outside the fixed 58px grid row — Settings and Lock became
-// unreachable at the app's own 1100px minimum width. The bar now never wraps;
-// it sheds content by priority instead. The tier is driven by a ResizeObserver
-// on the bar itself (not a viewport media query) so the library split width is
-// accounted for: dragging the resizer wider collapses the bar too.
-type ControlBarTier = 'full' | 'compact' | 'minimal';
+/* ---------------------------------------------------------------------------
+   Round 3 §4 — the control bar fits itself.
+
+   UI F-01 stopped the bar wrapping (the wrapped second row fell outside the
+   fixed 58 px grid row, so Settings and Lock were unreachable at the app's own
+   1100 px minimum). It replaced wrapping with three tiers chosen from fixed
+   pixel thresholds, 980 and 1180.
+
+   A threshold is a guess about how wide the content happens to be, and it is
+   wrong the moment anything it guessed about changes: the density scale, the
+   theme's font, the engine button's label, the next-up title, whether TAKE
+   HELD is up, how far the operator dragged the library split. Between the
+   thresholds, content that did not fit was clipped by the shell's `overflow`,
+   silently.
+
+   So the bar stops guessing. After every resize it asks one question -- does
+   my content fit? -- and if not it sheds the least important thing and asks
+   again. The ladder is in `data-step` on the footer; the loop is in
+   `lib/fitToWidth.ts` so it can be tested without a layout engine.
+   --------------------------------------------------------------------------- */
 const controlBarRef = ref<HTMLElement | null>(null);
-const controlBarTier = ref<ControlBarTier>('full');
+const controlBarStep = ref(0);
 let controlBarObserver: ResizeObserver | null = null;
 
-const applyControlBarTier = (width: number) => {
-  // Thresholds are the measured widths at which the bar's own content stops
-  // fitting on one line, not device breakpoints.
-  const next: ControlBarTier = width < 980 ? 'minimal' : width < 1180 ? 'compact' : 'full';
-  if (next !== controlBarTier.value) controlBarTier.value = next;
-};
-
-const measureControlBar = () => {
+const fitControlBar = () => {
   const el = controlBarRef.value;
-  if (el) applyControlBarTier(el.getBoundingClientRect().width);
+  if (!el) return;
+  // An element with no layout (happy-dom, or a bar not yet in the grid) reports
+  // zero for everything; walking the ladder on that would collapse the bar for
+  // no reason.
+  if (!el.clientWidth) return;
+
+  const available = el.clientWidth;
+  const previous = controlBarStep.value;
+
+  // Measure each rung by actually standing on it. Reads and writes interleave,
+  // so this is a synchronous layout thrash -- bounded at MAX_FIT_STEP + 1
+  // iterations, and only on resize, which is the one moment layout is already
+  // being recomputed.
+  const naturalWidths: number[] = [];
+  for (let step = 0; step <= MAX_FIT_STEP; step += 1) {
+    el.dataset.step = String(step);
+    naturalWidths.push(el.scrollWidth);
+    if (naturalWidths[step]! <= available + 1) break;
+  }
+  // Rungs we never stood on cannot be wider than the last one we measured.
+  while (naturalWidths.length <= MAX_FIT_STEP) {
+    naturalWidths.push(naturalWidths[naturalWidths.length - 1] ?? 0);
+  }
+
+  const next = fitToWidth({ naturalWidths, available });
+  el.dataset.step = String(next);
+  if (next !== previous) controlBarStep.value = next;
 };
 
 const startControlBarObserver = () => {
@@ -151,10 +184,7 @@ const startControlBarObserver = () => {
   if (!el) return;
 
   if (typeof ResizeObserver !== 'undefined') {
-    controlBarObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) applyControlBarTier(entry.contentRect.width);
-    });
+    controlBarObserver = new ResizeObserver(() => fitControlBar());
     controlBarObserver.observe(el);
   }
 
@@ -163,24 +193,30 @@ const startControlBarObserver = () => {
   // it -- the bar would stay collapsed at a width that fits everything.
   // Measure again after a frame, and keep a window listener as a fallback for
   // environments where ResizeObserver does not deliver.
-  measureControlBar();
-  requestAnimationFrame(measureControlBar);
-  window.addEventListener('resize', measureControlBar);
+  fitControlBar();
+  requestAnimationFrame(fitControlBar);
+  window.addEventListener('resize', fitControlBar);
 };
 
 const stopControlBarObserver = () => {
   controlBarObserver?.disconnect();
   controlBarObserver = null;
-  window.removeEventListener('resize', measureControlBar);
+  window.removeEventListener('resize', fitControlBar);
 };
 
-// The TAKE HELD alert is injected into the same row and is wide; while it is up
-// the bar behaves as if it were one tier tighter so the alert never pushes
-// Settings or Lock past the edge.
-const effectiveControlBarTier = computed<ControlBarTier>(() => {
-  if (!manualTakeFailure.value) return controlBarTier.value;
-  return controlBarTier.value === 'full' ? 'compact' : 'minimal';
+/** At the last rung the utilities fold into one popover. */
+const showControlBarMore = ref(false);
+const isControlBarCollapsed = computed(() => controlBarStep.value >= MAX_FIT_STEP);
+
+watch(isControlBarCollapsed, (collapsed) => {
+  if (!collapsed) showControlBarMore.value = false;
 });
+
+const toggleControlBarMore = () => {
+  showProductInfo.value = false;
+  showQuickGuide.value = false;
+  showControlBarMore.value = !showControlBarMore.value;
+};
 
 const APP_NAME = 'Aether';
 const APP_VERSION = '3.0';
@@ -204,6 +240,7 @@ const shortcutGuide = [
   'Shift + Arrow Down: duplicate the selected row.',
   'Ctrl + I: inspect the selected clip — metadata and QC.',
   'Ctrl + K: open the command palette.',
+  'Ctrl + S: save the playlist; Ctrl + O loads one, Ctrl + Shift + O appends one.',
   'F8 in the media library: add the selected item to the end of the rundown (Shift + F8 inserts after the selection).'
 ];
 
@@ -271,11 +308,14 @@ const toggleQuickGuide = () => {
 const closeFooterPanels = () => {
   showProductInfo.value = false;
   showQuickGuide.value = false;
+  showControlBarMore.value = false;
 };
 
 const handleGlobalPointerDown = (event: PointerEvent) => {
   const target = event.target as HTMLElement | null;
   if (footerMetaRef.value && target && footerMetaRef.value.contains(target)) return;
+  // §4.2 step 5: the More popover dismisses the same way the meta popovers do.
+  if (target?.closest('.ctrl-more-wrap')) return;
   closeFooterPanels();
 };
 
@@ -580,6 +620,24 @@ const nextUpItemTitle = computed(() => {
   return 'Untitled Asset';
 });
 
+/**
+ * A ResizeObserver only fires when the *box* changes. Everything below changes
+ * how much the bar's content wants, without changing the box by a pixel -- so
+ * each one has to ask the bar to re-fit itself, or the bar keeps a step that
+ * was right for the previous label.
+ */
+watch(
+  () => [
+    connectionActionLabel.value,
+    isLiveCutArmed.value,
+    isPlayoutLive.value,
+    !!manualTakeFailure.value,
+    nextUpItemTitle.value,
+    settings.uiScale,
+  ],
+  () => void nextTick(fitControlBar)
+);
+
 const nextUpItemDuration = computed(() => {
   if (!nextUpItem.value) return '';
   const item = nextUpItem.value;
@@ -784,7 +842,7 @@ onUnmounted(() => {
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
 
     <!-- Simplified Master Control Bar -->
-    <footer class="control-bar glass-panel" ref="controlBarRef" :class="`tier-${effectiveControlBarTier}`">
+    <footer class="control-bar" ref="controlBarRef" :data-step="controlBarStep">
 
       <!-- §7 group 1: engine. The status says what is true; the button next
            to it says what will happen. They used to be one control whose label
@@ -803,9 +861,13 @@ onUnmounted(() => {
         <button
           class="ctrl-btn conn-action-btn"
           :disabled="isStarting || processState === 'starting'"
-          :title="`CasparCG: ${connectionLabel}`"
+          :title="`${connectionActionLabel} — CasparCG: ${connectionLabel}`"
+          :aria-label="connectionActionLabel"
           @click="handleConnectionAction"
-        >{{ connectionActionLabel }}</button>
+        >
+          <AppIcon class="ctrl-btn-glyph" name="zap" :size="14" />
+          <span class="ctrl-btn-label">{{ connectionActionLabel }}</span>
+        </button>
         <span v-if="!isPrimaryInstance" class="monitor-badge" title="Running in secondary monitor mode (read-only)">MONITOR</span>
       </div>
 
@@ -904,12 +966,12 @@ onUnmounted(() => {
       <div v-if="activePlayoutCapabilities.streaming" class="ctrl-section">
         <div class="status-dot" :class="{ connected: isStreaming }"></div>
         <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
-        <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream" style="font-size:0.7rem;">
+        <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream" style="font-size:var(--fs-xs);">
           <AppIcon :name="isStreaming ? 'stop' : 'live'" :size="14" />
           <span>{{ isStreaming ? 'Stop' : 'Stream' }}</span>
         </button>
 
-        <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleSdi" style="font-size:0.7rem; margin-left:12px;">
+        <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleSdi" style="font-size:var(--fs-xs); margin-left:12px;">
           <AppIcon :name="isSdiActive ? 'stop' : 'live'" :size="14" />
           <span>{{ isSdiActive ? 'SDI Stop' : 'SDI OUT' }}</span>
         </button>
@@ -917,33 +979,88 @@ onUnmounted(() => {
 
       <div v-if="activePlayoutCapabilities.streaming" class="ctrl-divider"></div>
 
-      <!-- Rundown Safety Lock Button -->
-      <button
-        class="ctrl-btn lock-toggle-btn"
-        :class="{ 'is-locked': rundown.isRundownLocked }"
-        @click="rundown.toggleRundownLock()"
-        :title="rundown.isRundownLocked ? 'Rundown Locked: Accidental edits are protected. Click to Unlock.' : 'Rundown Unlocked: Free to edit, reorder, and delete items. Click to Lock.'"
-      >
-        <AppIcon class="lock-icon" :name="rundown.isRundownLocked ? 'lock' : 'unlock'" :size="14" />
-        <span class="lock-text">{{ rundown.isRundownLocked ? 'LOCKED' : 'UNLOCKED' }}</span>
-      </button>
+      <!-- §4.2 steps 2 and 5: the utilities. They lose their words first and
+           fold into one popover last, so the bar shrinks to
+           `[status] [PLAY] | [LIVE] [timecode] [NEXT UP] [⋯]` -- about 640 px,
+           far below the window's own 1100 px minimum. Nothing is ever clipped
+           and nothing is ever unreachable. -->
+      <div class="ctrl-utilities">
+        <!-- Rundown Safety Lock Button -->
+        <button
+          class="ctrl-btn lock-toggle-btn"
+          :class="{ 'is-locked': rundown.isRundownLocked }"
+          :aria-pressed="rundown.isRundownLocked"
+          @click="rundown.toggleRundownLock()"
+          :title="rundown.isRundownLocked ? 'Rundown Locked: Accidental edits are protected. Click to Unlock.' : 'Rundown Unlocked: Free to edit, reorder, and delete items. Click to Lock.'"
+        >
+          <AppIcon class="lock-icon" :name="rundown.isRundownLocked ? 'lock' : 'unlock'" :size="14" />
+          <span class="lock-text">{{ rundown.isRundownLocked ? 'LOCKED' : 'UNLOCKED' }}</span>
+        </button>
 
-      <span class="ctrl-section ctrl-ingest" :title="ingestorStatus.isIngestorOnline ? 'Ingestor reachable' : 'Ingestor unreachable'">
-        <IngestorStatusLight />
-        <span class="ctrl-label">INGEST</span>
-      </span>
+        <span class="ctrl-section ctrl-ingest" :title="ingestorStatus.isIngestorOnline ? 'Ingestor reachable' : 'Ingestor unreachable'">
+          <IngestorStatusLight />
+          <span class="ctrl-label">INGEST</span>
+        </span>
 
-      <button
-        class="ctrl-btn ctrl-settings-btn"
-        aria-label="Settings"
-        title="Settings"
-        @pointerenter="preloadSettingsModal()"
-        @focus="preloadSettingsModal()"
-        @click="showSettings = true"
-      >
-        <AppIcon class="ctrl-btn-glyph" name="settings" :size="16" />
-        <span class="ctrl-btn-label">Settings</span>
-      </button>
+        <button
+          class="ctrl-btn ctrl-settings-btn"
+          aria-label="Settings"
+          title="Settings"
+          @pointerenter="preloadSettingsModal()"
+          @focus="preloadSettingsModal()"
+          @click="showSettings = true"
+        >
+          <AppIcon class="ctrl-btn-glyph" name="settings" :size="16" />
+          <span class="ctrl-btn-label">Settings</span>
+        </button>
+      </div>
+
+      <!-- The last rung. The trigger is only in the flow once the utilities
+           have left it, so it costs nothing at any wider step. -->
+      <div v-if="isControlBarCollapsed" class="ctrl-more-wrap">
+        <button
+          class="ctrl-btn ctrl-more-btn"
+          :class="{ 'is-open': showControlBarMore }"
+          aria-label="More controls"
+          title="More controls"
+          :aria-expanded="showControlBarMore"
+          data-testid="control-bar-more"
+          @click.stop="toggleControlBarMore"
+        >
+          <AppIcon class="ctrl-btn-glyph" name="more-horizontal" :size="16" />
+        </button>
+        <div v-if="showControlBarMore" class="ctrl-more-menu popover-surface" role="menu" @click.stop>
+          <button class="popover-item" role="menuitem" @click="rundown.toggleRundownLock()">
+            <AppIcon :name="rundown.isRundownLocked ? 'lock' : 'unlock'" :size="14" />
+            <span>Rundown</span>
+            <span class="popover-item-badge">{{ rundown.isRundownLocked ? 'LOCKED' : 'UNLOCKED' }}</span>
+          </button>
+          <div class="popover-divider" role="separator" />
+          <div class="popover-item is-static">
+            <IngestorStatusLight />
+            <span>Ingestor</span>
+            <span class="popover-item-badge">{{ ingestorStatus.isIngestorOnline ? 'ONLINE' : 'OFFLINE' }}</span>
+          </div>
+          <div class="popover-divider" role="separator" />
+          <button
+            class="popover-item"
+            role="menuitem"
+            @pointerenter="preloadSettingsModal()"
+            @click="showControlBarMore = false; showSettings = true"
+          >
+            <AppIcon name="settings" :size="14" />
+            <span>Settings…</span>
+          </button>
+          <button class="popover-item" role="menuitem" @click="showControlBarMore = false; toggleQuickGuide()">
+            <AppIcon name="help" :size="14" />
+            <span>Quick guide</span>
+          </button>
+          <button class="popover-item" role="menuitem" @click="showControlBarMore = false; toggleProductInfo()">
+            <AppIcon name="info" :size="14" />
+            <span>About {{ APP_NAME }}</span>
+          </button>
+        </div>
+      </div>
 
       <div class="ctrl-meta-dock" ref="footerMetaRef">
         <button
@@ -1029,7 +1146,24 @@ onUnmounted(() => {
 /* UI F-01: `flex-wrap: nowrap` is load-bearing. The shell's `ctrl` grid row is
    a fixed 58px and the shell is `overflow: hidden`, so any wrapped second row
    is clipped out of reach. Collapse tiers below shed content instead. */
-.control-bar    { grid-area: ctrl; display:flex; flex-wrap:nowrap; align-items:center; gap:8px; padding:0 12px; margin-top:5px; position:relative; overflow:visible; min-width:0; }
+.control-bar {
+  grid-area: ctrl;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  margin-top: 5px;
+  position: relative;
+  min-width: 0;
+  overflow: visible;
+  /* §7.1: the bar is a header strip, not a pane of glass over nothing. The
+     `backdrop-filter` that `.glass-panel` applied cost a full-viewport blur
+     every frame for a surface with the page background behind it. */
+  background: var(--surface-panel-header);
+  border-top: 1px solid var(--border-medium);
+  box-shadow: inset 0 1px 0 var(--highlight-top);
+}
 
 .ctrl-btn-glyph { flex-shrink:0; }
 .ctrl-btn-label-short { display:none; }
@@ -1054,7 +1188,7 @@ onUnmounted(() => {
   background:var(--bg-hover);
   color:var(--text-secondary);
   padding:6px 10px;
-  font-size:0.75rem;
+  font-size:var(--fs-xs);
   font-weight:700;
   cursor:pointer;
 }
@@ -1066,16 +1200,16 @@ onUnmounted(() => {
 }
 
 .ctrl-section    { display:flex; align-items:center; gap:6px; }
-.ctrl-label      { font-size:0.72rem; color:var(--text-muted); letter-spacing:0.5px; font-weight:700; white-space:nowrap; }
+.ctrl-label      { font-size:var(--fs-xs); color:var(--text-muted); letter-spacing:0.5px; font-weight:700; white-space:nowrap; }
 .ctrl-ingest { display:inline-flex; align-items:center; gap:4px; }
 .ctrl-ingest .ctrl-label { font-size: var(--fs-xs); }
 .ctrl-value      {
-  font-size:0.82rem; color:var(--text-primary); font-weight:600; white-space:nowrap;
+  font-size:var(--fs-md); color:var(--text-primary); font-weight:600; white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; max-width:260px;
 }
 .ctrl-divider    { width:1px; height:26px; background:var(--border-subtle); flex-shrink:0; }
 .ctrl-play-wrap  { flex:0 0 auto; }
-.take-failure { display:flex; align-items:center; gap:5px; color:var(--accent-red); font-size:0.75rem; font-weight:700; white-space:nowrap; }
+.take-failure { display:flex; align-items:center; gap:5px; color:var(--accent-red); font-size:var(--fs-xs); font-weight:700; white-space:nowrap; }
 
 .ctrl-btn {
   background:var(--bg-hover); border:1px solid var(--border-medium);
@@ -1202,7 +1336,7 @@ onUnmounted(() => {
   align-items:center;
   gap:6px;
   font-weight:700;
-  font-size:0.75rem;
+  font-size:var(--fs-xs);
   padding:5px 12px;
   border-radius:6px;
   transition:all 0.15s;
@@ -1225,8 +1359,10 @@ onUnmounted(() => {
   border-color:color-mix(in srgb, var(--status-error) 70%, transparent);
 }
 
+/* §7.1: the timecode sits in a well, so the one number that is read from
+   across the room has an edge of its own rather than floating on the strip. */
 .timecode {
-  font-size: 1.75rem;
+  font-size: var(--fs-tc-hero);
   font-weight: 700;
   letter-spacing: 2.5px;
   font-variant-numeric: tabular-nums;
@@ -1234,6 +1370,10 @@ onUnmounted(() => {
   color: var(--accent-blue);
   text-shadow: 0 0 14px color-mix(in srgb, var(--accent-blue) 40%, transparent);
   line-height: 1;
+  padding: 4px var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  box-shadow: var(--shadow-inset);
 }
 
 /* A heavier rule than .ctrl-divider: specificity, not !important. */
@@ -1255,7 +1395,7 @@ onUnmounted(() => {
 }
 
 .routing-fence-label {
-  font-size: 0.6rem;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--status-error);
@@ -1336,7 +1476,7 @@ onUnmounted(() => {
 }
 
 .conn-popover-title {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -1346,11 +1486,11 @@ onUnmounted(() => {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 
 .conn-popover-body {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1436,7 +1576,7 @@ onUnmounted(() => {
 }
 
 .nextup-title {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -1562,7 +1702,7 @@ onUnmounted(() => {
 .ctrl-meta-help {
   width: var(--btn-h-compact, 30px);
   padding: 0;
-  font-size: 0.88rem;
+  font-size: var(--fs-lg);
   font-weight: 800;
 }
 
@@ -1601,14 +1741,14 @@ onUnmounted(() => {
 
 .ctrl-meta-title {
   margin-top: 4px;
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .ctrl-meta-copy {
   margin: 10px 0 0;
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   line-height: 1.45;
   color: var(--text-secondary);
 }
@@ -1630,7 +1770,7 @@ onUnmounted(() => {
 }
 
 .ctrl-meta-list li {
-  font-size: 0.76rem;
+  font-size: var(--fs-sm);
   line-height: 1.42;
   color: var(--text-secondary);
 }
@@ -1643,7 +1783,7 @@ onUnmounted(() => {
   background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: var(--fs-lg);
 }
 
 .ctrl-meta-close:hover {
@@ -1651,54 +1791,142 @@ onUnmounted(() => {
   color: var(--text-primary);
 }
 
-/* UI F-01: priority collapse instead of wrapping. The bar is a single
-   non-wrapping row at every width the app allows (min 1100px); when it runs
-   out of room it drops content in priority order, lowest value first.
-   Transport and the routing fence are never collapsed. */
-.control-bar.tier-compact .routing-fence-label,
-.control-bar.tier-minimal .routing-fence-label {
-  display: none;
+/* ---------------------------------------------------------------------------
+   §4.2 — the collapse ladder.
+
+   Each step is cumulative: `:is([data-step='3'], [data-step='4'], …)` reads as
+   "at step 3 or tighter". Nothing here is a media query; the step comes from
+   `fitControlBar()`, which measured whether the content actually fits.
+
+     0  everything
+     1  ROUTING label, INGEST word, thinner dividers
+     2  utilities become icon-only
+     3  long button labels become their short forms
+     4  the NEXT UP dock shrinks
+     5  utilities fold into one More popover
+
+   PLAY / STOP, the routing fence buttons and the timecode never shrink. They
+   are what the bar is for.
+   --------------------------------------------------------------------------- */
+
+/* Every direct child reports its natural width, or `scrollWidth` would report
+   the shrunk-to-fit width and the loop would think everything fits. */
+.control-bar > * {
+  flex-shrink: 0;
 }
 
-/* Tightest tier: labels become icons, long button texts become short ones.
-   Every control stays present and clickable — nothing leaves the bar. */
-.control-bar.tier-minimal .ctrl-divider {
+/* Step 1 ------------------------------------------------------------------ */
+.control-bar:is([data-step='1'], [data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .routing-fence-label {
   display: none;
 }
-
-.control-bar.tier-minimal .lock-text,
-.control-bar.tier-minimal .ctrl-settings-btn .ctrl-btn-label {
+.control-bar:is([data-step='1'], [data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .ctrl-ingest .ctrl-label {
   display: none;
 }
+.control-bar:is([data-step='1'], [data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .ctrl-divider {
+  margin: 0 2px;
+}
 
-.control-bar.tier-minimal .ctrl-settings-btn {
+/* Step 2: the utilities keep their hit areas and lose their words. The lock's
+   glyph already changes shape between states (§7.5), so nothing is lost. */
+.control-bar:is([data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .lock-text,
+.control-bar:is([data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .ctrl-settings-btn .ctrl-btn-label {
+  display: none;
+}
+.control-bar:is([data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .ctrl-settings-btn,
+.control-bar:is([data-step='2'], [data-step='3'], [data-step='4'], [data-step='5']) .lock-toggle-btn {
   padding-inline: 10px;
 }
 
-.control-bar.tier-minimal .btn-live-now .ctrl-btn-label,
-.control-bar.tier-minimal .btn-live-active .ctrl-btn-label {
+/* Step 3: long labels become their short forms. The engine action keeps its
+   glyph and its tooltip; the dot beside it is what actually says "connected". */
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .conn-action-btn .ctrl-btn-label {
+  display: none;
+}
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .conn-action-btn {
+  padding-inline: 10px;
+}
+
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .btn-live-now .ctrl-btn-label,
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .btn-live-active .ctrl-btn-label {
+  display: none;
+}
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .btn-live-now .ctrl-btn-label-short,
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .btn-live-active .ctrl-btn-label-short {
+  display: inline;
+}
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .ctrl-divider {
   display: none;
 }
 
-.control-bar.tier-minimal .btn-live-now .ctrl-btn-label-short,
-.control-bar.tier-minimal .btn-live-active .ctrl-btn-label-short {
-  display: inline;
-}
-
-.control-bar.tier-minimal .ctrl-nextup-dock {
-  min-width: 108px;
+/* Step 4: the dock is a readout, so it yields before any control does. */
+.control-bar:is([data-step='4'], [data-step='5']) .ctrl-nextup-dock {
+  min-width: 96px;
   max-width: 128px;
 }
+.control-bar:is([data-step='4'], [data-step='5']) .nextup-title {
+  max-width: 88px;
+}
+.control-bar:is([data-step='4'], [data-step='5']) .nextup-duration-pill {
+  display: none;
+}
 
-.control-bar.tier-minimal .nextup-title {
-  max-width: 90px;
+/* Step 5: one popover instead of three controls -- and the brand and help
+   buttons go with them, because More already holds About and Quick guide. The
+   dock itself stays in the tree: it is what the popovers are positioned
+   against, and it is what the outside-click handler tests. */
+.control-bar[data-step='5'] .ctrl-utilities,
+.control-bar[data-step='5'] .ctrl-meta-brand,
+.control-bar[data-step='5'] .ctrl-meta-help {
+  display: none;
+}
+.control-bar[data-step='5'] .ctrl-meta-dock {
+  gap: 0;
 }
 
 /* The popovers anchor to the right edge of the dock by default; at the tight
-   tier the dock can sit close enough to the left that they would overflow. */
-.control-bar.tier-minimal .ctrl-meta-popover,
-.control-bar.tier-minimal .ctrl-meta-popover-guide {
+   steps the dock can sit close enough to the left that they would overflow. */
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .ctrl-meta-popover,
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .ctrl-meta-popover-guide {
   width: min(380px, calc(100vw - 24px));
+}
+
+.ctrl-utilities {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctrl-more-wrap {
+  position: relative;
+}
+.ctrl-more-btn.is-open {
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+.ctrl-more-menu {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  right: 0;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: var(--z-popover);
+}
+/* A status line, not a control: it reads the same as the rows around it but
+   does nothing when clicked, so it is not a button. */
+.ctrl-more-menu .popover-item.is-static {
+  cursor: default;
+}
+.popover-item-badge {
+  margin-left: auto;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
 }
 
 .halt-banner {
@@ -1805,7 +2033,7 @@ onUnmounted(() => {
 }
 
 .halt-text {
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -1816,7 +2044,7 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   padding: 6px 12px;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   cursor: pointer;
   transition: background 0.2s, transform 0.1s;
@@ -1846,10 +2074,6 @@ onUnmounted(() => {
 @keyframes pulseWarning {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.15); }
-}
-/* At the tightest tier the ingest label folds back to its dot. */
-.control-bar.tier-minimal .ctrl-ingest .ctrl-label {
-  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

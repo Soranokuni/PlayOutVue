@@ -1530,10 +1530,20 @@ export const useRundownStore = defineStore('rundown', () => {
         }
     };
 
-    const closePlaylist = (playlistId: string) => {
-        if (playlists.value.length <= 1 || playlistId === onAirPlaylistId.value) return false;
+    /**
+     * Round 3 §5.2: returns the record it removed, so the caller can offer Undo.
+     *
+     * It used to return a bare `true`, which left the caller holding nothing to
+     * put back -- the only way to recover a closed playlist was to build it
+     * again by hand. `null` still means "refused": the last playlist and the
+     * on-air playlist cannot be closed.
+     */
+    const closePlaylist = (playlistId: string): { playlist: RundownPlaylist; index: number } | null => {
+        if (playlists.value.length <= 1 || playlistId === onAirPlaylistId.value) return null;
         const index = playlists.value.findIndex((playlist) => playlist.id === playlistId);
-        if (index === -1) return false;
+        if (index === -1) return null;
+        const removed = playlists.value[index];
+        if (!removed) return null;
         const nextPlaylists = [...playlists.value];
         nextPlaylists.splice(index, 1);
         playlists.value = nextPlaylists;
@@ -1544,6 +1554,24 @@ export const useRundownStore = defineStore('rundown', () => {
                 activePlaylistId.value = nextPlaylist.id;
             }
         }
+        return { playlist: removed, index };
+    };
+
+    /**
+     * Round 3 §5.2: the other half of Undo.
+     *
+     * Splices a previously closed record back where it was and activates it, so
+     * the tab strip looks exactly as it did before the delete rather than
+     * growing a new tab on the end.
+     */
+    const restorePlaylist = (playlist: RundownPlaylist, index: number) => {
+        if (playlists.value.some((existing) => existing.id === playlist.id)) return false;
+        const nextPlaylists = [...playlists.value];
+        const at = Math.max(0, Math.min(index, nextPlaylists.length));
+        nextPlaylists.splice(at, 0, playlist);
+        playlists.value = nextPlaylists;
+        triggerRef(playlists);
+        activePlaylistId.value = playlist.id;
         return true;
     };
 
@@ -2308,6 +2336,7 @@ export const useRundownStore = defineStore('rundown', () => {
         activatePlaylist,
         renamePlaylist,
         closePlaylist,
+        restorePlaylist,
         addItem,
         insertItemAt,
         addGapMarker,

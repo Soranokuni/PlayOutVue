@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue';
-import { dismissToast, toasts, type ToastTone } from '../../lib/toasts';
+import { dismissToast, runToastAction, toasts, type ToastTone } from '../../lib/toasts';
 import type { IconName } from './icons';
 
 /**
@@ -28,6 +28,15 @@ const ICONS: Record<ToastTone, IconName> = {
             <p class="toast-message">{{ toast.message }}</p>
             <p v-if="toast.detail" class="toast-detail">{{ toast.detail }}</p>
           </div>
+          <button
+            v-if="toast.action"
+            type="button"
+            class="btn btn--ghost btn--sm toast-action"
+            @click="runToastAction(toast.id)"
+          >
+            <AppIcon name="undo" :size="14" />
+            <span>{{ toast.action.label }}</span>
+          </button>
           <button
             type="button"
             class="btn btn--icon btn--sm toast-dismiss"
@@ -109,6 +118,18 @@ const ICONS: Record<ToastTone, IconName> = {
 
 .toast-dismiss {
   flex-shrink: 0;
+}
+
+/* §5.2: one action, in the toast's own tone, so Undo reads as part of the
+   statement rather than as a second notification. */
+.toast-action {
+  flex-shrink: 0;
+  color: var(--toast-accent);
+  font-weight: 700;
+}
+.toast-action:hover:not(:disabled) {
+  color: var(--toast-accent);
+  background: color-mix(in srgb, var(--toast-accent) 14%, transparent);
 }
 
 /* PERF: transform and opacity only. */
