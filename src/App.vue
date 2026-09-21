@@ -832,7 +832,7 @@ onUnmounted(() => {
         <span class="fault-source">{{ fault.source }}</span>
         <span class="fault-message">{{ fault.message }}</span>
         <span v-if="fault.count > 1" class="fault-count">×{{ fault.count }}</span>
-        <button class="fault-dismiss" title="Dismiss" aria-label="Dismiss fault" @click="dismissFrontendFault(fault.id)">
+        <button type="button" class="btn btn--icon btn--sm fault-dismiss" v-tooltip="'Dismiss'" aria-label="Dismiss fault" @click="dismissFrontendFault(fault.id)">
           <AppIcon name="close" :size="14" />
         </button>
       </div>
@@ -861,7 +861,7 @@ onUnmounted(() => {
           <span class="conn-text">{{ connectionShortState }}</span>
         </span>
         <button
-          class="ctrl-btn conn-action-btn"
+          class="btn ctrl-btn conn-action-btn"
           :disabled="isStarting || processState === 'starting'"
           v-tooltip="`${connectionActionLabel} — CasparCG: ${connectionLabel}`"
           :aria-label="connectionActionLabel"
@@ -879,7 +879,7 @@ onUnmounted(() => {
       <div class="ctrl-section ctrl-play-wrap">
         <button
           v-if="!isPlayoutPlaying"
-          class="ctrl-btn btn-play"
+          class="btn ctrl-btn btn-play"
           :disabled="!isPlayoutConnected || !rundown.activeItems.length || rundown.isRundownLocked || !isPrimaryInstance"
           @click="playSelected"
           v-tooltip="!isPrimaryInstance ? 'Disabled in Monitor Mode (Read-Only)' : (rundown.isRundownLocked ? 'Rundown is Locked (Unlock to Play)' : 'Play playlist from selected item (or beginning)')"
@@ -889,7 +889,7 @@ onUnmounted(() => {
         </button>
         <button
           v-else
-          class="ctrl-btn btn-stop"
+          class="btn ctrl-btn btn-stop"
           :disabled="!isPrimaryInstance"
           @click="stopPlayback"
           title="Stop playback"
@@ -906,7 +906,7 @@ onUnmounted(() => {
         <span class="routing-fence-label">ROUTING</span>
         <button
           v-if="!isPlayoutLive"
-          class="ctrl-btn btn-live-now"
+          class="btn ctrl-btn btn-live-now"
           :class="{ 'btn-live-armed': isLiveCutArmed }"
           :disabled="!isPlayoutConnected || !isPrimaryInstance"
           @click="cutToLive"
@@ -927,7 +927,7 @@ onUnmounted(() => {
         </button>
         <button
           v-else
-          class="ctrl-btn btn-live-active"
+          class="btn ctrl-btn btn-live-active"
           :disabled="!isPrimaryInstance"
           @click="returnFromLive"
           title="Live Broadcast Active — Click to Return to Rundown Playlist"
@@ -940,9 +940,9 @@ onUnmounted(() => {
 
       <div v-if="manualTakeFailure" class="take-failure" role="alert">
         <span>TAKE HELD: {{ manualTakeFailure.filename }}</span>
-        <button class="ctrl-btn" @click="retryFailedTake">Retry</button>
-        <button class="ctrl-btn" @click="skipFailedTake">Skip</button>
-        <button class="ctrl-btn btn-live-now" @click="cutToLive">Live</button>
+        <button type="button" class="btn ctrl-btn" @click="retryFailedTake">Retry</button>
+        <button type="button" class="btn ctrl-btn" @click="skipFailedTake">Skip</button>
+        <button type="button" class="btn ctrl-btn btn-live-now" @click="cutToLive">Live</button>
       </div>
 
       <div class="ctrl-divider"></div>
@@ -968,12 +968,12 @@ onUnmounted(() => {
       <div v-if="activePlayoutCapabilities.streaming" class="ctrl-section">
         <div class="status-dot" :class="{ connected: isStreaming }"></div>
         <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
-        <button class="ctrl-btn" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream" style="font-size:var(--fs-xs);">
+        <button type="button" class="btn ctrl-btn ctrl-btn--xs" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream">
           <AppIcon :name="isStreaming ? 'stop' : 'live'" :size="14" />
           <span>{{ isStreaming ? 'Stop' : 'Stream' }}</span>
         </button>
 
-        <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" class="ctrl-btn" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleSdi" style="font-size:var(--fs-xs); margin-left:12px;">
+        <button v-if="activePlayoutCapabilities.hardwareOutput && settings.decklinkOutputName" type="button" class="btn ctrl-btn ctrl-btn--xs ctrl-btn--spaced" :class="{ 'btn-live': isSdiActive }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleSdi">
           <AppIcon :name="isSdiActive ? 'stop' : 'live'" :size="14" />
           <span>{{ isSdiActive ? 'SDI Stop' : 'SDI OUT' }}</span>
         </button>
@@ -989,7 +989,7 @@ onUnmounted(() => {
       <div class="ctrl-utilities">
         <!-- Rundown Safety Lock Button -->
         <button
-          class="ctrl-btn lock-toggle-btn"
+          class="btn ctrl-btn lock-toggle-btn"
           :class="{ 'is-locked': rundown.isRundownLocked }"
           :aria-pressed="rundown.isRundownLocked"
           @click="rundown.toggleRundownLock()"
@@ -1005,7 +1005,7 @@ onUnmounted(() => {
         </span>
 
         <button
-          class="ctrl-btn ctrl-settings-btn"
+          class="btn ctrl-btn ctrl-settings-btn"
           aria-label="Settings"
           v-tooltip="'Settings'"
           @pointerenter="preloadSettingsModal()"
@@ -1021,7 +1021,7 @@ onUnmounted(() => {
            have left it, so it costs nothing at any wider step. -->
       <div v-if="isControlBarCollapsed" class="ctrl-more-wrap">
         <button
-          class="ctrl-btn ctrl-more-btn"
+          class="btn ctrl-btn ctrl-more-btn"
           :class="{ 'is-open': showControlBarMore }"
           aria-label="More controls"
           v-tooltip="'More controls'"
@@ -1092,7 +1092,7 @@ onUnmounted(() => {
               <div class="ctrl-meta-kicker">System</div>
               <div class="ctrl-meta-title">{{ APP_NAME }} {{ APP_VERSION }}</div>
             </div>
-            <button class="ctrl-meta-close" @click.stop="closeFooterPanels" aria-label="Close info">×</button>
+            <button type="button" class="btn btn--icon btn--sm ctrl-meta-close" @click.stop="closeFooterPanels" aria-label="Close info">×</button>
           </div>
           <p class="ctrl-meta-copy">Broadcast playout control built for rundown-driven operations and rapid operator decisions.</p>
           <ul class="ctrl-meta-list">
@@ -1106,7 +1106,7 @@ onUnmounted(() => {
               <div class="ctrl-meta-kicker">Quick Guide</div>
               <div class="ctrl-meta-title">Shortcuts and basics</div>
             </div>
-            <button class="ctrl-meta-close" @click.stop="closeFooterPanels" aria-label="Close guide">×</button>
+            <button type="button" class="btn btn--icon btn--sm ctrl-meta-close" @click.stop="closeFooterPanels" aria-label="Close guide">×</button>
           </div>
           <div class="ctrl-meta-section-label">Keyboard shortcuts</div>
           <ul class="ctrl-meta-list">
@@ -1197,16 +1197,32 @@ onUnmounted(() => {
 .ctrl-play-wrap  { flex:0 0 auto; }
 .take-failure { display:flex; align-items:center; gap:5px; color:var(--accent-red); font-size:var(--fs-xs); font-weight:700; white-space:nowrap; }
 
+/* §7.2: a `.btn` with the control bar's metrics, and nothing else. Surface,
+   border, radius, hover, focus ring, press and disabled all come from the
+   family now -- this rule set used to restate every one of them, minus the
+   focus ring and the press, which the bar simply did not have.
+
+   Four metric overrides, and they are deliberate. `height: auto` is not
+   laziness: §4's collapse ladder shrinks these buttons by rewriting their
+   padding per rung, which a fixed `--control-h-*` would fight. `line-height`
+   is inherited rather than the family's `1` because the bar's buttons take
+   their height from their type, and pinning it to 1 took 2.7 px off every
+   control in the bar and 4.6 px off PLAY. Padding and gap are the
+   pre-migration values to the pixel.
+
+   Net effect: the bar renders identically and the ladder does not move --
+   measured, both in the PR. What it gains is the focus ring, the press state
+   and the one disabled opacity, none of which it had. */
 .ctrl-btn {
-  background:var(--bg-hover); border:1px solid var(--border-medium);
-  color:var(--text-primary); border-radius:6px; cursor:pointer;
-  padding:6px 14px; font-size:var(--fs-sm); font-weight:600; white-space:nowrap;
-  display:inline-flex; align-items:center; gap:6px;
-  /* PERF: explicit property list, never `all`. */
-  transition:background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  height: auto;
+  padding: 6px 14px;
+  gap: 6px;
+  line-height: inherit;
 }
-.ctrl-btn:hover:not(:disabled) { background:color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover)); border-color:var(--border-strong); }
-.ctrl-btn:disabled { opacity:0.35; cursor:not-allowed; }
+
+/* The two output toggles run a step smaller than the rest of the bar. */
+.ctrl-btn--xs { font-size: var(--fs-xs); }
+.ctrl-btn--spaced { margin-left: var(--space-3); }
 
 .btn-play {
   background:var(--accent-cyan); border-color:var(--accent-cyan);
@@ -1762,17 +1778,12 @@ onUnmounted(() => {
 }
 
 .ctrl-meta-close {
-  width: 24px;
-  height: 24px;
-  border: none;
   border-radius: 999px;
   background: var(--bg-hover);
-  color: var(--text-secondary);
-  cursor: pointer;
   font-size: var(--fs-lg);
 }
 
-.ctrl-meta-close:hover {
+.ctrl-meta-close:hover:not(:disabled) {
   background: var(--border-medium);
   color: var(--text-primary);
 }
@@ -1998,14 +2009,13 @@ onUnmounted(() => {
 }
 
 .fault-dismiss {
-  background: transparent;
-  border: 0;
   color: inherit;
-  cursor: pointer;
   opacity: 0.7;
 }
 
-.fault-dismiss:hover {
+.fault-dismiss:hover:not(:disabled) {
+  background: transparent;
+  color: inherit;
   opacity: 1;
 }
 
