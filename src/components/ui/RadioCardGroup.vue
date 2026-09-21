@@ -178,8 +178,8 @@ const tabIndexFor = (option: RadioCardOption, index: number) => {
 
 .radio-card-badge {
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -191,14 +191,14 @@ const tabIndexFor = (option: RadioCardOption, index: number) => {
 .radio-card-title {
   margin: 0;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
 }
 
 .radio-card-desc {
   margin: 0;
   font-size: var(--fs-xs);
-  line-height: 1.45;
+  line-height: var(--lh-body);
   color: var(--text-secondary);
 }
 </style>

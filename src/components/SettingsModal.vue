@@ -762,7 +762,7 @@ const openTemplateDir = async () => {
       <!-- UI §4.1: left rail. Class pinned by SettingsModalConfirmation.test.ts. -->
       <nav class="settings-rail" aria-label="Settings sections">
         <div class="rail-filter">
-          <AppIcon class="rail-filter-icon" name="search" :size="14" />
+          <AppIcon class="rail-filter-icon" name="search" :size="16" />
           <input v-model="sectionFilter" class="input rail-filter-input" type="search" placeholder="Find a setting…" />
         </div>
         <button
@@ -1251,7 +1251,7 @@ const openTemplateDir = async () => {
 .settings-rail {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-0);
     padding-right: var(--space-3);
     border-right: 1px solid var(--border-subtle);
     overflow-y: auto;
@@ -1273,7 +1273,8 @@ const openTemplateDir = async () => {
 
 .rail-filter-input {
     height: var(--control-h-sm);
-    padding-left: calc(var(--space-2) * 2 + 14px);
+    /* §3.8: the field clears a 16px toolbar icon, not a 14px row one. */
+  padding-left: calc(var(--space-2) * 2 + 16px);
     font-size: var(--fs-xs);
 }
 
@@ -1289,7 +1290,7 @@ const openTemplateDir = async () => {
     color: var(--text-secondary);
     font-family: var(--font-ui);
     font-size: var(--fs-sm);
-    font-weight: 600;
+    font-weight: var(--fw-semibold);
     text-align: left;
     cursor: pointer;
     transition:
@@ -1355,14 +1356,14 @@ const openTemplateDir = async () => {
 .section-title {
     margin: 0 0 var(--space-1);
     font-size: var(--fs-md);
-    font-weight: 700;
+    font-weight: var(--fw-bold);
     color: var(--text-primary);
 }
 
 .section-hint {
     margin: 0 0 var(--space-3);
     font-size: var(--fs-xs);
-    line-height: 1.5;
+    line-height: var(--lh-body);
     color: var(--text-secondary);
 }
 
@@ -1433,7 +1434,7 @@ const openTemplateDir = async () => {
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-3);
-    padding: 3px 0;
+    padding: var(--space-0) 0;
 }
 
 .env-row dt {
@@ -1459,12 +1460,12 @@ const openTemplateDir = async () => {
 
 .instance-role-badge,
 .process-state-badge {
-    padding: 2px var(--space-2);
+    padding: var(--space-0) var(--space-2);
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     font-size: var(--fs-xs);
-    font-weight: 700;
-    letter-spacing: 0.03em;
+    font-weight: var(--fw-bold);
+    letter-spacing: var(--tracking-caps);
     text-transform: capitalize;
     white-space: nowrap;
 }
@@ -1518,8 +1519,8 @@ const openTemplateDir = async () => {
 .theme-swatch {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    padding: 3px;
+    gap: var(--space-0);
+    padding: var(--space-0);
     border: 1px solid var(--border-medium);
     border-radius: var(--radius-sm);
 }
@@ -1528,7 +1529,7 @@ const openTemplateDir = async () => {
     display: block;
     width: 10px;
     height: 14px;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
 }
 
 .swatch-accent {
@@ -1572,12 +1573,12 @@ const openTemplateDir = async () => {
 .danger-zone-title {
     margin: 0;
     font-size: var(--fs-sm);
-    font-weight: 600;
+    font-weight: var(--fw-semibold);
     color: var(--text-primary);
 }
 
 .danger-zone-hint {
-    margin: 2px 0 0;
+    margin: var(--space-0) 0 0;
     font-size: var(--fs-xs);
     color: var(--text-secondary);
 }
@@ -1593,7 +1594,7 @@ const openTemplateDir = async () => {
 code {
     font-family: var(--font-mono);
     font-size: 0.95em;
-    padding: 0 3px;
+    padding: 0 var(--space-0);
     border-radius: var(--radius-sm);
     background: var(--bg-hover);
 }

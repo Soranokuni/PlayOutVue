@@ -93,11 +93,11 @@ const isLiveRegion = computed(() => props.variant !== 'dot' || !!props.label);
 .status-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   font-family: var(--font-ui);
   font-size: var(--fs-xs);
-  font-weight: 500;
-  line-height: 1.2;
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
   user-select: none;
 }
 
@@ -172,11 +172,11 @@ const isLiveRegion = computed(() => props.variant !== 'dot' || !!props.label);
 
 /* Variant styles */
 .dot {
-  padding: 2px 4px;
+  padding: var(--space-0) var(--space-1);
 }
 
 .pill {
-  padding: 3px 8px;
+  padding: var(--space-0) var(--space-2);
   border-radius: var(--radius-pill);
   background-color: var(--tone-bg);
   border: 1px solid var(--tone-border);
@@ -201,29 +201,17 @@ const isLiveRegion = computed(() => props.variant !== 'dot' || !!props.label);
 }
 
 .pulse .status-dot {
-  animation: status-pulse 1.8s infinite ease-in-out;
-}
-
-@keyframes status-pulse {
-  0%   { opacity: 1; transform: scale(1); }
-  50%  { opacity: 0.45; transform: scale(0.82); }
-  100% { opacity: 1; transform: scale(1); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pulse .status-dot {
-    animation: none;
-  }
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 .banner-content {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0);
 }
 
 .status-title {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 .status-sublabel {

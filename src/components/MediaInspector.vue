@@ -288,7 +288,7 @@ const getDisplayName = (item: any) => {
               </div>
 
               <!-- Sync Actions -->
-              <div class="action-buttons-row" style="margin-top: 1rem;">
+              <div class="action-buttons-row">
                 <button
                   class="glass-btn"
                   :disabled="ingestorFetchInFlight"
@@ -362,24 +362,24 @@ const getDisplayName = (item: any) => {
 .inspector-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1.25rem;
+  gap: var(--space-5);
 }
 
 .inspector-card {
   background: var(--bg-surface);
   border: 1px solid var(--glass-border);
-  border-radius: 8px;
-  padding: 1.1rem;
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .card-title {
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 700;
+  letter-spacing: var(--tracking-caps);
+  font-weight: var(--fw-bold);
   color: var(--text-secondary);
   margin: 0;
 }
@@ -387,20 +387,20 @@ const getDisplayName = (item: any) => {
 .meta-table {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: var(--space-3);
 }
 
 .meta-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.82rem;
-  gap: 8px;
+  font-size: var(--fs-md);
+  gap: var(--space-2);
 }
 
 .meta-label {
   color: var(--text-secondary);
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   flex-shrink: 0;
 }
 
@@ -409,98 +409,99 @@ const getDisplayName = (item: any) => {
   text-align: right;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .meta-val.mono {
   font-family: 'JetBrains Mono', 'Consolas', monospace;
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
 }
 
 .meta-val.small {
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
 }
 
 .path-val {
   word-break: break-all;
   max-width: 260px;
-  line-height: 1.3;
+  line-height: var(--lh-tight);
 }
 
-.text-green { color: var(--status-ready); font-weight: 600; }
-.text-orange { color: var(--status-warning); font-weight: 600; }
+.text-green { color: var(--status-ready); font-weight: var(--fw-semibold); }
+.text-orange { color: var(--status-warning); font-weight: var(--fw-semibold); }
 
 .warnings-box {
   background: color-mix(in srgb, var(--status-warning) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--status-warning) 35%, transparent);
-  border-radius: 8px;
-  padding: 1rem;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
 }
 
 .warnings-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 0.5rem;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 .warnings-title {
-  font-size: 0.85rem;
-  font-weight: 700;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
   color: var(--status-warning);
   margin: 0;
 }
 
 .warnings-list {
   margin: 0;
-  padding-left: 1.25rem;
+  padding-left: var(--space-5);
   color: var(--text-primary);
-  font-size: 0.78rem;
-  line-height: 1.45;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
 }
 
 .warnings-list li {
-  margin-bottom: 3px;
+  margin-bottom: var(--space-0);
   word-break: break-all;
 }
 
 .action-buttons-row {
+  margin-top: var(--space-4);
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .nudge-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .nudge-control {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .nudge-control label {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 .adjuster {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .nudge-display {
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-3);
   background: var(--bg-input);
   border: 1px solid var(--glass-border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-weight: 700;
-  font-size: 0.82rem;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-md);
   min-width: 44px;
   text-align: center;
 }

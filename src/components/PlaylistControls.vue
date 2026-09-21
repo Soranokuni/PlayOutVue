@@ -242,7 +242,7 @@ const commitGapLine = () => {
 .pl-total {
   font-family: var(--font-mono);
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 .pl-status {
@@ -256,15 +256,15 @@ const commitGapLine = () => {
 
 .pl-status.is-error {
   color: var(--status-error);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .pl-label {
   font-size: var(--fs-xs);
   color: var(--text-muted);
   text-transform: uppercase;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
 }
 
 .pl-day-select,
@@ -273,7 +273,7 @@ const commitGapLine = () => {
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
   border-radius: var(--radius-md);
-  padding: 2px var(--space-2);
+  padding: var(--space-0) var(--space-2);
   font-size: var(--fs-sm);
   height: var(--control-h-sm);
 }

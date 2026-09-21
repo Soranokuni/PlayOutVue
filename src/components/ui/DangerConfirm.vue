@@ -95,7 +95,7 @@ const emit = defineEmits<{ (e: 'confirm'): void; (e: 'cancel'): void }>();
 .danger-message {
   margin: 0;
   font-size: var(--fs-sm);
-  line-height: 1.5;
+  line-height: var(--lh-body);
   color: var(--text-primary);
 }
 
@@ -110,7 +110,7 @@ const emit = defineEmits<{ (e: 'confirm'): void; (e: 'cancel'): void }>();
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--status-error) 10%, transparent);
   font-size: var(--fs-xs);
-  line-height: 1.5;
+  line-height: var(--lh-body);
   color: var(--status-error);
   text-align: left;
 }

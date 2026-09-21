@@ -88,10 +88,10 @@ defineProps<{
   grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: var(--space-3);
-  padding: 6px 10px;
-  margin: 1px 4px;
+  padding: var(--space-2) var(--space-3);
+  margin: var(--space-0) var(--space-1);
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-primary);
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -232,15 +232,15 @@ defineProps<{
 /* The badge is the mark itself, drawn the way it is drawn on air. */
 .menu-item-badge {
   min-width: 22px;
-  padding: 1px 5px;
+  padding: var(--space-0) var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--menu-tone);
   color: var(--menu-tone-fg);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  line-height: 1.35;
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
   text-align: center;
-  letter-spacing: 0.03em;
+  letter-spacing: var(--tracking-caps);
 }
 
 /* §6.1: the menu teaches the keyboard. Populated from the command registry

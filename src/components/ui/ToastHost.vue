@@ -93,7 +93,7 @@ const ICONS: Record<ToastTone, IconName> = {
 }
 
 .toast-icon {
-  margin-top: 1px;
+  margin-top: var(--space-0);
   color: var(--toast-accent);
 }
 
@@ -105,14 +105,14 @@ const ICONS: Record<ToastTone, IconName> = {
 .toast-message {
   margin: 0;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
 }
 
 .toast-detail {
-  margin: 2px 0 0;
+  margin: var(--space-0) 0 0;
   font-size: var(--fs-xs);
-  line-height: 1.4;
+  line-height: var(--lh-body);
   color: var(--text-secondary);
 }
 
@@ -125,7 +125,7 @@ const ICONS: Record<ToastTone, IconName> = {
 .toast-action {
   flex-shrink: 0;
   color: var(--toast-accent);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 .toast-action:hover:not(:disabled) {
   color: var(--toast-accent);

@@ -22,14 +22,6 @@ import { SRC, checkBudgets, declarations } from './styleGuard';
 /** Remaining radius literals per file. Lower these; never raise them. */
 const ALLOWLIST: Record<string, number> = {
   'App.vue': 12,
-  'components/ComplianceModule.vue': 12,
-  'components/CasparConfigModal.vue': 5,
-  'components/CommandPaletteModal.vue': 5,
-  'components/RecycleBinModal.vue': 4,
-  'components/FolderPickerModal.vue': 3,
-  'components/MediaInspector.vue': 3,
-  'components/ContextMenu.vue': 2,
-  'components/SettingsModal.vue': 1,
 };
 
 function countLiteralRadius(source: string): number {

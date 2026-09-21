@@ -32,12 +32,6 @@ const SRC = join(process.cwd(), 'src');
  * rundown header. What is left is the dialogs, which later phases migrate.
  */
 const ALLOWLIST: Record<string, number> = {
-  'components/ComplianceModule.vue': 15,
-  'components/RecycleBinModal.vue': 11,
-  'components/MediaInspector.vue': 9,
-  'components/CommandPaletteModal.vue': 8,
-  'components/FolderPickerModal.vue': 8,
-  'components/CasparConfigModal.vue': 5,
   // One `0.95em` inside a nested rule; relative, so it does follow the scale.
   'components/SettingsModal.vue': 1,
 };

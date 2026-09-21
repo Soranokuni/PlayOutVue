@@ -23,23 +23,12 @@ import { SRC, checkBudgets, declarations, styleSurfaces } from './styleGuard';
 
 /** Remaining `transition: all` per file. Drive to zero; it has no future. */
 const ALL_ALLOWLIST: Record<string, number> = {
-  'components/ComplianceModule.vue': 3,
-  'components/RecycleBinModal.vue': 2,
   'App.vue': 1,
-  'components/FolderPickerModal.vue': 1,
 };
 
 /** Remaining duration literals per file. Lower these; never raise them. */
 const DURATION_ALLOWLIST: Record<string, number> = {
   'App.vue': 20,
-  'components/RecycleBinModal.vue': 5,
-  'components/ComplianceModule.vue': 4,
-  'components/FolderPickerModal.vue': 4,
-  'components/ContextMenu.vue': 3,
-  'components/IngestorStatusLight.vue': 3,
-  'components/CommandPaletteModal.vue': 1,
-  'components/StatusIndicator.vue': 1,
-  'components/ui/AppIcon.vue': 1,
 };
 
 /** Remaining animated shadows per file. Lower these; never raise them. */

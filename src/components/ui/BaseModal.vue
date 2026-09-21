@@ -275,10 +275,10 @@ const panelClasses = computed(() => ['modal-panel', `modal-panel--${props.size}`
 
 .modal-kicker {
   display: block;
-  margin-bottom: 2px;
+  margin-bottom: var(--space-0);
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -286,7 +286,7 @@ const panelClasses = computed(() => ['modal-panel', `modal-panel--${props.size}`
 .modal-title {
   margin: 0;
   font-size: var(--fs-lg);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--text-primary);
 }
 
