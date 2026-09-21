@@ -281,6 +281,14 @@ watch(
     casparAutoStart: settings.casparAutoStart,
     casparKeepAliveOnExit: settings.casparKeepAliveOnExit,
     casparAutoRelaunchOnCrash: settings.casparAutoRelaunchOnCrash,
+    // The AI designer's key reaches the Rust bridge and stops there — it is
+    // never written into the advisory template, which is copied to the
+    // CasparCG host.
+    aiProvider: settings.aiProvider,
+    aiApiKey: settings.aiApiKey,
+    aiModel: settings.aiModel,
+    aiEffort: settings.aiEffort,
+    aiMonthlyCapUsd: settings.aiMonthlyCapUsd,
   }),
   (runtimeSettings) => {
     invoke('apply_runtime_settings', {

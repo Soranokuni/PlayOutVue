@@ -1,0 +1,59 @@
+    /* =========================================================================
+       SOTA 3-CARD WORKSTATION ARCHITECTURE (MCR BROADCAST DESIGN SYSTEM)
+       - Card 1 (Left): CONTROLS Panel (Vertical card, 460px, rounded 24px)
+       - Card 2 (Right Top): 16:9 PREVIEW Monitor (1080p Canvas, Center Scaled)
+       - Card 3 (Right Bottom): CONSOLE (Live SVG Attributes & Action History with Revert)
+       ========================================================================= */
+    :root {
+      /* Stage 1: Station Logo Positions & Dimensions */
+      --cg-logo-top: 60px;
+      --cg-logo-left: 60px;
+      --cg-logo-right: 60px;
+      --cg-logo-bottom: 60px;
+      --cg-logo-size: 88px;
+      --cg-logo-text-x: 0px;
+      --cg-logo-text-y: 0px;
+      --cg-logo-text-size: 40px;
+      --cg-logo-subtitle-size: 11px;
+
+      /* Stage 2: Rating Stencil & Banner Sizing & Positions */
+      --cg-top: 60px;
+      --cg-right: 60px;
+      --cg-left: 60px;
+      --cg-bottom: 60px;
+      --cg-badge-size: 48px;
+      --cg-badge-font-size: 24px;
+      --cg-explanation-font-size: 13px;
+      --cg-warning-lead-font-size: 10.5px;
+      --cg-warning-body-font-size: 12px;
+      --cg-warning-icon-size: 30px;
+      --cg-accent-line-height: 2px;
+      --cg-line-gap: 8px;
+      --cg-text-offset-y: 0px;
+      --cg-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+      /* Theme Variables (Default: SOTA Frosted Glass & Neumorphic Hybrid) */
+      --badge-bg: rgba(255, 255, 255, 0.32);
+      --badge-fill: rgba(255, 255, 255, 0.35);
+      --badge-stroke: rgba(255, 255, 255, 0.85);
+      --badge-shadow: 0 4px 18px rgba(0, 0, 0, 0.42), -2px -2px 8px rgba(255, 255, 255, 0.35), inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.85), inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.20);
+      --badge-backdrop: blur(16px) saturate(180%);
+      --stencil-outline-color: rgba(0, 0, 0, 0.35);
+      --stencil-outline-width: 0.9px;
+      --accent-bg: linear-gradient(270deg, rgba(255, 255, 255, 0.95) 0%, rgba(56, 189, 248, 0.85) 50%, rgba(255, 255, 255, 0) 100%);
+      --text-color: #ffffff;
+      --text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85);
+      --text-stroke: 0.35px rgba(0, 0, 0, 0.45);
+      --trough-bg: transparent;
+      --trough-shadow: none;
+      --trough-border: none;
+      --tp-bg: rgba(255, 255, 255, 0.30);
+      --tp-border: 1.5px solid rgba(255, 255, 255, 0.70);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+

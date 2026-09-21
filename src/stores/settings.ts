@@ -163,6 +163,18 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
     } else {
         (state as any).ingestorApiToken = state.ingestorApiToken.trim();
     }
+    // The AI key also travels in an HTTP header, so the same rule applies: a
+    // single token, no whitespace, or it is dropped rather than sent.
+    if (typeof state.aiApiKey !== 'string' || !INGESTOR_TOKEN.test(state.aiApiKey.trim())) {
+        (state as any).aiApiKey = '';
+    } else {
+        (state as any).aiApiKey = state.aiApiKey.trim();
+    }
+    if (!['low', 'medium', 'high', 'xhigh', 'max'].includes(state.aiEffort as string)) {
+        (state as any).aiEffort = 'medium';
+    }
+    const cap = Number((state as any).aiMonthlyCapUsd);
+    (state as any).aiMonthlyCapUsd = Number.isFinite(cap) && cap >= 0 ? cap : 0;
     return state;
 }
 
@@ -175,6 +187,18 @@ export const useSettingsStore = defineStore('settings', {
         // PlayoutTranscode `server.api_token` (empty = service unauthenticated).
         // Sent by the Rust backend as `X-Api-Token`; treated as a secret.
         ingestorApiToken: '',
+
+        // CG Studio AI designer. The key is used only by the Rust studio
+        // bridge, which makes the API call: the advisory template is copied to
+        // the CasparCG host and cached by browsers, so a key that reached the
+        // template would be readable by anyone who can get to that machine.
+        // It is never written into cgAdvisoryConfig and never exported.
+        aiProvider: 'anthropic' as const,
+        aiApiKey: '',
+        aiModel: 'claude-opus-5',
+        aiEffort: 'medium' as 'low' | 'medium' | 'high' | 'xhigh' | 'max',
+        /** Soft monthly ceiling in US dollars; 0 means no cap. */
+        aiMonthlyCapUsd: 0,
 
         // Media Paths
         localMediaPath: '',
@@ -255,68 +279,82 @@ export const useSettingsStore = defineStore('settings', {
         updateSettings(payload: Partial<typeof this.$state>) {
             Object.assign(this.$state, payload);
         },
+        /**
+         * Mirrors a preset deployed from CG Studio into `cgAdvisoryConfig`, so
+         * the next `cgData` payload carries what the operator designed.
+         *
+         * This used to be a hand-written list of about thirty `if (preset.x)`
+         * lines — the same shape, and the same bug, as the two lists inside the
+         * template itself: a key the studio started saving was silently dropped
+         * here, and the operator's work reached the preset file but never the
+         * air. Everything is carried now, and only the values that genuinely
+         * need interpreting are interpreted.
+         */
         updateCgAdvisoryFromDeployedPreset(preset: Record<string, any>) {
             if (!preset || typeof preset !== 'object') return;
-            const current = this.cgAdvisoryConfig || {} as CgAdvisoryTemplateConfig;
-            
+
+            // Bookkeeping that belongs to the preset, not to the on-air config.
+            const NOT_CONFIG = new Set(['id', 'name', 'rating', 'warnings', 'tp', 'meta']);
+
             const updated: CgAdvisoryTemplateConfig = {
-                ...current,
+                ...(this.cgAdvisoryConfig || {} as CgAdvisoryTemplateConfig),
             };
 
+            for (const [key, value] of Object.entries(preset)) {
+                if (NOT_CONFIG.has(key) || value === undefined) continue;
+                updated[key] = value;
+            }
+
+            // --- the few that need more than copying -----------------------
+
+            // Both spellings of the theme; the template reads either.
             if (preset.theme || preset.themeName) {
                 updated.themeName = preset.theme || preset.themeName;
             }
-            if (preset.logoShape) updated.logoShape = preset.logoShape;
-            if (preset.logoBase) updated.logoBase = preset.logoBase;
-            if (preset.logoGrad) updated.logoGrad = preset.logoGrad;
-            if (preset.logoSize !== undefined) updated.logoSize = Number(preset.logoSize);
-            if (preset.logoRadius !== undefined) updated.logoRadius = Number(preset.logoRadius);
-            if (preset.logoExtrusion) updated.logoExtrusion = preset.logoExtrusion;
-            if (preset.logoSpecular) updated.logoSpecular = preset.logoSpecular;
-            if (preset.logoShadow) updated.logoShadow = preset.logoShadow;
-            if (preset.logoFont) updated.logoFont = preset.logoFont;
 
+            // The alias pairs stay in step, whichever side the preset used.
             const rShape = preset.ratingShape || preset.badgeShape;
             if (rShape) {
                 updated.badgeShape = rShape;
                 updated.ratingShape = rShape;
             }
             if (preset.ratingSize !== undefined || preset.badgeSizePx !== undefined) {
-                updated.badgeSizePx = Number(preset.ratingSize ?? preset.badgeSizePx);
+                updated.badgeSizePx = Number(preset.badgeSizePx ?? preset.ratingSize);
                 updated.ratingSize = updated.badgeSizePx;
             }
             if (preset.ratingFontSize !== undefined || preset.badgeFontSizePx !== undefined) {
-                updated.badgeFontSizePx = Number(preset.ratingFontSize ?? preset.badgeFontSizePx);
+                updated.badgeFontSizePx = Number(preset.badgeFontSizePx ?? preset.ratingFontSize);
                 updated.ratingFontSize = updated.badgeFontSizePx;
             }
-            const rawFont = preset.fontFamily || preset.ratingFont;
-            if (rawFont) {
-                updated.fontFamily = (!rawFont || rawFont.toLowerCase() === 'system' || rawFont.toLowerCase() === 'default')
-                    ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
-                    : rawFont;
-                updated.ratingFont = updated.fontFamily;
-            }
-            if (preset.ratingCutout) updated.ratingCutout = preset.ratingCutout;
-            if (preset.wordmark) updated.wordmark = preset.wordmark;
-            if (preset.subtitle !== undefined) updated.subtitle = preset.subtitle;
-            if (preset.showTag) updated.showTag = preset.showTag;
-            if (preset.topOffsetPx !== undefined) updated.topOffsetPx = Number(preset.topOffsetPx);
-            if (preset.rightOffsetPx !== undefined) updated.rightOffsetPx = Number(preset.rightOffsetPx);
-            if (preset.textOffsetYPx !== undefined) updated.textOffsetYPx = Number(preset.textOffsetYPx);
-            if (preset.anchorPosition || preset.anchor) {
-                updated.anchorPosition = preset.anchorPosition || preset.anchor;
-            }
             if (preset.hold_time !== undefined || preset.ratingHoldSec !== undefined) {
-                updated.ratingHoldSec = Number(preset.hold_time ?? preset.ratingHoldSec);
+                updated.ratingHoldSec = Number(preset.ratingHoldSec ?? preset.hold_time);
             }
             if (preset.warning_hold_time !== undefined || preset.warningHoldSec !== undefined) {
-                updated.warningHoldSec = Number(preset.warning_hold_time ?? preset.warningHoldSec);
+                updated.warningHoldSec = Number(preset.warningHoldSec ?? preset.warning_hold_time);
             }
             if (preset.accentColor || preset.accentMid) {
                 updated.accentColor = preset.accentColor || preset.accentMid;
             }
-            if (preset.accentLineHeightPx !== undefined) {
-                updated.accentLineHeightPx = Number(preset.accentLineHeightPx);
+            if (preset.anchorPosition || preset.anchor) {
+                updated.anchorPosition = preset.anchorPosition || preset.anchor;
+            }
+
+            // A font key ('inter') has to become a stack before it reaches the
+            // template, which sets it as a CSS value.
+            const rawFont = preset.fontFamily || preset.ratingFont;
+            if (rawFont) {
+                const lower = String(rawFont).toLowerCase();
+                updated.fontFamily = (lower === 'system' || lower === 'default')
+                    ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                    : rawFont;
+                updated.ratingFont = updated.fontFamily;
+            }
+
+            // Numbers that arrive as strings from a hand-edited preset file.
+            for (const key of Object.keys(updated)) {
+                if (!/Px$|Sec$|^logo(Size|Radius)$/.test(key)) continue;
+                const n = Number(updated[key]);
+                if (Number.isFinite(n)) updated[key] = n;
             }
 
             this.cgAdvisoryConfig = updated;

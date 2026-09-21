@@ -1,0 +1,71 @@
+    /* =========================================================================
+       CASPARCG BROADCAST LAYER 32 ON-AIR OVERRIDE & TRANSPARENCY PIPELINE
+       Guaranteed 100% transparent root, transparent canvas, zero workstation UI
+       ========================================================================= */
+    html.on-air,
+    body.on-air {
+      margin: 0 !important;
+      padding: 0 !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      overflow: hidden !important;
+    }
+
+    html.on-air .controls-card,
+    html.on-air .console-card,
+    html.on-air .preview-top-bar,
+    html.on-air #drag-hud,
+    html.on-air .safe-area-overlay,
+    body.on-air .controls-card,
+    body.on-air .console-card,
+    body.on-air .preview-top-bar,
+    body.on-air #drag-hud,
+    body.on-air .safe-area-overlay {
+      display: none !important;
+    }
+
+    html.on-air .studio-workstation-layout,
+    html.on-air .right-column-stack,
+    html.on-air .preview-card,
+    html.on-air .preview-viewport,
+    body.on-air .studio-workstation-layout,
+    body.on-air .right-column-stack,
+    body.on-air .preview-card,
+    body.on-air .preview-viewport {
+      display: block !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      width: 1920px !important;
+      height: 1080px !important;
+      position: absolute !important;
+      inset: 0 !important;
+    }
+
+    html.on-air #broadcast-canvas,
+    body.on-air #broadcast-canvas {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      transform: none !important;
+      width: 1920px !important;
+      height: 1080px !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      background-image: none !important;
+      box-shadow: none !important;
+    }
+
+    /* Disable backdrop-filter in on-air broadcast mode to prevent software rasterizer artifacts in CEF */
+    html.on-air .badge-wrapper,
+    html.on-air .tp-badge,
+    body.on-air .badge-wrapper,
+    body.on-air .tp-badge {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+

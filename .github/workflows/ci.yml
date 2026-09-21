@@ -24,6 +24,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # advisory.html is build output from templates-src/advisory/; fail loudly
+      # if a committed copy was hand-edited instead of rebuilt.
+      - run: node scripts/build-advisory.mjs --check
       - run: npm run lint
       - run: npm run type-check
       - run: npm test -- --run

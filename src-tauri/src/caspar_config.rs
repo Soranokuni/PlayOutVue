@@ -346,6 +346,28 @@ pub const TEMPLATE_CRAWL: &str = include_str!("../../public/templates/playout/cr
 pub const TEMPLATE_GSAP: &str = include_str!("../../public/templates/playout/vendor/gsap.min.js");
 pub const TEMPLATE_ESR_PRESETS: &str = include_str!("../../public/templates/playout/esr_presets.json");
 
+/// Vendored broadcast faces, Greek + Latin subsets.
+///
+/// The render host has no internet. Loading these from Google Fonts meant the
+/// studio previewed the real face while transmission silently fell through to
+/// the local fallback stack, so what the operator approved was not what aired.
+/// They deploy next to the template, like vendor/gsap.min.js.
+pub const TEMPLATE_FONTS: &[(&str, &[u8])] = &[
+    ("inter-greek-ext.woff2", include_bytes!("../../public/templates/playout/fonts/inter-greek-ext.woff2")),
+    ("inter-greek.woff2", include_bytes!("../../public/templates/playout/fonts/inter-greek.woff2")),
+    ("inter-latin-ext.woff2", include_bytes!("../../public/templates/playout/fonts/inter-latin-ext.woff2")),
+    ("inter-latin.woff2", include_bytes!("../../public/templates/playout/fonts/inter-latin.woff2")),
+    ("montserrat-latin-ext.woff2", include_bytes!("../../public/templates/playout/fonts/montserrat-latin-ext.woff2")),
+    ("montserrat-latin.woff2", include_bytes!("../../public/templates/playout/fonts/montserrat-latin.woff2")),
+    ("roboto-greek-ext.woff2", include_bytes!("../../public/templates/playout/fonts/roboto-greek-ext.woff2")),
+    ("roboto-greek.woff2", include_bytes!("../../public/templates/playout/fonts/roboto-greek.woff2")),
+    ("roboto-latin-ext.woff2", include_bytes!("../../public/templates/playout/fonts/roboto-latin-ext.woff2")),
+    ("roboto-latin.woff2", include_bytes!("../../public/templates/playout/fonts/roboto-latin.woff2")),
+    ("roboto-mono-greek.woff2", include_bytes!("../../public/templates/playout/fonts/roboto-mono-greek.woff2")),
+    ("roboto-mono-latin-ext.woff2", include_bytes!("../../public/templates/playout/fonts/roboto-mono-latin-ext.woff2")),
+    ("roboto-mono-latin.woff2", include_bytes!("../../public/templates/playout/fonts/roboto-mono-latin.woff2")),
+];
+
 fn resolve_caspar_template_dir<R: Runtime>(app: Option<&AppHandle<R>>, explicit: Option<&str>) -> PathBuf {
     if let Some(p) = explicit {
         let trimmed = p.trim();
@@ -415,6 +437,10 @@ pub async fn deploy_caspar_templates<R: Runtime>(
     std::fs::create_dir_all(&vendor_dir)
         .map_err(|e| format!("Failed to create vendor directory '{}': {}", vendor_dir.display(), e))?;
 
+    let fonts_dir = target_dir.join("fonts");
+    std::fs::create_dir_all(&fonts_dir)
+        .map_err(|e| format!("Failed to create fonts directory '{}': {}", fonts_dir.display(), e))?;
+
     let overwrite_files = overwrite.unwrap_or(false);
     let mut deployed = Vec::new();
     let mut skipped = Vec::new();
@@ -451,6 +477,18 @@ pub async fn deploy_caspar_templates<R: Runtime>(
             crate::atomic_fs::write_atomic(&file_path, content.as_bytes())
                 .map_err(|e| format!("Failed to write template '{}': {}", file_path.display(), e))?;
             deployed.push(format!("playout/{}", name));
+        }
+    }
+
+    // The vendored faces the template's @font-face rules point at.
+    for (name, bytes) in crate::caspar_config::TEMPLATE_FONTS {
+        let file_path = fonts_dir.join(name);
+        if file_path.exists() && !overwrite_files {
+            skipped.push(format!("playout/fonts/{}", name));
+        } else {
+            crate::atomic_fs::write_atomic(&file_path, bytes)
+                .map_err(|e| format!("Failed to write font '{}': {}", file_path.display(), e))?;
+            deployed.push(format!("playout/fonts/{}", name));
         }
     }
 

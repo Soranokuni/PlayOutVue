@@ -177,13 +177,19 @@ async function launchBrowserStudio() {
             templatePath
         });
     } catch (e) {
-        console.error('Failed to open browser studio via Tauri:', e);
-        window.open('/templates/playout/advisory.html?studio=1#studio=1', '_blank');
+        // The fallback used to open the template straight off the dev server,
+        // without the studio bridge's per-launch token. CG Studio came up
+        // looking fine and then failed at Save & Deploy with "token missing",
+        // which reads like a bug in the deploy rather than a bug in how the
+        // window was opened. Better to say what went wrong here.
+        console.error('Failed to open CG Studio via the studio bridge:', e);
+        showToast("Could not open CG Studio. Check that the studio bridge is running, then try again.", "error");
     }
 }
 
 // The Ingestor API token is a secret: masked by default, revealed on demand.
 const showIngestorToken = ref(false);
+const showAiApiKey = ref(false);
 
 // Local shadow state so we don't mutate Pinia instantly on every keystroke
 const localState = ref({
@@ -211,6 +217,11 @@ const localState = ref({
     autoResumeAfterRestart: true,
     ingestorApiBaseUrl: '',
     ingestorApiToken: '',
+    aiProvider: 'anthropic' as const,
+    aiApiKey: '',
+    aiModel: 'claude-opus-5',
+    aiEffort: 'medium' as 'low' | 'medium' | 'high' | 'xhigh' | 'max',
+    aiMonthlyCapUsd: 0,
     recycleBinAutoPurge: 'disabled' as 'disabled' | '1week' | '2weeks' | '3weeks' | '1month',
     
     // CG settings. The per-rating PNG paths, the five layout positions,
@@ -299,6 +310,11 @@ const mapLocalState = () => {
         autoResumeAfterRestart: settings.autoResumeAfterRestart !== false,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
         ingestorApiToken: settings.ingestorApiToken || '',
+        aiProvider: settings.aiProvider || 'anthropic',
+        aiApiKey: settings.aiApiKey || '',
+        aiModel: settings.aiModel || 'claude-opus-5',
+        aiEffort: settings.aiEffort || 'medium',
+        aiMonthlyCapUsd: settings.aiMonthlyCapUsd ?? 0,
         recycleBinAutoPurge: settings.recycleBinAutoPurge || 'disabled',
         casparcgExecutablePath: settings.casparcgExecutablePath || '',
         casparcgConfigFilename: settings.casparcgConfigFilename || 'casparcg.config',
@@ -1063,6 +1079,80 @@ const openTemplateDir = async () => {
           </section>
 
           <section class="settings-section">
+            <h3 class="section-title">AI designer</h3>
+            <p class="section-hint">
+              Powers the AI designer in CG Studio: a prompt in, three complete looks out, with the option of new
+              artwork for the station ID, the rating badge, the warning glyphs and the tag icons.
+            </p>
+
+            <div class="field">
+              <label class="field-label" for="ai-api-key">API key</label>
+              <div class="input-with-button">
+                <input
+                  id="ai-api-key"
+                  v-model.trim="localState.aiApiKey"
+                  class="input"
+                  :type="showAiApiKey ? 'text' : 'password'"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="sk-ant-…"
+                  data-testid="ai-api-key"
+                />
+                <BaseButton variant="secondary" @click="showAiApiKey = !showAiApiKey">
+                  {{ showAiApiKey ? 'Hide' : 'Show' }}
+                </BaseButton>
+              </div>
+              <p class="field-hint">
+                Used only by PlayOut's studio bridge, which makes the call. It is never written into the advisory
+                template — that file is copied to the CasparCG machine and cached by browsers — and never into a log
+                line or an exported preset. Leave it empty to turn the AI designer off.
+              </p>
+            </div>
+
+            <div class="field-row">
+              <div class="field">
+                <label class="field-label" for="ai-model">Model</label>
+                <select id="ai-model" v-model="localState.aiModel" class="input" data-testid="ai-model">
+                  <option value="claude-opus-5">Claude Opus 5</option>
+                  <option value="claude-sonnet-5">Claude Sonnet 5</option>
+                </select>
+                <p class="field-hint">Opus for design work; Sonnet costs less and is quicker.</p>
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="ai-effort">Effort</label>
+                <select id="ai-effort" v-model="localState.aiEffort" class="input" data-testid="ai-effort">
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="xhigh">Very high</option>
+                  <option value="max">Maximum</option>
+                </select>
+                <p class="field-hint">
+                  How hard it thinks. A full generation with artwork uses one level above this.
+                </p>
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="ai-cap">Monthly cap</label>
+                <input
+                  id="ai-cap"
+                  v-model.number="localState.aiMonthlyCapUsd"
+                  class="input"
+                  type="number"
+                  min="0"
+                  step="5"
+                  data-testid="ai-monthly-cap"
+                />
+                <p class="field-hint">
+                  US dollars, 0 for none. Advisory: CG Studio shows the running total against it rather than
+                  refusing to generate.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section">
             <h3 class="section-title">FFmpeg</h3>
             <div class="field">
               <label class="field-label" for="ffmpeg-path">Binary folder override</label>
@@ -1375,6 +1465,18 @@ const openTemplateDir = async () => {
 
 .settings-pane .field:last-child {
     margin-bottom: 0;
+}
+
+/* Three short fields that belong together read better side by side than as
+   three full-width rows with three hints between them. */
+.field-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: var(--space-3);
+}
+
+.settings-pane .field-row .field {
+    margin-bottom: var(--space-3);
 }
 
 .field-hint.is-ok {

@@ -19,6 +19,7 @@ mod ingestor_api;
 mod transcoder_sidecar;
 mod caspar_process;
 mod studio_server;
+mod ai_designer;
 
 use studio_server::{save_studio_default_preset, get_studio_default_preset};
 

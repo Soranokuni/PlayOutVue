@@ -1,0 +1,822 @@
+    /* SOTA Show Tag Chips and Icon Badges */
+    .show-tag-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-bottom: 8px;
+    }
+
+    .show-tag-chip {
+      background: rgba(30, 41, 59, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #cbd5e1;
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .show-tag-chip:hover {
+      background: rgba(51, 65, 85, 0.7);
+      color: #f8fafc;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .show-tag-chip.active {
+      background: rgba(56, 189, 248, 0.22);
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.6);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+    }
+
+    .station-subtitle-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .show-tag-svg {
+      width: 18px;
+      height: 18px;
+      display: inline-block;
+      vertical-align: middle;
+      flex-shrink: 0;
+      overflow: visible;
+      filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9));
+    }
+
+    /* Save As Neumorphic Modal Dialog */
+    .studio-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.82);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 999999;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .studio-modal-overlay.active {
+      display: flex;
+      opacity: 1;
+    }
+
+    .studio-modal-card {
+      background: #0f172a;
+      border: 1.5px solid rgba(56, 189, 248, 0.4);
+      border-radius: 14px;
+      padding: 20px 22px;
+      width: 90%;
+      max-width: 440px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.9), 0 0 30px rgba(56, 189, 248, 0.2);
+      transform: scale(0.95);
+      transition: transform 0.2s ease;
+    }
+
+    .studio-modal-overlay.active .studio-modal-card {
+      transform: scale(1);
+    }
+
+    .studio-modal-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 6px;
+    }
+
+    .studio-modal-desc {
+      font-size: 11.5px;
+      color: #94a3b8;
+      line-height: 1.4;
+      margin-bottom: 12px;
+    }
+
+    /* User Custom Presets List */
+    .user-presets-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 180px;
+      overflow-y: auto;
+      margin-top: 8px;
+    }
+
+    .user-preset-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 7px;
+      padding: 6px 10px;
+      font-size: 11.5px;
+      color: #f1f5f9;
+    }
+
+    .user-preset-item:hover {
+      border-color: rgba(56, 189, 248, 0.35);
+      background: rgba(30, 41, 59, 0.85);
+    }
+
+
+    /* Prominent Master Preset Chooser Bar */
+    .studio-preset-bar {
+      padding: 8px 14px;
+      background: linear-gradient(180deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%);
+      border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .preset-select-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(11, 17, 32, 0.9);
+      border: 1.5px solid rgba(56, 189, 248, 0.4);
+      border-radius: 8px;
+      padding: 5px 8px;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.15);
+    }
+
+    .preset-label-icon {
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .studio-preset-dropdown {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .studio-preset-dropdown optgroup {
+      background: #0f172a;
+      color: #38bdf8;
+      font-weight: 800;
+    }
+
+    .studio-preset-dropdown option {
+      background: #0f172a;
+      color: #e2e8f0;
+      font-weight: 600;
+      padding: 6px;
+    }
+
+    .preset-quick-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+      align-items: center;
+    }
+
+    .preset-pill-btn {
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #cbd5e1;
+      border-radius: 5px;
+      padding: 3px 9px;
+      font-size: 10.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .preset-pill-btn:hover {
+      background: rgba(56, 189, 248, 0.25);
+      border-color: rgba(56, 189, 248, 0.5);
+      color: #38bdf8;
+    }
+
+    .preset-pill-btn.active-default {
+      background: rgba(234, 179, 8, 0.22);
+      border-color: rgba(234, 179, 8, 0.65);
+      color: #facc15;
+    }
+
+    /* Show Tag Matrix Rows */
+    .show-tag-matrix {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 6px;
+    }
+
+    .show-tag-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 7px;
+      padding: 4px 8px;
+      transition: all 0.15s ease;
+    }
+
+    .show-tag-row:hover {
+      background: rgba(30, 41, 59, 0.8);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+
+    .show-tag-row.active {
+      background: rgba(56, 189, 248, 0.18);
+      border-color: rgba(56, 189, 248, 0.6);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+    }
+
+    .tag-row-icon {
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .tag-row-label {
+      width: 78px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #94a3b8;
+      flex-shrink: 0;
+      letter-spacing: 0.5px;
+    }
+
+    .tag-row-input {
+      flex: 1;
+      height: 26px;
+      font-size: 11px;
+      padding: 2px 6px;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .tag-row-btn {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #38bdf8;
+      border-radius: 5px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .tag-row-btn:hover {
+      background: #38bdf8;
+      color: #0f172a;
+    }
+
+    .show-tag-row.active .tag-row-btn {
+      background: #38bdf8;
+      color: #0f172a;
+      font-weight: 800;
+    }
+
+
+    /* =========================================================================
+       STUDIO CHROME TOKENS AND ICONOGRAPHY (§4.6)
+       Dark only: the studio is an MCR tool and the preview needs a dark
+       surround to judge a broadcast overlay against.
+       ========================================================================= */
+    :root {
+      /* Type scale: four sizes, two weights. */
+      --ui-text-xs: 11px;
+      --ui-text-sm: 12px;
+      --ui-text-md: 13px;
+      --ui-text-lg: 15px;
+      --ui-weight-normal: 500;
+      --ui-weight-strong: 700;
+
+      /* Radius and the 4px spacing grid. */
+      --ui-radius-sm: 6px;
+      --ui-radius-md: 10px;
+      --ui-radius-lg: 16px;
+      --ui-space-1: 4px;
+      --ui-space-2: 8px;
+      --ui-space-3: 12px;
+      --ui-space-4: 16px;
+
+      /* Motion: 120ms for a state change, 180ms when layout moves. */
+      --ui-motion-state: 120ms;
+      --ui-motion-layout: 180ms;
+      --ui-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+      /* Surfaces and ink. */
+      --ui-ink: #e2e8f0;
+      --ui-ink-dim: #94a3b8;
+      --ui-ink-faint: #64748b;
+      --ui-accent: #38bdf8;
+      --ui-ok: #34d399;
+      --ui-warn: #fbbf24;
+      --ui-error: #f87171;
+      --ui-line: rgba(255, 255, 255, 0.08);
+      --ui-surface: rgba(255, 255, 255, 0.04);
+      --ui-surface-hover: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Icon slot. Filled once at boot by hydrateStudioIcons(); sized by the
+       SVG itself so an unfilled slot collapses instead of leaving a hole. */
+    .cg-i {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      vertical-align: -0.18em;
+      line-height: 0;
+    }
+
+    .cg-i > svg {
+      display: block;
+    }
+
+    /* Buttons and rows put a little air between an icon and its label without
+       every call site having to remember to. */
+    .studio-btn,
+    .studio-mode-btn,
+    .studio-tab-btn,
+    .action-btn-primary,
+    .action-btn-secondary,
+    .preset-pill-btn,
+    .preview-btn,
+    .console-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--ui-space-1);
+    }
+
+    .tag-row-icon > .cg-i {
+      color: var(--ui-ink-dim);
+    }
+
+    /* -------------------------------------------------------------
+       NUMERIC AND HEX ENTRY (§4.2)
+       Every value is typeable. The slider stays: it is the right tool for
+       finding a value, and the field is the right tool for hitting one.
+       ------------------------------------------------------------- */
+    .ui-num-wrap {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 1px;
+      margin-left: auto;
+    }
+
+    .ui-num {
+      width: 52px;
+      padding: 2px var(--ui-space-1);
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font-family: inherit;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      transition: border-color var(--ui-motion-state) var(--ui-ease),
+                  background var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .ui-num:hover { background: var(--ui-surface-hover); }
+
+    .ui-num:focus-visible {
+      outline: none;
+      border-color: var(--ui-accent);
+      background: var(--ui-surface-hover);
+    }
+
+    /* The spinners are 20px of chrome on a 52px field and the arrow keys do
+       the same job. */
+    .ui-num::-webkit-outer-spin-button,
+    .ui-num::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .ui-num { -moz-appearance: textfield; }
+
+    .ui-num-unit {
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-normal);
+      color: var(--ui-ink-faint);
+      min-width: 12px;
+    }
+
+    /* The old read-only readout is the field now. It stays in the DOM because
+       existing code writes textContent into it, and that write is mirrored
+       into the field it replaced. */
+    .ui-readout-replaced {
+      display: none !important;
+    }
+
+    .ui-hex {
+      width: 74px;
+      margin-left: var(--ui-space-1);
+      padding: 2px var(--ui-space-1);
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font-family: 'Roboto Mono', ui-monospace, Consolas, monospace;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-normal);
+      text-transform: lowercase;
+      transition: border-color var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .ui-hex:hover { background: var(--ui-surface-hover); }
+
+    .ui-hex:focus-visible {
+      outline: none;
+      border-color: var(--ui-accent);
+    }
+
+    /* -------------------------------------------------------------
+       TOAST (§4.7) — one component, three tones, never blocking.
+       It replaced the alert() calls that stopped the operator's hands to say
+       "copied to clipboard", and the confirm() that guarded a delete.
+       ------------------------------------------------------------- */
+    .studio-toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      gap: var(--ui-space-2);
+      max-width: 420px;
+      padding: 10px var(--ui-space-3);
+      background: #0b1220;
+      border: 1px solid var(--ui-line);
+      border-left-width: 3px;
+      border-radius: var(--ui-radius-md);
+      color: var(--ui-ink);
+      font-family: inherit;
+      font-size: var(--ui-text-md);
+      font-weight: var(--ui-weight-normal);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+      transform: translateY(12px);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform var(--ui-motion-layout) var(--ui-ease),
+                  opacity var(--ui-motion-layout) var(--ui-ease);
+    }
+
+    .studio-toast.is-open {
+      transform: translateY(0);
+      opacity: 1;
+      /* Only interactive once it carries a button to press. */
+      pointer-events: auto;
+    }
+
+    .studio-toast-text { flex: 1 1 auto; }
+
+    .studio-toast.tone-ok { border-left-color: var(--ui-ok); }
+    .studio-toast.tone-ok > .cg-i { color: var(--ui-ok); }
+    .studio-toast.tone-warn { border-left-color: var(--ui-warn); }
+    .studio-toast.tone-warn > .cg-i { color: var(--ui-warn); }
+    .studio-toast.tone-error { border-left-color: var(--ui-error); }
+    .studio-toast.tone-error > .cg-i { color: var(--ui-error); }
+
+    .studio-toast-action {
+      flex: 0 0 auto;
+      padding: var(--ui-space-1) var(--ui-space-2);
+      background: var(--ui-surface-hover);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font: inherit;
+      font-size: var(--ui-text-sm);
+      font-weight: var(--ui-weight-strong);
+      cursor: pointer;
+      transition: background var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .studio-toast-action:hover { background: rgba(255, 255, 255, 0.14); }
+    .studio-toast-action:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
+
+    /* -------------------------------------------------------------
+       DEPLOY STATE PILL (§4.1)
+       Nothing used to tell the operator whether what they were looking at was
+       what was on air. Three states: matching, modified, offline.
+       ------------------------------------------------------------- */
+    .deploy-state {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--ui-space-1);
+      padding: 2px var(--ui-space-2);
+      border: 1px solid var(--ui-line);
+      border-radius: 999px;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      transition: color var(--ui-motion-state) var(--ui-ease),
+                  border-color var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .deploy-state::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      flex: 0 0 auto;
+    }
+
+    .deploy-state.state-deployed { color: var(--ui-ok); border-color: rgba(52, 211, 153, 0.35); }
+    .deploy-state.state-modified { color: var(--ui-warn); border-color: rgba(251, 191, 36, 0.35); }
+    .deploy-state.state-deploying { color: var(--ui-accent); border-color: rgba(56, 189, 248, 0.35); }
+    .deploy-state.state-offline { color: var(--ui-ink-faint); border-color: var(--ui-line); }
+
+    .studio-group-note {
+      font-size: var(--ui-text-xs);
+      line-height: 1.5;
+      color: var(--ui-ink-dim);
+    }
+
+    .studio-group-note strong { color: var(--ui-ink); font-weight: var(--ui-weight-strong); }
+
+    /* -------------------------------------------------------------
+       PRESET OVERFLOW MENU (§4.1)
+       Save as, startup default, export/import and the SVG exports used to be
+       scattered across the footer, the Blueprints tab and the console. One
+       menu, next to the preset it acts on.
+       ------------------------------------------------------------- */
+    .studio-preset-bar { position: relative; }
+
+    .preset-menu {
+      position: absolute;
+      top: calc(100% + var(--ui-space-1));
+      right: 0;
+      z-index: 500;
+      min-width: 244px;
+      padding: var(--ui-space-1);
+      background: #0b1220;
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-md);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .preset-menu[hidden] { display: none; }
+
+    .preset-menu-item {
+      display: flex;
+      align-items: center;
+      gap: var(--ui-space-2);
+      width: 100%;
+      padding: var(--ui-space-2) var(--ui-space-2);
+      background: transparent;
+      border: 0;
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink);
+      font: inherit;
+      font-size: var(--ui-text-sm);
+      font-weight: var(--ui-weight-normal);
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .preset-menu-item > .cg-i { color: var(--ui-ink-faint); }
+    .preset-menu-item:hover:not(:disabled) { background: var(--ui-surface-hover); }
+    .preset-menu-item:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
+    .preset-menu-item:disabled { color: var(--ui-ink-faint); cursor: default; }
+    .preset-menu-item.is-danger { color: var(--ui-error); }
+    .preset-menu-item.is-danger > .cg-i { color: var(--ui-error); }
+    .preset-menu-item[hidden] { display: none; }
+
+    .preset-menu-sep {
+      height: 1px;
+      margin: var(--ui-space-1) 0;
+      background: var(--ui-line);
+    }
+
+    /* -------------------------------------------------------------
+       CANVAS SELECTION AND SNAP GUIDES (§4.4)
+       Selection is studio furniture and lives behind .studio-mode, so a
+       selected stage can never leak into the on-air render.
+       ------------------------------------------------------------- */
+    body.studio-mode .canvas-draggable.is-selected {
+      outline: 1.5px solid var(--ui-accent);
+      outline-offset: 5px;
+    }
+
+    body.studio-mode .canvas-draggable:focus-visible {
+      outline: 2px solid var(--ui-accent);
+      outline-offset: 5px;
+    }
+
+    body.studio-mode .snap-guide {
+      position: absolute;
+      z-index: 40;
+      background: var(--ui-accent);
+      pointer-events: none;
+      opacity: 0.85;
+    }
+
+    body.studio-mode .snap-guide-x {
+      top: 0;
+      bottom: 0;
+      width: 1px;
+    }
+
+    body.studio-mode .snap-guide-y {
+      left: 0;
+      right: 0;
+      height: 1px;
+    }
+
+    /* The guide says which line it is, because "centre" and "title safe" are
+       six pixels apart and look identical. */
+    body.studio-mode .snap-guide::after {
+      content: attr(data-label);
+      position: absolute;
+      padding: 2px 6px;
+      background: var(--ui-accent);
+      border-radius: 3px;
+      color: #06121d;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    body.studio-mode .snap-guide-x::after { top: 8px; left: 5px; }
+    body.studio-mode .snap-guide-y::after { left: 8px; top: 5px; }
+
+    /* -------------------------------------------------------------
+       BASIC / ADVANCED TIER BAR (§4.2)
+       ------------------------------------------------------------- */
+    .studio-tier-bar {
+      display: inline-flex;
+      align-self: flex-start;
+      margin: 0 var(--ui-space-4) var(--ui-space-2);
+      padding: 2px;
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: 999px;
+    }
+
+    .studio-tier-btn {
+      padding: 3px var(--ui-space-3);
+      background: transparent;
+      border: 0;
+      border-radius: 999px;
+      color: var(--ui-ink-dim);
+      font: inherit;
+      font-size: var(--ui-text-xs);
+      font-weight: var(--ui-weight-strong);
+      cursor: pointer;
+      transition: background var(--ui-motion-state) var(--ui-ease),
+                  color var(--ui-motion-state) var(--ui-ease);
+    }
+
+    .studio-tier-btn:hover { color: var(--ui-ink); }
+    .studio-tier-btn:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
+
+    .studio-tier-btn.active {
+      background: var(--ui-surface-hover);
+      color: var(--ui-ink);
+    }
+
+    .is-advanced-hidden { display: none !important; }
+
+    /* -------------------------------------------------------------
+       AI DESIGNER PANEL (§5.7)
+       ------------------------------------------------------------- */
+    .ai-examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--ui-space-1);
+      margin-bottom: var(--ui-space-2);
+    }
+
+    .ai-prompt {
+      width: 100%;
+      resize: vertical;
+      font-family: inherit;
+      font-size: var(--ui-text-sm);
+      line-height: 1.5;
+    }
+
+    .ai-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--ui-space-1) var(--ui-space-3);
+      margin: var(--ui-space-2) 0;
+    }
+
+    .ai-opt {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--ui-space-1);
+      font-size: var(--ui-text-xs);
+      color: var(--ui-ink-dim);
+      cursor: pointer;
+    }
+
+    .ai-variants-select { width: 54px; padding: 1px var(--ui-space-1); }
+
+    /* The model's output as it arrives, so a ninety-second generation is not a
+       blank spinner. */
+    .ai-progress {
+      max-height: 90px;
+      margin: var(--ui-space-2) 0 0;
+      padding: var(--ui-space-2);
+      overflow: auto;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink-faint);
+      font-family: 'Roboto Mono', ui-monospace, Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .ai-usage {
+      margin-top: var(--ui-space-1);
+      font-size: var(--ui-text-xs);
+      font-variant-numeric: tabular-nums;
+      color: var(--ui-ink-faint);
+    }
+
+    .ai-variant {
+      margin-top: var(--ui-space-2);
+      padding: var(--ui-space-2) var(--ui-space-3);
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-md);
+    }
+
+    .ai-variant-name {
+      font-size: var(--ui-text-md);
+      font-weight: var(--ui-weight-strong);
+      color: var(--ui-ink);
+    }
+
+    .ai-variant-why {
+      margin-top: 2px;
+      font-size: var(--ui-text-xs);
+      line-height: 1.5;
+      color: var(--ui-ink-dim);
+    }
+
+    /* What was clamped or dropped, and why. Folded away, because on a good
+       generation it is empty and on a bad one it is the whole story. */
+    .ai-variant-notes {
+      margin-top: var(--ui-space-2);
+      font-size: var(--ui-text-xs);
+      color: var(--ui-warn);
+    }
+
+    .ai-variant-notes summary { cursor: pointer; }
+
+    .ai-variant-notes ul {
+      margin: var(--ui-space-1) 0 0;
+      padding-left: var(--ui-space-4);
+      color: var(--ui-ink-dim);
+      line-height: 1.5;
+    }
+
+    .ai-variant-actions {
+      display: flex;
+      gap: var(--ui-space-1);
+      margin-top: var(--ui-space-2);
+    }
+
+    .ai-refine { margin-top: var(--ui-space-3); }
+
+    .studio-group-note.is-warn { color: var(--ui-warn); }

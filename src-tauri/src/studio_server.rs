@@ -303,6 +303,23 @@ async fn handle_connection<R: Runtime>(mut stream: tokio::net::TcpStream, app: A
         ("GET", "/vendor/gsap.min.js") | ("GET", "/playout/vendor/gsap.min.js") => {
             send_raw_response(&mut stream, 200, "application/javascript", crate::caspar_config::TEMPLATE_GSAP.as_bytes()).await;
         }
+        // Vendored faces. The @font-face rules request these with a relative
+        // URL from the stylesheet, so no bearer token rides along; that is fine,
+        // reading a font is not a mutating route.
+        ("GET", p) if p.starts_with("/fonts/") || p.starts_with("/playout/fonts/") => {
+            let name = p.rsplit('/').next().unwrap_or("");
+            match crate::caspar_config::TEMPLATE_FONTS
+                .iter()
+                .find(|(n, _)| *n == name)
+            {
+                Some((_, bytes)) => {
+                    send_raw_response(&mut stream, 200, "font/woff2", bytes).await;
+                }
+                None => {
+                    send_raw_response(&mut stream, 404, "text/plain; charset=utf-8", b"font not found").await;
+                }
+            }
+        }
         ("GET", "/esr_presets.json") | ("GET", "/playout/esr_presets.json") => {
             send_raw_response(&mut stream, 200, "application/json", crate::caspar_config::TEMPLATE_ESR_PRESETS.as_bytes()).await;
         }
@@ -314,6 +331,156 @@ async fn handle_connection<R: Runtime>(mut stream: tokio::net::TcpStream, app: A
                 }
             }
             send_raw_response(&mut stream, 200, "application/json", b"{}").await;
+        }
+        // --- CG Studio AI designer ---------------------------------------
+        //
+        // The call is made here, not in the page: the advisory template is
+        // copied to the CasparCG host and cached by browsers, so an API key
+        // placed in it would be readable by anyone who can reach that machine.
+        ("GET", "/api/ai/status") => {
+            let key = crate::runtime_settings::get_ai_api_key(&app);
+            let (provider, model, effort, cap) = crate::runtime_settings::get_ai_config(&app);
+            // AiStatus has no field for the key by construction, so this
+            // cannot leak it by being extended later.
+            let status = crate::ai_designer::AiStatus {
+                configured: !key.is_empty(),
+                provider,
+                model,
+                effort,
+                monthly_cap_usd: cap,
+            };
+            send_json_response(
+                &mut stream,
+                200,
+                &serde_json::to_value(status).unwrap_or(serde_json::Value::Null),
+            )
+            .await;
+        }
+        ("POST", "/api/ai/generate") => {
+            let request = match crate::ai_designer::parse_generate_request(&body) {
+                Ok(req) => req,
+                Err(err) => {
+                    send_json_response(
+                        &mut stream,
+                        400,
+                        &serde_json::json!({ "success": false, "error": err }),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            let key = crate::runtime_settings::get_ai_api_key(&app);
+            if key.is_empty() {
+                send_json_response(
+                    &mut stream,
+                    409,
+                    &serde_json::json!({
+                        "success": false,
+                        "error": "No AI API key configured. Add one in PlayOut \u{203A} Settings \u{203A} AI."
+                    }),
+                )
+                .await;
+                return;
+            }
+
+            // One generation at a time. Each one is minutes of model time and
+            // tens of thousands of output tokens; a double-click should not
+            // buy the same result twice.
+            let guard = match crate::ai_designer::GenerationGuard::acquire() {
+                Some(g) => g,
+                None => {
+                    send_json_response(
+                        &mut stream,
+                        429,
+                        &serde_json::json!({
+                            "success": false,
+                            "error": "A generation is already running. Wait for it to finish."
+                        }),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            let (_provider, model, effort_setting, _cap) = crate::runtime_settings::get_ai_config(&app);
+            let effort = request.kind.effort_for(&effort_setting);
+
+            // SSE: headers first, then one frame per event as it arrives, so
+            // the panel shows the model working instead of a blank spinner.
+            let header = "HTTP/1.1 200 OK\r\n\
+Content-Type: text/event-stream; charset=utf-8\r\n\
+Cache-Control: no-store\r\n\
+X-Content-Type-Options: nosniff\r\n\
+Connection: close\r\n\r\n";
+            if stream.write_all(header.as_bytes()).await.is_err() {
+                return;
+            }
+
+            // The relay is buffered here and flushed after the call, because
+            // `generate` takes a synchronous callback and the socket write is
+            // async. The panel's progress line is therefore a summary of what
+            // the model wrote rather than a live keystroke feed; the events
+            // that matter (result, refusal, error, usage) are exact.
+            let mut frames: Vec<String> = Vec::new();
+            let mut progress = String::new();
+
+            let outcome = crate::ai_designer::generate(&key, &model, effort, &request, |event| {
+                match event {
+                    crate::ai_designer::AiEvent::Progress(chunk) => {
+                        progress.push_str(&chunk);
+                    }
+                    crate::ai_designer::AiEvent::Usage { input, output, cache_read } => {
+                        frames.push(sse_frame(
+                            "usage",
+                            &serde_json::json!({
+                                "inputTokens": input,
+                                "outputTokens": output,
+                                "cacheReadTokens": cache_read
+                            }),
+                        ));
+                    }
+                    crate::ai_designer::AiEvent::Result(value) => {
+                        frames.push(sse_frame("result", &value));
+                    }
+                    crate::ai_designer::AiEvent::Refusal { category, explanation } => {
+                        frames.push(sse_frame(
+                            "refusal",
+                            &serde_json::json!({ "category": category, "explanation": explanation }),
+                        ));
+                    }
+                    crate::ai_designer::AiEvent::Error(message) => {
+                        frames.push(sse_frame("error", &serde_json::json!({ "message": message })));
+                    }
+                }
+            })
+            .await;
+
+            drop(guard);
+
+            if !progress.is_empty() {
+                // Cap what is relayed: the package itself comes back as the
+                // result event, and the progress line is only there to show
+                // movement.
+                let tail: String = progress.chars().rev().take(4000).collect::<Vec<_>>()
+                    .into_iter().rev().collect();
+                let _ = stream
+                    .write_all(sse_frame("progress", &serde_json::json!({ "text": tail })).as_bytes())
+                    .await;
+            }
+            if let Err(err) = outcome {
+                // `generate` scrubs the key out of its own errors; nothing here
+                // adds the prompt back in.
+                let _ = stream
+                    .write_all(sse_frame("error", &serde_json::json!({ "message": err })).as_bytes())
+                    .await;
+            }
+            for frame in frames {
+                if stream.write_all(frame.as_bytes()).await.is_err() {
+                    break;
+                }
+            }
+            let _ = stream.write_all(sse_frame("done", &serde_json::json!({})).as_bytes()).await;
         }
         ("GET", "/api/ping") => {
             let res_body = serde_json::json!({ "ok": true, "server": "PlayOutVue Studio Bridge" });
@@ -388,6 +555,21 @@ async fn handle_connection<R: Runtime>(mut stream: tokio::net::TcpStream, app: A
             send_json_response(&mut stream, 404, &serde_json::json!({ "error": "Not Found" })).await;
         }
     }
+}
+
+/// One SSE frame: a named event plus its JSON payload.
+///
+/// The payload is serialised, so a newline inside a string cannot split the
+/// frame and be read as the start of another event.
+fn sse_frame(event: &str, payload: &serde_json::Value) -> String {
+    format!(
+        "event: {}
+data: {}
+
+",
+        event,
+        serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string())
+    )
 }
 
 async fn send_raw_response(stream: &mut tokio::net::TcpStream, status: u16, content_type: &str, body_bytes: &[u8]) {
@@ -742,6 +924,62 @@ mod tests {
         assert_eq!(a.len(), 64);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
         assert!(a.chars().collect::<std::collections::HashSet<_>>().len() > 4);
+    }
+
+    /// The template is generated by scripts/build-advisory.mjs now. The baker
+    /// finds the preset by string anchor, so a reshaped declaration in the
+    /// source tree would break Save & Deploy without any test noticing — this
+    /// asserts against the real emitted template, not a hand-written sample.
+    #[test]
+    fn emitted_template_still_carries_the_baker_anchor() {
+        let template = crate::caspar_config::TEMPLATE_ADVISORY;
+        assert_eq!(
+            template.matches("let BAKED_DEFAULT_PRESET =").count(),
+            1,
+            "the anchor must appear exactly once in the emitted template"
+        );
+        assert!(
+            template.contains("const MASTER_STANDARD_PRESETS"),
+            "the baker uses this as the statement terminator"
+        );
+
+        let preset = json!({ "id": "default", "logoShape": "pill", "wordmark": "SITIA" });
+        let baked = bake_preset_into_template_content(template, &preset);
+        assert!(baked.contains(
+            "let BAKED_DEFAULT_PRESET = {\"id\":\"default\",\"logoShape\":\"pill\",\"wordmark\":\"SITIA\"};"
+        ));
+        assert!(baked.contains("const MASTER_STANDARD_PRESETS"));
+        // And the rest of the document survives intact.
+        assert!(baked.contains("id=\"sitia-logo-chassis\"") || baked.contains("sitia-logo-chassis"));
+        assert!(baked.contains("window.update"));
+    }
+
+    /// The vendored faces the template's @font-face rules point at have to be
+    /// compiled in, or a deploy leaves the render host with no fonts again.
+    #[test]
+    fn every_referenced_font_is_vendored() {
+        let template = crate::caspar_config::TEMPLATE_ADVISORY;
+        assert!(!template.contains("fonts.googleapis.com"));
+
+        let mut referenced = Vec::new();
+        for part in template.split("url('fonts/").skip(1) {
+            if let Some(name) = part.split('\'').next() {
+                referenced.push(name.to_string());
+            }
+        }
+        assert!(!referenced.is_empty(), "template references no vendored fonts");
+
+        for name in &referenced {
+            assert!(
+                crate::caspar_config::TEMPLATE_FONTS.iter().any(|(n, _)| n == name),
+                "template references fonts/{} but TEMPLATE_FONTS does not carry it",
+                name
+            );
+        }
+        for (name, bytes) in crate::caspar_config::TEMPLATE_FONTS {
+            assert!(bytes.len() > 1024, "{} looks empty", name);
+            assert_eq!(&bytes[0..4], b"wOF2", "{} is not a woff2 file", name);
+        }
     }
 
     #[test]

@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Greek NCRTV Broadcast Advisory Template & Vector Studio</title> 
+  <!-- Fonts are vendored in fonts/ and declared at the top of the stylesheet
+       below. The CasparCG render host has no internet, so a Google Fonts
+       <link> silently fell through to the local fallback stack on air while
+       the studio showed the real face: the operator approved one look and a
+       different one went to transmission. -->
+  <!-- GSAP 3: local vendor bundle only. The former document.write() CDN
+       fallback fetched script from the internet on the render host (T2-8). -->
+  <script src="vendor/gsap.min.js"></script>
+  <script>
+    /* @mode.js */
+  </script>
+  <style>
+    /* @css */
+  </style>
+</head>
+<body>
+  <!-- Floating Coordinate Drag HUD -->
+  <div id="drag-hud"></div>
+
+  <!-- SOTA 3-CARD WORKSTATION CONTAINER -->
+  <div class="studio-workstation-layout">
+
+    <!-- =================================================================== -->
+    <!-- CARD 1 (LEFT): CONTROLS PANEL (Rounded 24px Card)                  -->
+    <!-- =================================================================== -->
+    <aside class="controls-card">
+      <div class="studio-header">
+        <div class="studio-title-row">
+          <div class="studio-title">
+            <span class="studio-title-badge">BROADCAST</span>
+            <span>Greek Advisory &amp; Vector Studio</span>
+          </div>
+          <button class="preview-btn" style="padding: 2px 7px; font-size: 10px;" onclick="toggleWorkstationFullscreen()" title="Toggle Fullscreen On-Air View"><i class="cg-i" data-icon="fullscreen"></i> Fullscreen</button>
+        </div>
+        <div class="studio-subtitle">Station branding and ΕΣΡ compliance</div>
+      </div>
+
+      <!-- Prominent Master Preset Chooser Bar -->
+      <div class="studio-preset-bar">
+        <div class="preset-select-wrapper">
+          <span class="preset-label-icon"><i class="cg-i" data-icon="star"></i></span>
+          <select id="sel-master-preset" class="studio-preset-dropdown" onchange="onSelectMasterPreset(this.value)">
+            <optgroup label="Broadcast Standards">
+              <option value="default" selected>Sitia HD Standard (Default)</option>
+              <option value="live">Sitia Live Broadcast</option>
+              <option value="movie">Primetime Movie Night</option>
+              <option value="documentary">World Nature &amp; Docs</option>
+              <option value="telemarketing">Telemarketing Direct (ΤΠ)</option>
+              <option value="show">Prime Drama Series</option>
+              <option value="news">Breaking News &amp; Reports</option>
+            </optgroup>
+            <optgroup label="User Custom Presets" id="optgroup-master-user-presets">
+              <!-- Populated dynamically from localStorage -->
+            </optgroup>
+          </select>
+        </div>
+        <!-- One state pill and one overflow menu. "Save & Deploy" and
+             "Set Default" used to be two buttons with overlapping effects:
+             both deployed, and one of them also silently made the preset the
+             startup default. Deploy deploys; the startup default is an
+             explicit choice in the menu. -->
+        <div class="preset-quick-actions">
+          <span id="deploy-state" class="deploy-state state-modified" title="Whether what you see matches what is deployed">Modified</span>
+          <button type="button" class="preset-pill-btn" id="btn-preset-menu"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="preset-menu"
+                  onclick="togglePresetMenu()" title="More preset actions"><i class="cg-i" data-icon="more"></i></button>
+        </div>
+
+        <div id="preset-menu" class="preset-menu" role="menu" hidden>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); openSaveAsDialog();"><i class="cg-i" data-icon="save"></i> Save as new preset…</button>
+          <button type="button" role="menuitem" class="preset-menu-item" id="menu-make-default" onclick="closePresetMenu(); markActivePresetAsDefault();"><i class="cg-i" data-icon="star"></i> Use as startup default</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); exportActivePreset();"><i class="cg-i" data-icon="download"></i> Export preset JSON</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); importPresetFromFile();"><i class="cg-i" data-icon="copy"></i> Import preset JSON…</button>
+          <div class="preset-menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); copyLiveSvgCode('logo');"><i class="cg-i" data-icon="copy"></i> Copy Station ID SVG</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); copyLiveSvgCode('rating');"><i class="cg-i" data-icon="copy"></i> Copy rating badge SVG</button>
+          <button type="button" role="menuitem" class="preset-menu-item" onclick="closePresetMenu(); downloadAllSvgs();"><i class="cg-i" data-icon="download"></i> Download SVGs</button>
+          <div class="preset-menu-sep" role="separator"></div>
+          <button type="button" role="menuitem" class="preset-menu-item is-danger" id="menu-delete-preset" onclick="closePresetMenu(); deleteActiveMasterPreset();"><i class="cg-i" data-icon="trash"></i> Delete this preset</button>
+        </div>
+      </div>
+
+      <!-- On-Air Display Mode Switcher -->
+      <div class="studio-mode-bar">
+        <button class="studio-mode-btn" id="mode-btn-rating" onclick="setStudioDisplayMode('rating')"><i class="cg-i" data-icon="tag"></i> Rating Only</button>
+        <button class="studio-mode-btn" id="mode-btn-logo" onclick="setStudioDisplayMode('logo')"><i class="cg-i" data-icon="monitor"></i> Station ID Only</button>
+        <button class="studio-mode-btn active" id="mode-btn-combo" onclick="setStudioDisplayMode('combo')"><i class="cg-i" data-icon="star"></i> Combo (Both)</button>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <!-- Basic shows the dozen things that get touched daily; Advanced adds
+           the light angle, bevel offsets, stencil offsets and the rest. The
+           tiers come from CONTROL_SCHEMA, so a new control is filed once. -->
+      <div class="studio-tier-bar" role="radiogroup" aria-label="Control detail">
+        <button type="button" class="studio-tier-btn active" data-tier="basic" role="radio" aria-checked="true"
+                onclick="setControlTier('basic')">Basic</button>
+        <button type="button" class="studio-tier-btn" data-tier="advanced" role="radio" aria-checked="false"
+                onclick="setControlTier('advanced')">Advanced</button>
+      </div>
+
+      <div class="studio-tab-bar">
+        <button class="studio-tab-btn active" data-tab="content" onclick="switchStudioTab('content')"><i class="cg-i" data-icon="tag"></i> Content</button>
+        <button class="studio-tab-btn" data-tab="station" onclick="switchStudioTab('station')"><i class="cg-i" data-icon="monitor"></i> Station Logo</button>
+        <button class="studio-tab-btn" data-tab="rating" onclick="switchStudioTab('rating')"><i class="cg-i" data-icon="tag"></i> Rating Badge</button>
+        <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')"><i class="cg-i" data-icon="palette"></i> Blueprints</button>
+        <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')"><i class="cg-i" data-icon="ruler"></i> Geometry</button>
+        <button class="studio-tab-btn" data-tab="motion" onclick="switchStudioTab('motion')"><i class="cg-i" data-icon="motion"></i> Motion</button>
+        <button class="studio-tab-btn" data-tab="ai" onclick="switchStudioTab('ai')"><i class="cg-i" data-icon="sparkles"></i> AI designer</button>
+      </div>
+
+      <!-- Scrollable Tab Content Panels -->
+      <div class="studio-body">
+
+        <!-- TAB 1: Content & Greek NCRTV ESR Descriptors -->
+        <div id="tab-pane-content" class="studio-tab-pane active">
+          <!-- Age Rating Selection -->
+          <div class="studio-group" id="content-group-rating">
+            <div class="studio-group-title"><i class="cg-i" data-icon="tag"></i> Age rating (ΕΣΡ)</div>
+            <div class="studio-btn-row">
+              <button class="studio-btn" data-rating="K" onclick="setStudioRating('K')">Κ (All)</button>
+              <button class="studio-btn" data-rating="8" onclick="setStudioRating('8')">8+</button>
+              <button class="studio-btn" data-rating="12" onclick="setStudioRating('12')">12+</button>
+              <button class="studio-btn active" data-rating="16" onclick="setStudioRating('16')">16+</button>
+              <button class="studio-btn" data-rating="18" onclick="setStudioRating('18')">18+</button>
+              <button class="studio-btn" data-rating="NONE" onclick="setStudioRating('NONE')">Logo Only</button>
+            </div>
+            <!-- Descriptors Toggle Chips with Live Glyph Previews -->
+            <div class="studio-btn-row" style="margin-top: 4px;">
+              <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+                <input type="checkbox" id="chk-violence" checked onchange="updateStudioPreview()"> <i class="cg-i" data-icon="violence"></i> Βία
+              </label>
+              <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+                <input type="checkbox" id="chk-sex" onchange="updateStudioPreview()"> <i class="cg-i" data-icon="sex"></i> Σεξ
+              </label>
+              <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+                <input type="checkbox" id="chk-drugs" checked onchange="updateStudioPreview()"> <i class="cg-i" data-icon="substances"></i> Ουσίες
+              </label>
+              <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+                <input type="checkbox" id="chk-language" onchange="updateStudioPreview()"> <i class="cg-i" data-icon="language"></i> Γλώσσα
+              </label>
+              <label style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+                <input type="checkbox" id="chk-tp" onchange="updateStudioPreview()"> ΤΠ
+              </label>
+              <label id="label-chk-station-logo" style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1; cursor: pointer;">
+                <input type="checkbox" id="chk-station-logo" checked onchange="updateStudioPreview()"> Logo
+              </label>
+            </div>
+          </div>
+
+          <!-- Greek Statutory Explanation Text Presets -->
+          <div class="studio-group" id="content-group-legal">
+            <div class="studio-group-title"><i class="cg-i" data-icon="legal"></i> Statutory wording (ΕΣΡ)</div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <button class="studio-btn" style="text-align: left; font-size: 10px;" onclick="applyLegalTextPreset('ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ')">Κ: ΚΑΤΑΛΛΗΛΟ ΓΙΑ ΟΛΟΥΣ</button>
+              <button class="studio-btn" style="text-align: left; font-size: 10px;" onclick="applyLegalTextPreset('ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8 ΕΤΩΝ')">8: ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 8 ΕΤΩΝ</button>
+              <button class="studio-btn" style="text-align: left; font-size: 10px;" onclick="applyLegalTextPreset('ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 12 ΕΤΩΝ')">12: ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 12 ΕΤΩΝ</button>
+              <button class="studio-btn" style="text-align: left; font-size: 10px;" onclick="applyLegalTextPreset('ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16 ΕΤΩΝ')">16: ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16 ΕΤΩΝ</button>
+              <button class="studio-btn" style="text-align: left; font-size: 10px;" onclick="applyLegalTextPreset('ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 18 ΕΤΩΝ')">18: ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 18 ΕΤΩΝ</button>
+            </div>
+            <div style="margin-top: 6px;">
+              <div class="studio-slider-header">
+                <span>Custom Greek Advisory Banner Text</span>
+              </div>
+              <input type="text" id="txt-custom-advisory" class="studio-select" placeholder="e.g. ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16 ΕΤΩΝ" style="margin-top: 4px;" oninput="onCustomTextTyped()">
+            </div>
+          </div>
+
+                    <!-- Greek NCRTV Advisory Warning Descriptors (Editable Phrasing) -->
+          <div class="studio-group" id="group-warning-descriptors">
+            <div class="studio-group-title"><i class="cg-i" data-icon="shield"></i> Descriptor wording</div>
+            <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
+              Customize on-air phrasing for descriptors. Dynamically scales and animates next to rating badge.
+            </div>
+
+            <!-- Top Lead Text (Line 1) -->
+            <div class="vector-ctrl-row" style="margin-bottom: 6px;">
+              <span style="font-size: 10.5px; color: #cbd5e1; font-weight: 800; flex: 0 0 110px;">Header (Line 1):</span>
+              <input type="text" id="txt-warn-lead" class="studio-select" value="ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ" placeholder="ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ" oninput="onWarningTextEdited()" style="flex: 1; text-transform: uppercase; font-weight: 800; height: 26px; font-size: 11px;">
+            </div>
+
+            <!-- 1. Violence -->
+            <div class="show-tag-row" style="margin-bottom: 4px;">
+              <div class="tag-row-icon"><i class="cg-i" data-icon="violence"></i></div>
+              <div class="tag-row-label" style="width: 82px;">Violence:</div>
+              <input type="text" id="txt-warn-violence" class="studio-select tag-row-input" value="ΣΚΗΝΕΣ ΒΙΑΣ" placeholder="ΣΚΗΝΕΣ ΒΙΑΣ" oninput="onWarningTextEdited()">
+            </div>
+
+            <!-- 2. Substances -->
+            <div class="show-tag-row" style="margin-bottom: 4px;">
+              <div class="tag-row-icon"><i class="cg-i" data-icon="substances"></i></div>
+              <div class="tag-row-label" style="width: 82px;">Substances:</div>
+              <input type="text" id="txt-warn-drugs" class="studio-select tag-row-input" value="ΧΡΗΣΗ ΟΥΣΙΩΝ" placeholder="ΣΚΗΝΕΣ ΜΕ ΧΡΗΣΗ ΟΥΣΙΩΝ" oninput="onWarningTextEdited()">
+            </div>
+
+            <!-- 3. Sex -->
+            <div class="show-tag-row" style="margin-bottom: 4px;">
+              <div class="tag-row-icon"><i class="cg-i" data-icon="sex"></i></div>
+              <div class="tag-row-label" style="width: 82px;">Sex:</div>
+              <input type="text" id="txt-warn-sex" class="studio-select tag-row-input" value="ΣΕΞ" placeholder="ΣΚΗΝΕΣ ΣΕΞΟΥΑΛΙΚΟΥ ΠΕΡΙΕΧΟΜΕΝΟΥ" oninput="onWarningTextEdited()">
+            </div>
+
+            <!-- 4. Language -->
+            <div class="show-tag-row" style="margin-bottom: 4px;">
+              <div class="tag-row-icon"><i class="cg-i" data-icon="language"></i></div>
+              <div class="tag-row-label" style="width: 82px;">Language:</div>
+              <input type="text" id="txt-warn-language" class="studio-select tag-row-input" value="ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ" placeholder="ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ" oninput="onWarningTextEdited()">
+            </div>
+          </div>
+
+          <!-- Show Tag Content & Subtitles (Next to Station ID) -->
+          <div class="studio-group" id="group-station-show-tags">
+            <div class="studio-group-title"><i class="cg-i" data-icon="tag"></i> Show tags</div>
+            <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
+              Edit the text that appears before or after the <strong>|</strong> next to your Station ID. Click <strong>Air This</strong> to switch on-air immediately.
+            </div>
+
+            <!-- Interactive Tag Rows with Editable Text Inputs & Icon Indicators -->
+            <div class="show-tag-matrix">
+              <!-- 1. LIVE -->
+              <div class="show-tag-row" id="row-tag-live">
+                <div class="tag-row-icon" title="Pulsing Crimson Beacon">
+                  <span class="station-live-dot" style="display:inline-block;"></span>
+                </div>
+                <div class="tag-row-label">LIVE:</div>
+                <input type="text" id="txt-tag-live" class="studio-select tag-row-input" value="LIVE" placeholder="LIVE" oninput="onTagInputChanged('live')">
+                <button type="button" class="tag-row-btn" id="btn-air-live" onclick="activateShowTag('live')">Air This</button>
+              </div>
+
+              <!-- 2. MOVIE -->
+              <div class="show-tag-row" id="row-tag-movie">
+                <div class="tag-row-icon" title="3D Cinema Clapperboard">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wmov-body" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#334155" /><stop offset="100%" stop-color="#0f172a" /></linearGradient><filter id="wmov-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wmov-sh)"><rect x="2.5" y="8.5" width="17" height="10.5" rx="1.6" fill="url(#wmov-body)" stroke="#ffffff" stroke-width="0.9" /><line x1="5.5" y1="12.5" x2="16.5" y2="12.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><line x1="5.5" y1="15.5" x2="13.5" y2="15.5" stroke="#ffffff" stroke-width="0.8" opacity="0.8" /><path d="M2.8 7 L18.5 4.2 L18 7.5 L2.5 8.5 Z" fill="#ffffff" stroke="#0f172a" stroke-width="0.5" /><circle cx="3.5" cy="7.8" r="1" fill="#0f172a" /></g></svg>
+                </div>
+                <div class="tag-row-label">MOVIE:</div>
+                <input type="text" id="txt-tag-movie" class="studio-select tag-row-input" value="MOVIE TIME" placeholder="MOVIE TIME" oninput="onTagInputChanged('movie')">
+                <button type="button" class="tag-row-btn" id="btn-air-movie" onclick="activateShowTag('movie')">Air This</button>
+              </div>
+
+              <!-- 3. DOCUMENTARY -->
+              <div class="show-tag-row" id="row-tag-documentary">
+                <div class="tag-row-icon" title="3D Terrestrial Globe">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wdoc-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wdoc-sh)"><circle cx="11" cy="11" r="8" fill="none" stroke="#ffffff" stroke-width="1.2" /><ellipse cx="11" cy="11" rx="8" ry="3.2" fill="none" stroke="#ffffff" stroke-width="0.8" /><ellipse cx="11" cy="11" rx="3.2" ry="8" fill="none" stroke="#ffffff" stroke-width="0.8" /><line x1="3" y1="11" x2="19" y2="11" stroke="#ffffff" stroke-width="0.9" /><circle cx="8" cy="7.5" r="1.2" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">DOCS:</div>
+                <input type="text" id="txt-tag-documentary" class="studio-select tag-row-input" value="DOCUMENTARY" placeholder="DOCUMENTARY" oninput="onTagInputChanged('documentary')">
+                <button type="button" class="tag-row-btn" id="btn-air-documentary" onclick="activateShowTag('documentary')">Air This</button>
+              </div>
+
+              <!-- 4. TELEMARKETING -->
+              <div class="show-tag-row" id="row-tag-telemarketing">
+                <div class="tag-row-icon" title="3D Price Tag (ΤΠ)">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><linearGradient id="wtp-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc" /><stop offset="60%" stop-color="#e2e8f0" /><stop offset="100%" stop-color="#cbd5e1" /></linearGradient><filter id="wtp-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wtp-sh)"><path d="M18.5 11.5 L12.5 17.5 L3.5 8.5 V3.5 H8.5 L18.5 11.5 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="6.5" cy="6.5" r="1.3" fill="#ffffff" /><line x1="10.5" y1="10.5" x2="14.5" y2="14.5" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><circle cx="11.5" cy="13.5" r="0.8" fill="#ffffff" /><circle cx="13.5" cy="11.5" r="0.8" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">TELEMARKETING:</div>
+                <input type="text" id="txt-tag-telemarketing" class="studio-select tag-row-input" value="TELEMARKETING" placeholder="TELEMARKETING" oninput="onTagInputChanged('telemarketing')">
+                <button type="button" class="tag-row-btn" id="btn-air-telemarketing" onclick="activateShowTag('telemarketing')">Air This</button>
+              </div>
+
+              <!-- 5. SERIES / SHOW -->
+              <div class="show-tag-row" id="row-tag-show">
+                <div class="tag-row-icon" title="3D Dual Screens">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wshow-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wshow-sh)"><rect x="5.5" y="3.5" width="12.5" height="9.5" rx="1.4" fill="none" stroke="#cbd5e1" stroke-width="0.8" opacity="0.8" /><rect x="2.5" y="7" width="13.5" height="10.5" rx="1.6" fill="none" stroke="#ffffff" stroke-width="1.2" /><polygon points="7,10 11.5,12.2 7,14.5" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">SERIES:</div>
+                <input type="text" id="txt-tag-show" class="studio-select tag-row-input" value="SERIES" placeholder="SERIES" oninput="onTagInputChanged('show')">
+                <button type="button" class="tag-row-btn" id="btn-air-show" onclick="activateShowTag('show')">Air This</button>
+              </div>
+
+              <!-- 6. NEWS -->
+              <div class="show-tag-row" id="row-tag-news">
+                <div class="tag-row-icon" title="3D Transmission Tower">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wnews-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wnews-sh)"><path d="M11 5.5 L6.5 18.5 H15.5 L11 5.5 Z" fill="none" stroke="#ffffff" stroke-width="1.1" /><line x1="8.5" y1="12" x2="13.5" y2="12" stroke="#ffffff" stroke-width="0.9" /><circle cx="11" cy="4.8" r="1.8" fill="#ffffff" /><path d="M7.5 3 A5 5 0 0 1 14.5 3" fill="none" stroke="#ffffff" stroke-width="1" stroke-linecap="round" /><path d="M5.5 1 A7.5 7.5 0 0 1 16.5 1" fill="none" stroke="#ffffff" stroke-width="0.9" stroke-linecap="round" opacity="0.75" /></g></svg>
+                </div>
+                <div class="tag-row-label">NEWS:</div>
+                <input type="text" id="txt-tag-news" class="studio-select tag-row-input" value="NEWS" placeholder="NEWS" oninput="onTagInputChanged('news')">
+                <button type="button" class="tag-row-btn" id="btn-air-news" onclick="activateShowTag('news')">Air This</button>
+              </div>
+            </div>
+
+            <!-- Active On-Air Tagline Override & Preview -->
+            <div style="margin-top: 10px; padding: 10px 12px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px;">
+              <div style="font-size: 11px; font-weight: 700; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span>Active Subtitle / Tagline</span>
+                <button type="button" class="studio-btn" style="padding: 2px 8px; font-size: 10px;" onclick="activateShowTag('none')"><i class="cg-i" data-icon="close"></i> Clean Station ID</button>
+              </div>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <select id="sel-active-tag-icon" class="studio-select" style="width: 130px; font-size: 11px;" onchange="onManualIconSelected(this.value)">
+                  <option value="none">No Icon (Text Only)</option>
+                  <option value="live">Live Dot</option>
+                  <option value="movie">Clapperboard</option>
+                  <option value="documentary">Globe</option>
+                  <option value="telemarketing">Sale Tag</option>
+                  <option value="show">Screens</option>
+                  <option value="news">Tower Dish</option>
+                </select>
+                <input type="text" id="txt-active-tagline" class="studio-select" style="flex: 1; font-weight: 700; text-transform: uppercase;" value="HD" placeholder="Custom Tagline" oninput="onActiveTaglineInput(this.value)">
+              </div>
+              <div style="font-size: 10.5px; color: #94a3b8; margin-top: 6px;">
+                On-Air Render: <span id="tagline-live-preview" style="color: #38bdf8; font-weight: 800;">SITIA | HD</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Video Canvas Simulation & Transport Controls -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="movie"></i> Backdrop</div>
+            <div class="studio-btn-row">
+              <button class="studio-btn active" id="btn-bg-dark" onclick="setMonitorBg('dark')"><i class="cg-i" data-icon="moon"></i> Studio Dark</button>
+              <button class="studio-btn" id="btn-bg-bright" onclick="setMonitorBg('bright')"><i class="cg-i" data-icon="sun"></i> Bright Video</button>
+              <button class="studio-btn" id="btn-bg-movie" onclick="setMonitorBg('movie')"><i class="cg-i" data-icon="movie"></i> Moving Film</button>
+              <button class="studio-btn" id="btn-bg-checker" onclick="setMonitorBg('checker')"><i class="cg-i" data-icon="checker"></i> Checkerboard</button>
+              <button class="studio-btn" id="btn-bg-transp" onclick="setMonitorBg('transparent')"><i class="cg-i" data-icon="fog"></i> Transparent</button>
+            </div>
+            <div class="studio-btn-row" style="margin-top: 4px;">
+              <button class="studio-btn" style="background: rgba(34,197,94,0.25); color: #4ade80;" onclick="window.play()"><i class="cg-i" data-icon="play"></i> Play</button>
+              <button class="studio-btn" style="background: rgba(239,68,68,0.25); color: #f87171;" onclick="window.stop()"><i class="cg-i" data-icon="stop"></i> Stop</button>
+              <button class="studio-btn" onclick="replayTimeline()"><i class="cg-i" data-icon="replay"></i> Replay</button>
+              <button class="studio-btn" style="background: rgba(56,189,248,0.2); color: #38bdf8;" onclick="quickPreviewCycle()"><i class="cg-i" data-icon="bolt"></i> Short holds</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: Station ID Vector Studio -->
+        <div id="tab-pane-station" class="studio-tab-pane">
+          <!-- Station Wordmark & Tagline -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Wordmark</div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Station Wordmark</span>
+              <input type="text" id="txt-logo-content" value="SITIA" class="studio-select" style="max-width: 140px; text-transform: uppercase;" oninput="updateLogoFromControls()">
+            </div>
+            <div class="vector-ctrl-row" style="margin-top: 4px;">
+              <span style="font-size: 11.5px; color: #cbd5e1;">Subtitle / Tagline</span>
+              <input type="text" id="txt-logo-subtitle" value="LIVE" placeholder="e.g. LIVE (leave empty to hide)" class="studio-select" style="max-width: 150px; text-transform: uppercase;" oninput="updateLogoFromControls()">
+            </div>
+            <div class="vector-ctrl-row" style="margin-top: 4px;">
+              <span style="font-size: 11.5px; color: #cbd5e1;">Wordmark Font</span>
+              <select class="studio-select" id="sel-logo-font" style="max-width: 150px;" onchange="updateLogoFromControls()">
+                <option value="system" selected>System / Bespoke (Default)</option>
+                <option value="roboto">Roboto Clean</option>
+                <option value="mono">Monospace Tech</option>
+                <option value="display">Display Expanded</option>
+                <option value="geometric">Geometric Bold (Inter)</option>
+                <option value="inter">Inter Neutral</option>
+                <option value="serif">Classic Serif</option>
+              </select>
+            </div>
+          </div>
+
+                    <!-- Station Logo Positioning Sliders -->
+          <div class="studio-group" id="group-logo-positioning">
+            <div class="studio-group-title"><i class="cg-i" data-icon="position"></i> Station ID position</div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Top Offset</span>
+                <span id="val-logo-top" class="studio-value-tag">60px</span>
+              </div>
+              <input type="range" id="sld-logo-top" min="10" max="400" step="2" value="60" class="studio-slider" oninput="onLogoPosSliderChanged()">
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Left Offset</span>
+                <span id="val-logo-left" class="studio-value-tag">60px</span>
+              </div>
+              <input type="range" id="sld-logo-left" min="10" max="600" step="2" value="60" class="studio-slider" oninput="onLogoPosSliderChanged()">
+            </div>
+            <div class="studio-btn-row" style="margin-top: 6px;">
+              <button type="button" class="studio-btn" style="font-size: 10px;" onclick="resetLogoPositionToDefault()"><i class="cg-i" data-icon="replay"></i> Reset position</button>
+            </div>
+          </div>
+
+          <!-- Shape & Scale -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Scale and chassis</div>
+            <div class="studio-btn-row">
+              <button class="studio-btn active" id="btn-logo-shape-squircle" onclick="setLogoShape('squircle')">Squircle (G2)</button>
+              <button class="studio-btn" id="btn-logo-shape-circle" onclick="setLogoShape('circle')">Circle</button>
+              <button class="studio-btn" id="btn-logo-shape-pill" onclick="setLogoShape('pill')">Pill Tag</button>
+              <button class="studio-btn" id="btn-logo-shape-shield" onclick="setLogoShape('shield')">Shield</button>
+              <button class="studio-btn" id="btn-logo-shape-diamond" onclick="setLogoShape('diamond')">Diamond</button>
+            </div>
+            <div style="margin-top: 8px;">
+              <div class="studio-slider-label">
+                <span>Station Logo Size</span>
+                <span id="val-logo-size" class="studio-slider-val">88px</span>
+              </div>
+              <input type="range" min="40" max="180" value="88" id="sld-logo-size" class="studio-slider" oninput="updateLogoFromControls()">
+            </div>
+            <div style="margin-top: 6px;">
+              <div class="studio-slider-label">
+                <span>Corner Curvature (G2 Radius)</span>
+                <span id="val-logo-radius" class="studio-slider-val">52px</span>
+              </div>
+              <input type="range" min="0" max="60" value="52" id="sld-logo-radius" class="studio-slider" oninput="updateLogoFromControls()">
+            </div>
+          </div>
+
+          <!-- Extrusion Physics & Virtual Light Angle -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="palette"></i> Surface and lighting</div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Extrusion Surface Mode</span>
+              <select class="studio-select" id="sel-logo-extrusion" style="max-width: 140px;" onchange="updateLogoFromControls()">
+                <option value="convex">Convex (3D Dome)</option>
+                <option value="concave">Concave (Dish)</option>
+                <option value="flat">Flat Extrusion</option>
+                <option value="inset">Inset (Embossed Cavity)</option>
+              </select>
+            </div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1;">Base Fill Color</span>
+              <input type="color" id="col-logo-base" value="#702177" class="vector-color-input" oninput="updateLogoFromControls()">
+            </div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1;">Secondary Gradient Stop</span>
+              <input type="color" id="col-logo-grad" value="#46104c" class="vector-color-input" oninput="updateLogoFromControls()">
+            </div>
+            <div style="margin-top: 6px;">
+              <div class="studio-slider-label">
+                <span>Light angle</span>
+                <span id="val-logo-grad-angle" class="studio-slider-val">135°</span>
+              </div>
+              <input type="range" min="0" max="360" value="135" id="sld-logo-grad-angle" class="studio-slider" oninput="updateLogoFromControls()">
+            </div>
+          </div>
+
+          <!-- Dual-Shadow Engine & Micro-Border -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="light"></i> Shadows and rim</div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1;">Specular Light Rim (-dx, -dy)</span>
+              <input type="color" id="col-logo-specular" value="#f0f5fc" class="vector-color-input" oninput="updateLogoFromControls()">
+            </div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1;">Ambient Shadow (+dx, +dy)</span>
+              <input type="color" id="col-logo-shadow" value="#18031d" class="vector-color-input" oninput="updateLogoFromControls()">
+            </div>
+            <div style="margin-top: 6px;">
+              <div class="studio-slider-label">
+                <span>Shadow Blur / Elevation</span>
+                <span id="val-logo-blur" class="studio-slider-val">6px</span>
+              </div>
+              <input type="range" min="0" max="25" value="6" id="sld-logo-blur" class="studio-slider" oninput="updateLogoFromControls()">
+            </div>
+            <div class="vector-ctrl-row" style="margin-top: 6px;">
+              <label style="font-size: 11.5px; color: #cbd5e1; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                <input type="checkbox" id="chk-logo-microborder" checked onchange="updateLogoFromControls()"> 1px Linear Gradient Micro-Border
+              </label>
+            </div>
+          </div>
+
+          <!-- Wordmark Bevel Offsets -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Bevel offsets and colours</div>
+            <div style="margin-top: 4px;">
+              <div class="studio-slider-label">
+                <span>Text Horizontal Offset (X)</span>
+                <span id="val-logo-text-x" class="studio-slider-val">0px</span>
+              </div>
+              <input type="range" min="-40" max="40" value="0" id="sld-logo-text-x" class="studio-slider" oninput="updateLogoFromControls()">
+            </div>
+            <div style="margin-top: 6px;">
+              <div class="studio-slider-label">
+                <span>Text Vertical Offset (Y)</span>
+                <span id="val-logo-text-y" class="studio-slider-val">0px</span>
+              </div>
+              <input type="range" min="-40" max="40" value="0" id="sld-logo-text-y" class="studio-slider" oninput="updateLogoFromControls()">
+            </div>
+            <div style="margin-top: 6px;">
+              <div class="studio-slider-label">
+                <span>Text Scale / Font Size</span>
+                <span id="val-logo-text-size" class="studio-slider-val">40px</span>
+              </div>
+              <input type="range" min="16" max="64" value="40" id="sld-logo-text-size" class="studio-slider" oninput="updateLogoFromControls()">
+            </div>
+            <div class="vector-ctrl-row" style="margin-top: 8px;">
+              <span style="font-size: 11.5px; color: #cbd5e1;">Face Specular Color</span>
+              <input type="color" id="col-logo-text" value="#f7edf9" class="vector-color-input" oninput="updateLogoFromControls()">
+            </div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1;">Bevel Shadow Color</span>
+              <input type="color" id="col-logo-textshadow" value="#200324" class="vector-color-input" oninput="updateLogoFromControls()">
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: Rating Badge Studio -->
+        <div id="tab-pane-rating" class="studio-tab-pane">
+          <!-- Stencil / Numeral Mode -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Numeral style</div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">Numeral Render Mode</span>
+              <select class="studio-select" id="sel-rating-cutout" style="max-width: 150px;" onchange="updateRatingFromControls()">
+                <option value="frosted">Negative Space Stencil (NCRTV)</option>
+                <option value="embossed">3D Embossed Convex Numeral</option>
+                <option value="inset">Inset Stamped Numeral (Sunken)</option>
+                <option value="contrast">High Contrast Outline</option>
+                <option value="none">Pure Silhouette</option>
+              </select>
+            </div>
+            <div class="studio-btn-row" style="margin-top: 8px;">
+              <button class="studio-btn" id="btn-rating-shape-circle" onclick="setRatingShape('circle')">Circle (NCRTV)</button>
+              <button class="studio-btn active" id="btn-rating-shape-squircle" onclick="setRatingShape('squircle')">Squircle</button>
+              <button class="studio-btn" id="btn-rating-shape-pill" onclick="setRatingShape('pill')">Pill Tag</button>
+            </div>
+          </div>
+
+          <!-- Sizing & Tints -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Scale and colours</div>
+            <div>
+              <div class="studio-slider-label">
+                <span>Badge Diameter</span>
+                <span id="val-rating-size" class="studio-slider-val">48px</span>
+              </div>
+              <input type="range" min="36" max="100" value="48" id="sld-rating-size" class="studio-slider" oninput="updateRatingFromControls()">
+            </div>
+            <div style="margin-top: 8px;">
+              <div class="studio-slider-label">
+                <span>Stencil Font Size</span>
+                <span id="val-rating-font-size" class="studio-slider-val">27px</span>
+              </div>
+              <input type="range" min="16" max="42" value="27" id="sld-rating-font-size" class="studio-slider" oninput="updateRatingFromControls()">
+            </div>
+            <div class="vector-ctrl-row" style="margin-top: 8px;">
+              <span style="font-size: 11.5px; color: #cbd5e1;" title="Overrides the blueprint's badge fill until the next blueprint is applied">Base Fill Tint</span>
+              <input type="color" id="col-rating-tint" value="#ffffff" class="vector-color-input" oninput="onBadgeColorPicked('tint')">
+            </div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1;" title="Overrides the blueprint's badge rim until the next blueprint is applied">Border / Rim Stroke</span>
+              <input type="color" id="col-rating-stroke" value="#ffffff" class="vector-color-input" oninput="onBadgeColorPicked('rim')">
+            </div>
+          </div>
+
+          <!-- Stencil Typography & Offsets -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Stencil type and offsets</div>
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11.5px; color: #cbd5e1;">Font Family</span>
+              <select class="studio-select" id="sel-rating-font" style="max-width: 150px;" onchange="updateRatingFromControls()">
+                <option value="system" selected>System Sans (Default)</option>
+                <option value="roboto">Roboto Clean</option>
+                <option value="mono">Monospace Tech</option>
+                <option value="outfit">Outfit Geometric</option>
+                <option value="inter">Inter Neutral</option>
+                <option value="montserrat">Montserrat (Latin only)</option>
+                <option value="serif">Classic Serif</option>
+              </select>
+            </div>
+            <div style="margin-top: 6px;">
+              <div class="studio-slider-label">
+                <span>Stencil Number Offset X</span>
+                <span id="val-rating-text-x" class="studio-slider-val">0px</span>
+              </div>
+              <input type="range" min="-20" max="20" value="0" id="sld-rating-text-x" class="studio-slider" oninput="updateRatingFromControls()">
+            </div>
+            <div style="margin-top: 6px;">
+              <div class="studio-slider-label">
+                <span>Stencil Number Offset Y</span>
+                <span id="val-rating-text-y" class="studio-slider-val">0px</span>
+              </div>
+              <input type="range" min="-20" max="20" value="0" id="sld-rating-text-y" class="studio-slider" oninput="updateRatingFromControls()">
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: Neumorphic Themes & Blueprints -->
+        <div id="tab-pane-theme" class="studio-tab-pane">
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="palette"></i> Look blueprints</div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div class="studio-theme-card active" data-theme="frosted" onclick="applyThemePreset('frosted')">
+                <div class="studio-theme-title"><i class="cg-i" data-icon="star"></i> Frosted glass</div>
+                <div class="studio-theme-desc">Extruded chassis with frosted glass center &amp; soft debossed stencil</div>
+                <div class="studio-theme-luma">ITU-R Rec.709: Luma 235 Max / 16 Min • Low CEF Load (~1.2ms)</div>
+              </div>
+              <div class="studio-theme-card" data-theme="matte-slate" onclick="applyThemePreset('matte-slate')">
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Matte slate</div>
+                <div class="studio-theme-desc">#E2E8F0 base with convex gradient, dual shadows &amp; 1px micro-border</div>
+                <div class="studio-theme-luma">ITU-R Rec.709: Luma 228 Max / 24 Min • Clean Alpha Key</div>
+              </div>
+              <div class="studio-theme-card" data-theme="vibrant-accent" onclick="applyThemePreset('vibrant-accent')">
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Vibrant accent</div>
+                <div class="studio-theme-desc">#E0E7FF lavender-blue base with radiant indigo drop shadow</div>
+                <div class="studio-theme-luma">ITU-R Rec.709: Luma 230 Max / 28 Min • High Visual Impact</div>
+              </div>
+              <div class="studio-theme-card" data-theme="inset-embossed" onclick="applyThemePreset('inset-embossed')">
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Inset emboss</div>
+                <div class="studio-theme-desc">Sunken #D1D5DB base with deep internal shadows &amp; recessed trough</div>
+                <div class="studio-theme-luma">ITU-R Rec.709: Luma 215 Max / 32 Min • Tactile Stamp</div>
+              </div>
+              <div class="studio-theme-card" data-theme="dark-obsidian" onclick="applyThemePreset('dark-obsidian')">
+                <div class="studio-theme-title"><i class="cg-i" data-icon="moon"></i> Obsidian</div>
+                <div class="studio-theme-desc">Master control dark slate with electric cyan rim lighting</div>
+                <div class="studio-theme-luma">ITU-R Rec.709: High Contrast against Bright Outdoor Video</div>
+              </div>
+              <div class="studio-theme-card" data-theme="claymorphism" onclick="applyThemePreset('claymorphism')">
+                <div class="studio-theme-title"><i class="cg-i" data-icon="palette"></i> Clay</div>
+                <div class="studio-theme-desc">Rounded 3D inflated pill geometry with pastel inner glows</div>
+                <div class="studio-theme-luma">ITU-R Rec.709: Friendly Modern Broadcast Overlays</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- There used to be a second, six-field "Save Theme" here, and a
+               third invisible one behind it. Three saves that meant different
+               things and lost different work. Presets live in one place now:
+               the picker at the top of this rail, and Save as… beside Deploy.
+               Anything saved under the old two is migrated into it on first
+               load. -->
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="star"></i> Saved presets</div>
+            <div class="studio-group-note">
+              Presets are saved and chosen at the top of this rail.
+              <strong>Save as…</strong> keeps the current look under a new name;
+              <strong>Deploy</strong> sends the active one to CasparCG.
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: Geometry & Placement -->
+        <div id="tab-pane-geometry" class="studio-tab-pane">
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="position"></i> Screen Anchor Corner</div>
+            <div class="studio-btn-row">
+              <button class="studio-btn active" data-anchor="top-right" onclick="setAnchorPosition('top-right')"><i class="cg-i" data-icon="cornerTopRight"></i> Top-Right (Standard)</button>
+              <button class="studio-btn" data-anchor="top-left" onclick="setAnchorPosition('top-left')"><i class="cg-i" data-icon="cornerTopLeft"></i> Top-Left</button>
+              <button class="studio-btn" data-anchor="bottom-right" onclick="setAnchorPosition('bottom-right')"><i class="cg-i" data-icon="cornerBottomRight"></i> Bottom-Right</button>
+              <button class="studio-btn" data-anchor="bottom-left" onclick="setAnchorPosition('bottom-left')"><i class="cg-i" data-icon="cornerBottomLeft"></i> Bottom-Left</button>
+            </div>
+            <button class="action-btn-secondary" style="margin-top: 6px;" onclick="flipStagePositions()"><i class="cg-i" data-icon="flip"></i> Swap corners</button>
+          </div>
+
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="ruler"></i> Safe margins</div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Top / Bottom Margin</span>
+                <span id="val-top-margin" class="studio-value-tag">60px</span>
+              </div>
+              <input type="range" id="sld-top-margin" min="20" max="160" step="2" value="60" class="studio-slider" oninput="updateStudioStyles()">
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Left / Right Margin</span>
+                <span id="val-right-margin" class="studio-value-tag">60px</span>
+              </div>
+              <input type="range" id="sld-right-margin" min="20" max="180" step="2" value="60" class="studio-slider" oninput="updateStudioStyles()">
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span><i class="cg-i" data-icon="offsetY"></i> Banner vertical offset</span>
+                <span id="val-text-offset-y" class="studio-value-tag">0px</span>
+              </div>
+              <input type="range" id="sld-text-offset-y" min="-30" max="30" step="1" value="0" class="studio-slider" oninput="updateStudioStyles()">
+            </div>
+            <div class="studio-btn-row" style="margin-top: 4px;">
+              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('action')"><i class="cg-i" data-icon="target"></i> Snap to action safe</button>
+              <button class="studio-btn" style="font-size: 10.5px;" onclick="snapStagesToSafe('title')"><i class="cg-i" data-icon="target"></i> Snap to title safe</button>
+            </div>
+          </div>
+
+          
+          <!-- Banner Accent Line Gradient Controls -->
+          <div class="studio-group" id="group-accent-line-styling">
+            <div class="studio-group-title"><i class="cg-i" data-icon="sparkles"></i> Accent line</div>
+            <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
+              Customize the dynamic underline accent gradient color, height, and glow.
+            </div>
+
+            <div class="vector-ctrl-row">
+              <span style="font-size: 11px; color: #cbd5e1;">Gradient Start (Badge edge):</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="color" id="col-accent-start" class="studio-color-picker" value="#ffffff" oninput="updateAccentLineStyles()">
+                <input type="text" id="txt-accent-start" class="studio-select" value="#ffffff" style="width: 76px; height: 26px; font-size: 11px;" oninput="onAccentHexInput('start', this.value)">
+              </div>
+            </div>
+
+            <div class="vector-ctrl-row" style="margin-top: 6px;">
+              <span style="font-size: 11px; color: #cbd5e1;">Gradient Mid-Glow (Accent color):</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="color" id="col-accent-mid" class="studio-color-picker" value="#38bdf8" oninput="updateAccentLineStyles()">
+                <input type="text" id="txt-accent-mid" class="studio-select" value="#38bdf8" style="width: 76px; height: 26px; font-size: 11px;" oninput="onAccentHexInput('mid', this.value)">
+              </div>
+            </div>
+
+            <!-- Quick Color Preset Palette Chips -->
+            <div style="display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap;">
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#38bdf8')" title="Broadcast Sky / Cyan (Default)"><i class="cg-i" data-icon="palette"></i> Cyan/Sky</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#a855f7')" title="Regal Violet / Purple"><i class="cg-i" data-icon="palette"></i> Purple</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#f59e0b')" title="Gold / Amber Glow"><i class="cg-i" data-icon="star"></i> Amber/Gold</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#ef4444')" title="Vibrant Crimson / Red"><i class="cg-i" data-icon="live"></i> Crimson</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#10b981')" title="Emerald Green"><i class="cg-i" data-icon="palette"></i> Emerald</button>
+              <button type="button" class="preset-pill-btn" onclick="setAccentGradientPreset('#ffffff', '#e2e8f0')" title="Pure Neutral Monochromatic"><i class="cg-i" data-icon="palette"></i> White</button>
+            </div>
+
+            <!-- Line Thickness Slider -->
+            <div class="studio-slider-row" style="margin-top: 10px;">
+              <div class="studio-slider-header">
+                <span>Line Thickness</span>
+                <span id="val-accent-line-height" class="studio-value-tag">2px</span>
+              </div>
+              <input type="range" id="sld-accent-line-height" min="1" max="6" step="0.5" value="2" class="studio-slider" oninput="updateAccentLineStyles()">
+            </div>
+          </div>
+
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="type"></i> Type and fonts</div>
+            <div class="vector-ctrl-row" style="margin-bottom: 10px;">
+              <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 700;">Broadcast Font Family:</span>
+              <select class="studio-select" id="sel-broadcast-font" style="max-width: 165px;" onchange="updateBroadcastFont(this.value)">
+                <option value="system" selected>System Sans (Default)</option>
+                <option value="roboto">Roboto Clean</option>
+                <option value="mono">Monospace Tech</option>
+                <option value="outfit">Outfit Geometric</option>
+                <option value="inter">Inter Neutral</option>
+                <option value="montserrat">Montserrat (Latin only)</option>
+                <option value="serif">Classic Serif</option>
+              </select>
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Rating Explanation Font</span>
+                <span id="val-explanation-font" class="studio-value-tag">13px</span>
+              </div>
+              <input type="range" id="sld-explanation-font" min="10" max="22" step="0.5" value="13" class="studio-slider" oninput="updateStudioStyles()">
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Warning Descriptor Body Font</span>
+                <span id="val-warning-body-font" class="studio-value-tag">12px</span>
+              </div>
+              <input type="range" id="sld-warning-body-font" min="9" max="20" step="0.5" value="12" class="studio-slider" oninput="updateStudioStyles()">
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Warning Lead Subtitle</span>
+                <span id="val-warning-lead-font" class="studio-value-tag">10.5px</span>
+              </div>
+              <input type="range" id="sld-warning-lead-font" min="8" max="16" step="0.5" value="10.5" class="studio-slider" oninput="updateStudioStyles()">
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Warning Icon Size</span>
+                <span id="val-warning-icon-size" class="studio-value-tag">28px</span>
+              </div>
+              <input type="range" id="sld-warning-icon-size" min="16" max="48" step="1" value="28" class="studio-slider" oninput="updateStudioStyles()">
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 6: Motion & Timings -->
+        <div id="tab-pane-motion" class="studio-tab-pane">
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="motion"></i> Hold times</div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Rating Explanation Hold Time</span>
+                <span id="val-rating-hold" class="studio-value-tag">30s</span>
+              </div>
+              <input type="range" id="sld-rating-hold" min="1" max="60" step="1" value="30" class="studio-slider" oninput="updateStudioTimings()">
+            </div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Warning Descriptors Hold Time</span>
+                <span id="val-warning-hold" class="studio-value-tag">30s</span>
+              </div>
+              <input type="range" id="sld-warning-hold" min="1" max="60" step="1" value="30" class="studio-slider" oninput="updateStudioTimings()">
+            </div>
+          </div>
+
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="sparkles"></i> Motion</div>
+            <div class="studio-slider-row">
+              <div class="studio-slider-header">
+                <span>Animation Transition Style</span>
+              </div>
+              <select id="sel-motion-curve" class="studio-select" onchange="updateStudioStyles()">
+                <option value="elastic">Smooth Spring (GSAP Power3 &amp; Back)</option>
+                <option value="smooth">Clean Broadcast Slide</option>
+                <option value="fade">Subtle Dissolve</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- TAB 7: AI designer -->
+        <div id="tab-pane-ai" class="studio-tab-pane">
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="sparkles"></i> AI designer</div>
+            <div id="ai-panel">
+              <div id="ai-status-note" class="studio-group-note">Checking…</div>
+
+              <div id="ai-form" hidden>
+                <div class="ai-examples">
+                  <button type="button" class="preset-pill-btn" onclick="useAiExample('Warm cinema look with gold accents')">Warm cinema</button>
+                  <button type="button" class="preset-pill-btn" onclick="useAiExample('Flat monochrome news style, no gradients')">Flat news</button>
+                  <button type="button" class="preset-pill-btn" onclick="useAiExample('Round friendly kids channel, soft shapes')">Kids channel</button>
+                </div>
+
+                <textarea id="ai-prompt" class="studio-select ai-prompt" rows="3"
+                          placeholder="Describe the look. It knows the canvas, the legal luma range and the asset contracts already."></textarea>
+
+                <div class="ai-options">
+                  <label class="ai-opt"><input type="checkbox" id="ai-include-preset" checked> Colours and sizes</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="logo"> Station ID</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="badge"> Rating badge</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="glyphs"> Warning glyphs</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="tagIcons"> Tag icons</label>
+                  <label class="ai-opt">
+                    Variants
+                    <select id="ai-variants" class="studio-select ai-variants-select">
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3" selected>3</option>
+                    </select>
+                  </label>
+                </div>
+
+                <button type="button" class="action-btn-primary" id="btn-ai-generate" onclick="runAiGeneration()">
+                  <i class="cg-i" data-icon="sparkles"></i> Generate
+                </button>
+
+                <pre id="ai-progress" class="ai-progress" hidden></pre>
+                <div id="ai-usage" class="ai-usage"></div>
+                <div id="ai-variants-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer Action Buttons (Bottom Left) -->
+      <div class="studio-footer">
+        <button class="action-btn-secondary" onclick="replayTimeline()" title="Replay the on-air sequence"><i class="cg-i" data-icon="play"></i> Replay</button>
+        <button class="action-btn-primary" id="btn-deploy" onclick="saveCurrentActivePreset()" title="Write the active preset to CasparCG"><i class="cg-i" data-icon="deploy"></i> Deploy</button>
+        <button class="action-btn-secondary" onclick="openSaveAsDialog()" title="Save the current look under a new name"><i class="cg-i" data-icon="save"></i> Save as…</button>
+      </div>
+    </aside>
+
+    <!-- =================================================================== -->
+    <!-- RIGHT COLUMN STACK: Card 2 (Top Preview) + Card 3 (Bottom Console) -->
+    <!-- =================================================================== -->
+    <div class="right-column-stack">
+
+      <!-- =============================================================== -->
+      <!-- CARD 2 (RIGHT TOP): 16:9 PREVIEW MONITOR (Rounded 24px Card)     -->
+      <!-- =============================================================== -->
+      <section class="preview-card">
+        <div class="preview-top-bar">
+          <div class="preview-title-group">
+            <span class="live-rec-dot"></span>
+            <span class="preview-title">16:9 ON-AIR PROGRAM MONITOR</span>
+            <span class="preview-badge">1080p • Rec.709 • Layer 32</span>
+          </div>
+
+          <div class="preview-controls-group">
+            <span class="preview-hint">Drag: Shift=Lock X | Ctrl=Lock Y</span>
+            <button class="preview-btn" onclick="flipStagePositions()" title="Swap screen corners between Station ID and Rating">
+              <i class="cg-i" data-icon="flip"></i> Flip Positions
+            </button>
+            <button class="preview-btn" id="btn-toggle-safe-areas" onclick="toggleSafeAreas()">
+              <i class="cg-i" data-icon="shield"></i> Safe Areas
+            </button>
+            <button class="preview-btn" onclick="buildTimeline(); replayTimeline();" title="Replay animation sequence">
+              <i class="cg-i" data-icon="play"></i> Replay
+            </button>
+          </div>
+        </div>
+
+        <!-- 16:9 Inner Screen Viewport -->
+        <div class="preview-viewport" id="preview-screen-viewport">
+          <!-- The true 1920x1080 Broadcast Canvas (Scaled with exact center offsets) -->
+          <div id="broadcast-canvas">
+            <!-- Safe Area Broadcast Boundary Guides -->
+            <div id="safe-area-overlay" class="safe-area-overlay">
+              <div class="safe-area-action"></div>
+              <div class="safe-area-title"></div>
+            </div>
+
+            <!-- ================================================================= -->
+            <!-- STAGE 1: STATION ID BUG (ALWAYS TOP-LEFT BY DEFAULT)             -->
+            <!-- ================================================================= -->
+            <div id="station-logo-stage" class="station-stage anchor-top-left canvas-draggable" data-drag="logo" title="Station ID Logo (Top-Left | Hold Shift: Lock X | Hold Ctrl: Lock Y)">
+              <div id="station-logo-container" class="station-logo-wrapper" title="Station ID Branding Logo">
+                <svg id="station-logo-svg" class="station-logo-svg" viewBox="0 0 200 200" width="200" height="200" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+                  <defs>
+                    <!-- Broadcast-safe Neumorphic Dual-Shadow Filter (-135 deg light source) -->
+                    <filter id="sitia-neumorphic-depth" x="-40%" y="-40%" width="180%" height="180%">
+                      <feDropShadow id="sitia-shadow-ambient" dx="5" dy="7" stdDeviation="6" flood-color="#18031d" flood-opacity="0.85" />
+                      <feDropShadow id="sitia-shadow-specular" dx="-3.5" dy="-3.5" stdDeviation="4.5" flood-color="#f0f5fc" flood-opacity="0.5" />
+                    </filter>
+
+                    <!-- Convex Surface Gradient (135 deg) -->
+                    <linearGradient id="sitia-convex-surface" x1="10%" y1="10%" x2="90%" y2="90%">
+                      <stop id="sitia-grad-stop1" offset="0%" stop-color="#8a2c94" />
+                      <stop id="sitia-grad-stop2" offset="42%" stop-color="#702177" />
+                      <stop id="sitia-grad-stop3" offset="100%" stop-color="#46104c" />
+                    </linearGradient>
+
+                    <!-- 1px High-Contrast Micro-Border Gradient (135 deg) -->
+                    <linearGradient id="sitia-micro-border" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="rgba(240, 244, 248, 0.75)" />
+                      <stop offset="50%" stop-color="rgba(240, 244, 248, 0.35)" />
+                      <stop offset="100%" stop-color="rgba(24, 3, 29, 0.55)" />
+                    </linearGradient>
+
+                    <!-- 3D Extruded Text Face Gradient -->
+                    <linearGradient id="sitia-text-face" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stop-color="#ffffff" />
+                      <stop offset="55%" stop-color="#f7edf9" />
+                      <stop offset="100%" stop-color="#e6d2e9" />
+                    </linearGradient>
+
+                    <!-- Subtle Text Drop Shadow Filter -->
+                    <filter id="sitia-text-depth" x="-20%" y="-20%" width="140%" height="140%">
+                      <feDropShadow dx="1" dy="2.2" stdDeviation="0.8" flood-color="#1f0224" flood-opacity="0.9" />
+                    </filter>
+                  </defs>
+
+                  <!-- Base Chassis with Dual Neumorphic Shadows -->
+                  <g id="sitia-squircle-group" filter="url(#sitia-neumorphic-depth)">
+                    <rect
+                      id="sitia-logo-chassis"
+                      x="10"
+                      y="10"
+                      width="180"
+                      height="180"
+                      rx="52"
+                      ry="52"
+                      fill="url(#sitia-convex-surface)"
+                      stroke="url(#sitia-micro-border)"
+                      stroke-width="1.6"
+                    />
+                  </g>
+
+                  <!-- Vectorized 3D Chiseled Wordmark Group (Cleanly centered) -->
+                  <g id="sitia-wordmark-group" transform="translate(0, 0)">
+                    <!-- Layer 1: Deep Physical Bevel Extrusion -->
+                    <path
+                      id="sitia-path-deep"
+                      d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
+                      transform="translate(1.6, 3.2)"
+                      fill="#200324"
+                      opacity="0.95"
+                    />
+                    <!-- Layer 2: Mid Bevel Shadow -->
+                    <path
+                      id="sitia-path-mid"
+                      d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
+                      transform="translate(0.8, 1.6)"
+                      fill="#3a0840"
+                      opacity="0.9"
+                    />
+                    <!-- Layer 3: Main Physical Face -->
+                    <path
+                      id="sitia-path-face"
+                      d="M33.26684545759303 119.81277237680187V112.41082802547771Q35.27924907810929 114.09939658062353 37.63861884009387 114.94368085819644Q39.99798860207844 115.78796513576935 42.4036205162588 115.78796513576935Q43.81461615822997 115.78796513576935 44.86708012068387 115.53352329869259Q45.91954408313778 115.27908146161582 46.625041904123364 114.828025477707Q47.33053972510895 114.37696949379819 47.67750586657727 113.76399597720416Q48.02447200804559 113.15102246061012 48.02447200804559 112.4339591015756Q48.02447200804559 111.4624539054643 47.469326181696275 110.699128394234Q46.914180355346964 109.93580288300369 45.95424069728461 109.28813275226283Q44.99430103922226 108.64046262152196 43.67582970164264 108.03905464297688Q42.357358364063025 107.43764666443178 40.83070734160241 106.8131076097888Q36.944686557157226 105.19393228293664 35.03637277908146 102.85769359704994Q33.128059001005695 100.52145491116326 33.128059001005695 97.21371102916527Q33.128059001005695 94.62303050620181 34.16895742541066 92.76097888032183Q35.209855849815625 90.89892725444184 37.00251424740195 89.69611129735166Q38.79517264498827 88.49329534026148 41.15454240697285 87.92658397586322Q43.513912168957425 87.35987261146497 46.15085484411666 87.35987261146497Q48.74153536708012 87.35987261146497 50.742373449547436 87.67214213878646Q52.743211532014755 87.98441166610795 54.431780087160575 88.63208179684881V95.54827355011733Q53.59906134763661 94.96999664767013 52.61599061347636 94.53050620181025Q51.63291987931612 94.09101575595038 50.59202145491116 93.80187730472679Q49.551123030506204 93.51273885350318 48.52179014415019 93.37395239691585Q47.49245725779417 93.23516594032853 46.56721421387864 93.23516594032853Q45.2950050284948 93.23516594032853 44.25410660408984 93.47804223935636Q43.213208179684884 93.72091853838418 42.49614482065036 94.16040898424404Q41.779081461615824 94.59989943010392 41.38585316795172 95.21287294669796Q40.99262487428763 95.82584646329198 40.99262487428763 96.58917197452229Q40.99262487428763 97.42189071404626 41.4321153201475 98.08112638283606Q41.87160576600738 98.74036205162588 42.681193429433456 99.33020449212202Q43.490781092859535 99.92004693261816 44.647334897753936 100.48675829701642Q45.80388870264834 101.05346966141468 47.261146496815286 101.65487763995978Q49.250419041233656 102.48759637948373 50.83489775393899 103.4244049614482Q52.419376466644316 104.36121354341267 53.55279919544083 105.54089842440496Q54.686221924237344 106.72058330539726 55.287629902782434 108.23566878980893Q55.889037881327525 109.75075427422058 55.889037881327525 111.76315789473684Q55.889037881327525 114.53888702648341 54.83657391887362 116.42406972846129Q53.78410995641971 118.30925243043916 51.97988602078445 119.4773717733825Q50.17566208514918 120.64549111632584 47.781595709017765 121.15437479047938Q45.38752933288636 121.66325846463292 42.72745558162923 121.66325846463292Q39.99798860207844 121.66325846463292 37.53452899765337 121.20063694267516Q35.07106939322829 120.7380154207174 33.26684545759303 119.81277237680187Z M73.9081461615823 121.08498156218572H66.43680858196446V87.91501843781428H73.9081461615823Z M109.8307073416024 93.99849145155883H100.3700972175662V121.08498156218572H92.87562856185048V93.99849145155883H83.46128059001005V87.91501843781428H109.8307073416024Z M126.855179349648 121.08498156218572H119.38384177003016V87.91501843781428H126.855179349648Z M168.65303385853167 121.08498156218572H160.5108950720751L158.1515253100905 113.70616828695944H146.3546765001676L144.01843781428093 121.08498156218572H135.92256118002012L147.99698290311767 87.91501843781428H156.85618504860878ZM156.4398256788468 107.9696614146832 152.87763995977204 96.82048273550117Q152.48441166610795 95.57140462621521 152.32249413342274 93.83657391887361H152.13744552463965Q152.0217901441502 95.29383171304056 151.55916862219243 96.72795843110961L147.9507207509219 107.9696614146832Z"
+                      fill="url(#sitia-text-face)"
+                      stroke="rgba(255, 255, 255, 0.7)"
+                      stroke-width="0.5"
+                      filter="url(#sitia-text-depth)"
+                    />
+                  </g>
+                </svg>
+              </div>
+
+              <!-- SOTA Dynamic Subtitle Tag (Dot slides -> vertically stretches to '|' -> Tag slides out elastically) -->
+              <div id="station-subtitle-tag" class="station-subtitle-tag">
+                <div id="station-subtitle-divider-wrap" class="station-subtitle-divider-wrap">
+                  <div id="station-subtitle-dot" class="station-subtitle-dot"></div>
+                </div>
+                <div id="station-subtitle-mask" class="station-subtitle-mask">
+                  <span id="station-subtitle-text" class="station-subtitle-text">
+                    <span id="station-subtitle-icon" class="station-subtitle-icon"></span>
+                    <span id="station-subtitle-label" class="station-subtitle-label">HD</span>
+                  </span>
+                </div>
+              </div>
+
+              <div class="stage-drag-handle" title="Drag to reposition"><i class="cg-i" data-icon="drag"></i></div>
+            </div>
+
+            <!-- ================================================================= -->
+            <!-- STAGE 2: ADVISORY RATING & BANNER (ALWAYS TOP-RIGHT BY DEFAULT)  -->
+            <!-- ================================================================= -->
+            <div id="advisory-stage" class="anchor-top-right canvas-draggable" data-drag="advisory" title="Advisory Banner (Top-Right | Hold Shift: Lock X | Hold Ctrl: Lock Y)">
+              <!-- Unified Rating Stencil Badge Container -->
+              <div id="rating-badge-container" class="badge-wrapper shape-squircle">
+                <svg id="badge-svg" class="badge-svg" viewBox="0 0 52 52" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+                  <defs>
+                    <mask id="badge-stencil-mask" maskUnits="userSpaceOnUse">
+                      <rect id="badge-mask-shape" x="1.5" y="1.5" width="49" height="49" rx="16" ry="16" fill="#ffffff" shape-rendering="geometricPrecision" />
+                      <text
+                        id="stencil-text"
+                        x="26"
+                        y="26"
+                        text-anchor="middle"
+                        dominant-baseline="central"
+                        alignment-baseline="central"
+                        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+                        font-weight="900"
+                        font-size="27"
+                        fill="#000000"
+                        shape-rendering="geometricPrecision"
+                        text-rendering="geometricPrecision"
+                      >16</text>
+                    </mask>
+                  </defs>
+
+                  <!-- Main squircle shape with negative stencil cutout -->
+                  <rect
+                    id="badge-main-shape"
+                    x="1.5"
+                    y="1.5"
+                    width="49"
+                    height="49"
+                    rx="16"
+                    ry="16"
+                    fill="var(--badge-fill)"
+                    stroke="var(--badge-stroke)"
+                    stroke-width="1.5"
+                    mask="url(#badge-stencil-mask)"
+                    shape-rendering="geometricPrecision"
+                  />
+
+                  <!-- Single Centered Hairline Stencil Contour -->
+                  <text
+                    id="stencil-outline-text"
+                    x="26"
+                    y="26"
+                    text-anchor="middle"
+                    dominant-baseline="central"
+                    alignment-baseline="central"
+                    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+                    font-weight="900"
+                    font-size="27"
+                    fill="none"
+                    stroke="var(--stencil-outline-color)"
+                    stroke-width="var(--stencil-outline-width)"
+                    stroke-linejoin="round"
+                    shape-rendering="geometricPrecision"
+                    text-rendering="geometricPrecision"
+                  >16</text>
+                </svg>
+              </div>
+
+              <!-- Telemarketing TP / ΤΠ Badge -->
+              <div id="tp-badge" class="tp-badge">ΤΠ</div>
+
+              <!-- Floating Typography Container -->
+              <div id="text-container" class="text-container">
+                <div id="text-slot-mask" class="text-slot-mask"></div>
+                <div id="accent-line" class="accent-line"></div>
+              </div>
+              <div class="stage-drag-handle" title="Drag to reposition"><i class="cg-i" data-icon="drag"></i></div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- CARD 3 (RIGHT BOTTOM): ACTION HISTORY CONSOLE (Rounded 24px)   -->
+      <!-- =============================================================== -->
+      <section class="console-card">
+        <div class="console-header">
+          <div class="console-title-group">
+            <span class="console-icon"><i class="cg-i" data-icon="motion"></i></span>
+            <span class="console-title">Timeline</span>
+            <span id="tl-clock" class="console-badge">0.0s / 0.0s</span>
+          </div>
+
+          <div class="console-actions-group">
+            <button class="console-btn" id="btn-tl-play" onclick="toggleTimelinePlayback()" title="Play or pause the on-air sequence">
+              <i class="cg-i" data-icon="play"></i> Play
+            </button>
+            <button class="console-btn" id="btn-tl-loop" onclick="toggleTimelineLoop()" aria-pressed="false" title="Loop the sequence while you tune it">
+              <i class="cg-i" data-icon="replay"></i> Loop
+            </button>
+            <button class="console-btn" id="btn-tl-short" onclick="toggleShortHoldPreview()" aria-pressed="false"
+                    title="Preview with 2-second holds. Builds a separate timeline; the real hold times are not touched.">
+              <i class="cg-i" data-icon="bolt"></i> Short holds
+            </button>
+          </div>
+        </div>
+
+        <div class="console-body">
+          <!-- Left: the timeline the operator is tuning, drawn to scale. Hold
+               times are compressed past five seconds, or a thirty-second hold
+               would flatten every half-second tween into nothing. -->
+          <div class="console-timeline-col">
+            <div class="console-col-title">On-air sequence</div>
+            <div id="tl-bar" class="tl-bar" role="slider" tabindex="0"
+                 aria-label="Timeline position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="tl-segments" class="tl-segments"><!-- built from the master timeline --></div>
+              <div id="tl-playhead" class="tl-playhead"></div>
+            </div>
+            <div id="tl-legend" class="tl-legend"><!-- built alongside the segments --></div>
+          </div>
+
+          <!-- Right: real undo/redo over the state, not the ad-hoc closures the
+               old "Action History" stored — most of which reverted nothing. -->
+          <div class="console-history-col">
+            <div class="console-col-title">
+              History
+              <span class="console-col-actions">
+                <button class="console-btn" onclick="undoState()" title="Undo (Ctrl+Z)"><i class="cg-i" data-icon="undo"></i></button>
+                <button class="console-btn" onclick="redoState()" title="Redo (Ctrl+Shift+Z)"><i class="cg-i" data-icon="redo"></i></button>
+              </span>
+            </div>
+            <div id="console-action-list" class="console-history-stream">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <script>
+    /* @js */
+    </script>
+  <!-- Save As Modal Dialog -->
+  <div id="save-as-modal" class="studio-modal-overlay">
+    <div class="studio-modal-card">
+      <div class="studio-modal-title"><i class="cg-i" data-icon="star"></i> Save as new preset</div>
+      <div class="studio-modal-desc">
+        Save the current station branding, wordmark, show tags, rating badge, theme, and geometry under a custom preset name.
+      </div>
+      <input type="text" id="txt-save-as-name" placeholder="Preset Name (e.g. Primetime Movie Look)" class="studio-select" style="margin: 10px 0 14px 0; font-size: 13px;" onkeydown="if(event.key==='Enter') confirmSaveAs();">
+      <div class="studio-btn-row" style="justify-content: flex-end; gap: 8px;">
+        <button class="action-btn-secondary" style="flex: 0 0 auto; padding: 7px 14px;" onclick="closeSaveAsDialog()">Cancel</button>
+        <button class="action-btn-primary" style="flex: 0 0 auto; padding: 7px 18px;" onclick="confirmSaveAs()">Save Preset</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

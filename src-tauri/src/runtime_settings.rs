@@ -24,6 +24,42 @@ pub struct RuntimeSettings {
     pub caspar_keep_alive_on_exit: bool,
     #[serde(default = "default_true")]
     pub caspar_auto_relaunch_on_crash: bool,
+
+    // --- CG Studio AI designer ------------------------------------------
+    /// Provider for the CG Studio AI designer. An enum in all but name so
+    /// others can follow; only "anthropic" is implemented.
+    #[serde(default = "default_ai_provider")]
+    pub ai_provider: String,
+    /// API key for the AI designer.
+    ///
+    /// Held here rather than in cgAdvisoryConfig on purpose: the advisory
+    /// template is copied to the CasparCG host and cached by browsers, so a
+    /// key baked into it would be readable by anyone who can reach that
+    /// machine. The bridge reads it from here and never echoes it back.
+    #[serde(default)]
+    pub ai_api_key: String,
+    #[serde(default = "default_ai_model")]
+    pub ai_model: String,
+    /// Reasoning effort for a restyle. Full asset generation uses one level up.
+    #[serde(default = "default_ai_effort")]
+    pub ai_effort: String,
+    /// Soft monthly spend ceiling in US dollars; 0 means no cap. Advisory: it
+    /// is compared against the usage the bridge accumulates, not enforced by
+    /// the API.
+    #[serde(default)]
+    pub ai_monthly_cap_usd: f64,
+}
+
+fn default_ai_provider() -> String {
+    "anthropic".to_string()
+}
+
+fn default_ai_model() -> String {
+    "claude-opus-5".to_string()
+}
+
+fn default_ai_effort() -> String {
+    "medium".to_string()
 }
 
 fn default_casparcg_config_filename() -> String {
@@ -46,6 +82,11 @@ impl Default for RuntimeSettings {
             caspar_auto_start: false,
             caspar_keep_alive_on_exit: true,
             caspar_auto_relaunch_on_crash: true,
+            ai_provider: default_ai_provider(),
+            ai_api_key: String::new(),
+            ai_model: default_ai_model(),
+            ai_effort: default_ai_effort(),
+            ai_monthly_cap_usd: 0.0,
         }
     }
 }
@@ -67,6 +108,14 @@ impl std::fmt::Debug for RuntimeSettings {
             .field("caspar_auto_start", &self.caspar_auto_start)
             .field("caspar_keep_alive_on_exit", &self.caspar_keep_alive_on_exit)
             .field("caspar_auto_relaunch_on_crash", &self.caspar_auto_relaunch_on_crash)
+            .field("ai_provider", &self.ai_provider)
+            .field(
+                "ai_api_key",
+                &if self.ai_api_key.is_empty() { "<unset>" } else { "<redacted>" },
+            )
+            .field("ai_model", &self.ai_model)
+            .field("ai_effort", &self.ai_effort)
+            .field("ai_monthly_cap_usd", &self.ai_monthly_cap_usd)
             .finish()
     }
 }
@@ -103,6 +152,7 @@ pub fn apply_runtime_settings(
 ) -> Result<(), String> {
     let mut settings = settings;
     settings.ingestor_api_token = settings.ingestor_api_token.trim().to_string();
+    settings.ai_api_key = settings.ai_api_key.trim().to_string();
     if let Err(error) = save_settings_to_disk(&settings) {
         log::error!("{}", error);
         return Err(error);
@@ -116,6 +166,28 @@ pub fn get_ingestor_api_base_url<R: Runtime>(app: &AppHandle<R>) -> String {
     app.try_state::<RuntimeSettingsState>()
         .map(|s| s.snapshot().ingestor_api_base_url)
         .unwrap_or_else(|| RuntimeSettings::default().ingestor_api_base_url)
+}
+
+/// The configured AI designer API key, trimmed. Empty when none is set.
+///
+/// Only `ai_designer` and the bridge's `/api/ai/generate` route call this. It
+/// must never reach a log line, a response body, or `cgAdvisoryConfig`.
+pub fn get_ai_api_key<R: Runtime>(app: &AppHandle<R>) -> String {
+    app.try_state::<RuntimeSettingsState>()
+        .map(|s| s.snapshot().ai_api_key.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// The configured AI designer settings, without the key.
+pub fn get_ai_config<R: Runtime>(app: &AppHandle<R>) -> (String, String, String, f64) {
+    app.try_state::<RuntimeSettingsState>()
+        .map(|s| {
+            let snap = s.snapshot();
+            (snap.ai_provider, snap.ai_model, snap.ai_effort, snap.ai_monthly_cap_usd)
+        })
+        .unwrap_or_else(|| {
+            (default_ai_provider(), default_ai_model(), default_ai_effort(), 0.0)
+        })
 }
 
 /// The configured Ingestor API token, trimmed. Empty when none is set.
