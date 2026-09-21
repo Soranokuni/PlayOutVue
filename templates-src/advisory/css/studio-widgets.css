@@ -711,3 +711,112 @@
     }
 
     .is-advanced-hidden { display: none !important; }
+
+    /* -------------------------------------------------------------
+       AI DESIGNER PANEL (§5.7)
+       ------------------------------------------------------------- */
+    .ai-examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--ui-space-1);
+      margin-bottom: var(--ui-space-2);
+    }
+
+    .ai-prompt {
+      width: 100%;
+      resize: vertical;
+      font-family: inherit;
+      font-size: var(--ui-text-sm);
+      line-height: 1.5;
+    }
+
+    .ai-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--ui-space-1) var(--ui-space-3);
+      margin: var(--ui-space-2) 0;
+    }
+
+    .ai-opt {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--ui-space-1);
+      font-size: var(--ui-text-xs);
+      color: var(--ui-ink-dim);
+      cursor: pointer;
+    }
+
+    .ai-variants-select { width: 54px; padding: 1px var(--ui-space-1); }
+
+    /* The model's output as it arrives, so a ninety-second generation is not a
+       blank spinner. */
+    .ai-progress {
+      max-height: 90px;
+      margin: var(--ui-space-2) 0 0;
+      padding: var(--ui-space-2);
+      overflow: auto;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink-faint);
+      font-family: 'Roboto Mono', ui-monospace, Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .ai-usage {
+      margin-top: var(--ui-space-1);
+      font-size: var(--ui-text-xs);
+      font-variant-numeric: tabular-nums;
+      color: var(--ui-ink-faint);
+    }
+
+    .ai-variant {
+      margin-top: var(--ui-space-2);
+      padding: var(--ui-space-2) var(--ui-space-3);
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-md);
+    }
+
+    .ai-variant-name {
+      font-size: var(--ui-text-md);
+      font-weight: var(--ui-weight-strong);
+      color: var(--ui-ink);
+    }
+
+    .ai-variant-why {
+      margin-top: 2px;
+      font-size: var(--ui-text-xs);
+      line-height: 1.5;
+      color: var(--ui-ink-dim);
+    }
+
+    /* What was clamped or dropped, and why. Folded away, because on a good
+       generation it is empty and on a bad one it is the whole story. */
+    .ai-variant-notes {
+      margin-top: var(--ui-space-2);
+      font-size: var(--ui-text-xs);
+      color: var(--ui-warn);
+    }
+
+    .ai-variant-notes summary { cursor: pointer; }
+
+    .ai-variant-notes ul {
+      margin: var(--ui-space-1) 0 0;
+      padding-left: var(--ui-space-4);
+      color: var(--ui-ink-dim);
+      line-height: 1.5;
+    }
+
+    .ai-variant-actions {
+      display: flex;
+      gap: var(--ui-space-1);
+      margin-top: var(--ui-space-2);
+    }
+
+    .ai-refine { margin-top: var(--ui-space-3); }
+
+    .studio-group-note.is-warn { color: var(--ui-warn); }

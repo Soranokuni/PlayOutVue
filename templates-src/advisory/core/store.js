@@ -198,6 +198,10 @@
         (entry.legacy || []).forEach(function (alias) { writePresetPath(preset, alias, value); });
       });
 
+      // Artwork rides along with the look it belongs to.
+      const assets = getPresetAssets();
+      if (assets && Object.keys(assets).length) preset.assets = assets;
+
       if (extra) Object.keys(extra).forEach(function (k) { preset[k] = extra[k]; });
       return preset;
     }
@@ -229,6 +233,13 @@
       PASSTHROUGH_PRESET_KEYS.forEach(function (k) {
         if (preset[k] !== undefined) cgPassthrough[k] = preset[k];
       });
+
+      // A preset may carry its own artwork (§5.6). It is not a schema key —
+      // there is nothing to clamp — but it does have to reach the canvas, and
+      // it is re-sanitised there because a preset is a file anyone can edit.
+      if (preset.assets !== undefined) {
+        setPresetAssets(preset.assets);
+      }
 
       return changed;
     }

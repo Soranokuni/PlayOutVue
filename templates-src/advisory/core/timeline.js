@@ -137,7 +137,7 @@
         }
 
         wSlot.innerHTML = `
-          <div class="warning-icon-wrapper">${WARNING_GLYPHS[cat] || WARNING_GLYPHS.combo}</div>
+          <div class="warning-icon-wrapper">${warningGlyphMarkup(cat)}</div>
           <div class="warning-text-group ${is3L ? 'has-3-lines' : ''}">
             <span class="warning-lead">${escapeHtml(dTexts.lead)}</span>
             ${bodyHtml}

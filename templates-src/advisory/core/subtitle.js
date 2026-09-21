@@ -117,13 +117,13 @@
       if (normTag === 'live' || normText === 'live' || normText.includes('ζωντανα') || normText.includes('live')) {
         iconHtml = '<span class="station-live-dot"></span>';
       } else if (SHOW_TAG_PRESETS[normTag]) {
-        iconHtml = SHOW_TAG_PRESETS[normTag].iconSvg;
+        iconHtml = showTagIconMarkup(normTag);
       } else if (SHOW_TAG_PRESETS[normText]) {
-        iconHtml = SHOW_TAG_PRESETS[normText].iconSvg;
+        iconHtml = showTagIconMarkup(normText);
       } else {
         for (const [pk, pVal] of Object.entries(SHOW_TAG_PRESETS)) {
           if (pVal.label && (normText.includes(pVal.label.toLowerCase()) || normTag.includes(pk))) {
-            iconHtml = pVal.iconSvg;
+            iconHtml = showTagIconMarkup(pk);
             break;
           }
         }

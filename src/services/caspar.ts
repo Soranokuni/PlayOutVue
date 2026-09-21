@@ -2679,7 +2679,6 @@ export const casparPlayoutService: PlayoutService = {
             durationSec: ratingHoldSec,
             hold_time: ratingHoldSec,
             warning_hold_time: warningHoldSec,
-            repeatIntervalSec: 600,
             tp: tpFlag,
             content_type: contentType,
             is_live: isLive,

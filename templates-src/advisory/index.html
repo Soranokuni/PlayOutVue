@@ -111,6 +111,7 @@
         <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')"><i class="cg-i" data-icon="palette"></i> Blueprints</button>
         <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')"><i class="cg-i" data-icon="ruler"></i> Geometry</button>
         <button class="studio-tab-btn" data-tab="motion" onclick="switchStudioTab('motion')"><i class="cg-i" data-icon="motion"></i> Motion</button>
+        <button class="studio-tab-btn" data-tab="ai" onclick="switchStudioTab('ai')"><i class="cg-i" data-icon="sparkles"></i> AI designer</button>
       </div>
 
       <!-- Scrollable Tab Content Panels -->
@@ -790,6 +791,51 @@
           </div>
         </div>
 
+
+        <!-- TAB 7: AI designer -->
+        <div id="tab-pane-ai" class="studio-tab-pane">
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="sparkles"></i> AI designer</div>
+            <div id="ai-panel">
+              <div id="ai-status-note" class="studio-group-note">Checking…</div>
+
+              <div id="ai-form" hidden>
+                <div class="ai-examples">
+                  <button type="button" class="preset-pill-btn" onclick="useAiExample('Warm cinema look with gold accents')">Warm cinema</button>
+                  <button type="button" class="preset-pill-btn" onclick="useAiExample('Flat monochrome news style, no gradients')">Flat news</button>
+                  <button type="button" class="preset-pill-btn" onclick="useAiExample('Round friendly kids channel, soft shapes')">Kids channel</button>
+                </div>
+
+                <textarea id="ai-prompt" class="studio-select ai-prompt" rows="3"
+                          placeholder="Describe the look. It knows the canvas, the legal luma range and the asset contracts already."></textarea>
+
+                <div class="ai-options">
+                  <label class="ai-opt"><input type="checkbox" id="ai-include-preset" checked> Colours and sizes</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="logo"> Station ID</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="badge"> Rating badge</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="glyphs"> Warning glyphs</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="tagIcons"> Tag icons</label>
+                  <label class="ai-opt">
+                    Variants
+                    <select id="ai-variants" class="studio-select ai-variants-select">
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3" selected>3</option>
+                    </select>
+                  </label>
+                </div>
+
+                <button type="button" class="action-btn-primary" id="btn-ai-generate" onclick="runAiGeneration()">
+                  <i class="cg-i" data-icon="sparkles"></i> Generate
+                </button>
+
+                <pre id="ai-progress" class="ai-progress" hidden></pre>
+                <div id="ai-usage" class="ai-usage"></div>
+                <div id="ai-variants-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Footer Action Buttons (Bottom Left) -->

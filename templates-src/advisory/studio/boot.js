@@ -79,6 +79,7 @@
       initStageSelection();
       initTimelineBar();
       initHistoryShortcuts();
+      refreshAiStatus();
       watchForModifications();
 
       // Master Presets: Load default or operator active preset

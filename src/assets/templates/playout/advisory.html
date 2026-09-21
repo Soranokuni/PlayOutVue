@@ -2573,6 +2573,115 @@
     }
 
     .is-advanced-hidden { display: none !important; }
+
+    /* -------------------------------------------------------------
+       AI DESIGNER PANEL (§5.7)
+       ------------------------------------------------------------- */
+    .ai-examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--ui-space-1);
+      margin-bottom: var(--ui-space-2);
+    }
+
+    .ai-prompt {
+      width: 100%;
+      resize: vertical;
+      font-family: inherit;
+      font-size: var(--ui-text-sm);
+      line-height: 1.5;
+    }
+
+    .ai-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--ui-space-1) var(--ui-space-3);
+      margin: var(--ui-space-2) 0;
+    }
+
+    .ai-opt {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--ui-space-1);
+      font-size: var(--ui-text-xs);
+      color: var(--ui-ink-dim);
+      cursor: pointer;
+    }
+
+    .ai-variants-select { width: 54px; padding: 1px var(--ui-space-1); }
+
+    /* The model's output as it arrives, so a ninety-second generation is not a
+       blank spinner. */
+    .ai-progress {
+      max-height: 90px;
+      margin: var(--ui-space-2) 0 0;
+      padding: var(--ui-space-2);
+      overflow: auto;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-sm);
+      color: var(--ui-ink-faint);
+      font-family: 'Roboto Mono', ui-monospace, Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .ai-usage {
+      margin-top: var(--ui-space-1);
+      font-size: var(--ui-text-xs);
+      font-variant-numeric: tabular-nums;
+      color: var(--ui-ink-faint);
+    }
+
+    .ai-variant {
+      margin-top: var(--ui-space-2);
+      padding: var(--ui-space-2) var(--ui-space-3);
+      background: var(--ui-surface);
+      border: 1px solid var(--ui-line);
+      border-radius: var(--ui-radius-md);
+    }
+
+    .ai-variant-name {
+      font-size: var(--ui-text-md);
+      font-weight: var(--ui-weight-strong);
+      color: var(--ui-ink);
+    }
+
+    .ai-variant-why {
+      margin-top: 2px;
+      font-size: var(--ui-text-xs);
+      line-height: 1.5;
+      color: var(--ui-ink-dim);
+    }
+
+    /* What was clamped or dropped, and why. Folded away, because on a good
+       generation it is empty and on a bad one it is the whole story. */
+    .ai-variant-notes {
+      margin-top: var(--ui-space-2);
+      font-size: var(--ui-text-xs);
+      color: var(--ui-warn);
+    }
+
+    .ai-variant-notes summary { cursor: pointer; }
+
+    .ai-variant-notes ul {
+      margin: var(--ui-space-1) 0 0;
+      padding-left: var(--ui-space-4);
+      color: var(--ui-ink-dim);
+      line-height: 1.5;
+    }
+
+    .ai-variant-actions {
+      display: flex;
+      gap: var(--ui-space-1);
+      margin-top: var(--ui-space-2);
+    }
+
+    .ai-refine { margin-top: var(--ui-space-3); }
+
+    .studio-group-note.is-warn { color: var(--ui-warn); }
   </style>
 </head>
 <body>
@@ -2667,6 +2776,7 @@
         <button class="studio-tab-btn" data-tab="theme" onclick="switchStudioTab('theme')"><i class="cg-i" data-icon="palette"></i> Blueprints</button>
         <button class="studio-tab-btn" data-tab="geometry" onclick="switchStudioTab('geometry')"><i class="cg-i" data-icon="ruler"></i> Geometry</button>
         <button class="studio-tab-btn" data-tab="motion" onclick="switchStudioTab('motion')"><i class="cg-i" data-icon="motion"></i> Motion</button>
+        <button class="studio-tab-btn" data-tab="ai" onclick="switchStudioTab('ai')"><i class="cg-i" data-icon="sparkles"></i> AI designer</button>
       </div>
 
       <!-- Scrollable Tab Content Panels -->
@@ -3346,6 +3456,51 @@
           </div>
         </div>
 
+
+        <!-- TAB 7: AI designer -->
+        <div id="tab-pane-ai" class="studio-tab-pane">
+          <div class="studio-group">
+            <div class="studio-group-title"><i class="cg-i" data-icon="sparkles"></i> AI designer</div>
+            <div id="ai-panel">
+              <div id="ai-status-note" class="studio-group-note">Checking…</div>
+
+              <div id="ai-form" hidden>
+                <div class="ai-examples">
+                  <button type="button" class="preset-pill-btn" onclick="useAiExample('Warm cinema look with gold accents')">Warm cinema</button>
+                  <button type="button" class="preset-pill-btn" onclick="useAiExample('Flat monochrome news style, no gradients')">Flat news</button>
+                  <button type="button" class="preset-pill-btn" onclick="useAiExample('Round friendly kids channel, soft shapes')">Kids channel</button>
+                </div>
+
+                <textarea id="ai-prompt" class="studio-select ai-prompt" rows="3"
+                          placeholder="Describe the look. It knows the canvas, the legal luma range and the asset contracts already."></textarea>
+
+                <div class="ai-options">
+                  <label class="ai-opt"><input type="checkbox" id="ai-include-preset" checked> Colours and sizes</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="logo"> Station ID</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="badge"> Rating badge</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="glyphs"> Warning glyphs</label>
+                  <label class="ai-opt"><input type="checkbox" class="ai-asset-check" value="tagIcons"> Tag icons</label>
+                  <label class="ai-opt">
+                    Variants
+                    <select id="ai-variants" class="studio-select ai-variants-select">
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3" selected>3</option>
+                    </select>
+                  </label>
+                </div>
+
+                <button type="button" class="action-btn-primary" id="btn-ai-generate" onclick="runAiGeneration()">
+                  <i class="cg-i" data-icon="sparkles"></i> Generate
+                </button>
+
+                <pre id="ai-progress" class="ai-progress" hidden></pre>
+                <div id="ai-usage" class="ai-usage"></div>
+                <div id="ai-variants-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Footer Action Buttons (Bottom Left) -->
@@ -4300,6 +4455,433 @@
 
     // Dynamic Station Logo Generator
     // =========================================================================
+    // AI ASSET VALIDATION (§5.5)
+    //
+    // Everything the model returns is data. Presets go through fromPreset,
+    // which clamps and coerces every value, so an out-of-range number cannot
+    // reach air. SVG assets go through sanitizeSvgMarkup, which strips scripts
+    // and external references — and then through the rules below, which the
+    // sanitiser has no reason to know about:
+    //
+    //   - a filter budget, because CasparCG rasterises in software and blur is
+    //     the one primitive that will drop frames;
+    //   - an id prefix, because two assets sharing an id is a rendering bug
+    //     that only appears sometimes;
+    //   - the contract elements, because a badge without #stencil-text is not
+    //     a badge, it is a rectangle;
+    //   - a size cap.
+    //
+    // An asset that fails is dropped with a reason the operator can read. The
+    // variant is still offered if its preset passed: a good palette with a bad
+    // glyph is still worth having.
+    // =========================================================================
+
+    /** Per-asset ceiling. Well above anything hand-drawn, well below silly. */
+    const AI_ASSET_MAX_BYTES = 60 * 1024;
+
+    /** CEF's software rasteriser is the constraint, not taste. */
+    const AI_MAX_FILTERS = 3;
+    const AI_MAX_BLUR_PRIMITIVES = 2;
+
+    /** viewBox and required contents, per asset kind. */
+    const AI_ASSET_CONTRACTS = {
+      logo: { viewBox: [0, 0, 200, 200], prefix: 'logo-' },
+      badge: {
+        viewBox: [0, 0, 52, 52],
+        prefix: 'badge-',
+        requires: ['#badge-stencil-mask', '#stencil-text']
+      },
+      glyph: { viewBox: [0, 0, 32, 32], prefix: 'glyph-' },
+      tagIcon: { viewBox: [0, 0, 22, 22], prefix: 'tag-' }
+    };
+
+    const AI_GLYPH_KEYS = ['violence', 'sex', 'drugs', 'language', 'combo'];
+    const AI_TAG_KEYS = ['live', 'movie', 'documentary', 'telemarketing', 'show', 'news'];
+
+    /** Style-bearing attributes an asset is allowed to carry. */
+    const AI_ALLOWED_STYLE_ATTRS = [
+      'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity',
+      'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'stroke-dashoffset',
+      'opacity', 'transform', 'filter', 'mask', 'clip-path', 'color',
+      'stop-color', 'stop-opacity', 'offset', 'gradientUnits', 'gradientTransform',
+      'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-anchor',
+      'dominant-baseline', 'shape-rendering', 'paint-order'
+    ];
+
+    /**
+     * Validates one SVG asset.
+     *
+     * @param {string} markup
+     * @param {'logo'|'badge'|'glyph'|'tagIcon'} kind
+     * @param {string} idScope unique per asset, e.g. 'glyph-violence'
+     * @returns {{ok: boolean, node: SVGElement|null, reasons: string[]}}
+     */
+    function validateAiAsset(markup, kind, idScope) {
+      const reasons = [];
+      const contract = AI_ASSET_CONTRACTS[kind];
+      if (!contract) return { ok: false, node: null, reasons: ['unknown asset kind: ' + kind] };
+
+      if (typeof markup !== 'string' || !markup.trim()) {
+        return { ok: false, node: null, reasons: ['empty'] };
+      }
+      // Bytes, not characters: a Greek wordmark is two bytes a letter.
+      const bytes = new TextEncoder().encode(markup).length;
+      if (bytes > AI_ASSET_MAX_BYTES) {
+        return {
+          ok: false,
+          node: null,
+          reasons: ['too large: ' + Math.round(bytes / 1024) + ' KB, limit ' + (AI_ASSET_MAX_BYTES / 1024) + ' KB']
+        };
+      }
+
+      // A <style> block can reach outside the asset, and @import can reach off
+      // the machine. The sanitiser keeps <style> because hand-made assets use
+      // it; here it is not worth the risk.
+      if (/<style[\s>]/i.test(markup)) {
+        reasons.push('contains a <style> block');
+      }
+      if (/@import/i.test(markup) || /url\(\s*['"]?(?!#)/i.test(markup)) {
+        reasons.push('references something outside the asset');
+      }
+
+      const node = sanitizeSvgMarkup(markup);
+      if (!node) {
+        return { ok: false, node: null, reasons: reasons.concat(['not parseable as SVG']) };
+      }
+
+      // --- viewBox ---------------------------------------------------------
+      const viewBox = (node.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+      const wanted = contract.viewBox;
+      const viewBoxOk = viewBox.length === 4 && viewBox.every(function (n, i) {
+        return isFinite(n) && Math.abs(n - wanted[i]) < 0.51;
+      });
+      if (!viewBoxOk) {
+        reasons.push('viewBox must be "' + wanted.join(' ') + '", got "' + (node.getAttribute('viewBox') || 'none') + '"');
+      }
+
+      // --- filter budget ---------------------------------------------------
+      const filters = node.querySelectorAll('filter');
+      if (filters.length > AI_MAX_FILTERS) {
+        reasons.push(filters.length + ' filters, limit ' + AI_MAX_FILTERS);
+      }
+      const blurs = node.querySelectorAll('feGaussianBlur, feDropShadow');
+      if (blurs.length > AI_MAX_BLUR_PRIMITIVES) {
+        reasons.push(blurs.length + ' blur primitives, limit ' + AI_MAX_BLUR_PRIMITIVES
+          + ' (CasparCG rasterises in software)');
+      }
+
+      // --- id prefixes -----------------------------------------------------
+      // Rewritten rather than rejected: an unprefixed id is a collision
+      // waiting to happen, but it is also trivially fixable, and rejecting a
+      // good asset over it would waste the generation.
+      const prefix = idScope + '-';
+      const renamed = {};
+      const ided = node.querySelectorAll('[id]');
+      for (let i = 0; i < ided.length; i++) {
+        const el = ided[i];
+        const id = el.getAttribute('id');
+        // The badge contract names two ids exactly; those must not be renamed.
+        if (id === 'badge-stencil-mask' || id === 'stencil-text') continue;
+        if (id.indexOf(prefix) === 0) continue;
+        const next = prefix + id;
+        renamed[id] = next;
+        el.setAttribute('id', next);
+      }
+      if (Object.keys(renamed).length) {
+        // Every url(#id) that pointed at a renamed element has to follow it.
+        rewriteAssetReferences(node, renamed);
+      }
+
+      // --- contract elements ------------------------------------------------
+      (contract.requires || []).forEach(function (selector) {
+        if (!node.querySelector(selector)) {
+          reasons.push('missing ' + selector + ', which the template needs to render it');
+        }
+      });
+      if (kind === 'logo' && !node.querySelector('[data-role="wordmark"], path, text')) {
+        reasons.push('has no wordmark or paths');
+      }
+
+      // --- attribute allowlist ----------------------------------------------
+      const offending = collectDisallowedAttributes(node);
+      if (offending.length) {
+        reasons.push('unsupported attributes: ' + offending.slice(0, 5).join(', '));
+      }
+
+      return { ok: reasons.length === 0, node: reasons.length === 0 ? node : null, reasons: reasons };
+    }
+
+    /** Points every url(#old) and href="#old" at the renamed element. */
+    function rewriteAssetReferences(node, renamed) {
+      const all = node.querySelectorAll('*');
+      const els = [node].concat(Array.prototype.slice.call(all));
+      els.forEach(function (el) {
+        Array.prototype.slice.call(el.attributes).forEach(function (attr) {
+          let value = attr.value;
+          let changed = false;
+          Object.keys(renamed).forEach(function (oldId) {
+            const from = 'url(#' + oldId + ')';
+            const to = 'url(#' + renamed[oldId] + ')';
+            if (value.indexOf(from) !== -1) { value = value.split(from).join(to); changed = true; }
+            if (value === '#' + oldId) { value = '#' + renamed[oldId]; changed = true; }
+          });
+          if (changed) el.setAttribute(attr.name, value);
+        });
+      });
+    }
+
+    /** Attributes outside the allowlist, ignoring structural ones. */
+    function collectDisallowedAttributes(node) {
+      const STRUCTURAL = [
+        'id', 'class', 'd', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
+        'width', 'height', 'points', 'viewBox', 'xmlns', 'xmlns:xlink', 'version',
+        'maskUnits', 'clipPathUnits', 'filterUnits', 'primitiveUnits',
+        'stdDeviation', 'dx', 'dy', 'flood-color', 'flood-opacity', 'result', 'in', 'in2',
+        'type', 'values', 'mode', 'operator', 'k1', 'k2', 'k3', 'k4', 'data-role', 'aria-hidden'
+      ];
+      const allowed = {};
+      AI_ALLOWED_STYLE_ATTRS.concat(STRUCTURAL).forEach(function (a) { allowed[a.toLowerCase()] = true; });
+
+      const out = [];
+      const els = [node].concat(Array.prototype.slice.call(node.querySelectorAll('*')));
+      els.forEach(function (el) {
+        Array.prototype.slice.call(el.attributes).forEach(function (attr) {
+          const name = attr.name.toLowerCase();
+          if (allowed[name]) return;
+          if (out.indexOf(name) === -1) out.push(name);
+        });
+      });
+      return out;
+    }
+
+    /**
+     * Luma check. A broadcast overlay that sits outside legal range clips on
+     * transmission, and the operator cannot see that on a computer monitor.
+     *
+     * @returns {{legal: boolean, luma: number, fixed: string}}
+     */
+    function checkBroadcastLuma(hex) {
+      const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+      if (!m) return { legal: false, luma: 0, fixed: '#808080' };
+      const n = parseInt(m[1], 16);
+      const r = (n >> 16) & 255;
+      const g = (n >> 8) & 255;
+      const b = n & 255;
+      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      if (luma >= 16 && luma <= 235) {
+        return { legal: true, luma: luma, fixed: '#' + m[1].toLowerCase() };
+      }
+      // Shift, rather than scale, towards the legal range. The luma
+      // coefficients sum to 1, so adding d to every channel moves luma by
+      // exactly d — and unlike scaling it still works on pure black, where
+      // there is nothing to multiply.
+      const target = luma < 16 ? 16 : 235;
+      const delta = target - luma;
+      const clamp = function (v) {
+        return Math.max(0, Math.min(255, Math.round(v + delta)));
+      };
+      const fixed = '#' + [clamp(r), clamp(g), clamp(b)]
+        .map(function (v) { return v.toString(16).padStart(2, '0'); })
+        .join('');
+      return { legal: false, luma: luma, fixed: fixed };
+    }
+
+    /**
+     * Validates one variant of a Style Package.
+     *
+     * @returns {{name, rationale, preset, assets, notes: string[]}}
+     */
+    function validateAiVariant(variant, wantedAssets) {
+      const notes = [];
+      const out = {
+        name: String(variant && variant.name || 'Untitled').slice(0, 80),
+        rationale: String(variant && variant.rationale || '').slice(0, 400),
+        preset: {},
+        assets: {},
+        notes: notes
+      };
+
+      const rawPreset = (variant && variant.preset && typeof variant.preset === 'object')
+        ? variant.preset
+        : {};
+
+      // Colours first, so a clamp is reported before the preset is coerced.
+      CONTROL_SCHEMA.forEach(function (entry) {
+        if (entry.type !== 'color') return;
+        const raw = readPresetPath(rawPreset, entry.preset);
+        if (raw === undefined || raw === null) return;
+        const check = checkBroadcastLuma(raw);
+        if (!check.legal) {
+          notes.push(entry.label + ': ' + raw + ' is outside legal broadcast luma, pulled to ' + check.fixed);
+          writePresetPath(rawPreset, entry.preset, check.fixed);
+        }
+      });
+
+      out.preset = rawPreset;
+
+      const rawAssets = (variant && variant.assets && typeof variant.assets === 'object')
+        ? variant.assets
+        : {};
+
+      const take = function (markup, kind, scope, target, key) {
+        if (!markup) return;
+        const result = validateAiAsset(markup, kind, scope);
+        if (result.ok) {
+          // Stored as markup, not as a node: a preset is JSON, and it is
+          // re-sanitised on the way back in.
+          target[key] = result.node.outerHTML;
+        } else {
+          notes.push(scope + ' dropped: ' + result.reasons.join('; '));
+        }
+      };
+
+      if (!wantedAssets || wantedAssets.indexOf('logo') !== -1) {
+        take(rawAssets.logoSvg, 'logo', 'logo', out.assets, 'logoSvg');
+      }
+      if (!wantedAssets || wantedAssets.indexOf('badge') !== -1) {
+        take(rawAssets.badgeSvg, 'badge', 'badge', out.assets, 'badgeSvg');
+      }
+      if ((!wantedAssets || wantedAssets.indexOf('glyphs') !== -1) && rawAssets.glyphs) {
+        out.assets.glyphs = {};
+        AI_GLYPH_KEYS.forEach(function (key) {
+          take(rawAssets.glyphs[key], 'glyph', 'glyph-' + key, out.assets.glyphs, key);
+        });
+        if (!Object.keys(out.assets.glyphs).length) delete out.assets.glyphs;
+      }
+      if ((!wantedAssets || wantedAssets.indexOf('tagIcons') !== -1) && rawAssets.tagIcons) {
+        out.assets.tagIcons = {};
+        AI_TAG_KEYS.forEach(function (key) {
+          take(rawAssets.tagIcons[key], 'tagIcon', 'tag-' + key, out.assets.tagIcons, key);
+        });
+        if (!Object.keys(out.assets.tagIcons).length) delete out.assets.tagIcons;
+      }
+
+      return out;
+    }
+
+    /** Validates a whole Style Package. Rejects the shape before the content. */
+    function validateStylePackage(pkg, wantedAssets) {
+      if (!pkg || typeof pkg !== 'object' || !Array.isArray(pkg.variants)) {
+        return { ok: false, variants: [], error: 'the response is not a style package' };
+      }
+      if (!pkg.variants.length) {
+        return { ok: false, variants: [], error: 'the response contained no variants' };
+      }
+      const variants = pkg.variants.slice(0, 3).map(function (v) {
+        return validateAiVariant(v, wantedAssets);
+      });
+      return { ok: true, variants: variants, error: null };
+    }
+
+    // =========================================================================
+    // PRESET ASSETS (§5.6)
+    //
+    // A preset may carry its own artwork — a logo chassis, a badge, the five
+    // warning glyphs, the six tag icons — generated by the AI designer or
+    // hand-supplied. When it does, it replaces the built-in drawing; when it
+    // does not, the built-ins render as they always have. Same code path, no
+    // special case, and on air `styling.assets` arrives like any other preset
+    // field.
+    //
+    // Everything here is re-sanitised at render time even though it was
+    // validated when it was generated: a preset is a file on disk that anyone
+    // can edit, and the studio is not the only thing that writes one.
+    // =========================================================================
+
+    /** The assets carried by the preset in use, or {} when it carries none. */
+    let currentPresetAssets = {};
+
+    function setPresetAssets(assets) {
+      currentPresetAssets = (assets && typeof assets === 'object') ? assets : {};
+      renderPresetAssets();
+    }
+
+    function getPresetAssets() {
+      return currentPresetAssets;
+    }
+
+    /** Applies whatever artwork the current preset carries. */
+    function renderPresetAssets() {
+      applyAssetSvg(
+        document.getElementById('station-logo-container'),
+        currentPresetAssets.logoSvg,
+        'station-logo-svg'
+      );
+      applyAssetSvg(
+        document.getElementById('rating-badge-container'),
+        currentPresetAssets.badgeSvg,
+        'badge-svg'
+      );
+    }
+
+    /**
+     * Swaps one container's SVG for the preset's, or restores the built-in.
+     *
+     * The built-in is hidden rather than removed: it carries the ids the rest
+     * of the template writes into (the gradient stops, the stencil text), and
+     * rebuilding it from scratch to undo an asset would be a second renderer
+     * to keep in step with the first.
+     */
+    function applyAssetSvg(host, markup, builtInId) {
+      if (!host) return;
+      const builtIn = host.querySelector('#' + builtInId);
+      const existing = host.querySelector('[data-preset-asset]');
+
+      if (!markup) {
+        if (existing) existing.remove();
+        if (builtIn) builtIn.style.removeProperty('display');
+        return;
+      }
+      if (existing && existing.getAttribute('data-preset-asset') === hashAssetMarkup(markup)) {
+        return;
+      }
+
+      const safe = sanitizeSvgMarkup(markup);
+      if (!safe) {
+        console.warn('[advisory] preset asset for ' + builtInId + ' rejected by the sanitiser');
+        return;
+      }
+      if (existing) existing.remove();
+      safe.setAttribute('data-preset-asset', hashAssetMarkup(markup));
+      if (builtIn) {
+        safe.setAttribute('class', builtIn.getAttribute('class') || '');
+        builtIn.style.setProperty('display', 'none');
+      }
+      host.appendChild(safe);
+    }
+
+    /**
+     * Cheap identity for a piece of markup, so an idempotent render does not
+     * reparse and replace the same SVG on every update.
+     */
+    function hashAssetMarkup(markup) {
+      let h = 5381;
+      for (let i = 0; i < markup.length; i++) {
+        h = ((h << 5) + h + markup.charCodeAt(i)) | 0;
+      }
+      return 'a' + (h >>> 0).toString(36) + '-' + markup.length;
+    }
+
+    /** The glyph for one warning: the preset's, or the built-in. */
+    function warningGlyphMarkup(key) {
+      const custom = currentPresetAssets.glyphs && currentPresetAssets.glyphs[key];
+      if (custom) {
+        const safe = sanitizeSvgMarkup(custom);
+        if (safe) return safe.outerHTML;
+      }
+      return WARNING_GLYPHS[key] || WARNING_GLYPHS.combo || '';
+    }
+
+    /** The icon for one show tag: the preset's, or the built-in. */
+    function showTagIconMarkup(key) {
+      const custom = currentPresetAssets.tagIcons && currentPresetAssets.tagIcons[key];
+      if (custom) {
+        const safe = sanitizeSvgMarkup(custom);
+        if (safe) return safe.outerHTML;
+      }
+      return (SHOW_TAG_PRESETS[key] && SHOW_TAG_PRESETS[key].iconSvg) || '';
+    }
+    // =========================================================================
     // CONTROL SCHEMA — the single source of truth for everything adjustable
     //
     // Before this table, the state of the composition lived in the DOM.
@@ -4791,6 +5373,10 @@
         (entry.legacy || []).forEach(function (alias) { writePresetPath(preset, alias, value); });
       });
 
+      // Artwork rides along with the look it belongs to.
+      const assets = getPresetAssets();
+      if (assets && Object.keys(assets).length) preset.assets = assets;
+
       if (extra) Object.keys(extra).forEach(function (k) { preset[k] = extra[k]; });
       return preset;
     }
@@ -4822,6 +5408,13 @@
       PASSTHROUGH_PRESET_KEYS.forEach(function (k) {
         if (preset[k] !== undefined) cgPassthrough[k] = preset[k];
       });
+
+      // A preset may carry its own artwork (§5.6). It is not a schema key —
+      // there is nothing to clamp — but it does have to reach the canvas, and
+      // it is re-sanitised there because a preset is a file anyone can edit.
+      if (preset.assets !== undefined) {
+        setPresetAssets(preset.assets);
+      }
 
       return changed;
     }
@@ -5850,7 +6443,7 @@
         }
 
         wSlot.innerHTML = `
-          <div class="warning-icon-wrapper">${WARNING_GLYPHS[cat] || WARNING_GLYPHS.combo}</div>
+          <div class="warning-icon-wrapper">${warningGlyphMarkup(cat)}</div>
           <div class="warning-text-group ${is3L ? 'has-3-lines' : ''}">
             <span class="warning-lead">${escapeHtml(dTexts.lead)}</span>
             ${bodyHtml}
@@ -7468,6 +8061,413 @@
       tlScrubbing = wasScrubbing;
     }
     // =========================================================================
+    // AI DESIGNER PANEL (§5.7)
+    //
+    // A prompt in, three looks out, rendered on the real canvas so the operator
+    // judges them at the size they will air rather than from a description.
+    //
+    // The call itself is made by the Rust bridge, not here: the template is
+    // copied to the CasparCG host and cached by browsers, so an API key in this
+    // file would be readable by anyone who can reach that machine. This end
+    // sends the prompt, streams the progress back, validates everything that
+    // comes out, and shows what it had to drop and why.
+    // =========================================================================
+
+    /** The conversation, so "thinner strokes" refines instead of restarting. */
+    let aiHistory = [];
+
+    /** Validated variants from the last generation. */
+    let aiVariants = [];
+
+    /** Cumulative tokens this session, for the spend readout. */
+    const aiUsage = { input: 0, output: 0, cacheRead: 0 };
+
+    /** Published rates, so the readout is a number rather than a token count. */
+    const AI_RATE_INPUT_PER_MTOK = 5.0;
+    const AI_RATE_OUTPUT_PER_MTOK = 25.0;
+    const AI_RATE_CACHE_READ_PER_MTOK = 0.5;
+
+    let aiGenerating = false;
+
+    /** Asks the bridge whether a key is configured, and for which model. */
+    async function refreshAiStatus() {
+      const panel = document.getElementById('ai-panel');
+      if (!panel) return null;
+      try {
+        const status = await getFromBridge('/api/ai/status');
+        renderAiStatus(status);
+        return status;
+      } catch (_) {
+        renderAiStatus(null);
+        return null;
+      }
+    }
+
+    function renderAiStatus(status) {
+      const note = document.getElementById('ai-status-note');
+      const form = document.getElementById('ai-form');
+      const btn = document.getElementById('btn-ai-generate');
+      if (!note || !form) return;
+
+      if (!status) {
+        note.textContent = 'PlayOut’s studio bridge is not reachable, so the AI designer cannot run. Reopen CG Studio from PlayOut.';
+        note.className = 'studio-group-note is-warn';
+        form.hidden = true;
+        return;
+      }
+      if (!status.configured) {
+        note.textContent = 'No API key yet. Add one in PlayOut › Settings › AI and reopen this page.';
+        note.className = 'studio-group-note is-warn';
+        form.hidden = true;
+        return;
+      }
+
+      note.textContent = 'Using ' + status.model + ' at ' + status.effort + ' effort.'
+        + (status.monthlyCapUsd ? ' Soft cap $' + status.monthlyCapUsd + '/month.' : '');
+      note.className = 'studio-group-note';
+      form.hidden = false;
+      if (btn) btn.disabled = false;
+    }
+
+    /** Running spend, from the token counts the bridge relays. */
+    function renderAiUsage() {
+      const el = document.getElementById('ai-usage');
+      if (!el) return;
+      const dollars =
+        (aiUsage.input / 1e6) * AI_RATE_INPUT_PER_MTOK +
+        (aiUsage.output / 1e6) * AI_RATE_OUTPUT_PER_MTOK +
+        (aiUsage.cacheRead / 1e6) * AI_RATE_CACHE_READ_PER_MTOK;
+      el.textContent = aiUsage.input + aiUsage.output === 0
+        ? ''
+        : 'This session: ' + (aiUsage.input + aiUsage.cacheRead).toLocaleString() + ' in, '
+          + aiUsage.output.toLocaleString() + ' out ≈ $' + dollars.toFixed(2);
+    }
+
+    /**
+     * The preset schema, generated from CONTROL_SCHEMA and sent along so the
+     * model is told the exact keys, ranges and options rather than guessing.
+     */
+    function aiPresetSchema() {
+      const out = {};
+      CONTROL_SCHEMA.forEach(function (entry) {
+        const spec = { type: entry.type, label: entry.label };
+        if (entry.min !== undefined) spec.min = entry.min;
+        if (entry.max !== undefined) spec.max = entry.max;
+        if (entry.options) spec.options = entry.options;
+        if (entry.default !== undefined) spec.default = entry.default;
+        out[entry.preset] = spec;
+      });
+      return out;
+    }
+
+    function aiSelectedAssets() {
+      return Array.prototype.slice
+        .call(document.querySelectorAll('.ai-asset-check:checked'))
+        .map(function (el) { return el.value; });
+    }
+
+    async function runAiGeneration(refinePrompt) {
+      if (aiGenerating) return;
+
+      const promptEl = document.getElementById('ai-prompt');
+      const prompt = refinePrompt || (promptEl ? promptEl.value.trim() : '');
+      if (!prompt) {
+        showStudioToast('Describe the look you want first', 'warn');
+        return;
+      }
+
+      const assets = aiSelectedAssets();
+      const variants = parseInt(
+        (document.getElementById('ai-variants') || {}).value || '3', 10
+      ) || 3;
+      const kind = assets.length === 0 ? 'restyle'
+        : (document.getElementById('ai-include-preset') || {}).checked === false ? 'assets'
+        : 'full';
+
+      aiGenerating = true;
+      setAiBusy(true);
+      renderAiProgress('Sending the brief…');
+
+      try {
+        readStateFromDom();
+        const body = {
+          type: kind,
+          prompt: prompt,
+          context: {
+            variants: variants,
+            assetsWanted: assets,
+            preset: stateToPreset(),
+            presetSchema: aiPresetSchema()
+          },
+          history: aiHistory
+        };
+
+        const result = await postAiGeneration(body);
+
+        if (result.refusal) {
+          renderAiProgress('');
+          showStudioToast('The model declined this prompt: ' + result.refusal.explanation, 'warn');
+          return;
+        }
+        if (result.error) {
+          renderAiProgress('');
+          showStudioToast(result.error, 'error');
+          return;
+        }
+
+        const validated = validateStylePackage(result.package, assets.length ? assets : null);
+        if (!validated.ok) {
+          renderAiProgress('');
+          showStudioToast(validated.error, 'error');
+          return;
+        }
+
+        aiVariants = validated.variants;
+        // Keep the turn so a refinement builds on it rather than starting over.
+        aiHistory = aiHistory.concat([
+          { role: 'user', content: prompt },
+          { role: 'assistant', content: JSON.stringify({ variants: validated.variants.map(function (v) {
+            return { name: v.name, rationale: v.rationale };
+          }) }) }
+        ]).slice(-8);
+
+        renderAiProgress('');
+        renderAiVariants();
+      } catch (err) {
+        renderAiProgress('');
+        showStudioToast(String(err && err.message || err), 'error');
+      } finally {
+        aiGenerating = false;
+        setAiBusy(false);
+      }
+    }
+
+    /**
+     * Posts the brief and reads the SSE stream back.
+     *
+     * fetch rather than EventSource: EventSource cannot POST, and the brief is
+     * a preset plus a schema plus possibly an image.
+     */
+    async function postAiGeneration(body) {
+      const token = getBridgeToken();
+      if (!token) throw new Error('Studio bridge token missing — reopen CG Studio from PlayOut');
+
+      let lastError = 'Studio bridge unreachable';
+      for (const base of getBridgeBaseUrls()) {
+        let res;
+        try {
+          res = await fetch(base + '/api/ai/generate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'text/event-stream',
+              'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify(body)
+          });
+        } catch (_) {
+          continue;
+        }
+
+        if (!res.ok) {
+          const detail = await res.json().catch(function () { return null; });
+          throw new Error((detail && detail.error) || ('Bridge error ' + res.status));
+        }
+
+        return await readAiEventStream(res);
+      }
+      throw new Error(lastError);
+    }
+
+    /** Parses the bridge's SSE frames into one outcome. */
+    async function readAiEventStream(res) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const outcome = { package: null, refusal: null, error: null };
+
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+
+        let sep;
+        while ((sep = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+
+          let event = 'message';
+          let data = '';
+          frame.split('\n').forEach(function (line) {
+            if (line.indexOf('event:') === 0) event = line.slice(6).trim();
+            else if (line.indexOf('data:') === 0) data += line.slice(5).trim();
+          });
+          if (!data) continue;
+
+          let payload;
+          try { payload = JSON.parse(data); } catch (_) { continue; }
+
+          if (event === 'progress') {
+            renderAiProgress(payload.text || '');
+          } else if (event === 'usage') {
+            aiUsage.input += payload.inputTokens || 0;
+            aiUsage.output += payload.outputTokens || 0;
+            aiUsage.cacheRead += payload.cacheReadTokens || 0;
+            renderAiUsage();
+          } else if (event === 'result') {
+            outcome.package = payload;
+          } else if (event === 'refusal') {
+            outcome.refusal = payload;
+          } else if (event === 'error') {
+            outcome.error = payload.message || 'generation failed';
+          }
+        }
+      }
+      if (!outcome.package && !outcome.refusal && !outcome.error) {
+        outcome.error = 'the generation ended without producing anything';
+      }
+      return outcome;
+    }
+
+    function setAiBusy(busy) {
+      const btn = document.getElementById('btn-ai-generate');
+      if (btn) {
+        btn.disabled = busy;
+        btn.innerHTML = cgIconMarkup(busy ? 'motion' : 'sparkles', 16)
+          + (busy ? ' Generating…' : ' Generate');
+      }
+    }
+
+    function renderAiProgress(text) {
+      const el = document.getElementById('ai-progress');
+      if (!el) return;
+      el.hidden = !text;
+      // The tail, not the head: the interesting part is what it is writing now.
+      el.textContent = text ? String(text).slice(-400) : '';
+    }
+
+    /**
+     * One card per variant: the look rendered small on a real canvas clone,
+     * its name, its rationale, and what had to be dropped.
+     */
+    function renderAiVariants() {
+      const host = document.getElementById('ai-variants-list');
+      if (!host) return;
+      host.textContent = '';
+
+      if (!aiVariants.length) return;
+
+      aiVariants.forEach(function (variant, index) {
+        const card = document.createElement('div');
+        card.className = 'ai-variant';
+
+        const title = document.createElement('div');
+        title.className = 'ai-variant-name';
+        title.textContent = variant.name;
+        card.appendChild(title);
+
+        const why = document.createElement('div');
+        why.className = 'ai-variant-why';
+        why.textContent = variant.rationale;
+        card.appendChild(why);
+
+        if (variant.notes.length) {
+          const details = document.createElement('details');
+          details.className = 'ai-variant-notes';
+          const summary = document.createElement('summary');
+          summary.textContent = variant.notes.length === 1
+            ? '1 thing was changed or dropped'
+            : variant.notes.length + ' things were changed or dropped';
+          details.appendChild(summary);
+          const list = document.createElement('ul');
+          variant.notes.forEach(function (note) {
+            const li = document.createElement('li');
+            li.textContent = note;
+            list.appendChild(li);
+          });
+          details.appendChild(list);
+          card.appendChild(details);
+        }
+
+        const row = document.createElement('div');
+        row.className = 'ai-variant-actions';
+
+        const apply = document.createElement('button');
+        apply.type = 'button';
+        apply.className = 'studio-btn';
+        apply.innerHTML = cgIconMarkup('check', 14) + ' Apply';
+        apply.addEventListener('click', function () { applyAiVariant(index); });
+        row.appendChild(apply);
+
+        const saveAs = document.createElement('button');
+        saveAs.type = 'button';
+        saveAs.className = 'studio-btn';
+        saveAs.innerHTML = cgIconMarkup('save', 14) + ' Save as preset';
+        saveAs.addEventListener('click', function () {
+          applyAiVariant(index);
+          openSaveAsDialog();
+          const nameField = document.getElementById('txt-save-as-name');
+          if (nameField) nameField.value = variant.name;
+        });
+        row.appendChild(saveAs);
+
+        card.appendChild(row);
+        host.appendChild(card);
+      });
+
+      const refine = document.createElement('div');
+      refine.className = 'ai-refine';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'studio-select';
+      input.id = 'ai-refine-input';
+      input.placeholder = 'Refine: thinner strokes, warmer, less contrast…';
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') runAiGeneration(input.value.trim());
+      });
+      refine.appendChild(input);
+      host.appendChild(refine);
+    }
+
+    /**
+     * Applies a variant as an unsaved preset the operator can then tune with
+     * the normal inspector and deploy when they are happy.
+     */
+    function applyAiVariant(index) {
+      const variant = aiVariants[index];
+      if (!variant) return;
+
+      const preset = Object.assign({}, variant.preset);
+      preset.name = variant.name;
+      // A new id, so applying a variant does not overwrite the preset that was
+      // selected when the operator asked for it.
+      preset.id = 'preset_ai_' + Date.now();
+      if (variant.assets && Object.keys(variant.assets).length) {
+        preset.assets = variant.assets;
+      }
+      preset.meta = Object.assign({}, preset.meta, {
+        generatedBy: {
+          model: 'claude-opus-5',
+          prompt: (document.getElementById('ai-prompt') || {}).value || '',
+          at: new Date().toISOString()
+        }
+      });
+
+      recordAction('PRESET', 'Applied AI variant: ' + variant.name);
+      applyPresetPackage(preset);
+      syncRailFromState();
+      refreshDeployState();
+      showStudioToast('Applied "' + variant.name + '". Tune it, then Deploy.', 'ok');
+    }
+
+    /** Fills an example into the prompt box. */
+    function useAiExample(text) {
+      const el = document.getElementById('ai-prompt');
+      if (!el) return;
+      el.value = text;
+      el.focus();
+    }
+    // =========================================================================
     // HISTORY (§4.5)
     //
     // The old "Action History" was not undo. It stored ad-hoc closures, most
@@ -7794,6 +8794,7 @@
       initStageSelection();
       initTimelineBar();
       initHistoryShortcuts();
+      refreshAiStatus();
       watchForModifications();
 
       // Master Presets: Load default or operator active preset
@@ -8670,13 +9671,13 @@
       if (normTag === 'live' || normText === 'live' || normText.includes('ζωντανα') || normText.includes('live')) {
         iconHtml = '<span class="station-live-dot"></span>';
       } else if (SHOW_TAG_PRESETS[normTag]) {
-        iconHtml = SHOW_TAG_PRESETS[normTag].iconSvg;
+        iconHtml = showTagIconMarkup(normTag);
       } else if (SHOW_TAG_PRESETS[normText]) {
-        iconHtml = SHOW_TAG_PRESETS[normText].iconSvg;
+        iconHtml = showTagIconMarkup(normText);
       } else {
         for (const [pk, pVal] of Object.entries(SHOW_TAG_PRESETS)) {
           if (pVal.label && (normText.includes(pVal.label.toLowerCase()) || normTag.includes(pk))) {
-            iconHtml = pVal.iconSvg;
+            iconHtml = showTagIconMarkup(pk);
             break;
           }
         }
