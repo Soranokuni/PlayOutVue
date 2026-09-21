@@ -23,7 +23,7 @@ const ICONS: Record<ToastTone, IconName> = {
     <div class="toast-host" role="status" aria-live="polite">
       <TransitionGroup name="toast">
         <div v-for="toast in toasts" :key="toast.id" class="toast" :class="`tone-${toast.tone}`">
-          <AppIcon class="toast-icon" :name="ICONS[toast.tone]" :size="16" />
+          <AppIcon class="toast-icon" :name="ICONS[toast.tone]" />
           <div class="toast-text">
             <p class="toast-message">{{ toast.message }}</p>
             <p v-if="toast.detail" class="toast-detail">{{ toast.detail }}</p>
@@ -83,7 +83,7 @@ const ICONS: Record<ToastTone, IconName> = {
   --toast-accent: var(--status-ready);
 }
 .tone-info {
-  --toast-accent: var(--accent-blue);
+  --toast-accent: var(--accent-primary);
 }
 .tone-warning {
   --toast-accent: var(--status-warning);
@@ -93,7 +93,7 @@ const ICONS: Record<ToastTone, IconName> = {
 }
 
 .toast-icon {
-  margin-top: 1px;
+  margin-top: var(--space-0);
   color: var(--toast-accent);
 }
 
@@ -105,14 +105,14 @@ const ICONS: Record<ToastTone, IconName> = {
 .toast-message {
   margin: 0;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
 }
 
 .toast-detail {
-  margin: 2px 0 0;
+  margin: var(--space-0) 0 0;
   font-size: var(--fs-xs);
-  line-height: 1.4;
+  line-height: var(--lh-body);
   color: var(--text-secondary);
 }
 
@@ -125,7 +125,7 @@ const ICONS: Record<ToastTone, IconName> = {
 .toast-action {
   flex-shrink: 0;
   color: var(--toast-accent);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 .toast-action:hover:not(:disabled) {
   color: var(--toast-accent);

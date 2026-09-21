@@ -316,13 +316,13 @@ async function executePurgeConfirmed() {
 
 <style scoped>
 .toolbar {
-  padding: 12px 20px;
+  padding: var(--space-3) var(--space-5);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .search-box {
@@ -341,12 +341,12 @@ async function executePurgeConfirmed() {
 
 .search-input {
   width: 100%;
-  padding: 8px 28px 8px 32px;
+  padding: var(--space-2) var(--space-8);
   background: var(--bg-input);
   border: 1px solid var(--border-medium);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 0.84rem;
+  font-size: var(--fs-md);
   outline: none;
 }
 
@@ -361,26 +361,29 @@ async function executePurgeConfirmed() {
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: var(--fs-lg);
   cursor: pointer;
 }
 
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .refresh-btn, .empty-bin-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .refresh-btn {
@@ -427,20 +430,20 @@ async function executePurgeConfirmed() {
 }
 
 .empty-icon {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
   opacity: 0.5;
 }
 
 .empty-title {
-  margin: 0 0 4px;
-  font-size: 0.95rem;
-  font-weight: 600;
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
 }
 
 .empty-subtitle {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
 }
 
@@ -452,7 +455,7 @@ async function executePurgeConfirmed() {
 .bin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: var(--fs-md);
   text-align: left;
 }
 
@@ -460,19 +463,20 @@ async function executePurgeConfirmed() {
   position: sticky;
   top: 0;
   background: var(--bg-tertiary);
-  padding: 10px 14px;
-  font-size: 0.72rem;
-  font-weight: 700;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--tracking-caps);
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-subtle);
-  z-index: 2;
+  /* §3.9: local stacking — the sticky header over the rows it pins. */
+  z-index: 1;
 }
 
 .bin-row {
   border-bottom: 1px solid var(--border-subtle);
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 
 .bin-row:hover {
@@ -480,18 +484,18 @@ async function executePurgeConfirmed() {
 }
 
 .bin-table td {
-  padding: 10px 14px;
+  padding: var(--space-3) var(--space-4);
   vertical-align: middle;
 }
 
 .asset-title-col {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0);
 }
 
 .asset-name {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -500,7 +504,7 @@ async function executePurgeConfirmed() {
 }
 
 .asset-filename {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -511,12 +515,12 @@ async function executePurgeConfirmed() {
 
 .folder-badge {
   display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-medium);
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
   max-width: 180px;
   white-space: nowrap;
@@ -534,19 +538,22 @@ async function executePurgeConfirmed() {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .row-action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 8px;
-  border-radius: 4px;
-  font-size: 0.74rem;
-  font-weight: 600;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .restore-btn {
@@ -574,28 +581,23 @@ async function executePurgeConfirmed() {
 }
 
 .footer-stats {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
 }
 
 /* Pulsing Danger Confirmation Modal */
 .spin {
-  animation: rotate-spin 1s linear infinite;
-}
-
-@keyframes rotate-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  animation: spin var(--dur-spin) linear infinite;
 }
 
 .spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid var(--border-subtle);
+  width: var(--space-6);
+  height: var(--space-6);
+  border: var(--border-accent-w) solid var(--border-subtle);
   border-top-color: var(--accent-blue);
   border-radius: 50%;
-  animation: rotate-spin 0.8s linear infinite;
-  margin-bottom: 12px;
+  animation: spin var(--dur-spin) linear infinite;
+  margin-bottom: var(--space-3);
 }
 /* The dialog shell and the purge confirmation are BaseModal's / DangerConfirm's. */
 .footer-stats {

@@ -54,19 +54,19 @@ const classes = computed(() => [
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 2px var(--space-2);
+  padding: var(--space-0) var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   /* Never below the text floor (§10). */
   font-size: var(--fs-xs);
-  font-weight: 700;
-  line-height: 1.25;
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
   white-space: nowrap;
 }
 
 .chip--compact {
-  padding: 1px 5px;
-  letter-spacing: 0.02em;
+  padding: var(--space-0) var(--space-2);
+  letter-spacing: var(--tracking-caps);
 }
 
 /* Each tone names one colour; the variants decide how it is applied. */
@@ -148,6 +148,6 @@ const classes = computed(() => [
   background: transparent;
   border: 1px dashed var(--border-strong);
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 </style>

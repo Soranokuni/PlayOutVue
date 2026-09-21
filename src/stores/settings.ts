@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import type { PlayoutEngine } from '../services/playout';
+import { DEFAULT_THEME_ID, THEME_IDS, type ThemeId } from '../config/themes';
 
 export interface CgAdvisoryTemplateConfig {
     themeName?: string;
@@ -74,7 +75,7 @@ export const DEFAULT_CG_ADVISORY_CONFIG: CgAdvisoryTemplateConfig = {
  */
 const ENUM_FIELDS: Record<string, readonly string[]> = {
     playoutEngine: ['casparcg', 'obs'],
-    theme: ['dark', 'monokai', 'light'],
+    theme: THEME_IDS as readonly string[],
     uiScale: ['standard', 'comfortable', 'large'],
     recycleBinAutoPurge: ['disabled', '1week', '2weeks', '3weeks', '1month'],
     qcSensitivity: ['strict', 'production', 'lenient'],
@@ -180,8 +181,8 @@ export const useSettingsStore = defineStore('settings', {
         ffmpegBinPath: '',
         debugMode: false,
 
-        // Visual Theme ('dark' | 'monokai' | 'light')
-        theme: 'dark' as 'dark' | 'monokai' | 'light',
+        // Visual Theme — the ids come from `config/themes.ts` (§5.2)
+        theme: DEFAULT_THEME_ID as ThemeId,
 
         // UI Scale ('standard' | 'comfortable' | 'large')
         uiScale: 'comfortable' as 'standard' | 'comfortable' | 'large',

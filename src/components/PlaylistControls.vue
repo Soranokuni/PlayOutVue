@@ -197,14 +197,14 @@ const commitGapLine = () => {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-1) var(--space-3);
+  height: var(--panel-strip-h);
+  padding: 0 var(--space-3);
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-subtle);
   pointer-events: auto;
   position: relative;
   z-index: var(--z-panel);
   flex-shrink: 0;
-  min-height: 32px;
 }
 
 .pl-schedule {
@@ -235,14 +235,16 @@ const commitGapLine = () => {
 }
 
 .pl-meta-text {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
 }
 
 .pl-total {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 .pl-status {
@@ -256,15 +258,15 @@ const commitGapLine = () => {
 
 .pl-status.is-error {
   color: var(--status-error);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .pl-label {
   font-size: var(--fs-xs);
   color: var(--text-muted);
   text-transform: uppercase;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
 }
 
 .pl-day-select,
@@ -273,16 +275,16 @@ const commitGapLine = () => {
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
   border-radius: var(--radius-md);
-  padding: 2px var(--space-2);
+  padding: var(--space-0) var(--space-2);
   font-size: var(--fs-sm);
   height: var(--control-h-sm);
 }
 
 .pl-day-select:focus,
 .pl-time-input:focus {
-  border-color: var(--accent-blue);
+  border-color: var(--accent-primary);
   outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-blue) 28%, transparent);
+  box-shadow: var(--focus-ring);
 }
 
 .pl-day-select {

@@ -426,7 +426,7 @@ watch(
             <h2 class="text-accent">{{ stepTitle }}</h2>
           </div>
           <button class="glass-btn btn-icon" aria-label="Close wizard" title="Close wizard" @click="$emit('close')" :disabled="applying">
-            <AppIcon name="close" :size="16" />
+            <AppIcon name="close" />
           </button>
         </div>
 
@@ -500,7 +500,7 @@ watch(
                 {{ testing ? 'Testing…' : 'Test Connection' }}
               </button>
             </div>
-            <div v-if="testResult" class="status ok inline" style="margin-top:8px;">{{ testResult }}</div>
+            <div v-if="testResult" class="status ok inline wz-stacked">{{ testResult }}</div>
           </section>
 
           <!-- STEP 2: Media Storage & Library Folder -->
@@ -543,7 +543,7 @@ watch(
               </div>
             </div>
 
-            <div v-if="mediaStorageOption === 'custom'" class="form-group" style="margin-top: 10px;">
+            <div v-if="mediaStorageOption === 'custom'" class="form-group wz-stacked">
               <label>Custom Media Directory Path</label>
               <div class="input-with-button">
                 <input
@@ -557,7 +557,7 @@ watch(
               <span class="hint-text">CasparCG Server and PlayOutVue will scan this folder for media assets.</span>
             </div>
 
-            <div class="summary-card" style="margin-top: 8px;">
+            <div class="summary-card wz-stacked">
               <div class="summary-title">Effective Playout Media Storage</div>
               <div class="summary-grid">
                 <div class="summary-item">
@@ -651,7 +651,7 @@ watch(
                   <input v-model="outputEmbeddedAudio" type="checkbox" />
                   <span>Embed Audio in SDI Stream</span>
                 </label>
-                <label class="checkbox-label" style="margin-top:6px;">
+                <label class="checkbox-label wz-stacked">
                   <input v-model="enableScreenConsumer" type="checkbox" />
                   <span>Enable Local Operator Screen Preview</span>
                 </label>
@@ -673,7 +673,7 @@ watch(
             </div>
 
             <template v-if="hasLiveInput">
-              <div class="form-grid two-col" style="margin-top:1rem;">
+              <div class="form-grid two-col wz-stacked">
                 <div class="form-group">
                   <label>Live Input Device # (DeckLink)</label>
                   <select v-model.number="inputDevice" class="glass-input">
@@ -734,7 +734,7 @@ watch(
                 {{ deploying ? 'Installing…' : 'Install Templates Now' }}
               </button>
             </div>
-            <div v-if="templateDeployResult" class="status ok inline" style="margin-top:8px;">
+            <div v-if="templateDeployResult" class="status ok inline wz-stacked">
               Deployed {{ templateDeployResult.deployed.length }} files to {{ templateDeployResult.template_dir }}
             </div>
           </section>
@@ -776,13 +776,13 @@ watch(
   flex-direction: column;
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-3);
   overflow: hidden;
 }
 
 .modal-header {
-  padding: 1.25rem 1.5rem;
+  padding: var(--space-5) var(--space-6);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   justify-content: space-between;
@@ -792,19 +792,19 @@ watch(
 .header-left {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .step-badge {
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-semibold);
   color: var(--accent-blue);
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-caps);
 }
 
 .modal-header h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--fs-xl);
   color: var(--text-primary);
 }
 
@@ -812,18 +812,24 @@ watch(
 .step-indicator {
   display: flex;
   justify-content: space-between;
-  padding: 12px 1.5rem;
+  padding: var(--space-3) var(--space-6);
   background: var(--bg-input);
   border-bottom: 1px solid var(--border-subtle);
+}
+
+/* §3.2: one answer to "this block follows the one above it". It was six
+   inline `margin-top`s at four different values. */
+.wz-stacked {
+  margin-top: var(--space-2);
 }
 
 .step-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: pointer;
-  opacity: 0.5;
-  transition: all 0.15s;
+  opacity: var(--opacity-muted);
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
 .step-item.active {
@@ -842,8 +848,8 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
-  font-weight: 800;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
 }
 
@@ -860,14 +866,14 @@ watch(
 }
 
 .step-name {
-  font-size: 0.75rem;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   color: var(--text-secondary);
 }
 
 /* Body */
 .modal-body {
-  padding: 1.5rem;
+  padding: var(--space-6);
   overflow-y: auto;
   min-height: 260px;
 }
@@ -875,40 +881,40 @@ watch(
 .wizard-section {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .section-desc {
-  font-size: 0.82rem;
+  font-size: var(--fs-md);
   color: var(--text-secondary);
-  line-height: 1.45;
+  line-height: var(--lh-body);
   margin: 0;
 }
 
 .section-desc code {
   background: var(--bg-hover);
-  padding: 2px 5px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   color: var(--accent-blue);
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .form-group label {
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
   color: var(--text-secondary);
 }
 
 .form-grid {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .form-grid.two-col {
@@ -919,9 +925,9 @@ watch(
   background: var(--bg-input);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 0.82rem;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-md);
   outline: none;
 }
 
@@ -929,9 +935,12 @@ watch(
   border-color: var(--accent-blue);
 }
 
+/* §4: without an alignment the button stretched to the input's height, so
+   the pair sat at two heights in every dialog that used it. */
 .input-with-button {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .input-with-button .glass-input {
@@ -939,31 +948,31 @@ watch(
 }
 
 .hint-text {
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
 }
 
 /* Checkbox */
 .checkbox-group {
   justify-content: center;
-  padding-top: 8px;
+  padding-top: var(--space-2);
 }
 
 .checkbox-label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
   cursor: pointer;
 }
 
 .checkbox-label.highlight {
   background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
-  padding: 10px 14px;
-  border-radius: 8px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
   border: 1px solid color-mix(in srgb, var(--accent-blue) 25%, transparent);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--accent-blue);
 }
 
@@ -972,32 +981,34 @@ watch(
 .storage-options-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .media-path-preview {
-  margin-top: 6px;
-  font-size: 0.72rem;
+  margin-top: var(--space-2);
+  font-size: var(--fs-xs);
   word-break: break-all;
 }
 
 .media-path-preview code {
   background: var(--bg-input);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   color: var(--accent-blue);
 }
 
 .mode-card {
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  transition: all 0.15s;
+  gap: var(--space-1);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
 
 .mode-card:hover {
@@ -1019,23 +1030,23 @@ watch(
 
 .mode-badge {
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-semibold);
   background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
   color: var(--accent-blue);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
 }
 
 .mode-name {
-  font-size: 0.88rem;
-  font-weight: 800;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
 }
 
 .mode-desc {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
-  line-height: 1.3;
+  line-height: var(--lh-tight);
 }
 
 /* Cards */
@@ -1045,8 +1056,8 @@ watch(
 .template-deploy-card {
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
 }
 
 .connection-test-card,
@@ -1054,43 +1065,43 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .connection-info,
 .template-info {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-0);
 }
 
 .connection-info strong,
 .template-info strong {
-  font-size: 0.82rem;
+  font-size: var(--fs-md);
   color: var(--text-primary);
 }
 
 .connection-info span,
 .template-info span {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
 }
 
 .summary-title,
 .review-title {
-  font-size: 0.75rem;
-  font-weight: 800;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-caps);
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .summary-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  font-size: 0.78rem;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
 }
 
@@ -1100,14 +1111,14 @@ watch(
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .review-list li {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
   position: relative;
-  padding-left: 16px;
+  padding-left: var(--space-4);
 }
 
 .review-list li::before {
@@ -1121,55 +1132,55 @@ watch(
 .routing-card {
   background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent-blue) 25%, transparent);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .routing-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .routing-badge {
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-semibold);
   background: var(--accent-blue);
   color: var(--text-on-accent);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
 }
 
 .routing-text {
-  font-size: 0.8rem;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   color: var(--text-primary);
 }
 
 .routing-cmd-label {
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--text-secondary);
 }
 
 .routing-cmd {
   font-family: Consolas, monospace;
-  font-size: 0.76rem;
+  font-size: var(--fs-xs);
   background: var(--bg-input);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   color: var(--accent-blue);
 }
 
 /* Status Messages */
 .status {
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 0.78rem;
-  margin-bottom: 12px;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--space-3);
 }
 
 .status.ok {
@@ -1191,7 +1202,7 @@ watch(
 
 /* Buttons */
 .modal-footer {
-  padding: 1rem 1.5rem;
+  padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
@@ -1206,12 +1217,14 @@ watch(
   background: var(--bg-hover);
   border: 1px solid var(--border-medium);
   color: var(--text-secondary);
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
-  transition: all 0.15s;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .glass-btn:hover:not(:disabled) {
@@ -1238,7 +1251,7 @@ watch(
   background: color-mix(in srgb, var(--status-ready) 15%, transparent);
   border-color: color-mix(in srgb, var(--status-ready) 40%, transparent);
   color: var(--status-ready);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .btn-apply:hover:not(:disabled) {
@@ -1259,7 +1272,7 @@ watch(
 }
 
 .btn-icon {
-  padding: 4px 8px;
-  font-size: 1.1rem;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-xl);
 }
 </style>

@@ -700,25 +700,22 @@ const ctxSetIndicator = (indicator: LibraryIndicator) => {
   closeContextMenu();
 };
 
-const topActionItems = computed<TopAction[]>(() => {
-  const item = contextMenu.value.item;
-  if (!item) return [];
+/**
+ * §2.6: this used to be a one-icon top action bar — a full-height row holding
+ * a single centred red trash glyph, with no label and no shortcut, above a
+ * "CLIP" heading. It reads as a rendering fault. (F-05 had already deleted the
+ * three dead stubs that used to keep it company, which is what left it alone
+ * up there.)
+ *
+ * The action is unchanged and so is its guard; it is a labelled row in a final
+ * group now, where every other action in this menu lives. The bar itself stays
+ * for the library, whose four icons do read as a bar.
+ */
+const topActionItems = computed<TopAction[]>(() => []);
 
-  const isDeleteDisabled = isProtectedPlayingRow(contextMenu.value.index) || store.isRundownLocked;
-  
-  // UI F-05: trim / rename / purge were permanently disabled stubs on every
-  // rundown row -- three dead controls above the only live one. A top action
-  // that can never apply to this node type is not rendered at all.
-  return [
-    {
-      id: 'delete',
-      tone: 'danger',
-      tooltip: store.isRundownLocked ? 'Rundown Locked' : (isDeleteDisabled ? 'Delete (Protected)' : 'Delete Item'),
-      action: ctxDelete,
-      disabled: isDeleteDisabled
-    }
-  ];
-});
+const isDeleteBlocked = computed(
+  () => isProtectedPlayingRow(contextMenu.value.index) || store.isRundownLocked
+);
 
 const menuItems = computed<MenuItem[]>(() => {
   const item = contextMenu.value.item;
@@ -871,6 +868,20 @@ const menuItems = computed<MenuItem[]>(() => {
     );
   }
   
+  list.push(
+    { type: 'divider' },
+    {
+      type: 'action',
+      icon: 'trash',
+      tone: 'danger',
+      danger: true,
+      label: 'Remove from rundown',
+      shortcut: 'Del',
+      disabled: isDeleteBlocked.value,
+      action: ctxDelete
+    }
+  );
+
   return list;
 });
 
@@ -1004,9 +1015,9 @@ const durationLabel = (item: RundownItem, index: number) => {
   // §9 / §6.2: a gap row states its hard start; "Ghost marker" told the
   // operator nothing. A row that is not playing shows its total only -- the
   // leading `00:00:00 /` was noise on 299 of 300 rows.
-  if (item.type === 'gap') return item.hardStartTime ? `Hard start ${item.hardStartTime}` : 'Gap';
+  if (item.type === 'gap') return item.hardStartTime || 'Gap';
   const durationMs = effectiveDurationMs(item, index);
-  if (item.type === 'live') return durationMs > 0 ? `LIVE ${msToClockDisplay(durationMs)}` : 'LIVE';
+  if (item.type === 'live') return durationMs > 0 ? msToClockDisplay(durationMs) : 'LIVE';
   if (durationMs > 0) return msToClockDisplay(durationMs);
   return '—';
 };
@@ -1336,14 +1347,14 @@ onUnmounted(() => {
   <div class="rundown-wrapper">
     <!-- Header with clock -->
     <div class="rw-header">
-      <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
-        <h2 class="text-warning" style="margin:0; font-size:var(--fs-lg);">{{ store.currentPlaylistName }}</h2>
+      <div class="rw-header-title">
+        <h2 class="text-warning rw-header-name">{{ store.currentPlaylistName }}</h2>
         <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge"><AppIcon name="play" :size="12" /> ON AIR</span>
       </div>
 
-      <div style="flex:1;"></div>
+      <div class="rw-header-spacer"></div>
 
-      <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+      <div class="rw-header-actions">
         <!-- Graphics Ticker Drawer Toggle Button -->
         <BaseButton
           class="rw-ticker-toggle-btn"
@@ -1507,7 +1518,7 @@ onUnmounted(() => {
 
     <!-- Trim Duration Warning Banner -->
     <div v-if="store.lastTrimWarning" class="trim-warning-banner" role="status">
-      <AppIcon class="tw-icon" name="alert" :size="16" />
+      <AppIcon class="tw-icon" name="alert" />
       <span class="tw-msg">
         Duration updated for <strong>{{ store.lastTrimWarning.filename }}</strong>: 
         Playlist total time adjusted by 
@@ -1570,22 +1581,9 @@ onUnmounted(() => {
          at the bottom of the panel below the rundown it does not control. -->
     <PlaylistControls />
 
-    <!-- Column labels -->
-    <div class="rw-cols-label" aria-hidden="true">
-      <span class="col-handle"></span>
-      <span class="col-num">#</span>
-      <span class="col-status"></span>
-      <span class="col-type"></span>
-      <span class="col-title">Title</span>
-      <span class="col-flags">Flags</span>
-      <span class="col-trim">Trim</span>
-      <span class="col-dur">Duration</span>
-      <span class="col-at">At</span>
-
-      <span class="col-actions">Actions</span>
-    </div>
-
-    <!-- List -->
+    <!-- List. The column header is its first child, sticky: §2.2 -- outside
+         the list it was a different box with a different padding and, once the
+         list overflowed, a different width. -->
     <div
       class="rw-list custom-scroll"
       ref="rundownListRef"
@@ -1600,6 +1598,20 @@ onUnmounted(() => {
       @dragover.prevent
       @drop.prevent="onExternalFileDrop"
     >
+      <!-- Column labels -->
+      <div class="rw-cols-label" aria-hidden="true">
+        <span class="col-handle"></span>
+        <span class="col-num">#</span>
+        <span class="col-status"></span>
+        <span class="col-type"></span>
+        <span class="col-title">Title</span>
+        <span class="col-flags">Flags</span>
+        <span class="col-trim">Trim</span>
+        <span class="col-dur">Duration</span>
+        <span class="col-at">At</span>
+        <span class="col-actions">Actions</span>
+      </div>
+
       <div
         v-for="(item, index) in store.activeItems"
         :key="item.id"
@@ -1730,46 +1742,64 @@ onUnmounted(() => {
 
 <style scoped>
 .rundown-wrapper { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+.rw-header-title,
+.rw-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.rw-header-name {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.rw-header-spacer {
+  flex: 1;
+}
+
 .rw-header {
-  padding: 8px 12px; border-bottom: 1px solid var(--border-subtle);
+  height: var(--panel-header-h);
+  padding: 0 var(--space-3); border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-panel-header);
-  box-shadow: inset 0 1px 0 var(--highlight-top);
+  box-shadow: var(--shadow-highlight);
   display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
 }
 .trim-warning-banner {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px; font-size: var(--fs-md); color: var(--accent-yellow);
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); font-size: var(--fs-md); color: var(--accent-yellow);
   background: color-mix(in srgb, var(--accent-yellow) 15%, var(--bg-secondary));
   border-bottom: 1px solid color-mix(in srgb, var(--accent-yellow) 35%, transparent);
-  flex-shrink: 0; animation: fadeIn 0.2s ease-out;
+  flex-shrink: 0;
 }
 .tw-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tw-pos { color: var(--accent-green); font-weight: 700; }
-.tw-neg { color: var(--accent-red); font-weight: 700; }
+.tw-pos { color: var(--accent-green); font-weight: var(--fw-bold); }
+.tw-neg { color: var(--accent-red); font-weight: var(--fw-bold); }
 .tw-dismiss {
   background: transparent; border: none; color: var(--accent-yellow);
-  font-size: var(--fs-xl); cursor: pointer; padding: 0 4px; border-radius: 3px;
-  line-height: 1;
+  font-size: var(--fs-xl); cursor: pointer; padding: 0 var(--space-1); border-radius: var(--radius-sm);
+  line-height: var(--lh-none);
 }
 .tw-dismiss:hover { background: var(--bg-hover); }
 .studio-clock-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   background: var(--bg-surface-elevated);
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-medium);
 }
 .clock-display {
-  font-family: var(--font-mono); font-size: var(--fs-tc); font-weight: 700;
-  letter-spacing: 1px; color: var(--text-primary); text-shadow: 0 0 10px var(--glass-border);
+  font-family: var(--font-mono); font-size: var(--fs-tc); font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps); color: var(--text-primary); text-shadow: none;
   font-variant-numeric: tabular-nums;
 }
 .rw-ticker-toggle-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .rw-ticker-toggle-btn.is-active {
   background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
@@ -1780,19 +1810,18 @@ onUnmounted(() => {
   align-items: center;
   background: var(--bg-surface-elevated);
   border-bottom: 1px solid var(--border-medium);
-  padding: 6px 12px;
-  animation: fadeIn 0.15s ease-out;
+  padding: var(--space-2) var(--space-3);
 }
 .graphics-drawer-content {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   width: 100%;
 }
 .graphics-drawer-badge {
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.5px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   color: var(--accent-blue);
   white-space: nowrap;
 }
@@ -1802,8 +1831,8 @@ onUnmounted(() => {
   color: var(--text-muted);
   cursor: pointer;
   font-size: var(--fs-xl);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
 }
 .drawer-close-btn:hover {
   background: var(--bg-hover);
@@ -1812,20 +1841,20 @@ onUnmounted(() => {
 .tab-rename-input {
   background: var(--bg-surface);
   border: 1px solid var(--accent-blue);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: var(--fs-md);
-  font-weight: 700;
-  padding: 1px 4px;
+  font-weight: var(--fw-bold);
+  padding: var(--space-0) var(--space-1);
   outline: none;
   max-width: 130px;
 }
 .playing-badge {
   background: color-mix(in srgb, var(--accent-red) 18%, transparent); border: 1px solid color-mix(in srgb, var(--accent-red) 50%, transparent);
-  color: var(--accent-red); font-size: var(--fs-xs); font-weight: 800; letter-spacing: 1px;
-  padding: 2px 8px; border-radius: 4px; animation: blink 1.2s step-end infinite;
+  color: var(--accent-red); font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps);
+  padding: var(--space-0) var(--space-2); border-radius: var(--radius-sm);
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
-@keyframes blink { 50% { opacity: 0.4; } }
 /* §2.1: the second `.icon-action` definition is gone -- it had a different
    radius, padding and hover from the library's, for controls that sit four
    inches apart on the same screen. Everything in this header is a BaseButton. */
@@ -1837,8 +1866,8 @@ onUnmounted(() => {
 .rw-file-group {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: var(--space-0);
+  padding: var(--space-0);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-hover);
@@ -1847,7 +1876,7 @@ onUnmounted(() => {
 .rw-header-divider {
   width: 1px;
   align-self: stretch;
-  margin: 2px 2px;
+  margin: var(--space-0);
   background: var(--border-subtle);
 }
 
@@ -1866,15 +1895,15 @@ onUnmounted(() => {
 }
 .rw-delete-arm-label {
   white-space: nowrap;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
 }
 /* The same conic sweep the live cut uses, so "armed" looks like one thing in
    this app rather than two. Compositor-only: a custom property feeding a
    gradient angle, ticked ten times a second. */
 .rw-delete-btn .arm-ring {
   position: absolute;
-  inset: -3px;
+  inset: calc(var(--space-0) * -1);
   border-radius: inherit;
   pointer-events: none;
   background: conic-gradient(var(--status-error) calc(var(--arm-progress, 0) * 360deg), transparent 0);
@@ -1882,10 +1911,6 @@ onUnmounted(() => {
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px));
   opacity: 0.9;
 }
-@media (prefers-reduced-motion: reduce) {
-  .rw-delete-btn .arm-ring { display: none; }
-}
-
 /* §6.3: the header overflow. Same visual language as the library's actions
    dropdown so the two "⋮" menus in the app are one pattern, not two. */
 .rw-overflow-wrap {
@@ -1903,7 +1928,7 @@ onUnmounted(() => {
   min-width: 190px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0);
   z-index: var(--z-popover);
 }
 .rw-overflow-icon {
@@ -1919,11 +1944,13 @@ onUnmounted(() => {
 
 .playlist-tabs-row {
   display: flex;
-  gap: 6px;
-  padding: 6px 8px;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--panel-toolbar-h);
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-panel-header);
-  box-shadow: inset 0 1px 0 var(--highlight-top);
+  box-shadow: var(--shadow-highlight);
   overflow-x: auto;
   flex-shrink: 0;
 }
@@ -1931,9 +1958,10 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 8px;
+  gap: var(--space-2);
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-subtle);
   background: var(--bg-hover);
   color: var(--text-primary);
@@ -1941,15 +1969,15 @@ onUnmounted(() => {
   flex-shrink: 0;
   min-width: 140px;
   /* PERF F-23: explicit list; `all` also animated width/padding on label changes. */
-  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .playlist-tab:hover {
   background: var(--bg-surface-elevated);
   border-color: var(--border-medium);
 }
 .playlist-tab.is-active {
-  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent);
-  background: color-mix(in srgb, var(--accent-blue) 14%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary));
 }
 
 /* §7.4: the active tab's 2 px underline. It is one element per tab rather than
@@ -1962,10 +1990,10 @@ onUnmounted(() => {
   position: absolute;
   left: var(--space-3);
   right: var(--space-3);
-  bottom: 2px;
+  bottom: 0;
   height: 2px;
   border-radius: var(--radius-pill);
-  background: var(--accent-blue);
+  background: var(--accent-primary);
   transform: scaleX(0);
   transform-origin: center;
   transition: transform var(--dur-base) var(--ease-out);
@@ -1977,16 +2005,9 @@ onUnmounted(() => {
 .playlist-tab.is-onair::before {
   background: var(--status-onair);
 }
-@media (prefers-reduced-motion: reduce) {
-  .playlist-tab::before {
-    transition: none;
-  }
-}
 .playlist-tab.is-onair {
   position: relative;
-  border-color: var(--accent-red);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-red) 25%, transparent), 0 0 10px color-mix(in srgb, var(--accent-red) 15%, transparent);
-  animation: pulseOnAir 1.5s ease-in-out infinite;
+  border-color: var(--status-onair);
 }
 /* PERF F-06: the glow used to be a box-shadow keyframe on the tab itself,
    which repaints the tab every frame for the whole on-air session. The tab
@@ -1998,31 +2019,13 @@ onUnmounted(() => {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 0 1px var(--accent-red), 0 0 18px color-mix(in srgb, var(--accent-red) 35%, transparent);
-  animation: pulseOnAirGlow 1.5s ease-in-out infinite;
+  box-shadow: var(--glow-onair);
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
   will-change: opacity;
-}
-@keyframes pulseOnAir {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1px); }
-}
-@keyframes pulseOnAirGlow {
-  0%, 100% { opacity: 0; }
-  50% { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .playlist-tab.is-onair,
-  .playlist-tab.is-onair::after,
-  .crawl-btn.is-active .crawl-btn-dot,
-  .crawl-active-dot,
-  .playing-badge {
-    animation: none !important;
-  }
-  .playlist-tab.is-onair::after { opacity: 1; }
 }
 .playlist-tab-name {
   font-size: var(--fs-md);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2050,18 +2053,18 @@ onUnmounted(() => {
 .playlist-tab-state {
   margin-left: auto;
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   color: var(--text-on-danger);
   background: var(--status-onair);
   border-radius: var(--radius-pill);
-  padding: 1px var(--space-2);
-  line-height: 1.4;
+  padding: var(--space-0) var(--space-2);
+  line-height: var(--lh-body);
 }
 .playlist-tab-count {
   margin-left: auto;
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -2097,31 +2100,84 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   width: 34px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 1px dashed color-mix(in srgb, var(--accent-blue) 40%, transparent);
   background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
   color: var(--accent-blue);
   cursor: pointer;
   flex-shrink: 0;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .playlist-add-btn:hover {
   background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
   border-color: var(--accent-blue);
 }
 
-.rw-cols-label {
-  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
-  font-size: var(--fs-xs); letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; text-transform: uppercase;
-  border-bottom: 1px solid var(--border-subtle); background: var(--bg-tertiary); flex-shrink: 0;
+/* §2.2 — the column template, defined once.
+ *
+ * The header strip and the rows used to carry their own copies of these ten
+ * widths, in two files, and the two had already diverged: Actions was 56px in
+ * the header against `2 x --control-h-sm + 4` in the row, which is 64 at
+ * comfortable density. `.rw-row` inherits these through the panel, so there is
+ * one place to change a column and no way for the two halves to disagree. */
+.rundown-wrapper {
+  --rw-col-handle: 18px;
+  --rw-col-num: 22px;
+  /* §4: the status dot and the type icon are one 20px cell each, so the title
+     starts at the same x whether or not either is present. */
+  --rw-col-status: 20px;
+  --rw-col-type: 20px;
+  --rw-col-title-min: 180px;
+  --rw-col-flags: 88px;
+  --rw-col-flags-narrow: 26px;
+  --rw-col-trim: 86px;
+  --rw-col-dur: 112px;
+  --rw-col-at: 84px;
+  --rw-col-actions: calc(var(--control-h-sm) * 2 + var(--space-1));
+  --rw-col-gap: var(--space-2);
+  /* The list's horizontal padding: the one inset between the panel edge and a
+     row, and now also between the panel edge and the header. */
+  --rw-list-inset: var(--space-2);
 }
-.rw-list { flex: 1; overflow-y: auto; padding: 6px 5px 10px; min-height: 0; transition: background 0.15s; contain: strict; position: relative; }
+
+.rw-cols-label {
+  position: sticky;
+  top: 0;
+  /* Above the rows that scroll under it, and above the delete overlay, which
+     is itself sticky at the top of this list. */
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--rw-col-gap);
+  /* A row's box, to the pixel: the same transparent border and the same
+     padding, so every label sits over its own column. */
+  border: 1px solid transparent;
+  border-bottom-color: var(--border-subtle);
+  padding: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-2);
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+}
+.rw-list {
+  flex: 1;
+  overflow-y: auto;
+  /* A stable gutter means the rows do not shift sideways the moment the list
+     grows past the panel, which is the one time an operator is reading it. */
+  scrollbar-gutter: stable;
+  padding: 0 var(--rw-list-inset) var(--space-3);
+  min-height: 0;
+  transition: background var(--dur-fast);
+  contain: strict;
+  position: relative;
+}
 
 /* §5.2: the third cue, over the thing that will actually be lost. Opacity only
    (perf), no pointer events, and it never intercepts a click. */
 .rw-delete-overlay {
   position: sticky;
   top: 0;
+  /* §3.9: local stacking inside the list — 1 the rows, 2 this overlay,
+     3 the column header above both. */
   z-index: 2;
   display: flex;
   align-items: center;
@@ -2132,7 +2188,7 @@ onUnmounted(() => {
 .rw-delete-overlay::before {
   content: '';
   position: absolute;
-  inset: 0 -5px auto;
+  inset: 0 calc(var(--space-1) * -1) auto;
   height: 100vh;
   background: var(--danger-tint);
   pointer-events: none;
@@ -2140,17 +2196,17 @@ onUnmounted(() => {
 .rw-delete-overlay-label {
   position: relative;
   margin-top: var(--space-4);
-  padding: 4px var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-pill);
   border: 1px solid var(--status-error);
   background: var(--surface-panel);
   color: var(--status-error);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
-.rw-list.drag-over { background: color-mix(in srgb, var(--accent-cyan) 6%, transparent); outline: 2px dashed var(--accent-cyan); outline-offset: -3px; border-radius: 6px; }
+.rw-list.drag-over { background: color-mix(in srgb, var(--accent-cyan) 6%, transparent); outline: 2px dashed var(--accent-cyan); outline-offset: -3px; border-radius: var(--radius-md); }
 
 /* Sortable ghost clone of the row host wrapper */
 .rw-ghost { opacity: 0.3; background: var(--bg-hover); }
@@ -2160,7 +2216,7 @@ onUnmounted(() => {
    in this panel and like an empty state everywhere else. The class stays as a
    layout hook; the box is gone. */
 .rw-empty {
-  margin: var(--space-4) 4px;
+  margin: var(--space-4) var(--space-1);
 }
 
 /* On-Demand Crawl Styling */
@@ -2169,76 +2225,70 @@ onUnmounted(() => {
   background: var(--bg-input);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
-  padding: 5px 10px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   font-size: var(--fs-md);
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color var(--dur-fast) var(--ease-out);
   min-width: 120px;
 }
 .crawl-input:focus {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
+  border-color: var(--accent-primary);
+  box-shadow: var(--focus-ring);
 }
 /* §7.2: surface, border, radius, hover, focus, press and disabled come from
    `.btn`. What is genuinely this control's own is its on-air tone and the
    status dot beside the label. */
 .crawl-btn {
-  gap: 6px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
+  gap: var(--space-2);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   transition:
     background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-fast) var(--ease-out),
-    transform 90ms var(--ease-out);
+    transform var(--dur-base) var(--ease-out);
 }
 .crawl-btn.is-active {
   background: color-mix(in srgb, var(--accent-red) 16%, transparent);
   border-color: var(--accent-red);
   color: var(--accent-red);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-red) 30%, transparent);
+  box-shadow: var(--glow-onair);
 }
 .crawl-btn-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 .crawl-btn:hover .crawl-btn-dot {
   background: var(--text-primary);
 }
 .crawl-btn.is-active .crawl-btn-dot {
   background: var(--accent-red);
-  box-shadow: 0 0 8px var(--accent-red);
-  animation: pulse-dot 1.2s infinite;
-}
-@keyframes pulse-dot {
-  0% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.6; }
-  100% { transform: scale(1); opacity: 1; }
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 .rw-list:focus-visible {
-  outline: 2px solid var(--accent-cyan);
+  outline: none;
+  box-shadow: var(--focus-ring);
   outline-offset: -2px;
 }
 
 .rundown-end-drop-zone {
   position: relative;
-  height: 44px;
-  margin: 6px 4px 12px 4px;
+  height: var(--row-h-rundown);
+  margin: var(--space-2) 0 var(--space-3);
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px dashed var(--border-medium);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   font-size: var(--fs-sm);
-  font-weight: 600;
-  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  font-weight: var(--fw-semibold);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   user-select: none;
 }
 
@@ -2297,9 +2347,9 @@ onUnmounted(() => {
   background: var(--accent-cyan);
   color: var(--text-inverse);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 4px;
+  font-weight: var(--fw-semibold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   pointer-events: none;
   user-select: none;
   box-shadow: var(--shadow-1);
@@ -2324,24 +2374,24 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.rw-cols-label .col-handle { width: 18px; flex-shrink: 0; }
-.rw-cols-label .col-num { width: 22px; text-align: center; flex-shrink: 0; }
-.rw-cols-label .col-status { width: 16px; flex-shrink: 0; }
-.rw-cols-label .col-type { width: 18px; flex-shrink: 0; }
-.rw-cols-label .col-title { flex: 1 1 auto; min-width: 180px; }
-.rw-cols-label .col-flags { width: 88px; flex-shrink: 0; }
-.rw-cols-label .col-trim { width: 86px; text-align: center; flex-shrink: 0; }
+.rw-cols-label .col-handle { width: var(--rw-col-handle); flex-shrink: 0; }
+.rw-cols-label .col-num { width: var(--rw-col-num); text-align: center; flex-shrink: 0; }
+.rw-cols-label .col-status { width: var(--rw-col-status); flex-shrink: 0; }
+.rw-cols-label .col-type { width: var(--rw-col-type); flex-shrink: 0; }
+.rw-cols-label .col-title { flex: 1 1 auto; min-width: var(--rw-col-title-min); }
+.rw-cols-label .col-flags { width: var(--rw-col-flags); flex-shrink: 0; }
+/* §4: the Trim column's content is right-aligned, so its label is too. */
+.rw-cols-label .col-trim { width: var(--rw-col-trim); text-align: right; flex-shrink: 0; }
 /* §3.2: both timing columns right-aligned to the same edge with a 12 px
    gutter between them. Right-aligned "DURATION" followed by left-aligned "AT"
    6 px away read as one word, "DURATIONAT". */
-.rw-cols-label .col-dur { width: 112px; text-align: right; flex-shrink: 0; }
-.rw-cols-label .col-at { width: 84px; text-align: right; flex-shrink: 0; margin-left: 6px; }
-.rw-cols-label .col-actions { width: 56px; text-align: right; flex-shrink: 0; }
+.rw-cols-label .col-dur { width: var(--rw-col-dur); text-align: right; flex-shrink: 0; }
+.rw-cols-label .col-at { width: var(--rw-col-at); text-align: right; flex-shrink: 0; margin-left: var(--space-2); }
+.rw-cols-label .col-actions { width: var(--rw-col-actions); text-align: right; flex-shrink: 0; }
 
-/* The panel is the container the row and header columns respond to, so the
-   library split width is accounted for (same reasoning as F-01). */
-.rw-list,
-.rw-cols-label {
+/* One container for both, now that the header lives inside the list: two
+   containers 8px apart shed their columns at two different window widths. */
+.rw-list {
   container: rundown / inline-size;
 }
 
@@ -2350,7 +2400,7 @@ onUnmounted(() => {
 }
 
 @container rundown (max-width: 520px) {
-  .rw-cols-label .col-flags { width: 26px; }
+  .rw-cols-label .col-flags { width: var(--rw-col-flags-narrow); }
 }
 
 /* --- Day separator -------------------------------------------------------- */
@@ -2358,10 +2408,19 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: var(--space-2) 4px var(--space-1);
+  height: var(--space-6);
+  margin: var(--space-2) 0 var(--space-1);
+  /* The Title column's x: everything before it, plus the gaps between them. */
+  padding-left: calc(
+    var(--rw-col-handle) + var(--rw-col-num) + var(--rw-col-status) + var(--rw-col-type)
+    + var(--rw-col-gap) * 4 + var(--space-2)
+  );
+  background: var(--surface-panel-header);
+  border-radius: var(--radius-sm);
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  line-height: var(--lh-tight);
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -2370,6 +2429,7 @@ onUnmounted(() => {
   content: '';
   flex: 1 1 auto;
   height: 1px;
+  margin-right: var(--space-2);
   background: var(--border-subtle);
 }
 </style>

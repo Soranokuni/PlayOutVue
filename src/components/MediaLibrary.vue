@@ -2313,7 +2313,7 @@ const menuItems = computed<MenuItem[]>(() => {
             'is-folder-drop-target': folderDropTargetId === row.id,
             'is-root-folder': row.depth === 0,
           }"
-          :style="{ paddingLeft: `${row.depth * 18 + 8}px` }"
+          :style="{ '--lib-depth': row.depth }"
           :data-library-folder-path="row.path"
           :draggable="row.depth > 0"
           @click="onFolderClick(row.path)"
@@ -2329,7 +2329,7 @@ const menuItems = computed<MenuItem[]>(() => {
             v-for="d in row.depth"
             :key="d"
             class="tree-guide-line"
-            :style="{ left: `${(d - 1) * 18 + 14}px` }"
+            :style="{ '--lib-guide': d - 1 }"
           ></span>
 
           <!-- Chevron for collapsible folder -->
@@ -2377,10 +2377,10 @@ const menuItems = computed<MenuItem[]>(() => {
         <div
           v-if="isCreatingFolder"
           class="lib-row is-folder is-new-folder"
-          :style="{ paddingLeft: '26px' }"
+          :style="{ '--lib-depth': 1 }"
         >
           <span class="chevron-spacer"></span>
-          <span class="lib-icon"><AppIcon name="folder" :size="16" /></span>
+          <span class="lib-icon"><AppIcon name="folder" /></span>
           <input
             v-model="newFolderNameValue"
             class="lib-inline-rename lib-new-folder-input"
@@ -2405,7 +2405,7 @@ const menuItems = computed<MenuItem[]>(() => {
         @dragleave="isTrashDragOver = false"
         @drop.prevent="onTrashDrop($event)"
       >
-        <span class="lib-icon"><AppIcon name="trash" :size="16" /></span>
+        <span class="lib-icon"><AppIcon name="trash" /></span>
         <span class="lib-text">Recycle Bin</span>
         <span v-if="mediaLibrary.recycleBinAssets.length > 0" class="recycle-bin-count-badge">
           {{ mediaLibrary.recycleBinAssets.length }}
@@ -2481,7 +2481,7 @@ const menuItems = computed<MenuItem[]>(() => {
               variant="dot"
               :tooltip="getAssetTooltip(asset)"
             />
-            <AppIcon name="film" :size="16" />
+            <AppIcon name="film" />
           </span>
 
           <span class="lib-text" :class="{ 'is-managed': !asset.uuid.startsWith('local:') }">
@@ -2543,7 +2543,7 @@ const menuItems = computed<MenuItem[]>(() => {
             aria-label="Asset actions"
             @click.stop="onAssetContextMenu($event, asset)"
           >
-            <AppIcon name="more-vertical" :size="16" />
+            <AppIcon name="more-vertical" />
           </button>
         </div>
       </div>
@@ -2639,15 +2639,19 @@ const menuItems = computed<MenuItem[]>(() => {
 
 <style scoped>
 .lib-wrap { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+/* §2.3: a fixed height with the content centred in it, rather than padding
+   letting a two-line title set the height. The subtitle is real information
+   (11 assets, 5h 39m 7s) and stays; it just no longer decides the seam. */
 .lib-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
+  height: var(--panel-header-h);
+  padding: 0 var(--space-3); border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
   background: var(--bg-secondary);
 }
-.lib-header-actions { display: flex; align-items: center; gap: 6px; }
-.lib-header-copy { display: flex; flex-direction: column; gap: 2px; }
-.lib-title { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
-.lib-subtitle { color: var(--text-secondary); font-size: 0.74rem; }
+.lib-header-actions { display: flex; align-items: center; gap: var(--space-2); }
+.lib-header-copy { display: flex; flex-direction: column; justify-content: center; gap: var(--space-0); min-width: 0; }
+.lib-title { font-size: var(--fs-lg); font-weight: var(--fw-bold); line-height: var(--lh-tight); color: var(--text-primary); }
+.lib-subtitle { color: var(--text-secondary); font-size: var(--fs-xs); line-height: var(--lh-tight); }
 
 /* §2.1: one row, fixed priority order, never wrapping. It used to be
    `flex-wrap: wrap`, so at a narrow library width the `New` button dropped to
@@ -2658,11 +2662,12 @@ const menuItems = computed<MenuItem[]>(() => {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: var(--space-2);
+  height: var(--panel-toolbar-h);
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-panel-header);
-  box-shadow: inset 0 1px 0 var(--highlight-top);
+  box-shadow: var(--shadow-highlight);
   flex-shrink: 0;
   min-width: 0;
 }
@@ -2683,7 +2688,7 @@ const menuItems = computed<MenuItem[]>(() => {
   color: var(--text-primary);
 }
 .lib-filter-count {
-  padding: 0 5px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
@@ -2704,36 +2709,36 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 
 .lib-debug-panel {
-  padding: 8px;
+  padding: var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-tertiary);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 .debug-toolbar {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: flex-start;
 }
 .debug-summary {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 0.74rem;
+  gap: var(--space-0);
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
 }
 .debug-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .debug-meta {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 0.72rem;
+  gap: var(--space-1);
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   word-break: break-all;
 }
@@ -2744,20 +2749,20 @@ const menuItems = computed<MenuItem[]>(() => {
   max-height: 180px;
   overflow: auto;
   border: 1px solid var(--border-medium);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg-primary);
 }
 .debug-empty {
   color: var(--text-muted);
-  font-size: 0.75rem;
-  padding: 10px;
+  font-size: var(--fs-xs);
+  padding: var(--space-3);
 }
 .debug-entry {
   display: grid;
   grid-template-columns: 60px 48px 54px 1fr;
-  gap: 8px;
-  padding: 6px 8px;
-  font-size: 0.72rem;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  font-size: var(--fs-xs);
   border-bottom: 1px solid var(--border-subtle);
   align-items: start;
 }
@@ -2790,7 +2795,7 @@ const menuItems = computed<MenuItem[]>(() => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding: 4px 6px;
+  padding: var(--space-1) var(--space-2);
 }
 .lib-folder-tree {
   flex: 1;
@@ -2805,7 +2810,7 @@ const menuItems = computed<MenuItem[]>(() => {
   flex: 1 1 65%;
   min-height: 120px;
   overflow-y: auto;
-  padding: 4px 6px;
+  padding: var(--space-1) var(--space-2);
   outline: none;
 }
 .lib-asset-list {
@@ -2820,17 +2825,17 @@ const menuItems = computed<MenuItem[]>(() => {
 .system-node-recycle-bin {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  margin: 6px 4px 2px 4px;
-  border-radius: 6px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin: var(--space-2) var(--space-1) var(--space-0) var(--space-1);
+  border-radius: var(--radius-md);
   background: var(--bg-secondary);
   border: 1px dashed var(--border-medium);
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
-  font-size: 0.8125rem;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  font-size: var(--fs-sm);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   flex-shrink: 0;
 }
 .system-node-recycle-bin:hover,
@@ -2840,11 +2845,11 @@ const menuItems = computed<MenuItem[]>(() => {
   color: var(--accent-red);
 }
 .system-node-recycle-bin .lib-icon {
-  font-size: 1rem;
+  font-size: var(--fs-lg);
 }
 .system-node-recycle-bin .lib-text {
   flex: 1;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 .lib-actions-dropdown-wrap {
@@ -2859,16 +2864,16 @@ const menuItems = computed<MenuItem[]>(() => {
   min-width: 160px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0);
 }
 
 .lib-inline-rename {
   background: var(--bg-input);
   border: 1px solid var(--accent-blue);
   color: var(--text-primary);
-  font-size: 0.84rem;
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-size: var(--fs-md);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   width: 100%;
   outline: none;
 }
@@ -2880,13 +2885,13 @@ const menuItems = computed<MenuItem[]>(() => {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 0.95rem;
-  padding: 2px 6px;
+  font-size: var(--fs-lg);
+  padding: var(--space-0) var(--space-2);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   opacity: 0;
-  transition: opacity 0.15s ease, background 0.15s ease;
-  margin-left: 2px;
+  transition: opacity var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  margin-left: var(--space-0);
   flex-shrink: 0;
 }
 .lib-row.is-asset:hover .lib-row-action-btn {
@@ -2900,10 +2905,10 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-time-pill.tabular-duration {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
 }
 
-.lib-empty { color: var(--text-muted); font-size: var(--fs-md); text-align: center; padding: 20px 10px; line-height: 1.6; white-space: pre-line; }
+.lib-empty { color: var(--text-muted); font-size: var(--fs-md); text-align: center; padding: var(--space-5) var(--space-3); line-height: var(--lh-body); white-space: pre-line; }
 
 /* §7.7: the scanning skeleton. The shimmer is an overlay whose opacity
    animates -- never the row's own background, which is a perf-backlog
@@ -2911,8 +2916,8 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-skeleton {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
+  gap: var(--space-1);
+  padding: var(--space-2);
 }
 .lib-skeleton-row {
   display: flex;
@@ -2940,27 +2945,24 @@ const menuItems = computed<MenuItem[]>(() => {
   inset: 0;
   background: color-mix(in srgb, var(--text-primary) 18%, transparent);
   opacity: 0;
-  animation: libSkeletonShimmer 1.4s ease-in-out infinite;
+  /* §3.4: `onair-pulse` in main.css is the app's one heartbeat. A shimmer and
+     an on-air pill are the same device at the same tempo; they were 1.4s and
+     1.6s only because they were written on different days. */
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
-.lib-skeleton-row:nth-child(2) .lib-skeleton-box::after { animation-delay: 0.15s; }
-.lib-skeleton-row:nth-child(3) .lib-skeleton-box::after { animation-delay: 0.3s; }
+.lib-skeleton-row:nth-child(2) .lib-skeleton-box::after { animation-delay: var(--dur-fast); }
+.lib-skeleton-row:nth-child(3) .lib-skeleton-box::after { animation-delay: var(--dur-slow); }
 
-@keyframes libSkeletonShimmer {
-  0%, 100% { opacity: 0; }
-  50% { opacity: 1; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lib-skeleton-box::after { animation: none; }
-}
 
 .glass-input {
   background: var(--bg-input); border: 1px solid var(--border-medium);
-  color: var(--text-primary); border-radius: 6px; font-size: 0.84rem; padding: 6px 10px;
+  color: var(--text-primary); border-radius: var(--radius-md); font-size: var(--fs-md);
+  /* §4: 33px beside 30px icon buttons on the same toolbar line. */
+  height: var(--control-h-sm); padding: 0 var(--space-3);
 }
 .glass-input:focus {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 25%, transparent);
+  border-color: var(--accent-primary);
+  box-shadow: var(--glow-accent);
 }
 
 
@@ -2968,15 +2970,16 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-breadcrumb-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px 4px 10px;
+  gap: var(--space-2);
+  height: var(--panel-strip-h);
+  padding: 0 var(--space-3);
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-subtle);
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   flex-shrink: 0;
 }
 .breadcrumb-icon {
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   color: var(--accent-blue);
   flex-shrink: 0;
 }
@@ -2992,27 +2995,32 @@ const menuItems = computed<MenuItem[]>(() => {
 .breadcrumb-trail {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   min-width: 0;
   overflow-x: auto;
   white-space: nowrap;
   color: var(--text-secondary);
 }
+/* §4: a crumb is a location, not an action, so the trail is secondary text
+   and only the node you are standing in is primary. It used to open in the
+   accent colour, which made "All Media" read as the button. */
 .breadcrumb-crumb {
   cursor: pointer;
-  font-weight: 600;
-  transition: color 0.12s ease;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 .breadcrumb-crumb:hover {
-  color: var(--accent-blue);
+  color: var(--text-primary);
   text-decoration: underline;
 }
 .breadcrumb-crumb.is-active {
   color: var(--text-primary);
-  font-weight: 700;
+  font-weight: var(--fw-semibold);
 }
 .breadcrumb-sep {
-  margin: 0 2px;
+  margin: 0 var(--space-0);
   color: var(--text-muted);
 }
 
@@ -3020,27 +3028,28 @@ const menuItems = computed<MenuItem[]>(() => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   min-height: var(--row-h-library, 38px);
   height: var(--row-h-library, 38px);
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-md);
   user-select: none;
   border: 1px solid transparent;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
   cursor: pointer;
-  background: var(--bg-secondary);
+  /* §5.3: a row is its own surface, not the panel it sits in. */
+  background: var(--surface-row);
 }
 .lib-row.is-folder {
   background: var(--bg-hover);
-  margin-bottom: 2px;
+  margin-bottom: var(--space-0);
 }
 .lib-row.is-folder:hover {
   background: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-hover));
   border-color: color-mix(in srgb, var(--accent-blue) 30%, transparent);
 }
 .lib-row.is-folder.is-root-folder {
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 .lib-row.is-asset:hover {
   background: var(--bg-hover);
@@ -3052,20 +3061,28 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-row.is-asset.is-selected:hover,
 .lib-row.is-folder.is-selected:hover {
   background: var(--bg-active);
-  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
 }
 
-/* Tree Indentation Guides */
+/* §4: one indent for the tree, on the grid, with the guide lines derived from
+   it. They used to be two literals in two style attributes — 18px for the
+   indent and 18px + 14 for the guide — which is two chances to drift. */
+.lib-row.is-folder {
+  --lib-indent: var(--space-5);
+  padding-left: calc(var(--lib-depth, 0) * var(--lib-indent) + var(--space-2));
+}
+
 .tree-guide-line {
   position: absolute;
   top: 0;
   bottom: 0;
+  left: calc(var(--lib-guide, 0) * var(--lib-indent) + var(--space-4));
   width: 1px;
-  background: var(--border-medium);
+  background: var(--border-subtle);
   pointer-events: none;
 }
 .lib-row:hover .tree-guide-line {
-  background: var(--accent-blue);
+  background: var(--border-medium);
 }
 
 .lib-row.is-transient .lib-name {
@@ -3081,11 +3098,11 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-row[draggable="true"]:active { cursor: grabbing; }
 
 .lib-icon {
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   cursor: pointer;
 }
 .lib-text {
@@ -3096,17 +3113,17 @@ const menuItems = computed<MenuItem[]>(() => {
   justify-content: center;
 }
 .lib-name {
-  font-size: 0.88rem;
+  font-size: var(--fs-md);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
 }
 .folder-title-text {
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
 }
 .is-managed .lib-name {
   color: var(--text-primary);
@@ -3114,27 +3131,27 @@ const menuItems = computed<MenuItem[]>(() => {
 
 .folder-count-badge {
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--text-secondary);
   background: var(--bg-tertiary);
-  padding: 2px 7px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-medium);
   flex-shrink: 0;
 }
 
 .lib-time-pill {
-  font-size: 0.78rem;
-  line-height: 1;
-  padding: 4px 8px;
-  border-radius: 4px;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-none);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   flex-shrink: 0;
 }
 
@@ -3147,11 +3164,11 @@ const menuItems = computed<MenuItem[]>(() => {
   min-width: 190px;
   display: flex;
   flex-direction: column;
-  padding: 6px;
-  gap: 4px;
+  padding: var(--space-2);
+  gap: var(--space-1);
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
   z-index: var(--z-popover);
 }
@@ -3160,11 +3177,11 @@ const menuItems = computed<MenuItem[]>(() => {
   border: none;
   color: var(--text-primary);
   text-align: left;
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
 }
 .debug-menu-item:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
@@ -3178,7 +3195,7 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-name-wrap {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   min-width: 0;
   flex: 1;
 }
@@ -3186,7 +3203,7 @@ const menuItems = computed<MenuItem[]>(() => {
 .mcr-badges {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   flex-shrink: 0;
 }
 
@@ -3195,12 +3212,12 @@ const menuItems = computed<MenuItem[]>(() => {
   align-items: center;
   justify-content: center;
   font-size: var(--fs-xs);
-  font-weight: 800;
-  padding: 2px 5px;
-  border-radius: 3px;
-  line-height: 1;
+  font-weight: var(--fw-semibold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
+  line-height: var(--lh-none);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: var(--tracking-caps);
 }
 
 /* Greek NCRTV Regulatory Color Codes */
@@ -3211,13 +3228,13 @@ const menuItems = computed<MenuItem[]>(() => {
 .badge-age.age-8 {
   background: var(--rating-8);
   color: var(--rating-8-fg);
-  font-weight: 900;
+  font-weight: var(--fw-bold);
 
 }
 .badge-age.age-12 {
   background: var(--rating-12);
   color: var(--rating-12-fg);
-  font-weight: 900;
+  font-weight: var(--fw-bold);
 
 }
 .badge-age.age-16 {
@@ -3232,12 +3249,16 @@ const menuItems = computed<MenuItem[]>(() => {
 /* Unrated: deliberately quiet (dashed outline, muted text) so it reads as
    "nothing decided yet" rather than as a regulatory mark. */
 .badge-age.age-none,
+/* §4: a missing rating must be loud, and it must sit in the same box as the
+   rating chips above and below it — which it does, because it is the same
+   `.mcr-badge`. What it is not is a *rating*, so it takes the offline tone and
+   keeps the dashed border that says "nothing here yet". */
 .badge-unrated {
   background: transparent;
-  color: var(--text-secondary);
-  border: 1px dashed var(--border-strong);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  color: var(--status-offline);
+  border: 1px dashed var(--status-offline);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
 }
 
 .badge-tp {
@@ -3248,7 +3269,7 @@ const menuItems = computed<MenuItem[]>(() => {
 
 .badge-content.content-movie { background: var(--type-movie); color: var(--text-on-danger); }
 .badge-content.content-show { background: var(--type-show); color: var(--text-on-accent); }
-.badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: 800; }
+.badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: var(--fw-semibold); }
 .badge-content.content-news { background: var(--type-news); color: var(--text-on-success); }
 
 /* §5.2: the content-type tint bar. 3 px of colour on the leading edge reads as
@@ -3256,9 +3277,9 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-type-bar {
   position: absolute;
   left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  width: var(--border-accent-w);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   pointer-events: auto;
   background: var(--text-muted);
@@ -3292,7 +3313,7 @@ const menuItems = computed<MenuItem[]>(() => {
   align-items: center;
 }
 .lib-row.is-two-line .lib-text {
-  gap: 1px;
+  gap: var(--space-0);
 }
 .lib-subline {
   display: flex;
@@ -3311,8 +3332,8 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 .lib-subline-type {
   flex-shrink: 0;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-secondary);
 }
@@ -3335,8 +3356,8 @@ const menuItems = computed<MenuItem[]>(() => {
   justify-content: center;
   cursor: pointer;
   user-select: none;
-  transition: transform 0.15s ease, color 0.15s ease;
-  margin-right: 2px;
+  transition: transform var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  margin-right: var(--space-0);
   flex-shrink: 0;
 }
 .chevron-icon.is-expanded {
@@ -3355,27 +3376,27 @@ const menuItems = computed<MenuItem[]>(() => {
   width: 16px;
   height: 16px;
   display: block;
-  transition: fill 0.15s ease;
+  transition: fill var(--dur-fast) var(--ease-out);
   flex-shrink: 0;
 }
 
 .folder-colors-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-  padding: 6px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
 }
 
 /* Recycle Bin badge */
 .recycle-bin-count-badge {
   display: inline-block;
-  padding: 1px 5px;
+  padding: var(--space-0) var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--status-error);
   color: var(--text-on-danger);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  line-height: 1;
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-none);
 }
 
 /* Pulsing Danger Purge Dialog */
@@ -3414,21 +3435,10 @@ const menuItems = computed<MenuItem[]>(() => {
   border-radius: inherit;
   pointer-events: none;
   box-shadow: 0 0 45px color-mix(in srgb, var(--status-error) 70%, transparent);
-  animation: danger-pulse 2s ease-in-out infinite;
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
   will-change: opacity;
 }
 
-@keyframes danger-pulse {
-  0%, 100% { opacity: 0.35; }
-  50%      { opacity: 1; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .danger-pulse-box::after {
-    animation: none;
-    opacity: 0.5;
-  }
-}
 
 .purge-icon-circle {
   width: 56px;
@@ -3439,59 +3449,59 @@ const menuItems = computed<MenuItem[]>(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .purge-dialog-title {
-  margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 700;
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   color: var(--text-primary);
 }
 
 .purge-dialog-text {
-  margin: 0 0 16px;
-  font-size: 13px;
-  line-height: 1.5;
+  margin: 0 0 var(--space-4);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
   color: var(--text-secondary);
 }
 
 .purge-warning-callout {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-3);
   background: color-mix(in srgb, var(--status-error) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--status-error) 25%, transparent);
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 11px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--fs-xs);
   color: var(--status-error);
   text-align: left;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 
 .purge-warning-callout svg {
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: var(--space-0);
 }
 
 .purge-dialog-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-3);
   width: 100%;
 }
 
 .dialog-cancel-btn {
   flex: 1;
-  padding: 9px 16px;
+  padding: var(--space-3) var(--space-4);
   background: var(--bg-hover);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
 }
 
@@ -3502,25 +3512,28 @@ const menuItems = computed<MenuItem[]>(() => {
 
 .dialog-danger-btn {
   flex: 1;
-  padding: 9px 16px;
+  padding: var(--space-3) var(--space-4);
   background: var(--status-error);
   border: 1px solid var(--status-error);
   border-radius: var(--radius-md);
   color: var(--text-on-danger);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 
 .dialog-danger-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--status-error) 85%, var(--text-primary));
-  box-shadow: 0 0 12px color-mix(in srgb, var(--status-error) 50%, transparent);
+  /* §3.4/§3.5: the glow is one of the three, and it appears rather than
+     tweening — a shadow cannot be composited, so transitioning one repaints
+     the button and its neighbours for every frame of the hover. */
+  box-shadow: var(--glow-onair);
 }
 /* §5.3: the search-scope banner that replaces the breadcrumb while a query is
    active, so the suspended folder filter is visible rather than implied. */
 .lib-search-scope {
-  padding-right: 6px;
+  padding-right: var(--space-2);
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -3529,7 +3542,7 @@ const menuItems = computed<MenuItem[]>(() => {
   background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
   color: var(--accent-blue);
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 .lib-search-scope > span {

@@ -16,7 +16,7 @@
   align-items: center;
   justify-content: center;
   min-width: 1.5em;
-  padding: 1px var(--space-1);
+  padding: var(--space-0) var(--space-1);
   border: 1px solid var(--border-medium);
   border-bottom-width: 2px;
   border-radius: var(--radius-sm);
@@ -24,8 +24,8 @@
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  font-weight: 600;
-  line-height: 1.4;
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-body);
   white-space: nowrap;
 }
 </style>

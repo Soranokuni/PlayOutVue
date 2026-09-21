@@ -105,7 +105,7 @@ const isDirty = computed(() => canConfirm.value || totalSeconds() > 0);
   width: 72px;
   text-align: center;
   font-family: var(--font-mono);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
 

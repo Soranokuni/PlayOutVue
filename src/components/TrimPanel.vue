@@ -838,7 +838,7 @@ const saveAsSubclip = () => {
             <button class="t-btn t-btn-step" @click="nudge(-10)" title="Back 10 frames [Shift+Left]">-10f</button>
             <button class="t-btn t-btn-step" @click="nudge(-1)" title="Back 1 frame [Left]">-1f</button>
             <button class="t-btn t-btn-play" :class="{ 'is-playing': isVideoPlaying }" @click="togglePlayback" title="Play / Pause [Space / K]">
-              <span class="play-icon"><AppIcon :name="isVideoPlaying ? 'pause' : 'play'" :size="16" /></span>
+              <span class="play-icon"><AppIcon :name="isVideoPlaying ? 'pause' : 'play'" /></span>
               <span class="play-text">{{ isVideoPlaying ? 'PAUSE' : 'PLAY' }}</span>
             </button>
             <button class="t-btn t-btn-step" @click="nudge(1)" title="Forward 1 frame [Right]">+1f</button>
@@ -1000,13 +1000,13 @@ const saveAsSubclip = () => {
 .trim-panel {
   width: 1080px;
   max-width: 96vw;
-  padding: 1.25rem;
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--space-4);
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-3);
 }
 
@@ -1015,54 +1015,54 @@ const saveAsSubclip = () => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
+  gap: var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 0.85rem;
+  padding-bottom: var(--space-4);
 }
 
 .header-left {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .clip-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .trim-badge {
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  padding: 2px 7px;
-  border-radius: 4px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
   color: var(--accent-blue);
   border: 1px solid color-mix(in srgb, var(--accent-blue) 35%, transparent);
 }
 
 .clip-name {
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
   color: var(--text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-tight);
 }
 
 .clip-meta-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
 .meta-chip {
-  font-size: 0.76rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   background: var(--bg-tertiary);
-  padding: 3px 8px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
 }
 
@@ -1080,42 +1080,45 @@ const saveAsSubclip = () => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .shortcut-hint {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .key-cap {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-medium);
-  border-radius: 3px;
-  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  padding: var(--space-0) var(--space-2);
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
 }
 
 .key-sep {
   color: var(--text-muted);
-  margin: 0 2px;
+  margin: 0 var(--space-0);
 }
 
 .view-toggle-btn {
-  padding: 5px 12px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-medium);
   background: var(--bg-hover);
   color: var(--text-secondary);
-  font-size: 0.76rem;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
-  transition: all 0.15s;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .view-toggle-btn:hover {
@@ -1135,10 +1138,12 @@ const saveAsSubclip = () => {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 1.1rem;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: all 0.15s;
+  font-size: var(--fs-xl);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .close-btn:hover {
@@ -1150,14 +1155,14 @@ const saveAsSubclip = () => {
 .trim-body {
   display: grid;
   grid-template-columns: 1.15fr 0.95fr;
-  gap: 1.25rem;
+  gap: var(--space-5);
 }
 
 /* Left: Player Dock */
 .player-col {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .video-container {
@@ -1166,7 +1171,7 @@ const saveAsSubclip = () => {
   width: 100%;
   background: #000; /* video letterbox, not theme */
   position: relative;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -1184,12 +1189,12 @@ const saveAsSubclip = () => {
 
 .video-placeholder {
   text-align: center;
-  padding: 2rem;
+  padding: var(--space-8);
   color: var(--text-muted);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .placeholder-icon {
@@ -1209,11 +1214,11 @@ const saveAsSubclip = () => {
   background: var(--bg-surface);
   backdrop-filter: blur(4px);
   color: var(--accent-red);
-  font-size: 0.78rem;
-  font-weight: 800;
-  padding: 3px 8px;
-  border-radius: 4px;
-  letter-spacing: 0.05em;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
+  letter-spacing: var(--tracking-caps);
   border: 1px solid color-mix(in srgb, var(--accent-red) 40%, transparent);
 }
 
@@ -1222,23 +1227,26 @@ const saveAsSubclip = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
   background: var(--bg-tertiary);
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-subtle);
 }
 
 .t-btn {
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-medium);
   background: var(--bg-hover);
   color: var(--text-primary);
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
-  transition: all 0.15s;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
   user-select: none;
 }
 
@@ -1249,8 +1257,8 @@ const saveAsSubclip = () => {
 
 .t-btn-step {
   font-family: var(--font-mono);
-  font-size: 0.76rem;
-  padding: 6px 10px;
+  font-size: var(--fs-xs);
+  padding: var(--space-2) var(--space-3);
 }
 
 .t-btn-play {
@@ -1259,8 +1267,8 @@ const saveAsSubclip = () => {
   color: var(--accent-blue);
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 16px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
 }
 
 .t-btn-play:hover {
@@ -1279,38 +1287,38 @@ const saveAsSubclip = () => {
 }
 
 .play-text {
-  font-size: 0.78rem;
-  letter-spacing: 0.05em;
+  font-size: var(--fs-sm);
+  letter-spacing: var(--tracking-caps);
 }
 
 /* Right Column: Controls */
 .ctrl-col {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: var(--space-4);
 }
 
 /* Hero Metrics */
 .trim-metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .metric-card {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .metric-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .metric-dot {
@@ -1319,22 +1327,22 @@ const saveAsSubclip = () => {
   border-radius: 50%;
 }
 
-.dot-cyan { background: var(--accent-blue); box-shadow: 0 0 6px var(--accent-blue); }
-.dot-emerald { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+.dot-cyan { background: var(--accent-blue); }
+.dot-emerald { background: var(--accent-green); }
 
 .metric-label {
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--text-muted);
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
 
 .metric-tc {
   font-family: var(--font-mono);
-  font-size: 1.15rem;
-  font-weight: 800;
-  letter-spacing: 1px;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
 }
 
 .tc-cyan { color: var(--accent-blue); }
@@ -1344,25 +1352,25 @@ const saveAsSubclip = () => {
 .scrub-area {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 0.85rem 1rem 0.65rem 1rem;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-4) var(--space-3) var(--space-4);
 }
 
 .timeline-container {
   position: relative;
   height: 40px;
   background: var(--bg-primary);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-medium);
   cursor: pointer;
-  margin: 4px 0 8px 0;
+  margin: var(--space-1) 0 var(--space-2) 0;
   user-select: none;
 }
 
 .tm-track-bg {
   position: absolute;
   inset: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
@@ -1392,7 +1400,9 @@ const saveAsSubclip = () => {
   top: 0;
   bottom: 0;
   width: 0;
-  z-index: 10;
+  /* §3.9: local stacking inside the scrubber. 1 is the waveform, 2 the
+     handles' rail, 3 a handle the operator is dragging. */
+  z-index: 2;
 }
 
 .tm-handle {
@@ -1400,15 +1410,15 @@ const saveAsSubclip = () => {
   top: -4px;
   bottom: -4px;
   width: 18px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: ew-resize;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 900;
+  font-weight: var(--fw-bold);
   box-shadow: var(--shadow-2);
   transform: translateX(-50%);
-  transition: transform 0.1s;
+  transition: transform var(--dur-fast);
 }
 
 .tm-handle:hover {
@@ -1429,8 +1439,8 @@ const saveAsSubclip = () => {
 
 .handle-bracket {
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-none);
 }
 
 /* Playhead */
@@ -1440,7 +1450,7 @@ const saveAsSubclip = () => {
   bottom: -6px;
   width: 14px;
   cursor: ew-resize;
-  z-index: 20;
+  z-index: 3;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
@@ -1452,16 +1462,14 @@ const saveAsSubclip = () => {
   height: 10px;
   background: var(--text-primary);
   transform: rotate(45deg);
-  border-radius: 2px;
-  box-shadow: 0 0 6px var(--text-primary);
-  margin-top: 2px;
+  border-radius: var(--radius-sm);
+  margin-top: var(--space-0);
 }
 
 .tm-playhead-line {
   width: 2px;
   flex: 1;
   background: var(--text-primary);
-  box-shadow: 0 0 4px var(--text-primary);
   pointer-events: none;
 }
 
@@ -1473,7 +1481,7 @@ const saveAsSubclip = () => {
 
 .tc-footer-label {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
 }
 
@@ -1481,16 +1489,16 @@ const saveAsSubclip = () => {
 .tc-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .tc-card {
   background: var(--bg-tertiary);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   border: 1px solid var(--border-subtle);
 }
 
@@ -1509,9 +1517,9 @@ const saveAsSubclip = () => {
 }
 
 .tc-tag {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
 }
 
 .tag-in { color: var(--accent-green); }
@@ -1519,17 +1527,17 @@ const saveAsSubclip = () => {
 
 .tc-input {
   font-family: var(--font-mono);
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 2px;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   text-align: center;
   background: var(--bg-input);
   border: 1px solid var(--border-medium);
-  padding: 6px;
-  border-radius: 6px;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
   width: 100%;
   box-sizing: border-box;
-  transition: all 0.15s;
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 
 .tc-input-in {
@@ -1539,7 +1547,7 @@ const saveAsSubclip = () => {
 .tc-input-in:focus {
   outline: none;
   border-color: var(--accent-green);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-green) 30%, transparent);
+  box-shadow: var(--focus-ring);
 }
 
 .tc-input-out {
@@ -1549,25 +1557,27 @@ const saveAsSubclip = () => {
 .tc-input-out:focus {
   outline: none;
   border-color: var(--accent-red);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-red) 30%, transparent);
+  box-shadow: var(--focus-ring);
 }
 
 .tc-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .mini-btn {
   flex: 1;
-  padding: 5px 8px;
-  border-radius: 5px;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-medium);
   background: var(--bg-hover);
   color: var(--text-primary);
   cursor: pointer;
-  font-size: 0.74rem;
-  font-weight: 600;
-  transition: all 0.15s;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
 
 .mini-btn:hover {
@@ -1588,24 +1598,27 @@ const saveAsSubclip = () => {
 /* Actions Footer */
 .trim-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 
 .action-btn {
-  padding: 8px 14px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-medium);
   background: var(--bg-hover);
   color: var(--text-primary);
-  font-size: 0.84rem;
-  font-weight: 600;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
-  transition: all 0.15s;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .action-btn:hover {
@@ -1650,10 +1663,10 @@ const saveAsSubclip = () => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 0.78rem;
-  padding: 6px 10px;
+  font-size: var(--fs-sm);
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-tertiary);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
 }
@@ -1663,14 +1676,14 @@ const saveAsSubclip = () => {
   border-color: color-mix(in srgb, var(--status-error) 55%, transparent);
   background: color-mix(in srgb, var(--status-error) 12%, var(--bg-tertiary));
   color: var(--status-error);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .trim-status.is-success {
   border-color: color-mix(in srgb, var(--status-ready) 50%, transparent);
   background: color-mix(in srgb, var(--status-ready) 10%, var(--bg-tertiary));
   color: var(--status-ready);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 /* Subclip Dialog */
@@ -1690,25 +1703,25 @@ const saveAsSubclip = () => {
   max-width: 90vw;
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
-  border-radius: 10px;
-  padding: 20px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
   box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .modal-header-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .modal-badge {
   font-size: var(--fs-xs);
-  font-weight: 800;
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-weight: var(--fw-semibold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
   color: var(--accent-blue);
   border: 1px solid color-mix(in srgb, var(--accent-blue) 35%, transparent);
@@ -1716,40 +1729,40 @@ const saveAsSubclip = () => {
 
 .modal-title {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--fs-lg);
   color: var(--text-primary);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .modal-desc {
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: var(--fs-md);
   margin: 0;
 }
 
 .subclip-name-input {
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-input);
   border: 1px solid var(--border-medium);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 0.92rem;
+  font-size: var(--fs-md);
   outline: none;
   box-sizing: border-box;
-  transition: border-color 0.15s;
+  transition: border-color var(--dur-fast);
 }
 
 .subclip-name-input:focus {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-blue) 30%, transparent);
+  border-color: var(--accent-primary);
+  box-shadow: var(--focus-ring);
 }
 
 .subclip-modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 @media (max-width: 900px) {

@@ -66,19 +66,7 @@ const markup = computed(() => ICONS[props.name] ?? '');
 
 /* PERF: transform-only, so the spinner never leaves the compositor. */
 .is-spinning {
-  animation: app-icon-spin 900ms linear infinite;
+  animation: spin var(--dur-spin) linear infinite;
   will-change: transform;
-}
-
-@keyframes app-icon-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .is-spinning {
-    animation: none;
-  }
 }
 </style>
