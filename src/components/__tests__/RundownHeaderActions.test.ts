@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { mount } from '@vue/test-utils';
+import { tooltipTextOf } from '../../lib/tooltip';
 import RundownList from '../RundownList.vue';
 import PlaylistControls from '../PlaylistControls.vue';
 import { useRundownStore } from '../../stores/rundown';
@@ -141,7 +142,8 @@ describe('Round 3 §5.2 · Delete playlist', () => {
 
     const btn = deleteBtn(wrapper);
     expect(btn.attributes('disabled')).toBeDefined();
-    expect(btn.attributes('title')).toContain("Can't delete the ON AIR playlist");
+    // §7.3: `v-tooltip` strips the native `title`; the reason lives on the directive.
+    expect(tooltipTextOf(btn.element)).toContain("Can't delete the ON AIR playlist");
     wrapper.unmount();
   });
 
@@ -152,7 +154,7 @@ describe('Round 3 §5.2 · Delete playlist', () => {
     const wrapper = mount(RundownList, { global: { stubs } });
     const btn = deleteBtn(wrapper);
     expect(btn.attributes('disabled')).toBeDefined();
-    expect(btn.attributes('title')).toContain("Can't delete the last playlist");
+    expect(tooltipTextOf(btn.element)).toContain("Can't delete the last playlist");
     wrapper.unmount();
   });
 

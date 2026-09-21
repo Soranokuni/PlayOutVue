@@ -12,6 +12,7 @@ export type { MenuTone, MenuItem, TopAction } from './contextMenuTypes';
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { claimContextMenu, releaseContextMenu } from '../lib/activeContextMenu';
 import AppIcon from './ui/AppIcon.vue';
+import { vTooltip } from '../lib/tooltip';
 import MenuRow from './MenuRow.vue';
 import { itemTone } from './contextMenuTypes';
 import type { MenuItem, MenuTone, TopAction } from './contextMenuTypes';
@@ -285,7 +286,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
         class="action-btn"
         :class="{ disabled: btn.disabled }"
         :data-tone="btn.tone ?? defaultTopActionTone(btn)"
-        :data-tooltip="btn.tooltip"
+        v-tooltip="btn.tooltip"
         :aria-label="btn.tooltip"
         :disabled="btn.disabled"
         @click.stop="!btn.disabled && (btn.action(), emit('close'))"
@@ -464,33 +465,6 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 .action-icon svg {
   width: 100%;
   height: 100%;
-}
-
-/* Action button tooltips */
-.action-btn::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%) translateY(-6px);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-medium);
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s ease, transform 0.12s ease;
-  box-shadow: var(--shadow-2);
-  z-index: calc(var(--z-context-menu) + 10);
-}
-
-.action-btn:hover::after {
-  opacity: 1;
-  transform: translateX(-50%) translateY(-2px);
 }
 
 /* Vertical Menu Items list */

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vTooltip } from '../lib/tooltip';
 import { computed, ref, watch } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import { usePlaylistFile } from '../composables/usePlaylistFile';
@@ -116,7 +117,7 @@ const commitGapLine = () => {
          there at all rather than rendered greyed out. -->
     <div v-if="store.canScheduleCurrentPlaylist" class="pl-schedule">
       <span class="pl-label">Starts</span>
-      <select v-model="weekdayProxy" class="pl-day-select" title="Offline start day" aria-label="Offline start day">
+      <select v-model="weekdayProxy" class="pl-day-select" v-tooltip="'Offline start day'" aria-label="Offline start day">
         <option v-for="option in weekdayOptions" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
       </select>
       <input
@@ -130,7 +131,7 @@ const commitGapLine = () => {
         @blur="commitStartFrom"
         @keydown.enter.prevent="commitStartFrom"
       >
-      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" title="Insert a hard start line" aria-label="Insert a hard start line">
+      <button v-if="!showGapInput" class="pl-btn" @click="addGapLine" v-tooltip="'Insert a hard start line'" aria-label="Insert a hard start line">
         <AppIcon name="gap" :size="14" />
         <span class="pl-btn-text">Hard start</span>
       </button>

@@ -17,6 +17,7 @@ import TrimPanel from './TrimPanel.vue';
 import { lazyComponent } from '../lib/lazyComponent';
 import StatusIndicator from './StatusIndicator.vue';
 import AppIcon from './ui/AppIcon.vue';
+import { vTooltip } from '../lib/tooltip';
 import type { IconName } from './ui/icons';
 import { resolveLibraryStatusTone } from '../lib/statusResolver';
 
@@ -2099,7 +2100,7 @@ const menuItems = computed<MenuItem[]>(() => {
           :class="{ 'is-spinning': isScanning }"
           :disabled="isScanning"
           label="Refresh from Ingestor"
-          :title="isScanning ? 'Refreshing…' : 'Refresh from Ingestor'"
+          v-tooltip="isScanning ? 'Refreshing…' : 'Refresh from Ingestor'"
           @click="fetchAssets({ force: true })"
         />
       </div>
@@ -2120,6 +2121,7 @@ const menuItems = computed<MenuItem[]>(() => {
         size="sm"
         icon="close"
         label="Clear search"
+        v-tooltip="'Clear search'"
         @click="libraryQuery = ''"
       />
       <BaseButton
@@ -2129,7 +2131,7 @@ const menuItems = computed<MenuItem[]>(() => {
         icon="shield"
         :class="{ active: showUnratedOnly }"
         :aria-pressed="showUnratedOnly"
-        :title="showUnratedOnly ? 'Showing only unrated assets — click to show all' : 'Show only assets nobody has classified yet'"
+        v-tooltip="showUnratedOnly ? 'Showing only unrated assets — click to show all' : 'Show only assets nobody has classified yet'"
         data-testid="filter-unrated"
         @click="showUnratedOnly = !showUnratedOnly"
       >
@@ -2144,7 +2146,7 @@ const menuItems = computed<MenuItem[]>(() => {
         :class="{ active: libraryRowMode === 'two-line' }"
         :aria-pressed="libraryRowMode === 'two-line'"
         label="Toggle row density"
-        :title="libraryRowMode === 'two-line' ? 'Two-line rows — click for compact rows' : 'Compact rows — click to show the folder path under each name'"
+        v-tooltip="libraryRowMode === 'two-line' ? 'Two-line rows — click for compact rows' : 'Compact rows — click to show the folder path under each name'"
         data-testid="toggle-row-mode"
         @click="libraryRowMode = libraryRowMode === 'two-line' ? 'single' : 'two-line'"
       />
@@ -2157,7 +2159,7 @@ const menuItems = computed<MenuItem[]>(() => {
           size="sm"
           icon="more-vertical"
           label="Asset and folder actions"
-          :title="showActionsMenu ? 'Close actions menu' : 'Asset and folder actions'"
+          v-tooltip="showActionsMenu ? 'Close actions menu' : 'Asset and folder actions'"
           @click.stop="showActionsMenu = !showActionsMenu"
         />
         <div v-if="showActionsMenu" class="lib-actions-menu popover-surface" role="menu" @click.stop>
@@ -2245,7 +2247,7 @@ const menuItems = computed<MenuItem[]>(() => {
         icon="folder-plus"
         disabled
         label="New folder"
-        title="Clear the search first — a new folder is created in the folder you are looking at"
+        v-tooltip="'Clear the search first — a new folder is created in the folder you are looking at'"
       />
     </div>
 
@@ -2271,7 +2273,7 @@ const menuItems = computed<MenuItem[]>(() => {
         size="sm"
         icon="folder-plus"
         label="New folder"
-        :title="newFolderTooltip"
+        v-tooltip="newFolderTooltip"
         @click="() => doNewVirtualFolder()"
       />
     </div>
@@ -2396,7 +2398,7 @@ const menuItems = computed<MenuItem[]>(() => {
       <div
         class="system-node-recycle-bin"
         :class="{ 'is-drag-target': isTrashDragOver }"
-        title="Recycle Bin (Drag assets here to delete)"
+        v-tooltip="'Recycle Bin — drag assets here to delete'"
         @pointerenter="preloadRecycleBinModal()"
         @click="showRecycleBin = true"
         @dragover.prevent="isTrashDragOver = true"
