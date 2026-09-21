@@ -27,8 +27,8 @@
   color: var(--text-primary);
   font-family: var(--font-ui);
   font-size: var(--fs-sm);
-  font-weight: 600;
-  line-height: 1;
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-none);
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
@@ -38,7 +38,7 @@
     background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
-    transform 90ms var(--ease-out);
+    transform var(--dur-fast) var(--ease-out);
 }
 
 /* §7.2: the one press. A control that does not move under the finger reads as
@@ -193,7 +193,7 @@
 
 .field-label {
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
 }
 
@@ -262,14 +262,15 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  padding: 6px var(--space-2);
+  min-height: var(--control-h-sm);
+  padding: var(--space-1) var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-ui);
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   text-align: left;
   cursor: pointer;
   transition:

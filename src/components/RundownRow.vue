@@ -142,7 +142,7 @@ const trimTitle = (item: RundownItem) => {
 };
 
 const trimDisplay = (item: RundownItem) => {
-  if (item.type === 'gap') return item.hardStartTime || 'GAP';
+  if (item.type === 'gap') return item.hardStartTime ? 'HARD START' : 'GAP';
   if (item.type === 'live') return 'LIVE';
   const trimIn = item.trim_in_ms !== undefined ? item.trim_in_ms : item.inPoint;
   const trimOut = item.trim_out_ms !== undefined ? item.trim_out_ms : (item.duration_ms && item.outPoint ? item.duration_ms - item.outPoint : 0);
@@ -524,7 +524,8 @@ const itemTooltip = computed(() => {
    rather than spilling into the duration column. */
 .rw-inout   {
   width: var(--rw-col-trim); text-align: right; flex-shrink: 0;
-  font-size: var(--fs-xs); color: var(--text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-caps);
+  font-size: var(--fs-xs); font-weight: var(--fw-semibold); line-height: var(--lh-tight);
+  color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-caps);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Both timing columns are right-aligned to the same edge, 12 px apart, so the

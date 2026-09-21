@@ -2313,7 +2313,7 @@ const menuItems = computed<MenuItem[]>(() => {
             'is-folder-drop-target': folderDropTargetId === row.id,
             'is-root-folder': row.depth === 0,
           }"
-          :style="{ paddingLeft: `${row.depth * 18 + 8}px` }"
+          :style="{ '--lib-depth': row.depth }"
           :data-library-folder-path="row.path"
           :draggable="row.depth > 0"
           @click="onFolderClick(row.path)"
@@ -2329,7 +2329,7 @@ const menuItems = computed<MenuItem[]>(() => {
             v-for="d in row.depth"
             :key="d"
             class="tree-guide-line"
-            :style="{ left: `${(d - 1) * 18 + 14}px` }"
+            :style="{ '--lib-guide': d - 1 }"
           ></span>
 
           <!-- Chevron for collapsible folder -->
@@ -2377,7 +2377,7 @@ const menuItems = computed<MenuItem[]>(() => {
         <div
           v-if="isCreatingFolder"
           class="lib-row is-folder is-new-folder"
-          :style="{ paddingLeft: '26px' }"
+          :style="{ '--lib-depth': 1 }"
         >
           <span class="chevron-spacer"></span>
           <span class="lib-icon"><AppIcon name="folder" :size="16" /></span>
@@ -2956,7 +2956,9 @@ const menuItems = computed<MenuItem[]>(() => {
 
 .glass-input {
   background: var(--bg-input); border: 1px solid var(--border-medium);
-  color: var(--text-primary); border-radius: var(--radius-md); font-size: var(--fs-md); padding: var(--space-2) var(--space-3);
+  color: var(--text-primary); border-radius: var(--radius-md); font-size: var(--fs-md);
+  /* §4: 33px beside 30px icon buttons on the same toolbar line. */
+  height: var(--control-h-sm); padding: 0 var(--space-3);
 }
 .glass-input:focus {
   border-color: var(--accent-primary);
@@ -2999,18 +3001,23 @@ const menuItems = computed<MenuItem[]>(() => {
   white-space: nowrap;
   color: var(--text-secondary);
 }
+/* §4: a crumb is a location, not an action, so the trail is secondary text
+   and only the node you are standing in is primary. It used to open in the
+   accent colour, which made "All Media" read as the button. */
 .breadcrumb-crumb {
   cursor: pointer;
-  font-weight: var(--fw-semibold);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
   transition: color var(--dur-fast) var(--ease-out);
 }
 .breadcrumb-crumb:hover {
-  color: var(--accent-blue);
+  color: var(--text-primary);
   text-decoration: underline;
 }
 .breadcrumb-crumb.is-active {
   color: var(--text-primary);
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-semibold);
 }
 .breadcrumb-sep {
   margin: 0 var(--space-0);
@@ -3057,17 +3064,25 @@ const menuItems = computed<MenuItem[]>(() => {
   border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
 }
 
-/* Tree Indentation Guides */
+/* §4: one indent for the tree, on the grid, with the guide lines derived from
+   it. They used to be two literals in two style attributes — 18px for the
+   indent and 18px + 14 for the guide — which is two chances to drift. */
+.lib-row.is-folder {
+  --lib-indent: var(--space-5);
+  padding-left: calc(var(--lib-depth, 0) * var(--lib-indent) + var(--space-2));
+}
+
 .tree-guide-line {
   position: absolute;
   top: 0;
   bottom: 0;
+  left: calc(var(--lib-guide, 0) * var(--lib-indent) + var(--space-4));
   width: 1px;
-  background: var(--border-medium);
+  background: var(--border-subtle);
   pointer-events: none;
 }
 .lib-row:hover .tree-guide-line {
-  background: var(--accent-blue);
+  background: var(--border-medium);
 }
 
 .lib-row.is-transient .lib-name {
@@ -3234,10 +3249,14 @@ const menuItems = computed<MenuItem[]>(() => {
 /* Unrated: deliberately quiet (dashed outline, muted text) so it reads as
    "nothing decided yet" rather than as a regulatory mark. */
 .badge-age.age-none,
+/* §4: a missing rating must be loud, and it must sit in the same box as the
+   rating chips above and below it — which it does, because it is the same
+   `.mcr-badge`. What it is not is a *rating*, so it takes the offline tone and
+   keeps the dashed border that says "nothing here yet". */
 .badge-unrated {
   background: transparent;
-  color: var(--text-secondary);
-  border: 1px dashed var(--border-strong);
+  color: var(--status-offline);
+  border: 1px dashed var(--status-offline);
   font-weight: var(--fw-semibold);
   letter-spacing: var(--tracking-caps);
 }
@@ -3258,9 +3277,9 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-type-bar {
   position: absolute;
   left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  width: var(--border-accent-w);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   pointer-events: auto;
   background: var(--text-muted);

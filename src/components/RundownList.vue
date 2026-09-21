@@ -1004,9 +1004,9 @@ const durationLabel = (item: RundownItem, index: number) => {
   // §9 / §6.2: a gap row states its hard start; "Ghost marker" told the
   // operator nothing. A row that is not playing shows its total only -- the
   // leading `00:00:00 /` was noise on 299 of 300 rows.
-  if (item.type === 'gap') return item.hardStartTime ? `Hard start ${item.hardStartTime}` : 'Gap';
+  if (item.type === 'gap') return item.hardStartTime || 'Gap';
   const durationMs = effectiveDurationMs(item, index);
-  if (item.type === 'live') return durationMs > 0 ? `LIVE ${msToClockDisplay(durationMs)}` : 'LIVE';
+  if (item.type === 'live') return durationMs > 0 ? msToClockDisplay(durationMs) : 'LIVE';
   if (durationMs > 0) return msToClockDisplay(durationMs);
   return '—';
 };
@@ -1948,7 +1948,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-subtle);
   background: var(--bg-hover);
@@ -1978,7 +1979,7 @@ onUnmounted(() => {
   position: absolute;
   left: var(--space-3);
   right: var(--space-3);
-  bottom: 2px;
+  bottom: 0;
   height: 2px;
   border-radius: var(--radius-pill);
   background: var(--accent-primary);
@@ -2264,8 +2265,8 @@ onUnmounted(() => {
 
 .rundown-end-drop-zone {
   position: relative;
-  height: 44px;
-  margin: var(--space-2) var(--space-1) var(--space-3) var(--space-1);
+  height: var(--row-h-rundown);
+  margin: var(--space-2) 0 var(--space-3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2394,10 +2395,19 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: var(--space-2) var(--space-1) var(--space-1);
+  height: var(--space-6);
+  margin: var(--space-2) 0 var(--space-1);
+  /* The Title column's x: everything before it, plus the gaps between them. */
+  padding-left: calc(
+    var(--rw-col-handle) + var(--rw-col-num) + var(--rw-col-status) + var(--rw-col-type)
+    + var(--rw-col-gap) * 4 + var(--space-2)
+  );
+  background: var(--surface-panel-header);
+  border-radius: var(--radius-sm);
   font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-semibold);
   letter-spacing: var(--tracking-caps);
+  line-height: var(--lh-tight);
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -2406,6 +2416,7 @@ onUnmounted(() => {
   content: '';
   flex: 1 1 auto;
   height: 1px;
+  margin-right: var(--space-2);
   background: var(--border-subtle);
 }
 </style>

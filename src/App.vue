@@ -856,7 +856,7 @@ onUnmounted(() => {
           <span class="conn-text">{{ connectionShortState }}</span>
         </span>
         <button
-          class="btn ctrl-btn conn-action-btn"
+          class="btn btn--ghost ctrl-btn conn-action-btn"
           :disabled="isStarting || processState === 'starting'"
           v-tooltip="`${connectionActionLabel} — CasparCG: ${connectionLabel}`"
           :aria-label="connectionActionLabel"
@@ -947,7 +947,7 @@ onUnmounted(() => {
         <div class="timecode">{{ currentPlayoutTime }}</div>
         <div class="ctrl-nextup-dock" :class="{ 'is-imminent': isNextUpImminent }">
           <div class="nextup-header">
-            <span class="nextup-kicker">NEXT UP</span>
+            <span class="label-caps nextup-kicker">NEXT UP</span>
             <span v-if="isNextUpImminent" class="nextup-imminent-pill">ADVANCE &lt; 10s</span>
           </div>
           <div class="nextup-body">
@@ -962,7 +962,7 @@ onUnmounted(() => {
       <!-- Broadcast Stream & SDI -->
       <div v-if="activePlayoutCapabilities.streaming" class="ctrl-section">
         <div class="status-dot" :class="{ connected: isStreaming }"></div>
-        <span class="ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
+        <span class="label-caps ctrl-label">{{ isStreaming ? 'ON AIR' : 'STANDBY' }}</span>
         <button type="button" class="btn ctrl-btn ctrl-btn--xs" :class="{ 'btn-live': isStreaming }" :disabled="!isPlayoutConnected || !isPrimaryInstance" @click="toggleStream">
           <AppIcon :name="isStreaming ? 'stop' : 'live'" :size="14" />
           <span>{{ isStreaming ? 'Stop' : 'Stream' }}</span>
@@ -996,7 +996,7 @@ onUnmounted(() => {
 
         <span class="ctrl-section ctrl-ingest" v-tooltip="ingestorStatus.isIngestorOnline ? 'Ingestor reachable' : 'Ingestor unreachable'">
           <IngestorStatusLight />
-          <span class="ctrl-label">INGEST</span>
+          <span class="label-caps ctrl-label">INGEST</span>
         </span>
 
         <button
@@ -1181,7 +1181,7 @@ onUnmounted(() => {
 .resizer-left { grid-area: r1; }
 
 .ctrl-section    { display:flex; align-items:center; gap:var(--space-2); }
-.ctrl-label      { font-size:var(--fs-xs); color:var(--text-muted); letter-spacing:var(--tracking-caps); font-weight:var(--fw-bold); white-space:nowrap; }
+.ctrl-label      { white-space:nowrap; }
 .ctrl-ingest { display:inline-flex; align-items:center; gap:var(--space-1); }
 .ctrl-ingest .ctrl-label { font-size: var(--fs-xs); }
 .ctrl-value      {
@@ -1525,11 +1525,10 @@ onUnmounted(() => {
   line-height: var(--lh-none);
 }
 
+/* Everything a caps micro-label needs comes from `.label-caps`; what is left
+   here is that this one must not wrap inside a 195px dock. */
 .nextup-kicker {
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-caps);
-  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .nextup-imminent-pill {

@@ -235,12 +235,14 @@ const commitGapLine = () => {
 }
 
 .pl-meta-text {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
 }
 
 .pl-total {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   font-weight: var(--fw-semibold);
 }
@@ -280,9 +282,9 @@ const commitGapLine = () => {
 
 .pl-day-select:focus,
 .pl-time-input:focus {
-  border-color: var(--accent-blue);
+  border-color: var(--accent-primary);
   outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-blue) 28%, transparent);
+  box-shadow: var(--focus-ring);
 }
 
 .pl-day-select {

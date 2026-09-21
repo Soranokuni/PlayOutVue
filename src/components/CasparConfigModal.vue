@@ -794,8 +794,11 @@ function formatError(error: unknown, fallback: string) {
   font-family: Consolas, 'Courier New', monospace;
 }
 
+/* §4: without an alignment the button stretched to the input's height, so
+   the pair sat at two heights in every dialog that used it. */
 .input-with-button {
   display: flex;
+  align-items: center;
   gap: var(--space-2);
 }
 

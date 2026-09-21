@@ -262,7 +262,7 @@ const panelClasses = computed(() => ['modal-panel', `modal-panel--${props.size}`
 
 .modal-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-4) var(--space-3);
