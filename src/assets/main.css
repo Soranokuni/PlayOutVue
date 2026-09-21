@@ -722,6 +722,8 @@
   --dur-slow: 260ms;  /* modal scrim + panel entrance only */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* only the two on-air pulses */
+  --dur-pulse: 1.6s;  /* the one heartbeat: see @keyframes onair-pulse below */
+  --dur-spin: 0.8s;   /* the one spinner */
 
   /* §3.6 — two opacities. The app had six disabled treatments. */
   --opacity-disabled: 0.4;
@@ -933,6 +935,26 @@ textarea {
 
 ::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--text-secondary) 70%, var(--accent-primary));
+}
+
+/* §3.4 — the app's two animations.
+ *
+ * There were twenty infinite keyframe sets with eight different durations,
+ * several of them animating `box-shadow`, which the compositor cannot do: every
+ * frame of a pulsing glow repaints the element and everything under it, forever,
+ * on surfaces that are on screen for the whole shift. What survives is one
+ * heartbeat and one spinner, both animating a property the compositor owns.
+ *
+ * A glow that must pulse is a `::after` carrying the *static* shadow, whose
+ * opacity rides `onair-pulse`. The floor is 0.35 rather than 0 so a pulse reads
+ * as breathing rather than blinking. */
+@keyframes onair-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* §2.1: a theme switch is a discrete event, so nothing tweens across it.

@@ -35,7 +35,6 @@ const ALL_ALLOWLIST: Record<string, number> = {
 const DURATION_ALLOWLIST: Record<string, number> = {
   'App.vue': 20,
   'components/RundownList.vue': 20,
-  'components/MediaLibrary.vue': 15,
   'components/TrimPanel.vue': 8,
   'components/RundownRow.vue': 6,
   'components/RecycleBinModal.vue': 5,
@@ -51,10 +50,9 @@ const DURATION_ALLOWLIST: Record<string, number> = {
 
 /** Remaining animated shadows per file. Lower these; never raise them. */
 const SHADOW_ALLOWLIST: Record<string, number> = {
-  'App.vue': 18,
-  'components/MediaLibrary.vue': 6,
-  'components/RundownList.vue': 5,
-  'components/RundownRow.vue': 3,
+  'App.vue': 3,
+  'components/RundownList.vue': 4,
+  'components/RundownRow.vue': 2,
 };
 
 function countTransitionAll(source: string): number {
@@ -69,12 +67,27 @@ function countDurationLiterals(source: string): number {
   return n;
 }
 
+/** The body of every `@keyframes` block, found by counting braces. */
+function keyframeBodies(css: string): string[] {
+  const out: string[] = [];
+  for (const match of css.matchAll(/@keyframes[^{]*\{/g)) {
+    let depth = 1;
+    let i = match.index! + match[0].length;
+    const from = i;
+    while (i < css.length && depth > 0) {
+      if (css[i] === '{') depth += 1;
+      else if (css[i] === '}') depth -= 1;
+      i += 1;
+    }
+    out.push(css.slice(from, i - 1));
+  }
+  return out;
+}
+
 /** `box-shadow` named in a transition list, or set inside a `@keyframes`. */
 function countAnimatedShadows(source: string): number {
-  const surfaces = styleSurfaces(source);
   let n = declarations(source, /transition|transition-property/).filter((value) => value.includes('box-shadow')).length;
-
-  for (const [, body] of surfaces.matchAll(/@keyframes[^{]*\{([\s\S]*?\n\s*\})\s*\}/g)) {
+  for (const body of keyframeBodies(styleSurfaces(source))) {
     n += [...body.matchAll(/box-shadow\s*:/g)].length;
   }
   return n;

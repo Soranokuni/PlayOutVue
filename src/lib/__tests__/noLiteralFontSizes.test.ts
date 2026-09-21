@@ -32,7 +32,6 @@ const SRC = join(process.cwd(), 'src');
  * rundown header. What is left is the dialogs, which later phases migrate.
  */
 const ALLOWLIST: Record<string, number> = {
-  'components/MediaLibrary.vue': 22,
   'components/DeckLinkWizard.vue': 21,
   'components/TrimPanel.vue': 21,
   'components/ComplianceModule.vue': 15,
