@@ -29,13 +29,11 @@ const SPACING = /padding|padding-top|padding-right|padding-bottom|padding-left|m
 const ALLOWLIST: Record<string, number> = {
   'App.vue': 36,
   'components/ComplianceModule.vue': 25,
-  'components/DeckLinkWizard.vue': 25,
   'components/CasparConfigModal.vue': 19,
   'components/FolderPickerModal.vue': 16,
   'components/MediaInspector.vue': 14,
   'components/CommandPaletteModal.vue': 11,
   'components/RecycleBinModal.vue': 10,
-  'components/RundownRow.vue': 9,
   'components/MenuRow.vue': 5,
   'components/SettingsModal.vue': 5,
   'components/ContextMenu.vue': 4,

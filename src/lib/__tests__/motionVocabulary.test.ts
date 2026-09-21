@@ -24,7 +24,6 @@ import { SRC, checkBudgets, declarations, styleSurfaces } from './styleGuard';
 /** Remaining `transition: all` per file. Drive to zero; it has no future. */
 const ALL_ALLOWLIST: Record<string, number> = {
   'components/ComplianceModule.vue': 3,
-  'components/DeckLinkWizard.vue': 3,
   'components/RecycleBinModal.vue': 2,
   'App.vue': 1,
   'components/FolderPickerModal.vue': 1,
@@ -33,12 +32,10 @@ const ALL_ALLOWLIST: Record<string, number> = {
 /** Remaining duration literals per file. Lower these; never raise them. */
 const DURATION_ALLOWLIST: Record<string, number> = {
   'App.vue': 20,
-  'components/RundownRow.vue': 6,
   'components/RecycleBinModal.vue': 5,
   'components/ComplianceModule.vue': 4,
   'components/FolderPickerModal.vue': 4,
   'components/ContextMenu.vue': 3,
-  'components/DeckLinkWizard.vue': 3,
   'components/IngestorStatusLight.vue': 3,
   'components/CommandPaletteModal.vue': 1,
   'components/StatusIndicator.vue': 1,
@@ -48,7 +45,6 @@ const DURATION_ALLOWLIST: Record<string, number> = {
 /** Remaining animated shadows per file. Lower these; never raise them. */
 const SHADOW_ALLOWLIST: Record<string, number> = {
   'App.vue': 3,
-  'components/RundownRow.vue': 2,
 };
 
 function countTransitionAll(source: string): number {

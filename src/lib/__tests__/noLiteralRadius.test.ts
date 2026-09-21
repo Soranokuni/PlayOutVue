@@ -21,10 +21,8 @@ import { SRC, checkBudgets, declarations } from './styleGuard';
 
 /** Remaining radius literals per file. Lower these; never raise them. */
 const ALLOWLIST: Record<string, number> = {
-  'components/DeckLinkWizard.vue': 13,
   'App.vue': 12,
   'components/ComplianceModule.vue': 12,
-  'components/RundownRow.vue': 7,
   'components/CasparConfigModal.vue': 5,
   'components/CommandPaletteModal.vue': 5,
   'components/RecycleBinModal.vue': 4,
