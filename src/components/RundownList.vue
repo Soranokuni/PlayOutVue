@@ -13,6 +13,7 @@ import { usePlaylistFile } from '../composables/usePlaylistFile';
 import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
 import { commercialTagBadge, commercialTagTone, contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
 import AppIcon from './ui/AppIcon.vue';
+import { vTooltip } from '../lib/tooltip';
 import type { IconName } from './ui/icons';
 import RundownRow from './RundownRow.vue';
 import { useSettingsStore } from '../stores/settings';
@@ -1350,7 +1351,7 @@ onUnmounted(() => {
           size="sm"
           icon="ticker"
           :class="{ 'is-active': showGraphicsDrawer || settings.cgCrawlActive }"
-          title="Toggle On-Demand News Ticker & Graphics Drawer"
+          v-tooltip="'Toggle the on-demand ticker and graphics drawer'"
           @click="showGraphicsDrawer = !showGraphicsDrawer"
         >
           Ticker
@@ -1360,7 +1361,7 @@ onUnmounted(() => {
 <!-- UI F-14: the NTP lock dot was hard-coded to "synchronized" and
              nothing could ever turn it off, so it claimed a clock-sync state the
              app does not observe. Dropped until a real source exists. -->
-        <div class="studio-clock-wrap" title="Studio wall clock (system time)">
+        <div class="studio-clock-wrap" v-tooltip="'Studio wall clock (system time)'">
           <span class="clock-display">{{ studioClockTimecode }}</span>
         </div>
 
@@ -1368,7 +1369,7 @@ onUnmounted(() => {
           variant="ghost"
           size="sm"
           icon="live"
-          title="Insert Live Item / Studio Block into Rundown"
+          v-tooltip="'Insert a live item or studio block into the rundown'"
           @click="showLiveDialog = true"
         >
           Live block
@@ -1395,7 +1396,7 @@ onUnmounted(() => {
             size="sm"
             icon="folder-open"
             label="Load playlist"
-            title="Load playlist… (Ctrl+O)"
+            v-tooltip="{ text: 'Load playlist…', shortcut: 'Ctrl+O' }"
             :loading="isLoadingPlaylist"
             @click="runPlaylistFileAction('load')"
           />
@@ -1404,7 +1405,7 @@ onUnmounted(() => {
             size="sm"
             icon="file-plus"
             label="Append playlist"
-            title="Append playlist… (Ctrl+Shift+O)"
+            v-tooltip="{ text: 'Append playlist…', shortcut: 'Ctrl+Shift+O' }"
             :loading="isLoadingPlaylist"
             @click="runPlaylistFileAction('append')"
           />
@@ -1413,7 +1414,7 @@ onUnmounted(() => {
             size="sm"
             icon="save"
             label="Save playlist"
-            title="Save playlist… (Ctrl+S)"
+            v-tooltip="{ text: 'Save playlist…', shortcut: 'Ctrl+S' }"
             :loading="isSavingPlaylist"
             @click="runPlaylistFileAction('save')"
           />
@@ -1431,7 +1432,7 @@ onUnmounted(() => {
           icon="trash"
           :disabled="!!deleteDisabledReason"
           :label="isDeleteArmed ? deleteArmLabel : 'Delete playlist'"
-          :title="deleteDisabledReason || (isDeleteArmed ? deleteArmLabel : 'Delete playlist')"
+          v-tooltip="deleteDisabledReason || (isDeleteArmed ? deleteArmLabel : 'Delete playlist')"
           data-testid="rundown-delete-playlist"
           @click.stop="requestDeletePlaylist"
         >
@@ -1453,7 +1454,7 @@ onUnmounted(() => {
             size="sm"
             icon="more-vertical"
             label="More playlist actions"
-            :title="showPlaylistMenu ? 'Close playlist menu' : 'More playlist actions'"
+            v-tooltip="showPlaylistMenu ? 'Close playlist menu' : 'More playlist actions'"
             :aria-expanded="showPlaylistMenu"
             data-testid="rundown-overflow"
             @click.stop="showPlaylistMenu = !showPlaylistMenu"
@@ -1560,7 +1561,7 @@ onUnmounted(() => {
           <AppIcon name="close" :size="12" :stroke-width="2.5" />
         </span>
       </button>
-      <button class="playlist-add-btn" @click="createPlaylistTab" title="Create new offline playlist" aria-label="Create new offline playlist">
+      <button class="playlist-add-btn" @click="createPlaylistTab" v-tooltip="'Create new offline playlist'" aria-label="Create new offline playlist">
         <AppIcon name="plus" :size="14" />
       </button>
     </div>

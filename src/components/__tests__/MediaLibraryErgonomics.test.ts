@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { mount } from '@vue/test-utils';
+import { tooltipTextOf } from '../../lib/tooltip';
 import { nextTick } from 'vue';
 import MediaLibrary from '../MediaLibrary.vue';
 import { useMediaLibraryStore } from '../../stores/mediaLibrary';
@@ -322,11 +323,12 @@ describe('Round 3 §2 · Library toolbar', () => {
     await nextTick();
     const atRoot = wrapper.get('.lib-breadcrumb-bar .lib-new-folder-btn');
     expect(atRoot.attributes('disabled')).toBeUndefined();
-    expect(atRoot.attributes('title')).toBe('New folder at root');
+    // §7.3: `v-tooltip` strips the native `title`; the text lives on the directive.
+    expect(tooltipTextOf(atRoot.element)).toBe('New folder at root');
 
     libraryStore.currentFolderPath = '/Shows/Season 2';
     await nextTick();
-    expect(wrapper.get('.lib-breadcrumb-bar .lib-new-folder-btn').attributes('title')).toBe(
+    expect(tooltipTextOf(wrapper.get('.lib-breadcrumb-bar .lib-new-folder-btn').element)).toBe(
       'New folder in "Season 2"'
     );
     wrapper.unmount();
@@ -342,7 +344,7 @@ describe('Round 3 §2 · Library toolbar', () => {
     expect(wrapper.find('.lib-breadcrumb-bar').exists()).toBe(false);
     const btn = wrapper.get('.lib-search-scope .lib-new-folder-btn');
     expect(btn.attributes('disabled')).toBeDefined();
-    expect(btn.attributes('title')).toContain('Clear the search first');
+    expect(tooltipTextOf(btn.element)).toContain('Clear the search first');
     wrapper.unmount();
   });
 

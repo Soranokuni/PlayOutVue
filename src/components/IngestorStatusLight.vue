@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vTooltip } from '../lib/tooltip';
 import { computed } from 'vue';
 import { useIngestorStatusStore } from '../stores/ingestorStatus';
 import { useSettingsStore } from '../stores/settings';
@@ -25,7 +26,7 @@ const tooltip = computed(() => {
 </script>
 
 <template>
-  <div class="status-light-wrap" :title="tooltip">
+  <div class="status-light-wrap" v-tooltip="tooltip">
     <span
       class="status-dot"
       :class="{

@@ -19,6 +19,8 @@ const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponen
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import AppIcon from './components/ui/AppIcon.vue';
 import ToastHost from './components/ui/ToastHost.vue';
+import Tooltip from './components/ui/Tooltip.vue';
+import { vTooltip } from './lib/tooltip';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
 import { useRundownStore } from './stores/rundown';
@@ -837,7 +839,7 @@ onUnmounted(() => {
     </div>
     
     <aside class="panel panel-library glass-panel"><MediaLibrary /></aside>
-    <div class="resizer resizer-left" title="Drag to resize · double-click to reset" @mousedown="startResizeLeft" @dblclick="leftWidth = LIBRARY_WIDTH_DEFAULT"></div>
+    <div class="resizer resizer-left" v-tooltip="'Drag to resize · double-click to reset'" @mousedown="startResizeLeft" @dblclick="leftWidth = LIBRARY_WIDTH_DEFAULT"></div>
     
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
 
@@ -848,7 +850,7 @@ onUnmounted(() => {
            to it says what will happen. They used to be one control whose label
            flipped between the two. -->
       <div class="ctrl-section ctrl-engine">
-        <span class="conn-status" :title="connectionLabel">
+        <span class="conn-status" v-tooltip="connectionLabel">
           <span
             class="status-dot"
             :class="[
@@ -861,14 +863,14 @@ onUnmounted(() => {
         <button
           class="ctrl-btn conn-action-btn"
           :disabled="isStarting || processState === 'starting'"
-          :title="`${connectionActionLabel} — CasparCG: ${connectionLabel}`"
+          v-tooltip="`${connectionActionLabel} — CasparCG: ${connectionLabel}`"
           :aria-label="connectionActionLabel"
           @click="handleConnectionAction"
         >
           <AppIcon class="ctrl-btn-glyph" name="zap" :size="14" />
           <span class="ctrl-btn-label">{{ connectionActionLabel }}</span>
         </button>
-        <span v-if="!isPrimaryInstance" class="monitor-badge" title="Running in secondary monitor mode (read-only)">MONITOR</span>
+        <span v-if="!isPrimaryInstance" class="monitor-badge" v-tooltip="'Running in secondary monitor mode (read-only)'">MONITOR</span>
       </div>
 
       <div class="ctrl-divider"></div>
@@ -880,7 +882,7 @@ onUnmounted(() => {
           class="ctrl-btn btn-play"
           :disabled="!isPlayoutConnected || !rundown.activeItems.length || rundown.isRundownLocked || !isPrimaryInstance"
           @click="playSelected"
-          :title="!isPrimaryInstance ? 'Disabled in Monitor Mode (Read-Only)' : (rundown.isRundownLocked ? 'Rundown is Locked (Unlock to Play)' : 'Play playlist from selected item (or beginning)')"
+          v-tooltip="!isPrimaryInstance ? 'Disabled in Monitor Mode (Read-Only)' : (rundown.isRundownLocked ? 'Rundown is Locked (Unlock to Play)' : 'Play playlist from selected item (or beginning)')"
         >
           <AppIcon name="play" :size="16" :stroke-width="2.5" />
           <span>PLAY</span>
@@ -908,7 +910,7 @@ onUnmounted(() => {
           :class="{ 'btn-live-armed': isLiveCutArmed }"
           :disabled="!isPlayoutConnected || !isPrimaryInstance"
           @click="cutToLive"
-          :title="!isLiveCutArmed ? 'Arm the cut to live — a second click executes it' : 'Click again to cut to live'"
+          v-tooltip="!isLiveCutArmed ? 'Arm the cut to live — a second click executes it' : 'Click again to cut to live'"
         >
           <!-- §7: the 3s arm window had no visible countdown. The ring
                empties over those three seconds so the operator can see how
@@ -954,7 +956,7 @@ onUnmounted(() => {
             <span v-if="isNextUpImminent" class="nextup-imminent-pill">ADVANCE &lt; 10s</span>
           </div>
           <div class="nextup-body">
-            <span class="nextup-title" :title="nextUpItemTitle">{{ nextUpItemTitle }}</span>
+            <span class="nextup-title" v-tooltip="nextUpItemTitle">{{ nextUpItemTitle }}</span>
             <span v-if="nextUpItemDuration" class="nextup-duration-pill">{{ nextUpItemDuration }}</span>
           </div>
         </div>
@@ -991,13 +993,13 @@ onUnmounted(() => {
           :class="{ 'is-locked': rundown.isRundownLocked }"
           :aria-pressed="rundown.isRundownLocked"
           @click="rundown.toggleRundownLock()"
-          :title="rundown.isRundownLocked ? 'Rundown Locked: Accidental edits are protected. Click to Unlock.' : 'Rundown Unlocked: Free to edit, reorder, and delete items. Click to Lock.'"
+          v-tooltip="rundown.isRundownLocked ? 'Rundown Locked: accidental edits are protected. Click to unlock.' : 'Rundown Unlocked: free to edit, reorder and delete. Click to lock.'"
         >
           <AppIcon class="lock-icon" :name="rundown.isRundownLocked ? 'lock' : 'unlock'" :size="14" />
           <span class="lock-text">{{ rundown.isRundownLocked ? 'LOCKED' : 'UNLOCKED' }}</span>
         </button>
 
-        <span class="ctrl-section ctrl-ingest" :title="ingestorStatus.isIngestorOnline ? 'Ingestor reachable' : 'Ingestor unreachable'">
+        <span class="ctrl-section ctrl-ingest" v-tooltip="ingestorStatus.isIngestorOnline ? 'Ingestor reachable' : 'Ingestor unreachable'">
           <IngestorStatusLight />
           <span class="ctrl-label">INGEST</span>
         </span>
@@ -1005,7 +1007,7 @@ onUnmounted(() => {
         <button
           class="ctrl-btn ctrl-settings-btn"
           aria-label="Settings"
-          title="Settings"
+          v-tooltip="'Settings'"
           @pointerenter="preloadSettingsModal()"
           @focus="preloadSettingsModal()"
           @click="showSettings = true"
@@ -1022,7 +1024,7 @@ onUnmounted(() => {
           class="ctrl-btn ctrl-more-btn"
           :class="{ 'is-open': showControlBarMore }"
           aria-label="More controls"
-          title="More controls"
+          v-tooltip="'More controls'"
           :aria-expanded="showControlBarMore"
           data-testid="control-bar-more"
           @click.stop="toggleControlBarMore"
@@ -1067,7 +1069,7 @@ onUnmounted(() => {
           class="ctrl-meta-btn ctrl-meta-brand"
           :class="{ 'is-open': showProductInfo }"
           @click.stop="toggleProductInfo"
-          :title="`${APP_NAME} ${APP_VERSION} · System Info`"
+          v-tooltip="`${APP_NAME} ${APP_VERSION} · System Info`"
           aria-label="System Info"
         >
           <svg class="brand-play-icon" viewBox="0 0 24 24" width="13" height="13">
@@ -1078,7 +1080,7 @@ onUnmounted(() => {
           class="ctrl-meta-btn ctrl-meta-help"
           :class="{ 'is-open': showQuickGuide }"
           @click.stop="toggleQuickGuide"
-          title="Quick guide"
+          v-tooltip="'Quick guide'"
           aria-label="Quick guide"
         >
           ?
@@ -1124,6 +1126,9 @@ onUnmounted(() => {
 
     <!-- UI §3.2: one toast host for the whole app. -->
     <ToastHost />
+
+    <!-- Round 3 §7.3: one tooltip host for the whole app, same reasoning. -->
+    <Tooltip />
   </main>
 </template>
 
