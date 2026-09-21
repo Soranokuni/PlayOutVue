@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { THEMES } from '../../config/themes';
 
 /**
  * UI/UX plan Appendix B — the theme-safety guard.
@@ -21,11 +22,9 @@ const SRC = join(process.cwd(), 'src');
 
 /** Remaining literals per file. Lower these; never raise them. */
 const ALLOWLIST: Record<string, number> = {
-  // Permanent: the nine remaining literals are the three theme swatches in
-  // Appearance. A swatch has to show each theme's own palette -- the light
-  // swatch must look light while the dark theme is active -- so it cannot
-  // follow the active theme's tokens.
-  'components/SettingsModal.vue': 9,
+  // (SettingsModal's nine swatch literals are gone: §5.2 moved the swatch
+  // colours into `config/themes.ts`, where they are data about a theme rather
+  // than a style of the dialog, and bound through `:style`.)
   // The `.mock-screen-crop` subtree simulates the on-air raster: its black
   // background and white type are content and must not follow the theme.
   'components/ComplianceModule.vue': 22,
@@ -74,9 +73,29 @@ const REQUIRED_TOKENS = [
   '--backdrop',
   '--backdrop-strong',
   '--focus-ring',
+  // §5.1 / §5.3: the action colour and the row surface are per theme, because
+  // Ember's primary is amber and Graphite and Paper step their rows away from
+  // the panel. A theme that defines neither is half-built.
+  '--accent-primary',
+  '--surface-row',
 ];
 
-const THEME_SELECTORS = [':root,\n.dark-theme', '.monokai-theme', '.light-theme'];
+/**
+ * §3.5: the glow vocabulary and the top-edge highlight. These are derived
+ * entirely from other tokens, so they are written once in the theme-independent
+ * block rather than repeated in every theme — but they must exist, or a
+ * component reaches for a hand-rolled box-shadow again.
+ */
+const GLOBAL_TOKENS = ['--shadow-highlight', '--glow-onair', '--glow-armed', '--glow-accent'];
+
+/**
+ * Every theme block in `main.css`, derived from the one registry (§5.2) so a
+ * theme cannot be added to the app and forgotten here. The default theme is
+ * written as `:root, .dark-theme`, which is also how `main.css` opens it.
+ */
+const THEME_SELECTORS = THEMES.map((theme) =>
+  theme.className === 'dark-theme' ? ':root,\n.dark-theme' : `.${theme.className}`
+);
 
 /**
  * Collects every top-level rule opened by `selector` and returns their bodies
@@ -102,7 +121,9 @@ function themeBlocks(css: string, selector: string): string {
   return bodies.join('\n');
 }
 
-const LITERAL = /#[0-9a-f]{3,8}\b|rgba?\(/gi;
+/* §7.3: hsl(), oklch() and hwb() spell the same literal a different way; the
+   guard cannot be bypassed by changing colour space. */
+const LITERAL = /#[0-9a-f]{3,8}\b|(?:rgba?|hsla?|oklch|oklab|lch|lab|hwb)\(/gi;
 
 function vueFiles(dir: string): string[] {
   const out: string[] = [];
@@ -184,6 +205,13 @@ describe('Appendix B · theme-safety guard', () => {
     }
 
     expect(missing).toEqual([]);
+  });
+
+  it('defines the glow vocabulary once, for every theme to derive from', () => {
+    const css = readFileSync(join(SRC, 'assets/main.css'), 'utf8');
+    for (const token of GLOBAL_TOKENS) {
+      expect(css, `main.css is missing ${token}`).toContain(`${token}:`);
+    }
   });
 
   it('defines the layer scale, so no component invents a z-index again', () => {

@@ -93,10 +93,10 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--space-2);
   max-width: 280px;
-  padding: 4px var(--space-2);
+  padding: var(--space-1) var(--space-2);
   font-family: var(--font-ui);
   font-size: var(--fs-xs);
-  line-height: 1.4;
+  line-height: var(--lh-body);
   color: var(--text-primary);
   /* It describes a control; it must never be the thing the pointer hits. */
   pointer-events: none;

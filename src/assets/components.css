@@ -27,8 +27,8 @@
   color: var(--text-primary);
   font-family: var(--font-ui);
   font-size: var(--fs-sm);
-  font-weight: 600;
-  line-height: 1;
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-none);
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
@@ -38,7 +38,7 @@
     background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
-    transform 90ms var(--ease-out);
+    transform var(--dur-fast) var(--ease-out);
 }
 
 /* §7.2: the one press. A control that does not move under the finger reads as
@@ -61,7 +61,7 @@
 }
 
 .btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-hover));
   border-color: var(--border-strong);
 }
 
@@ -73,7 +73,7 @@
 /* One disabled treatment, everywhere. */
 .btn:disabled,
 .btn[aria-disabled='true'] {
-  opacity: 0.4;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -84,14 +84,14 @@
 }
 
 .btn--primary {
-  background: var(--accent-blue);
-  border-color: var(--accent-blue);
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
   color: var(--text-on-accent);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 85%, var(--text-primary));
-  border-color: color-mix(in srgb, var(--accent-blue) 85%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-primary) 85%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--accent-primary) 85%, var(--text-primary));
 }
 
 .btn--secondary {
@@ -170,13 +170,14 @@
 .input:focus,
 .select:focus {
   outline: none;
-  border-color: var(--accent-blue);
+  border-color: var(--accent-primary);
   box-shadow: var(--focus-ring);
 }
 
 .input:disabled,
 .select:disabled {
-  opacity: 0.5;
+  /* §3.6: was 0.5 while every other disabled control in this file was 0.4. */
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -192,7 +193,7 @@
 
 .field-label {
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
 }
 
@@ -261,14 +262,15 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  padding: 6px var(--space-2);
+  min-height: var(--control-h-sm);
+  padding: var(--space-1) var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-ui);
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   text-align: left;
   cursor: pointer;
   transition:
@@ -277,7 +279,7 @@
 }
 
 .popover-item:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
 }
 
 .popover-item:focus-visible {
@@ -286,7 +288,7 @@
 }
 
 .popover-item:disabled {
-  opacity: 0.4;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -308,4 +310,20 @@
   .popover-surface {
     animation: none;
   }
+}
+
+/* §3.1 — the one uppercase micro-label.
+ *
+ * Twenty-six places re-declared the same four properties to say "this is a
+ * small capitalised label": column headers, STARTS, NEXT UP, ROUTING, the day
+ * separators, section headings in menus and Settings. They did not agree —
+ * nine sizes between 0.70 and 0.85rem and sixteen letter-spacings — so the
+ * labels that should have read as one family read as near-misses. */
+.label-caps {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  line-height: var(--lh-tight);
+  color: var(--text-muted);
 }

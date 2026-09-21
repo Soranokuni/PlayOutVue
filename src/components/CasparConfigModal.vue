@@ -709,58 +709,58 @@ function formatError(error: unknown, fallback: string) {
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
 }
 
 .modal-header,
 .modal-footer {
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--glass-border);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .modal-footer {
   border-bottom: 0;
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .subtitle {
-  margin: 6px 0 0;
-  font-size: 0.8rem;
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
 }
 
 .modal-body {
-  padding: 1.25rem;
+  padding: var(--space-5);
   overflow-y: auto;
 }
 
 .settings-section {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--space-6);
 }
 
 .compact-gap {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 1rem;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 .section-header.mini {
-  margin-bottom: 0.65rem;
+  margin-bottom: var(--space-3);
 }
 
 .form-grid {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .form-grid.two-col {
@@ -768,23 +768,23 @@ function formatError(error: unknown, fallback: string) {
 }
 
 .compact-grid {
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .glass-input,
 .xml-editor {
   background: var(--bg-tertiary);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
   color: var(--text-primary);
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 0.8rem;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-sm);
 }
 
 .xml-editor {
@@ -794,9 +794,12 @@ function formatError(error: unknown, fallback: string) {
   font-family: Consolas, 'Courier New', monospace;
 }
 
+/* §4: without an alignment the button stretched to the input's height, so
+   the pair sat at two heights in every dialog that used it. */
 .input-with-button {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .input-with-button .glass-input {
@@ -807,8 +810,8 @@ function formatError(error: unknown, fallback: string) {
   background: var(--bg-hover);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
 }
 
@@ -824,15 +827,15 @@ function formatError(error: unknown, fallback: string) {
 
 .tab-strip {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .tab-btn {
   background: transparent;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
-  border-radius: 999px;
-  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
 }
 
@@ -843,9 +846,9 @@ function formatError(error: unknown, fallback: string) {
 }
 
 .status-card {
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 0.78rem;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
 }
 
 .status-card.ok {
@@ -860,14 +863,14 @@ function formatError(error: unknown, fallback: string) {
 
 .channel-card,
 .consumer-card {
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
   background: var(--bg-hover);
 }
 
 .channel-card + .channel-card {
-  margin-top: 14px;
+  margin-top: var(--space-4);
 }
 
 .channel-card-header,
@@ -875,24 +878,24 @@ function formatError(error: unknown, fallback: string) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
 }
 
 .consumer-group + .consumer-group {
-  margin-top: 14px;
+  margin-top: var(--space-4);
 }
 
 .consumer-card + .consumer-card {
-  margin-top: 10px;
+  margin-top: var(--space-3);
 }
 
 .toggle-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 10px;
-  font-size: 0.78rem;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  font-size: var(--fs-sm);
 }
 
 .checkbox-inline {
@@ -901,7 +904,7 @@ function formatError(error: unknown, fallback: string) {
 
 .hint-text {
   color: var(--text-secondary);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
 }
 
 @media (max-width: 900px) {

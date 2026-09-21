@@ -243,7 +243,7 @@ const runSelected = () => {
         tabindex="-1"
       >
         <div class="palette-input-wrapper">
-          <span class="palette-search-icon"><AppIcon name="search" :size="16" /></span>
+          <span class="palette-search-icon"><AppIcon name="search" /></span>
           <input
             ref="inputRef"
             v-model="query"
@@ -319,7 +319,7 @@ const runSelected = () => {
   max-width: 660px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-medium);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-3);
   overflow: hidden;
   display: flex;
@@ -329,15 +329,15 @@ const runSelected = () => {
 .palette-input-wrapper {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-tertiary);
 }
 
 .palette-search-icon {
-  font-size: 1.1rem;
-  color: var(--accent-blue);
+  font-size: var(--fs-xl);
+  color: var(--accent-primary);
 }
 
 .palette-input {
@@ -346,9 +346,9 @@ const runSelected = () => {
   border: none;
   outline: none;
   color: var(--text-primary);
-  font-size: 1.05rem;
+  font-size: var(--fs-lg);
   font-family: inherit;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 
 .palette-input::placeholder {
@@ -356,31 +356,31 @@ const runSelected = () => {
 }
 
 .palette-esc-kbd {
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   background: var(--bg-hover);
   color: var(--text-secondary);
   border: 1px solid var(--border-medium);
 }
 
 .palette-error-banner {
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   background: color-mix(in srgb, var(--accent-red) 18%, transparent);
   color: var(--accent-red);
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
   border-bottom: 1px solid var(--accent-red);
 }
 
 .palette-list {
   max-height: 380px;
   overflow-y: auto;
-  padding: 6px;
+  padding: var(--space-2);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0);
 }
 
 .palette-item {
@@ -388,15 +388,15 @@ const runSelected = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border-radius: 6px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
   cursor: pointer;
   background: transparent;
   border: none;
   color: var(--text-primary);
   text-align: left;
   font-family: inherit;
-  transition: background 0.1s ease;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 
 .palette-item.active {
@@ -412,31 +412,31 @@ const runSelected = () => {
 .palette-item-main {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .palette-item-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .palette-item-disabled-reason {
-  font-size: 0.76rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   font-style: italic;
 }
 
 .palette-item-title {
-  font-size: 0.92rem;
-  font-weight: 600;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
 }
 
 .palette-item-scope {
   font-size: var(--fs-xs);
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 9999px;
+  font-weight: var(--fw-bold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-pill);
   background: var(--bg-hover);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
@@ -444,20 +444,20 @@ const runSelected = () => {
 }
 
 .palette-item-hotkey kbd {
-  font-size: 0.76rem;
+  font-size: var(--fs-xs);
   font-family: var(--font-mono);
-  font-weight: 700;
-  padding: 3px 6px;
-  border-radius: 4px;
+  font-weight: var(--fw-bold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
 }
 
 .palette-empty {
-  padding: 24px;
+  padding: var(--space-6);
   text-align: center;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: var(--fs-md);
 }
 </style>

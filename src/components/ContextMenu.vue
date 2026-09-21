@@ -292,7 +292,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
         @click.stop="!btn.disabled && (btn.action(), emit('close'))"
       >
         <span class="action-icon">
-          <AppIcon :name="topActionIcon(btn)" :size="16" />
+          <AppIcon :name="topActionIcon(btn)" />
         </span>
       </button>
     </div>
@@ -380,11 +380,14 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 .win11-context-menu {
   position: fixed;
   z-index: var(--z-context-menu);
-  min-width: 240px;
-  max-width: 320px;
+  /* §2.6: the Greek compliance labels truncated at ~26 characters in a menu
+     whose width was chosen for English. A regulatory term the operator cannot
+     read is worse than a wide menu. */
+  min-width: 280px;
+  max-width: 360px;
   font-family: var(--font-ui);
   padding: var(--space-1) 0;
-  transition: opacity 0.15s ease-out;
+  transition: opacity var(--dur-fast) var(--ease-out);
   user-select: none;
   box-sizing: border-box;
 }
@@ -406,7 +409,7 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: var(--border-medium);
-  border-radius: 99px;
+  border-radius: var(--radius-pill);
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: var(--border-strong);
@@ -417,10 +420,10 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   display: flex;
   align-items: center;
   justify-content: space-around;
-  gap: 4px;
-  padding: 4px;
+  gap: var(--space-1);
+  padding: var(--space-1);
   border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
 .action-btn {
@@ -433,11 +436,11 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 
 .action-btn:hover:not(:disabled) {
@@ -472,10 +475,10 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 6px 10px 3px 38px;
+  padding: var(--space-2) var(--space-2) var(--space-1) calc(16px + var(--space-3) + var(--space-2));
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -493,16 +496,19 @@ const onMouseLeaveSubmenu = (event: MouseEvent) => {
 .menu-divider {
   height: 1px;
   background: var(--border-subtle);
-  margin: 4px 0;
+  margin: var(--space-1) 0;
 }
 
 /* Teleported Submenu Flyout specific settings */
 .submenu-flyout {
-  min-width: 240px;
-  max-width: 320px;
+  /* §2.6: the Greek compliance labels truncated at ~26 characters in a menu
+     whose width was chosen for English. A regulatory term the operator cannot
+     read is worse than a wide menu. */
+  min-width: 280px;
+  max-width: 360px;
   max-height: 50vh;
   overflow-y: auto;
-  z-index: calc(var(--z-context-menu) + 5);
+  z-index: var(--z-context-menu-nested);
 }
 
 .submenu-flyout::before {

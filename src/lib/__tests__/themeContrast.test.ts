@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { THEMES as THEME_REGISTRY } from '../../config/themes';
 
 /**
  * UI/UX plan §10 — contrast floors.
@@ -20,6 +21,13 @@ const CSS = readFileSync(join(process.cwd(), 'src/assets/main.css'), 'utf8').rep
 
 /** Reads a token's literal value from a theme block. */
 function token(themeSelector: string, name: string): string {
+  // The three original themes alias --accent-primary to --accent-blue; follow
+  // one level of indirection so the ratio is computed on a real colour.
+  const resolve = (value: string): string => {
+    const alias = value.match(/^var\((--[a-z-]+)\)$/);
+    return alias ? token(themeSelector, alias[1]!) : value;
+  };
+
   const bodies: string[] = [];
   let from = 0;
   for (;;) {
@@ -34,7 +42,7 @@ function token(themeSelector: string, name: string): string {
 
   for (const body of bodies) {
     const match = body.match(new RegExp(`${name}:\\s*([^;]+);`));
-    if (match) return match[1]!.trim();
+    if (match) return resolve(match[1]!.trim());
   }
   throw new Error(`${themeSelector} does not define ${name}`);
 }
@@ -60,7 +68,10 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-const THEMES = [':root,\n.dark-theme', '.monokai-theme', '.light-theme'] as const;
+/** Derived from the one registry (§5.2): a new theme is checked by existing. */
+const THEMES = THEME_REGISTRY.map((theme) =>
+  theme.className === 'dark-theme' ? ':root,\n.dark-theme' : `.${theme.className}`
+);
 
 const AA_NORMAL = 4.5;
 
@@ -118,7 +129,9 @@ describe('§10 · theme contrast floors', () => {
         ['--status-onair / --text-on-danger', token(theme, '--status-onair'), token(theme, '--text-on-danger')],
         ['--status-error / --text-on-danger', token(theme, '--status-error'), token(theme, '--text-on-danger')],
         ['--status-armed / --text-on-warning', token(theme, '--status-armed'), token(theme, '--text-on-warning')],
-        ['--accent-blue / --text-on-accent', token(theme, '--accent-blue'), token(theme, '--text-on-accent')],
+        // §5.1: the *action* colour is what carries --text-on-accent (the
+        // primary button, the filled badge). In Ember that is amber, not blue.
+        ['--accent-primary / --text-on-accent', token(theme, '--accent-primary'), token(theme, '--text-on-accent')],
       ];
 
       for (const [label, bg, fg] of pairs) {

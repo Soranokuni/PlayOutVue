@@ -127,7 +127,7 @@ const tabIndexFor = (option: RadioCardOption, index: number) => {
 <style scoped>
 .radio-card-group {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-2);
 }
 
@@ -139,7 +139,7 @@ const tabIndexFor = (option: RadioCardOption, index: number) => {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-3);
+  padding: var(--space-4);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
   background: var(--bg-hover);
@@ -159,12 +159,12 @@ const tabIndexFor = (option: RadioCardOption, index: number) => {
 }
 
 .radio-card.is-selected {
-  border-color: var(--accent-blue);
-  background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-hover));
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-hover));
 }
 
 .radio-card.is-disabled {
-  opacity: 0.45;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -173,32 +173,32 @@ const tabIndexFor = (option: RadioCardOption, index: number) => {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  min-height: 18px;
+  min-height: var(--space-5);
 }
 
 .radio-card-badge {
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
 .radio-card.is-selected .radio-card-badge {
-  color: var(--accent-blue);
+  color: var(--accent-primary);
 }
 
 .radio-card-title {
   margin: 0;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
 }
 
 .radio-card-desc {
   margin: 0;
   font-size: var(--fs-xs);
-  line-height: 1.45;
-  color: var(--text-secondary);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
 }
 </style>

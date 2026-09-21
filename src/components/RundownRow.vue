@@ -142,7 +142,7 @@ const trimTitle = (item: RundownItem) => {
 };
 
 const trimDisplay = (item: RundownItem) => {
-  if (item.type === 'gap') return item.hardStartTime || 'GAP';
+  if (item.type === 'gap') return item.hardStartTime ? 'HARD START' : 'GAP';
   if (item.type === 'live') return 'LIVE';
   const trimIn = item.trim_in_ms !== undefined ? item.trim_in_ms : item.inPoint;
   const trimOut = item.trim_out_ms !== undefined ? item.trim_out_ms : (item.duration_ms && item.outPoint ? item.duration_ms - item.outPoint : 0);
@@ -232,7 +232,7 @@ const itemTooltip = computed(() => {
     </div>
 
     <div class="rw-type-icon" :style="{ color: typeColor(item.type) }" :title="typeLabel(item.type)">
-      <AppIcon :name="typeIcon(item.type)" :size="16" />
+      <AppIcon :name="typeIcon(item.type)" />
     </div>
 
     <!-- UI F-03: the title is the only flexible column, and carries nothing
@@ -326,17 +326,18 @@ const itemTooltip = computed(() => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--rw-col-gap);
   min-height: var(--row-h-rundown, 48px);
   height: var(--row-h-rundown, 48px);
-  padding: 0 8px;
-  margin: 3px 0;
-  border-radius: 6px;
+  padding: 0 var(--space-2);
+  margin: var(--space-0) 0;
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
   cursor: pointer;
   user-select: none;
-  transition: background 0.12s, border-color 0.12s, transform 0.12s;
-  background: var(--bg-secondary);
+  transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast);
+  /* §5.3: a row is its own surface, not the panel it sits in. */
+  background: var(--surface-row);
 }
 .rw-row:hover { background: var(--bg-hover); }
 /* §6.2 precedence, top wins:
@@ -344,22 +345,20 @@ const itemTooltip = computed(() => {
    6 content-type (a 3px left bar only) · 7 rating (its chip only).
    The content tints used to be full-row backgrounds that lowered the contrast
    of selected and next-up underneath them, and whose :hover collapsed to one
-   blue `!important`. */
-.rw-row.selected {
-  background: var(--bg-active) !important;
-  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent) !important;
-}
-.rw-row.playing  {
-  background: color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary)) !important;
-  border-color: color-mix(in srgb, var(--accent-red) 45%, transparent) !important;
-}
-.rw-row.played   { opacity: 0.5; }
-.rw-row.next-up {
-  background: color-mix(in srgb, var(--accent-yellow) 12%, var(--bg-secondary));
-  border-color: color-mix(in srgb, var(--accent-yellow) 35%, transparent);
-}
-.rw-row.next-up-imminent {
-  animation: nextUpPulse 1s ease-in-out infinite;
+   blue `!important`.
+
+   The rules that carry that precedence are further down, in one ordered
+   block — see "§3.10". */
+.rw-row.played   { opacity: var(--opacity-muted); }
+.rw-row.next-up-imminent::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(--glow-armed);
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+  will-change: opacity;
 }
 .rw-row.drop-target-before,
 .rw-row.drop-target-after {
@@ -389,7 +388,7 @@ const itemTooltip = computed(() => {
   left: 6px;
   width: 10px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent-cyan);
   box-shadow: 0 0 0 2px var(--bg-primary), 0 0 10px var(--accent-cyan);
   pointer-events: none;
@@ -412,8 +411,37 @@ const itemTooltip = computed(() => {
   font-style: italic;
 }
 
-/* Flat tints, so the row paints once when it starts playing rather than four
-   times a second for the length of the clip. */
+/* --- §3.10 · the row's states, in precedence order ------------------------
+ *
+ * Every one of these selectors has the same specificity, so the file's order
+ * *is* the precedence. That was true before as well; what was missing was
+ * saying so. Instead, `.selected` and `.playing` were written above the tints
+ * that would otherwise beat them and given four `!important`s to win anyway —
+ * which is how the green progress tint became unreachable: an `!important`
+ * red always covered it.
+ *
+ * Weakest first. The one `:not()` is the real relationship — the progress
+ * tints do not compete with "playing", they *are* playing, coloured by how far
+ * through the clip it is.
+ *
+ * Flat tints, so the row paints once when it starts playing rather than four
+ * times a second for the length of the clip.
+ */
+.rw-row.selected {
+  background: var(--bg-active);
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
+}
+
+.rw-row.next-up {
+  background: color-mix(in srgb, var(--accent-yellow) 12%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-yellow) 35%, transparent);
+}
+
+.rw-row.playing:not([data-progress-tone]) {
+  background: color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-red) 45%, transparent);
+}
+
 .rw-row[data-progress-tone='green'] {
   background: color-mix(in srgb, var(--status-ready) 12%, var(--bg-secondary));
   border-color: color-mix(in srgb, var(--status-ready) 40%, transparent);
@@ -443,8 +471,8 @@ const itemTooltip = computed(() => {
    the only row that is actually on air. */
 .rw-countdown {
   font-size: var(--fs-md);
-  line-height: 1.15;
-  font-weight: 700;
+  line-height: var(--lh-tight);
+  font-weight: var(--fw-bold);
   color: var(--status-onair);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -455,48 +483,38 @@ const itemTooltip = computed(() => {
    on the digits. */
 .rw-countdown.is-imminent {
   color: var(--status-warning);
-  font-weight: 800;
+  font-weight: var(--fw-semibold);
 }
 
 /* Elapsed / total: glanced at, not read. */
 .rw-dur-sub {
   font-size: var(--fs-xs);
-  line-height: 1.2;
-  font-weight: 600;
+  line-height: var(--lh-tight);
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-@keyframes nextUpPulse {
-  0%, 100% { background: color-mix(in srgb, var(--accent-yellow) 10%, var(--bg-secondary)); box-shadow: 0 0 0 0 transparent; }
-  50% { background: color-mix(in srgb, var(--accent-yellow) 22%, var(--bg-secondary)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-yellow) 40%, transparent), 0 0 16px color-mix(in srgb, var(--accent-yellow) 25%, transparent); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .rw-row.next-up-imminent {
-    animation: none;
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-yellow) 40%, transparent);
-  }
-}
 
-.rw-handle { color: var(--text-muted); cursor: grab; font-size: var(--fs-lg); width: 18px; text-align: center; flex-shrink: 0; }
-.rw-num     { width: 22px; text-align: center; font-size: var(--fs-sm); font-weight: 700; color: var(--text-secondary); flex-shrink: 0; font-family: var(--font-mono); }
-.rw-status { width: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.rw-handle { color: var(--text-muted); cursor: grab; font-size: var(--fs-lg); width: var(--rw-col-handle); text-align: center; flex-shrink: 0; }
+.rw-num     { width: var(--rw-col-num); text-align: center; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--text-secondary); flex-shrink: 0; font-family: var(--font-mono); }
+.rw-status { width: var(--rw-col-status); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .rw-signal {
   width: 5px;
   height: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--border-medium);
   border: 1px solid var(--border-subtle);
 }
-.rw-type-icon { width: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.rw-type-icon { width: var(--rw-col-type); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 /* F-03: the one flexible column, and the only one allowed to shrink. */
-.rw-name    { flex: 1 1 auto; min-width: 180px; font-size: var(--fs-lg); font-weight: 600; letter-spacing: 0.01em; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rw-flags   { width: 88px; display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-shrink: 0; overflow: hidden; }
+.rw-name    { flex: 1 1 auto; min-width: var(--rw-col-title-min); font-size: var(--fs-lg); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps); color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rw-flags   { width: var(--rw-col-flags); display: flex; align-items: center; justify-content: flex-start; gap: var(--space-1); flex-shrink: 0; overflow: hidden; }
 .rw-rating-badge {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 34px; padding: 3px 8px; border-radius: 999px;
-  font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.08em;
+  min-width: 34px; padding: var(--space-0) var(--space-2); border-radius: var(--radius-pill);
+  font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps);
   border: 1px solid var(--border-medium);
   box-shadow: var(--shadow-1);
 }
@@ -505,11 +523,11 @@ const itemTooltip = computed(() => {
   align-items: center;
   justify-content: center;
   min-width: 44px;
-  padding: 3px 8px;
-  border-radius: 999px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-pill);
   font-size: var(--fs-xs);
-  font-weight: 900;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
   border: 1px solid var(--border-medium);
   text-transform: uppercase;
 }
@@ -525,15 +543,16 @@ const itemTooltip = computed(() => {
    and anything longer ellipses with the full `IN … OUT …` in the tooltip
    rather than spilling into the duration column. */
 .rw-inout   {
-  width: 86px; text-align: center; flex-shrink: 0;
-  font-size: var(--fs-xs); color: var(--text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  width: var(--rw-col-trim); text-align: right; flex-shrink: 0;
+  font-size: var(--fs-xs); font-weight: var(--fw-semibold); line-height: var(--lh-tight);
+  color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-caps);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Both timing columns are right-aligned to the same edge, 12 px apart, so the
    header can no longer read "DURATION AT" as one word. */
-.rw-dur     { width: 112px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 1px; text-align: right; font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: 0.02em; }
-.rw-at      { width: 84px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-shrink: 0; margin-left: 6px; text-align: right; }
-.rw-actions { width: calc(var(--control-h-sm) * 2 + 4px); display: flex; gap: 4px; flex-shrink: 0; justify-content: flex-end; }
+.rw-dur     { width: var(--rw-col-dur); display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--space-0); text-align: right; font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: var(--tracking-caps); }
+.rw-at      { width: var(--rw-col-at); display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); flex-shrink: 0; margin-left: var(--space-2); text-align: right; }
+.rw-actions { width: var(--rw-col-actions); display: flex; gap: var(--space-1); flex-shrink: 0; justify-content: flex-end; }
 
 /* The delete control appears on hover or keyboard focus, so a 300-row list is
    not 300 delete buttons one mis-click away from the rundown. */
@@ -544,7 +563,7 @@ const itemTooltip = computed(() => {
     background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
-    transform 90ms var(--ease-out);
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .rw-row:hover .row-btn-del,
@@ -558,23 +577,23 @@ const itemTooltip = computed(() => {
   .rw-actions .row-btn-del { opacity: 1; }
 }
 
-.tc-day   { display: inline-block; min-width: 2.2em; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.08em; text-align: left; }
+.tc-day   { display: inline-block; min-width: 2.2em; font-size: var(--fs-xs); font-weight: var(--fw-bold); text-transform: uppercase; color: var(--text-muted); letter-spacing: var(--tracking-caps); text-align: left; }
 .tc-sched { font-size: var(--fs-sm); color: var(--text-secondary); font-variant-numeric: tabular-nums; font-family: var(--font-mono); text-align: left; }
-.tc-done  { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; }
-.tc-gap   { font-size: var(--fs-sm); color: var(--accent-orange); font-family: var(--font-mono); text-align: left; font-weight: 600; }
+.tc-done  { font-size: var(--fs-xs); color: var(--text-muted); font-weight: var(--fw-semibold); }
+.tc-gap   { font-size: var(--fs-sm); color: var(--accent-orange); font-family: var(--font-mono); text-align: left; font-weight: var(--fw-semibold); }
 /* §3.2: a mark, not a sentence. The dot reuses the row's existing pulse
    overlay treatment -- opacity only, gated by prefers-reduced-motion. */
 .rw-onair-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
+  gap: var(--space-1);
+  padding: var(--space-0) var(--space-2);
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--status-onair) 16%, transparent);
   color: var(--status-onair);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   white-space: nowrap;
 }
 .rw-onair-dot {
@@ -582,20 +601,13 @@ const itemTooltip = computed(() => {
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-  animation: rwOnAirDot 1.6s ease-in-out infinite;
-}
-@keyframes rwOnAirDot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .rw-onair-dot { animation: none; }
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 /* §7.2: the row's two actions are `.btn--icon.btn--sm` now. What was here was
    the family's rules written out again at a hard 26 px that ignored the
    density setting, at `--radius-sm` instead of `--radius-md`, and on
-   `transition: 0.12s` -- the `transition: all` the rest of the app was audited
+   `transition: var(--dur-fast)` -- the `transition: all` the rest of the app was audited
    to remove. All that is left is the border the row's buttons need (the family
    draws `--icon` borderless, but these sit on a tinted row and would vanish)
    and the two tones. */
@@ -622,7 +634,7 @@ const itemTooltip = computed(() => {
   color: var(--accent-red);
 }
 
-.rw-ghost { opacity: 0.3; background: var(--bg-hover); }
+.rw-ghost { opacity: var(--opacity-disabled); background: var(--bg-hover); }
 
 /* Content Type subtle row tints */
 /* Content type: a 3px bar at the leading edge, never a row tint. Drawn on a
@@ -634,10 +646,10 @@ const itemTooltip = computed(() => {
   content: '';
   position: absolute;
   left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  width: var(--border-accent-w);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   pointer-events: none;
 }
 
@@ -650,7 +662,7 @@ const itemTooltip = computed(() => {
 .rw-name {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .rw-name-text {
   white-space: nowrap;
@@ -662,7 +674,7 @@ const itemTooltip = computed(() => {
 .rw-meta-badges {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .mcr-badge {
@@ -670,16 +682,16 @@ const itemTooltip = computed(() => {
   align-items: center;
   justify-content: center;
   font-size: var(--fs-xs);
-  font-weight: 800;
-  padding: 2px 5px;
-  border-radius: 3px;
-  line-height: 1;
+  font-weight: var(--fw-semibold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
+  line-height: var(--lh-none);
   text-transform: uppercase;
 }
 
 .badge-age.age-k { background: var(--rating-k); color: var(--rating-k-fg); }
-.badge-age.age-8 { background: var(--rating-8); color: var(--rating-8-fg); font-weight: 900; }
-.badge-age.age-12 { background: var(--rating-12); color: var(--rating-12-fg); font-weight: 900; }
+.badge-age.age-8 { background: var(--rating-8); color: var(--rating-8-fg); font-weight: var(--fw-bold); }
+.badge-age.age-12 { background: var(--rating-12); color: var(--rating-12-fg); font-weight: var(--fw-bold); }
 .badge-age.age-16 { background: var(--rating-16); color: var(--rating-16-fg); }
 .badge-age.age-18 { background: var(--rating-18); color: var(--rating-18-fg); }
 
@@ -691,7 +703,7 @@ const itemTooltip = computed(() => {
 
 .badge-content.content-movie { background: var(--type-movie); color: var(--text-on-danger); }
 .badge-content.content-show { background: var(--type-show); color: var(--text-on-accent); }
-.badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: 800; }
+.badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: var(--fw-semibold); }
 .badge-content.content-news { background: var(--type-news); color: var(--text-on-success); }
 
 /* --- §6.1 flags column ---------------------------------------------------- */
@@ -701,7 +713,7 @@ const itemTooltip = computed(() => {
 .rw-tp-dot {
   width: 4px;
   height: 4px;
-  margin-left: 2px;
+  margin-left: var(--space-0);
   border-radius: 50%;
   background: currentColor;
   flex-shrink: 0;
@@ -714,7 +726,7 @@ const itemTooltip = computed(() => {
 }
 
 .rw-dur-value {
-  line-height: 1.15;
+  line-height: var(--lh-tight);
 }
 
 /* --- Responsive column shedding (§6.1) ------------------------------------
@@ -725,7 +737,7 @@ const itemTooltip = computed(() => {
 }
 
 @container rundown (max-width: 520px) {
-  .rw-flags { width: 26px; }
+  .rw-flags { width: var(--rw-col-flags-narrow); }
   .rw-flags .rw-tag-badge { display: none; }
 }
 </style>

@@ -55,7 +55,7 @@ const tooltip = computed(() => {
   height: 10px;
   border-radius: 50%;
   background: var(--status-offline);
-  transition: background 0.2s;
+  transition: background var(--dur-base);
 }
 
 .status-dot.online {
@@ -79,9 +79,9 @@ const tooltip = computed(() => {
   content: '';
   position: absolute;
   inset: 50% auto auto 50%;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
+  width: var(--space-2);
+  height: var(--space-2);
+  margin: calc(var(--space-1) * -1) 0 0 calc(var(--space-1) * -1);
   border-radius: 50%;
   border: 2px solid currentColor;
   color: inherit;
@@ -91,23 +91,12 @@ const tooltip = computed(() => {
 
 .status-dot.online::after {
   color: var(--status-ready);
-  animation: ping-ring 1.6s ease-out infinite;
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
 .status-dot.auth-rejected::after {
   color: var(--status-warning);
-  animation: ping-ring 1.2s ease-out infinite;
+  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 
-@keyframes ping-ring {
-  0%   { opacity: 0.7; transform: scale(1); }
-  70%  { opacity: 0; transform: scale(2.6); }
-  100% { opacity: 0; transform: scale(2.6); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .status-dot::after {
-    animation: none;
-  }
-}
 </style>

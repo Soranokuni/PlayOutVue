@@ -245,7 +245,7 @@ watch(
     <!-- Search & Filter Bar -->
     <div class="search-bar-row">
       <div class="search-input-wrapper">
-        <AppIcon class="search-icon" name="search" :size="14" />
+        <AppIcon class="search-icon" name="search" />
         <input
           v-model="searchQuery"
           type="text"
@@ -401,8 +401,8 @@ watch(
 /* Search Bar */
 .search-bar-row {
   display: flex;
-  gap: 10px;
-  padding: 10px 1.4rem;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -417,15 +417,15 @@ watch(
 .search-icon {
   position: absolute;
   left: 10px;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   color: var(--text-muted);
   pointer-events: none;
 }
 
 .search-input {
   width: 100%;
-  padding-left: 32px;
-  padding-right: 28px;
+  padding-left: var(--space-8);
+  padding-right: var(--space-8);
 }
 
 .clear-search-btn {
@@ -435,7 +435,7 @@ watch(
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 
 .clear-search-btn:hover {
@@ -446,25 +446,25 @@ watch(
 .inline-create-box {
   background: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-secondary));
   border-bottom: 1px solid color-mix(in srgb, var(--accent-blue) 30%, transparent);
-  padding: 10px 1.4rem;
+  padding: var(--space-3) var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .create-prompt {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
 }
 
 .create-prompt code {
   color: var(--accent-blue);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .create-input-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .create-input-row .input {
@@ -475,20 +475,23 @@ watch(
 .tree-container {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-0);
 }
 
 .folder-row {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 34px;
   height: 34px;
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
   user-select: none;
   background: var(--bg-secondary);
 }
@@ -529,7 +532,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s ease, color 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -545,7 +548,7 @@ watch(
 }
 
 .folder-icon {
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
   flex-shrink: 0;
 }
 
@@ -559,8 +562,8 @@ watch(
 
 .folder-title,
 .folder-path-display {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
   flex: 1;
   overflow: hidden;
@@ -569,33 +572,33 @@ watch(
 }
 
 .folder-row.is-root .folder-title {
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--accent-blue);
 }
 
 .asset-count-pill {
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--text-secondary);
   background: var(--bg-tertiary);
-  padding: 2px 7px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-medium);
 }
 
 .forbidden-pill {
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-semibold);
   color: var(--accent-red);
   background: color-mix(in srgb, var(--accent-red) 15%, transparent);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
 }
 
 .empty-results {
   text-align: center;
-  padding: 2.5rem;
-  font-size: 0.85rem;
+  padding: var(--space-8);
+  font-size: var(--fs-md);
   color: var(--text-muted);
 }
 
@@ -603,17 +606,17 @@ watch(
 .selected-target-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 1.4rem;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
   background: var(--bg-tertiary);
   border-top: 1px solid var(--border-subtle);
 }
 
 .target-label {
-  font-size: 0.72rem;
-  font-weight: 800;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   color: var(--text-muted);
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   flex-shrink: 0;
 }
@@ -621,17 +624,17 @@ watch(
 .breadcrumb-trail {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   overflow-x: auto;
-  font-size: 0.82rem;
+  font-size: var(--fs-md);
   color: var(--accent-blue);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .crumb-item {
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.12s ease;
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 .crumb-item:hover {
@@ -641,7 +644,7 @@ watch(
 
 .crumb-separator {
   color: var(--text-muted);
-  margin: 0 3px;
+  margin: 0 var(--space-0);
 }
 
 /* Footer */
@@ -672,7 +675,8 @@ watch(
 }
 
 .search-input {
-  padding-left: calc(var(--space-2) * 2 + 14px);
+  /* §3.8: the field clears a 16px toolbar icon, not a 14px row one. */
+  padding-left: calc(var(--space-2) * 2 + 16px);
 }
 
 .clear-search-btn {

@@ -212,7 +212,7 @@ const clearComplianceOverlay = async () => {
   <div class="compliance-module">
     <div class="module-header">
       <div class="title-with-badge">
-        <AppIcon class="greek-mark" name="shield" :size="16" />
+        <AppIcon class="greek-mark" name="shield" />
         <h3 class="text-warning">Greek NCRTV (ΕΣΡ) Compliance</h3>
       </div>
       <span v-if="selectedRating !== 'none'" class="active-badge" :class="'badge-' + selectedRating">
@@ -248,7 +248,7 @@ const clearComplianceOverlay = async () => {
     <!-- Descriptors & Quick Presets (For 8, 12, 16, 18) -->
     <template v-if="selectedRating === '8' || selectedRating === '12' || selectedRating === '16' || selectedRating === '18'">
       <!-- Quick Presets -->
-      <div class="form-group" style="margin-top: 1rem;">
+      <div class="form-group cm-stacked">
         <label class="text-secondary text-sm">1-Click Warning Presets (ΕΣΡ)</label>
         <div class="preset-grid">
           <button
@@ -321,8 +321,7 @@ const clearComplianceOverlay = async () => {
     <div class="actions">
       <button
         v-if="selectedRating !== 'none'"
-        class="glass-btn btn-trigger-advisory full-width"
-        style="margin-bottom: 8px;"
+        class="glass-btn btn-trigger-advisory full-width cm-stacked-below"
         :disabled="isAdvisoryTriggering"
         @click="triggerAdvisory"
       >
@@ -344,76 +343,88 @@ const clearComplianceOverlay = async () => {
 .compliance-module {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  padding: 1.15rem;
-  margin-top: 1.5rem;
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-top: var(--space-6);
 }
 
 .module-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 0.65rem;
+  padding-bottom: var(--space-3);
 }
 
 .title-with-badge {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .greek-flag {
-  font-size: 1.1rem;
+  font-size: var(--fs-xl);
 }
 
 .module-header h3 {
   margin: 0;
-  font-size: 0.92rem;
-  font-weight: 700;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
   color: var(--text-primary);
 }
 
 .active-badge {
-  font-size: 0.72rem;
-  font-weight: 800;
-  padding: 3px 8px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  padding: var(--space-0) var(--space-2);
   border-radius: var(--radius-sm);
   color: var(--text-on-accent);
 }
 
 .form-group {
-  margin-bottom: 0.9rem;
+  margin-bottom: var(--space-4);
 }
 
 .form-group label {
   display: block;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
   color: var(--text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
 }
 
 /* Rating Button Bar */
 .rating-button-bar {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
+  gap: var(--space-2);
+}
+
+/* §3.2: two inline margins, two values, one idea. */
+.cm-stacked {
+  margin-top: var(--space-4);
+}
+
+.cm-stacked-below {
+  margin-bottom: var(--space-2);
 }
 
 .rating-select-btn {
   background: var(--bg-hover);
   border: 1px solid var(--border-medium);
   color: var(--text-secondary);
-  padding: 8px 4px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-1);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-weight: 800;
-  font-size: 0.85rem;
-  transition: all 0.15s;
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-md);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .rating-select-btn:hover {
@@ -434,17 +445,17 @@ const clearComplianceOverlay = async () => {
 
 /* TP Toggle */
 .tp-toggle-row {
-  margin: 0.75rem 0;
+  margin: var(--space-3) 0;
   background: var(--bg-input);
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
 }
 
 .toggle-checkbox {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   cursor: pointer;
   font-size: var(--fs-sm);
   color: var(--text-secondary);
@@ -453,29 +464,32 @@ const clearComplianceOverlay = async () => {
 .tp-label strong {
   background: var(--status-warning);
   color: var(--text-on-warning);
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 0.72rem;
-  margin-right: 6px;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  margin-right: var(--space-2);
 }
 
 /* Preset Chips */
 .preset-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .preset-chip {
   background: var(--bg-hover);
   border: 1px solid var(--border-medium);
   color: var(--text-secondary);
-  padding: 5px 9px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 700;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   cursor: pointer;
-  transition: all 0.15s;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .preset-chip:hover {
@@ -494,23 +508,26 @@ const clearComplianceOverlay = async () => {
 .descriptor-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .desc-toggle-btn {
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
-  padding: 8px 4px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-1);
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  transition: all 0.15s;
+  gap: var(--space-1);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .desc-toggle-btn:hover {
@@ -525,7 +542,7 @@ const clearComplianceOverlay = async () => {
 }
 
 .desc-icon {
-  font-size: 1.1rem;
+  font-size: var(--fs-xl);
 }
 
 .full-width {
@@ -537,9 +554,9 @@ const clearComplianceOverlay = async () => {
   background: var(--bg-input);
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 0.82rem;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-md);
   outline: none;
 }
 
@@ -547,26 +564,26 @@ const clearComplianceOverlay = async () => {
   resize: vertical;
   min-height: 54px;
   font-family: inherit;
-  line-height: 1.35;
+  line-height: var(--lh-tight);
 }
 
 /* Live Preview Card */
 .live-preview-card {
-  margin: 1rem 0;
+  margin: var(--space-4) 0;
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
 }
 
 .preview-header {
   display: flex;
   justify-content: space-between;
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.05em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .preview-timer {
@@ -580,8 +597,8 @@ const clearComplianceOverlay = async () => {
 .mock-screen-crop {
   background: #000;
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  padding: 12px;
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -591,7 +608,7 @@ const clearComplianceOverlay = async () => {
   display: flex;
   flex-direction: row-reverse;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .preview-badge {
@@ -600,8 +617,8 @@ const clearComplianceOverlay = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
-  font-weight: 900;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
   color: #fff;
   background: rgba(255, 255, 255, 0.28);
   border: 1.5px solid rgba(255, 255, 255, 0.7);
@@ -626,33 +643,33 @@ const clearComplianceOverlay = async () => {
   border: 1px solid rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(14px);
   color: #fff;
-  font-size: 11px;
-  font-weight: 900;
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-sm);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .preview-floating-text-wrap {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-0);
   position: relative;
-  padding: 0 2px;
+  padding: 0 var(--space-0);
 }
 
 .preview-text-row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-2);
 }
 
-.pill-icon { font-size: 12px; }
+.pill-icon { font-size: var(--fs-xs); }
 
 .preview-floating-text {
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
   color: #fff;
   text-transform: uppercase;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
@@ -662,29 +679,29 @@ const clearComplianceOverlay = async () => {
 .preview-accent-line {
   height: 1.5px;
   background: linear-gradient(270deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.35) 75%, rgba(255, 255, 255, 0) 100%);
-  border-radius: 1px;
+  border-radius: var(--radius-sm);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 /* Actions */
 .actions {
-  margin-top: 1rem;
+  margin-top: var(--space-4);
 }
 
 .glass-btn {
-  padding: 10px;
-  border-radius: 6px;
-  font-weight: 700;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  font-weight: var(--fw-bold);
   cursor: pointer;
-  transition: 0.15s;
-  font-size: 0.85rem;
+  transition: var(--dur-fast);
+  font-size: var(--fs-md);
 }
 
 .btn-trigger-advisory {
   background: color-mix(in srgb, var(--accent-blue) 24%, transparent);
   color: var(--accent-blue);
   border: 1.5px solid color-mix(in srgb, var(--accent-blue) 60%, transparent);
-  font-weight: 800;
+  font-weight: var(--fw-semibold);
 }
 
 .btn-trigger-advisory:hover:not(:disabled) {

@@ -55,7 +55,7 @@ withDefaults(
 .empty-title {
   margin: 0;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
 }
 
@@ -63,7 +63,7 @@ withDefaults(
   margin: 0;
   max-width: 40ch;
   font-size: var(--fs-xs);
-  line-height: 1.5;
+  line-height: var(--lh-body);
   color: var(--text-muted);
 }
 
