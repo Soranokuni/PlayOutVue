@@ -911,7 +911,7 @@ export const useRundownStore = defineStore('rundown', () => {
         triggerNuclearReactivity(playlist.id, newItems);
         updateTrigger.value += 1;
         if (newItem.playoutvueId && newItem.type !== 'gap') {
-            resolveAssetFromApi(newItem.id);
+            resolveAssetFromApi(newItem.id, playlist.id);
         }
     };
 
@@ -934,7 +934,7 @@ export const useRundownStore = defineStore('rundown', () => {
         });
         updateTrigger.value += 1;
         if (newItem.playoutvueId && newItem.type !== 'gap') {
-            resolveAssetFromApi(newItem.id);
+            resolveAssetFromApi(newItem.id, playlist.id);
         }
     };
 
@@ -1934,27 +1934,42 @@ export const useRundownStore = defineStore('rundown', () => {
         flushDeferredReconcile();
     });
 
-    const resolveAssetFromApi = async (itemId: string) => {
-        const playlist = currentPlaylist.value;
+    /**
+     * Resolve one row against the transcoder.
+     *
+     * The row is found again by id after the await and written through the
+     * live playlist (TRIM-CONTRACT-AUDIT C-6). Holding the index, or the
+     * playlist object, across the await wrote the asset onto whichever row had
+     * moved into that slot after a reorder, and wrote back a stale item list
+     * that dropped rows added in the meantime.
+     */
+    const resolveAssetFromApi = async (itemId: string, playlistId = activePlaylistId.value) => {
+        const playlist = getPlaylistById(playlistId);
         if (!playlist) return;
 
-        const index = playlist.items.findIndex((e) => e.id === itemId);
-        if (index === -1) return;
-
-        const item = playlist.items[index];
+        const item = playlist.items.find((e) => e.id === itemId);
         if (!item || !item.playoutvueId || item.type === 'gap') return;
+        const uuid = item.playoutvueId;
 
-        playlist.items[index] = {
-            ...item,
-            id: item.id,
-            type: item.type,
-            ingestorStatus: 'processing' as IngestorStatus
+        /** Apply `mutate` to the row as it is now; false when it is gone. */
+        const writeLive = (mutate: (existing: RundownItem) => RundownItem) => {
+            const live = getPlaylistById(playlist.id);
+            if (!live) return false;
+            const idx = live.items.findIndex((e) => e.id === itemId);
+            const existing = idx === -1 ? undefined : live.items[idx];
+            // Same row id, but re-pointed at another asset meanwhile.
+            if (!existing || existing.playoutvueId !== uuid) return false;
+            const newItems = [...live.items];
+            newItems[idx] = mutate(existing);
+            updatePlaylistState(live.id, { items: newItems });
+            return true;
         };
-        triggerRef(playlists);
+
+        writeLive((existing) => ({ ...existing, ingestorStatus: 'processing' as IngestorStatus }));
 
         try {
             const response = await invoke<any>('resolve_ingestor_asset', {
-                uuid: item.playoutvueId,
+                uuid,
                 apiBaseUrlOverride: null
             });
 
@@ -2018,25 +2033,16 @@ export const useRundownStore = defineStore('rundown', () => {
                 warnings: response.warnings,
             };
 
-            const newItems = [...playlist.items];
-            const existing = newItems[index];
-            if (existing) {
-                newItems[index] = { ...existing, ...updates } as RundownItem;
-                updatePlaylistState(playlist.id, { items: newItems });
+            if (writeLive((existing) => ({ ...existing, ...updates } as RundownItem))) {
+                syncPlayoutQueue(playlist.id);
             }
-            syncPlayoutQueue(playlist.id);
         } catch (error) {
             try {
                 const ingestor = useIngestorStatusStore();
-                ingestor.logError('ingestor-resolve', `Failed to resolve asset ${item.playoutvueId}: ${error}`);
+                ingestor.logError('ingestor-resolve', `Failed to resolve asset ${uuid}: ${error}`);
             } catch {}
-            const newErrorItems = [...playlist.items];
-            const existingErr = newErrorItems[index];
-            if (existingErr) {
-                newErrorItems[index] = { ...existingErr, ingestorStatus: 'error' as IngestorStatus } as RundownItem;
-                updatePlaylistState(playlist.id, { items: newErrorItems });
-            }
-            console.error('[Ingestor] Failed to resolve asset', item.playoutvueId, error);
+            writeLive((existing) => ({ ...existing, ingestorStatus: 'error' as IngestorStatus }));
+            console.error('[Ingestor] Failed to resolve asset', uuid, error);
         }
     };
 

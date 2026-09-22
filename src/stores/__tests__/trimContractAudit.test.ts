@@ -138,7 +138,7 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         expect(store.currentPlaylist!.items[0]!.ingestorStatus).not.toBe('error');
     });
 
-    it.fails('C-6: a resolve that lands after a reorder writes to its own row', async () => {
+    it('C-6: a resolve that lands after a reorder writes to its own row', async () => {
         let release: (value: any) => void = () => {};
         vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
             if (cmd === 'resolve_ingestor_asset' && args.uuid === 'b-uuid') return new Promise((resolve) => { release = resolve; });
@@ -156,6 +156,29 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         const a = store.currentPlaylist!.items.find((i) => i.playoutvueId === 'a-uuid')!;
         expect(a.filename).toBe('A');
         expect(a.path).toBe('D:/a.mp4');
+        const b = store.currentPlaylist!.items.find((i) => i.playoutvueId === 'b-uuid')!;
+        expect(b.path).toBe('D:/b.mp4');
+        expect(b.trim_in_ms).toBe(1_000);
+        expect(b.trim_out_ms).toBe(9_000);
+    });
+
+    it('C-6: a resolve that fails late does not drop rows added meanwhile', async () => {
+        let fail: (error: Error) => void = () => {};
+        vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
+            if (cmd === 'resolve_ingestor_asset' && args.uuid === 'a-uuid') return new Promise((_, reject) => { fail = reject; });
+            return offline(cmd, args);
+        });
+        const store = useRundownStore();
+        store.addItem(draft({ playoutvueId: 'a-uuid', filename: 'A', path: 'D:/a.mp4' }) as any);
+        store.addItem(draft({ playoutvueId: 'b-uuid', filename: 'B', path: 'D:/b.mp4' }) as any);
+        await flush();
+        fail(new Error('offline'));
+        await flush();
+
+        expect(store.currentPlaylist!.items.map((i) => [i.playoutvueId, i.ingestorStatus])).toEqual([
+            ['a-uuid', 'error'],
+            ['b-uuid', 'error'],
+        ]);
     });
 
     it.fails('C-8: SEEK lands on the requested second whatever the file frame rate', () => {
