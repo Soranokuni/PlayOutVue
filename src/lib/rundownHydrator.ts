@@ -8,6 +8,14 @@ export interface RundownItem {
     fps_num: number;
     fps_den: number;
     mezzanine_ok?: boolean;
+    /**
+     * Audit F-7: what the operator calls this row. A virtual sub-clip shares
+     * its parent's `path`, so an error that names only the path names the wrong
+     * object -- the operator is told the source file failed when it is a
+     * sub-clip of it that is in the rundown.
+     */
+    display_name?: string;
+    virtual_subclip?: boolean;
 }
 
 /**
@@ -105,6 +113,23 @@ export function hydrateItem(raw: Record<string, unknown>): RundownItem {
         trim_out_ms,
         fps_num,
         fps_den,
-        mezzanine_ok
+        mezzanine_ok,
+        display_name: raw.display_name ? String(raw.display_name) : undefined,
+        virtual_subclip: raw.virtual_subclip !== undefined ? Boolean(raw.virtual_subclip) : undefined
     };
+}
+
+/**
+ * Audit F-7: the label an error message should use for this row.
+ *
+ * A virtual sub-clip is a trim window over its parent's file, so `path` is the
+ * parent's path. `"Playback pre-flight check failed for
+ * C:\media\3_arias.mp4"` on a sub-clip row sent the operator to check a
+ * file that was fine. The label names the row first and the file second.
+ */
+export function describeItem(item: Pick<RundownItem, 'path' | 'display_name' | 'virtual_subclip'>): string {
+    const name = (item.display_name || '').trim();
+    if (!name) return `"${item.path}"`;
+    if (item.virtual_subclip) return `sub-clip "${name}" (source "${item.path}")`;
+    return `"${name}" ("${item.path}")`;
 }

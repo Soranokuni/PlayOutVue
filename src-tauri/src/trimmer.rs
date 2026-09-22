@@ -9,23 +9,12 @@ fn get_ffmpeg_path<R: Runtime>(app: Option<&AppHandle<R>>, runtime_settings: Opt
     resolve_tool_path(app, runtime_settings, "ffmpeg.exe")
 }
 
-/// Returns a streaming URL that serves the original file over the local media server.
-/// Unlike the previous implementation, this command does *not* write a transcoded proxy.
-#[tauri::command]
-pub async fn get_media_preview_url<R: Runtime>(
-    input_path: String,
-    _app: AppHandle<R>,
-    _runtime_settings: State<'_, RuntimeSettingsState>,
-) -> Result<String, String> {
-    let path = Path::new(&input_path);
-    if !path.exists() {
-        return Err(format!("Preview source does not exist: {}", input_path));
-    }
-    if !path.is_file() {
-        return Err(format!("Preview source is not a file: {}", input_path));
-    }
-    Ok(crate::media_server::url_for(&input_path))
-}
+// Audit F-6: `get_media_preview_url` lived here and was byte-for-byte
+// equivalent to `get_media_url` -- it returned the same `media_server::url_for`
+// stream of the same original file, having never written a proxy of any kind.
+// Its only effect was to let the trim panel report a missing file as a failed
+// "proxy generation". It is gone; the panel checks existence with
+// `verify_paths_exist` and streams with `get_media_url`.
 
 /// Lightweight probe for the trim panel. Returns:
 ///   1. duration in milliseconds,

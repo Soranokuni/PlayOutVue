@@ -413,7 +413,13 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             )
         );
 
-        function setAssets(next: LibraryAsset[]) {
+        /**
+         * @param options.reconcile - fold this snapshot into the rundown rows
+         *   (audit F-0). Defaults to true. The offline local-scan fallback
+         *   passes `false`: a snapshot that does not come from the registry
+         *   must never mark server-backed rundown rows `missing`.
+         */
+        function setAssets(next: LibraryAsset[], options: { reconcile?: boolean } = {}) {
             const activeOnly = next.filter((a) => !a.deleted_at);
             const processed = activeOnly.map((asset) => {
                 // current_path-keyed override (local fallback assets).
@@ -428,6 +434,17 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                 };
             });
             assets.value.splice(0, assets.value.length, ...processed);
+
+            // Audit F-0: the library snapshot is the only fresh view of the
+            // registry the client has. Every time it lands, the rundown rows
+            // -- which are restored verbatim from localStorage and were never
+            // re-checked -- get reconciled against it. No extra network call.
+            if (options.reconcile === false) return;
+            try {
+                useRundownStore().reconcileWithLibrary(processed);
+            } catch (error) {
+                console.warn('[MediaLibrary] Rundown reconcile failed', error);
+            }
         }
 
         /**

@@ -21,6 +21,9 @@ import {
 export interface LibraryTrimItem {
     id?: string;
     uuid?: string;
+    /** The root asset a virtual sub-clip is cut from. */
+    parentAssetUuid?: string;
+    virtualSubclip?: boolean;
     path: string;
     filename: string;
     type: string;
@@ -33,6 +36,13 @@ export interface LibraryTrimItem {
     fps_den?: number;
     trim_in_ms?: number;
     trim_out_ms?: number;
+    mezzanine_ok?: boolean;
+    total_frames?: number;
+    gop_frames?: number;
+    keyframe_safe_start_ms?: number;
+    complianceRating?: string;
+    tp_flag?: boolean;
+    content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
 }
 
 const store = useRundownStore();
@@ -50,20 +60,66 @@ const activeItem = ref<LibraryTrimItem | null>(null);
 const item = computed(() => activeItem.value);
 const panelRef = ref<HTMLElement | null>(null);
 
+/**
+ * Snapshot the item being trimmed.
+ *
+ * The server identity used to be
+ * `props.libraryItem?.uuid || store.selectedItem?.playoutvueId || source.id`,
+ * which had two faults:
+ *
+ *  - when the panel was opened on a *library* row that carried no uuid, it
+ *    silently borrowed the uuid of whatever happened to be selected in the
+ *    *rundown* -- a different asset;
+ *  - failing that it fell back to `source.id`, which for a rundown row is a
+ *    client-side `uuidv4()` that is not a server asset id at all. It does not
+ *    start with `local:`, so every downstream check ("do we have a server
+ *    identity?") said yes, and "Save virtual sub-clip" posted to
+ *    `/api/assets/<a-random-uuid>/subclip`.
+ *
+ * The identity now comes from the same object as the rest of the snapshot, and
+ * a row with no server identity is honestly marked `local:` so the sub-clip
+ * path takes the local branch instead of guessing.
+ */
 const lockTrimItem = () => {
   const source = props.libraryItem || store.selectedItem;
-  activeItem.value = source ? {
+  if (!source) {
+    activeItem.value = null;
+    return;
+  }
+
+  const anySource = source as any;
+  const serverUuid = anySource.uuid || anySource.playoutvueId || '';
+  const hasServerIdentity =
+    !!serverUuid && !serverUuid.startsWith('local:') && !serverUuid.startsWith('local-subclip:');
+
+  activeItem.value = {
     id: source.id,
-    uuid: (props.libraryItem?.uuid) || (store.selectedItem?.playoutvueId) || source.id,
+    uuid: hasServerIdentity ? serverUuid : `local:${source.path || source.id}`,
+    // A sub-clip of a sub-clip is still a cut of the original asset: chain to
+    // the root so the transcoder is asked to trim the file that actually
+    // exists, not a virtual row.
+    parentAssetUuid: anySource.parentAssetUuid || (hasServerIdentity ? serverUuid : undefined),
+    virtualSubclip: anySource.virtualSubclip,
     path: source.path,
     filename: source.filename,
     type: source.type,
     duration: source.duration,
-    duration_ms: (source as any).duration_ms,
+    duration_ms: anySource.duration_ms,
     inPoint: source.inPoint,
     outPoint: source.outPoint,
-    fps: (source as any).fps || 25
-  } : null;
+    trim_in_ms: anySource.trim_in_ms,
+    trim_out_ms: anySource.trim_out_ms,
+    fps: anySource.fps || 25,
+    fps_num: anySource.fps_num,
+    fps_den: anySource.fps_den,
+    mezzanine_ok: anySource.mezzanine_ok,
+    total_frames: anySource.total_frames,
+    gop_frames: anySource.gop_frames,
+    keyframe_safe_start_ms: anySource.keyframe_safe_start_ms,
+    complianceRating: anySource.complianceRating,
+    tp_flag: anySource.tp_flag,
+    content_type: anySource.content_type,
+  };
 };
 
 // ── Video preview via local streaming server ──────────────────────────────────
@@ -71,54 +127,56 @@ const lockTrimItem = () => {
 const videoRef = ref<HTMLVideoElement | null>(null);
 const videoSrc = ref('');
 const isVideoPlaying = ref(false);
-const isGeneratingProxy = ref(false);
 const previewError = ref('');
-const previewMode = ref<'source' | 'proxy'>('source');
-const proxyAttemptedPath = ref('');
-let previewFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+/** True when the file itself is gone, as opposed to merely undecodable here. */
+const previewSourceMissing = ref(false);
 
-const clearPreviewFallbackTimer = () => {
-  if (!previewFallbackTimer) return;
-  clearTimeout(previewFallbackTimer);
-  previewFallbackTimer = null;
-};
-
-const loadProxyPreview = async (path: string | undefined, reason: string) => {
-  if (!path || item.value?.type === 'live' || path.startsWith('http')) return;
-  if (proxyAttemptedPath.value === path) return;
-
-  proxyAttemptedPath.value = path;
-  previewMode.value = 'proxy';
-  isGeneratingProxy.value = true;
-  previewError.value = '';
-  videoSrc.value = '';
-  clearPreviewFallbackTimer();
-
-  try {
-    videoSrc.value = await invoke<string>('get_media_preview_url', { inputPath: path });
-  } catch (error) {
-    previewError.value = describeErrorMessage(error, 'Could not load the preview proxy.');
-  } finally {
-    isGeneratingProxy.value = false;
-  }
-};
-
+/**
+ * Audit F-6 / F-7 — the trimmer's "proxy".
+ *
+ * There has never been a proxy. `get_media_preview_url` was identical to
+ * `get_media_url`: both return the same streaming URL for the same original
+ * file. The panel nonetheless carried a whole fallback machine around it --
+ * a `previewMode`, an `isGeneratingProxy` spinner reading "Generating proxy
+ * preview…", a `proxyAttemptedPath` and an unconditional 2.5 s timer that
+ * flipped into "proxy" mode whenever `<video>` had not reported metadata yet.
+ *
+ * The result was that any preview failure -- above all a file that is simply
+ * not on disk any more, which is what the stale-rundown bug (F-0) produced by
+ * the dozen -- was reported to the operator as a proxy problem. They were told
+ * the app was generating something, then that the proxy had failed, when the
+ * truth was "this path does not exist".
+ *
+ * The machinery is gone. The preview now states which of the two things is
+ * actually wrong: the file is missing, or the embedded player cannot decode
+ * this codec (and in that case says plainly that trimming still works, because
+ * the IN/OUT math runs through ffprobe on the Rust side, not through
+ * `<video>`).
+ */
 const loadVideoSrc = async (path: string | undefined) => {
-    clearPreviewFallbackTimer();
     videoSrc.value = '';
     previewError.value = '';
-    isGeneratingProxy.value = false;
-    previewMode.value = 'source';
-    proxyAttemptedPath.value = '';
+    previewSourceMissing.value = false;
     if (!path || item.value?.type === 'live' || path.startsWith('http')) return;
+
+    // Name the right object: a missing file is a missing file, and the
+    // operator gets told so before the player has a chance to blame itself.
+    try {
+        const existence = await invoke<Record<string, boolean>>('verify_paths_exist', { paths: [path] });
+        if (existence[path] === false) {
+            previewSourceMissing.value = true;
+            previewError.value = `File not found on disk: ${path}`;
+            return;
+        }
+    } catch (error) {
+        console.warn('[TrimPanel] existence check unavailable', error);
+    }
+
     try {
         videoSrc.value = await invoke<string>('get_media_url', { path });
-        previewFallbackTimer = setTimeout(() => {
-          loadProxyPreview(path, 'metadata timeout').catch(() => {});
-        }, 2500);
     } catch (e) {
         console.warn('[TrimPanel] failed to get streaming URL:', e);
-        await loadProxyPreview(path, 'source url failure');
+        previewError.value = describeErrorMessage(e, 'Could not open a preview stream for this file.');
     }
 };
 
@@ -292,11 +350,11 @@ const onWindowMouseUp = () => {
 
 // ── Duration from <video> metadata ────────────────────────────────────────────
 const onVideoLoaded = () => {
-    clearPreviewFallbackTimer();
     const v = videoRef.value;
     if (!v || isNaN(v.duration)) return;
     if (!Number.isFinite(v.duration) || v.videoWidth <= 0) {
-      loadProxyPreview(item.value?.path, 'undecodable source').catch(() => {});
+      previewError.value = undecodableMessage();
+      videoSrc.value = '';
       return;
     }
     const dur = v.duration * 1000;
@@ -311,12 +369,17 @@ const onVideoLoaded = () => {
     }
 };
 
+const undecodableMessage = () => {
+  const ext = (item.value?.path || '').split('.').pop()?.toUpperCase() || 'this format';
+  return `The embedded player cannot decode ${ext}. Trimming still works: the IN/OUT timecodes, the frame math and the sub-clip are computed by ffprobe, not by this preview.`;
+};
+
 const onVideoError = () => {
-  if (previewMode.value === 'proxy') {
-    previewError.value = 'Preview is not available for this file in the embedded player.';
-    return;
-  }
-  loadProxyPreview(item.value?.path, 'video decode error').catch(() => {});
+  // Audit F-6: no proxy fallback. Either the file is gone (already reported by
+  // `loadVideoSrc`) or WebView2 cannot decode it. Say which.
+  if (previewSourceMissing.value) return;
+  previewError.value = undecodableMessage();
+  videoSrc.value = '';
 };
 
 // ── Probe via ffprobe (fallback for formats browser can't decode) ─────────────
@@ -365,7 +428,6 @@ watch([item, () => props.isOpen], ([val, open]) => {
   probeDuration();
     }
     if (!open) {
-      clearPreviewFallbackTimer();
         if (videoRef.value) videoRef.value.pause();
         videoSrc.value = '';
     }
@@ -617,7 +679,6 @@ onMounted(()  => {
 onUnmounted(() => {
     window.removeEventListener('mousemove', onWindowMouseMove);
     window.removeEventListener('mouseup', onWindowMouseUp);
-  clearPreviewFallbackTimer();
   if (seekAnimationFrame) cancelAnimationFrame(seekAnimationFrame);
 });
 
@@ -814,11 +875,7 @@ const saveAsSubclip = () => {
               <div class="placeholder-icon"><AppIcon :name="item.type === 'live' ? 'live' : 'graphic'" :size="24" /></div>
               <small class="text-secondary">No local preview</small>
             </div>
-            <div v-else-if="isGeneratingProxy" class="video-placeholder">
-              <div class="placeholder-icon"><AppIcon name="film" :size="24" /></div>
-              <small class="text-secondary">Generating proxy preview…</small>
-            </div>
-            <div v-else-if="previewError" class="video-placeholder">
+            <div v-else-if="previewError" class="video-placeholder" :class="{ 'is-missing': previewSourceMissing }">
               <div class="placeholder-icon"><AppIcon name="alert" :size="24" /></div>
               <small class="text-secondary">{{ previewError }}</small>
             </div>

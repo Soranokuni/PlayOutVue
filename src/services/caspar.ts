@@ -241,6 +241,9 @@ let playToken = 0;
 let preloadGeneration = 0;
 let consecutiveSkips = 0;
 const MAX_CONSECUTIVE_SKIPS = 3;
+// Audit F-4: pace automatic skips so a run of bad rows is legible on air and
+// in the log, instead of a 200 ms burst of failed takes.
+const INTER_SKIP_DELAY_MS = 1000;
 let advanceInFlight = false;
 let feedbackListenerPromise: Promise<void> | null = null;
 let feedbackUnlisten: (() => void) | null = null;
@@ -574,7 +577,11 @@ const hydratePlayoutItem = (item: PlayoutItem): RundownItem => {
         fps_num: item.fps_num ?? 0,
         fps_den: item.fps_den ?? 0,
         fps: item.fps,
-        mezzanine_ok: item.mezzanine_ok
+        mezzanine_ok: item.mezzanine_ok,
+        // Audit F-7: carry the row's own name into the dispatch layer so its
+        // errors can name the sub-clip rather than the parent's file.
+        display_name: (item as any).display_name || item.filename,
+        virtual_subclip: (item as any).virtualSubclip
     });
 };
 
@@ -1536,9 +1543,24 @@ async function preloadNextItemAt(
         } else {
             console.warn(`[CasparCG] preloadNextItemAt gave up after retries for item ${item.filename || item.id}`);
             invoke('push_diagnostic_log', {
-                level: 'warn',
+                level: 'error',
                 scope: 'caspar-playout',
                 message: `preload failed for ${item.filename || item.id}: path or ingestor status not ready after retries`
+            }).catch(() => {});
+            // Audit F-4: a dropped preload used to be a log line only. The
+            // next AUTO fires cold and the operator gets a black cut with no
+            // warning. Mark the row so the rundown shows it is not armed.
+            try {
+                const store = useRundownStore();
+                if (item.ingestorStatus !== 'missing') {
+                    store.updateItem(item.id, { ingestorStatus: 'error' });
+                }
+            } catch (storeError) {
+                console.warn('[CasparCG] Could not flag un-armed preload row', storeError);
+            }
+            emit('playout://preload-failed', {
+                itemId: item.id,
+                filename: item.filename ?? null
             }).catch(() => {});
         }
         return;
@@ -1732,7 +1754,20 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         // on air instead of the one the operator took (incident 2026-09-18).
         // A timeout still arms the preload: after 1.5 s of playback the race
         // window is long closed and a missing preload would mean a cold cut.
+        // Audit F-5 / E-9: the 60-150 ms OSC window this gate was sized against
+        // was measured on an emulated x64 CasparCG with a software GL path, on
+        // a Windows-on-ARM box. Nothing may be tuned to those numbers. Record
+        // the window this machine actually produces, on every take, so the
+        // threshold can be set from measurements taken on the broadcast machine
+        // rather than from the ones in the audit. The behaviour is unchanged.
+        const confirmationWaitStart = Date.now();
         const firstFrameConfirmed = await firstFrameConfirmation;
+        const confirmationWaitMs = Date.now() - confirmationWaitStart;
+        invoke('push_diagnostic_log', {
+            level: 'info',
+            scope: 'caspar-timing',
+            message: `first-frame confirmation for ${key}: ${firstFrameConfirmed ? 'confirmed' : 'TIMED OUT'} after ${confirmationWaitMs} ms (gate ${PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS} ms)`
+        }).catch(() => {});
         if (token !== playToken) return;
         if (!firstFrameConfirmed) {
             console.warn('[CasparCG] First-frame confirmation timed out; arming the next clip anyway.');
@@ -1782,25 +1817,41 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
 
         consecutiveSkips += 1;
         if (consecutiveSkips >= MAX_CONSECUTIVE_SKIPS) {
-            console.error(`[CasparCG] ${MAX_CONSECUTIVE_SKIPS} consecutive playout errors - halting playout.`);
+            // Audit F-4: this used to call `casparPlayoutService.stop()` and
+            // return. The operator saw playback end with nothing in the UI
+            // saying why, and the STOP itself tore down the channel -- an
+            // avoidable second fault on top of the first. The halt is now
+            // announced with the reason and the items that failed, and the
+            // channel is left exactly as it is: whatever is on air stays on
+            // air, and the operator decides what to take next.
+            console.error(`[CasparCG] ${MAX_CONSECUTIVE_SKIPS} consecutive playout errors - halting automatic advance.`);
             invoke('push_diagnostic_log', {
                 level: 'error',
                 scope: 'caspar-playout',
-                message: `Halting playout: ${MAX_CONSECUTIVE_SKIPS} consecutive playout errors reached.`
+                message: `Halting automatic advance: ${MAX_CONSECUTIVE_SKIPS} consecutive playout errors. Last failure at index ${index} (${item?.filename || 'unknown'}): ${failure.message}`
             }).catch(() => {});
-            emit('playout://halted', { consecutiveSkips }).catch((e) => {
+            emit('playout://halted', {
+                consecutiveSkips,
+                reason: failure.message,
+                itemId: item?.id ?? null,
+                filename: item?.filename ?? null
+            }).catch((e) => {
                 console.warn('[CasparCG] Failed to emit playout://halted event', e);
             });
-            await casparPlayoutService.stop();
             return;
         }
 
-        // Automatically trigger advanceNext(false) only for natural advance failures!
+        // Automatically trigger advanceNext(false) only for natural advance
+        // failures. Audit F-4: the delay was 200 ms, which turned a rundown of
+        // dead rows into a burst of failed TAKEs faster than the operator or
+        // the log could follow. One second per skip keeps the sequence
+        // readable and gives a transient fault (a share reconnecting, a
+        // sidecar still being written) time to clear.
         setTimeout(() => {
             advanceNext(false).catch(err => {
                 console.error('[CasparCG] auto skip failed', err);
             });
-        }, 200);
+        }, INTER_SKIP_DELAY_MS);
     }
 }
 

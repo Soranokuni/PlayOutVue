@@ -512,7 +512,10 @@ async function fetchAssets(options: { force?: boolean } = {}) {
         if (!ingestorStatus.isIngestorOnline) {
             const fallbackAssets = await fetchAssetsFromLocalFallback();
             const merged = mergeAssets(mediaLibrary.assets, fallbackAssets);
-            mediaLibrary.setAssets(merged);
+            // A local directory scan is not a view of the registry. Reconciling
+            // the rundown against it would mark every server-backed row
+            // `missing` on a transient ingestor outage (audit F-0).
+            mediaLibrary.setAssets(merged, { reconcile: false });
         }
     } finally {
         isScanning.value = false;

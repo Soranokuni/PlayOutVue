@@ -180,6 +180,90 @@ pub fn evaluate_strict_readiness(
     (true, None)
 }
 
+/// Audit F-3: apply the strict readiness predicate to an `AssetResponse` that
+/// came off the v1 single-asset endpoint or `POST /api/assets/batch`.
+///
+/// Those two endpoints are parsed as a raw `AssetResponse` and their `status`
+/// was forwarded to the client untouched, while the library list goes through
+/// `map_v2_to_asset_response` and downgrades `mezzanine_ok = false` to
+/// `'error'`. The registry currently holds rows that are
+/// `status = ready, mezzanine_ok = 0`, so the same asset showed **red in the
+/// library and green in the rundown** and failed the sidecar QC check at TAKE.
+/// One predicate now decides readiness for every path.
+///
+/// Unlike the v2 DTO, a v1 payload may legitimately omit `mezzanine_ok`,
+/// `fps_num`/`fps_den` and `total_frames`. A field the server did not assert is
+/// not treated as a failure: only fields that are present are judged. The
+/// reason is appended to `warnings` so the operator can see why a row is red.
+pub fn apply_strict_readiness(mut asset: AssetResponse) -> AssetResponse {
+    // A v1 payload that does not carry a rational frame rate still has `fps`
+    // often enough; derive one so the predicate has something to judge, and
+    // pass the predicate's fps gate when neither is asserted.
+    let (fps_num, fps_den) = match (asset.fps_num, asset.fps_den) {
+        (Some(n), Some(d)) if n > 0 && d > 0 => (n, d),
+        _ => match asset.fps {
+            Some(f) if f > 0.0 => ((f * 1000.0).round() as i64, 1000),
+            // Not asserted by this endpoint — do not fail the row on it.
+            _ => (1, 1),
+        },
+    };
+
+    // Same rule for the trim window: v1 rows sometimes carry trim_out_ms = 0
+    // meaning "to the end of the file".
+    let trim_out_ms = if asset.trim_out_ms <= 0 {
+        asset.duration_ms
+    } else {
+        asset.trim_out_ms
+    };
+
+    let (is_playable, unready_reason) = evaluate_strict_readiness(
+        &asset.status,
+        asset.mezzanine_ok.unwrap_or(true),
+        &asset.current_path,
+        asset.duration_ms,
+        asset.trim_in_ms,
+        trim_out_ms,
+        fps_num,
+        fps_den,
+        asset
+            .qc_report
+            .as_ref()
+            .map(|qc| qc.blocking_errors)
+            .unwrap_or(0),
+    );
+
+    if is_playable {
+        asset.status = "ready".to_string();
+        return asset;
+    }
+
+    let blocking = asset
+        .qc_report
+        .as_ref()
+        .map(|qc| qc.blocking_errors)
+        .unwrap_or(0);
+    asset.status = if asset.status == "error"
+        || asset.status == "failed"
+        || asset.mezzanine_ok == Some(false)
+        || blocking > 0
+    {
+        "error".to_string()
+    } else if asset.status == "missing" {
+        "missing".to_string()
+    } else {
+        "processing".to_string()
+    };
+
+    if let Some(reason) = unready_reason {
+        let warnings = asset.warnings.get_or_insert_with(Vec::new);
+        if !warnings.contains(&reason) {
+            warnings.push(reason);
+        }
+    }
+
+    asset
+}
+
 /// Maps a typed V2AssetDto into the standard hydrated AssetResponse
 pub fn map_v2_to_asset_response(v2: V2AssetDto) -> AssetResponse {
     let blocking = v2.qc_report.as_ref().map(|qc| qc.blocking_errors).unwrap_or(0);
@@ -930,6 +1014,8 @@ pub async fn resolve_ingestor_asset<R: Runtime>(
         diagnostics.push("error", "ingestor", err.clone());
         err
     })?;
+    // Audit F-3: one readiness predicate for v2, v1 and the batch.
+    let parsed = apply_strict_readiness(parsed);
 
     let total_elapsed = start_time.elapsed().as_millis();
     diagnostics.push(
@@ -1127,6 +1213,14 @@ pub async fn resolve_ingestor_assets_batch<R: Runtime>(
             diagnostics.push("error", "ingestor", err.clone());
             err
         })?;
+
+    // Audit F-3: the batch bypassed the strict readiness predicate that the
+    // library list goes through, so a `ready / mezzanine_ok = false` row came
+    // back green in the rundown and red in the library.
+    let map: std::collections::HashMap<String, AssetResponse> = map
+        .into_iter()
+        .map(|(k, v)| (k, apply_strict_readiness(v)))
+        .collect();
 
     let total_elapsed = start_time.elapsed().as_millis();
     diagnostics.push(
@@ -1370,6 +1464,7 @@ pub async fn create_ingestor_subclip<R: Runtime>(
         diagnostics.push("error", "ingestor", err.clone());
         err
     })?;
+    let parsed = apply_strict_readiness(parsed);
 
     diagnostics.push("info", "ingestor", format!("Successfully created subclip in {}ms", elapsed));
     Ok(parsed)
@@ -1959,6 +2054,112 @@ mod tests {
         );
         assert!(!ready);
         assert!(reason.unwrap().contains("Invalid trim bounds"));
+    }
+
+    /// Audit F-3: the v1 / batch paths must reach the same verdict as the v2
+    /// library mapping. Registry A holds rows that are
+    /// `status = ready, mezzanine_ok = 0`; before this, the same asset was red
+    /// in the library and green in the rundown.
+    #[test]
+    fn apply_strict_readiness_downgrades_ready_with_failed_mezzanine() {
+        let asset = AssetResponse {
+            uuid: "u".into(),
+            current_path: r"D:\Media\channel9hdtv_ac3.mp4".into(),
+            duration_ms: 10_000,
+            trim_in_ms: 0,
+            trim_out_ms: 10_000,
+            rating: "none".into(),
+            tp: "false".into(),
+            status: "ready".into(),
+            display_name: None,
+            virtual_folder: None,
+            deleted_at: None,
+            original_virtual_folder: None,
+            mezzanine_ok: Some(false),
+            fps: Some(25.0),
+            fps_num: Some(25),
+            fps_den: Some(1),
+            total_frames: None,
+            gop_frames: None,
+            keyframe_safe_start_ms: None,
+            warnings: Some(vec!["duration_delta_exceeded".into()]),
+            playoutvue_id: None,
+            qc_report: None,
+            loudness: None,
+        };
+
+        let mapped = apply_strict_readiness(asset);
+        assert_eq!(mapped.status, "error");
+        assert!(mapped
+            .warnings
+            .unwrap()
+            .iter()
+            .any(|w| w.contains("mezzanine_ok")));
+    }
+
+    /// A v1 payload that omits the optional fields must not be failed on them.
+    #[test]
+    fn apply_strict_readiness_tolerates_a_sparse_v1_payload() {
+        let asset = AssetResponse {
+            uuid: "u".into(),
+            current_path: r"D:\Media\clip.mp4".into(),
+            duration_ms: 10_000,
+            trim_in_ms: 0,
+            // v1 uses 0 for "to the end of the file".
+            trim_out_ms: 0,
+            rating: "none".into(),
+            tp: "false".into(),
+            status: "ready".into(),
+            display_name: None,
+            virtual_folder: None,
+            deleted_at: None,
+            original_virtual_folder: None,
+            mezzanine_ok: None,
+            fps: None,
+            fps_num: None,
+            fps_den: None,
+            total_frames: None,
+            gop_frames: None,
+            keyframe_safe_start_ms: None,
+            warnings: None,
+            playoutvue_id: None,
+            qc_report: None,
+            loudness: None,
+        };
+
+        assert_eq!(apply_strict_readiness(asset).status, "ready");
+    }
+
+    /// A staging path is never playable, on any endpoint.
+    #[test]
+    fn apply_strict_readiness_rejects_a_staging_path() {
+        let asset = AssetResponse {
+            uuid: "u".into(),
+            current_path: r"D:\Media\.tmp_clip.mp4".into(),
+            duration_ms: 10_000,
+            trim_in_ms: 0,
+            trim_out_ms: 10_000,
+            rating: "none".into(),
+            tp: "false".into(),
+            status: "ready".into(),
+            display_name: None,
+            virtual_folder: None,
+            deleted_at: None,
+            original_virtual_folder: None,
+            mezzanine_ok: Some(true),
+            fps: Some(25.0),
+            fps_num: Some(25),
+            fps_den: Some(1),
+            total_frames: None,
+            gop_frames: None,
+            keyframe_safe_start_ms: None,
+            warnings: None,
+            playoutvue_id: None,
+            qc_report: None,
+            loudness: None,
+        };
+
+        assert_eq!(apply_strict_readiness(asset).status, "processing");
     }
 
     #[test]

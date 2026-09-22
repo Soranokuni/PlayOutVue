@@ -48,6 +48,9 @@ const isSdiActive  = ref(false);
 const showSettings = ref(false);
 const ingestorStatus = useIngestorStatusStore();
 const playoutHalted = ref(false);
+// Audit F-4: the banner used to say only "3 consecutive errors". The operator
+// needs the row and the reason to act on it.
+const playoutHaltDetail = ref('');
 let unlistenHeartbeat: (() => void) | null = null;
 let unlistenHalted: (() => void) | null = null;
 
@@ -735,8 +738,10 @@ onMounted(async () => {
       console.error('[Heartbeat] Failed to listen to heartbeat events:', err);
       return null;
     }),
-    listen('playout://halted', () => {
+    listen<{ reason?: string; filename?: string | null }>('playout://halted', (event) => {
       playoutHalted.value = true;
+      const { reason, filename } = event.payload ?? {};
+      playoutHaltDetail.value = [filename, reason].filter(Boolean).join(' — ');
     }).catch((err) => {
       console.error('[Playout] Failed to listen to playout://halted event:', err);
       return null;
@@ -772,6 +777,11 @@ onMounted(async () => {
     }
   }
   rundown.restorePlaybackState();
+  // Audit F-0: the rundown is restored from localStorage byte-for-byte --
+  // paths, trims and `ready` badges alike -- and nothing used to re-check it.
+  // Resolve every restored row against the transcoder once at launch; the
+  // 30-second library poll reconciles from then on.
+  rundown.reconcileAfterRestore();
 
   if (settings.recycleBinAutoPurge && settings.recycleBinAutoPurge !== 'disabled') {
     const mediaLib = useMediaLibraryStore();
@@ -815,9 +825,13 @@ onUnmounted(() => {
     <div v-if="playoutHalted" class="halt-banner" role="alert" aria-live="assertive">
       <div class="halt-content">
         <AppIcon class="halt-icon" name="alert" :size="20" />
-        <span class="halt-text">Playout halted after 3 consecutive errors — operator intervention required.</span>
+        <span class="halt-text">
+          Automatic advance halted after 3 consecutive errors — operator intervention required.
+          <template v-if="playoutHaltDetail"> Last failure: {{ playoutHaltDetail }}.</template>
+          The channel was left as it is; nothing was stopped.
+        </span>
       </div>
-      <button class="halt-dismiss-btn" @click="playoutHalted = false">Dismiss</button>
+      <button class="halt-dismiss-btn" @click="playoutHalted = false; playoutHaltDetail = ''">Dismiss</button>
     </div>
 
     <!-- Audit T1-8: rundown changes are not reaching localStorage -->

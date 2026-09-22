@@ -203,14 +203,28 @@ export interface OptimizedPlaylistFile {
 
 export type AnyPlaylistFile = PlaylistFile | OptimizedPlaylistFile;
 
-export interface MediaRelinkEntry {
-    playoutvueId: string;
-    path: string;
-    shortPath?: string;
-    filename?: string;
-    duration?: number;
-    trim_in_ms?: number;
-    trim_out_ms?: number;
+/**
+ * The shape `reconcileWithLibrary` needs from a library snapshot. Structurally
+ * a subset of `LibraryAsset` (mediaLibrary.ts), declared here so the rundown
+ * store does not have to import from the store that calls it.
+ */
+export interface ReconcileAsset {
+    uuid: string;
+    current_path: string;
+    display_name?: string;
+    virtual_folder?: string;
+    duration_ms: number;
+    trim_in_ms: number;
+    trim_out_ms: number;
+    status?: string;
+    mezzanine_ok?: boolean;
+    fps?: number;
+    fpsNum?: number;
+    fpsDen?: number;
+    total_frames?: number;
+    gop_frames?: number;
+    keyframe_safe_start_ms?: number;
+    warnings?: string[];
 }
 
 type RundownDraft = Omit<RundownItem, 'id' | 'inPoint' | 'outPoint' | 'plannedDuration' | 'note' | 'complianceRating' | 'complianceDescriptors' | 'complianceText' | 'hardStartTime' | 'displayPath' | 'ingestorStatus'>
@@ -1058,8 +1072,21 @@ export const useRundownStore = defineStore('rundown', () => {
             return val;
         })();
 
+        // Audit F-2: only re-derive the trims when the caller actually asked to
+        // change them. `updateItem` is called for unrelated field edits all over
+        // the app — `{ ingestorStatus: 'error' }` from the playout service, a
+        // note, a compliance rating — and re-running the frame math on every one
+        // of those let a corrected trim regress the moment anything touched the
+        // row. A row's trims are now only ever rewritten by an explicit trim
+        // update or by a resolve/reconcile that carries the server's values.
+        const touchesTrim =
+            updates.trim_in_ms !== undefined ||
+            updates.trim_out_ms !== undefined ||
+            updates.inPoint !== undefined ||
+            updates.outPoint !== undefined;
+
         const mezzanine_ok = updates.mezzanine_ok !== undefined ? updates.mezzanine_ok : existing.mezzanine_ok;
-        if (mezzanine_ok) {
+        if (touchesTrim && mezzanine_ok) {
             const geo = {
                 fps: updates.fps || existing.fps || 25,
                 totalFrames: updates.total_frames || existing.total_frames || 0,
@@ -1303,188 +1330,141 @@ export const useRundownStore = defineStore('rundown', () => {
         }
         updateTrigger.value += 1;
 
-        const BATCH_SIZE = 100;
-        const unresolvedItems = hydrated
-            .filter(item => item.playoutvueId && item.type !== 'gap' && item.ingestorStatus === 'idle')
-            .map(item => ({ id: item.id, uuid: item.playoutvueId! }));
-
-        if (unresolvedItems.length > 0) {
-            const uuidToItemId = new Map(unresolvedItems.map(i => [i.uuid, i.id]));
-            const uuids = Array.from(uuidToItemId.keys());
-            const playlistId = playlist.id;
-
-            (async () => {
-                for (let i = 0; i < uuids.length; i += BATCH_SIZE) {
-                     const batch = uuids.slice(i, i + BATCH_SIZE);
-                     try {
-                         const map = await Promise.race([
-                             invoke<Record<string, any>>('resolve_ingestor_assets_batch', {
-                                 uuids: batch, apiBaseUrlOverride: null
-                             }),
-                             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Batch resolution timeout')), 15_000))
-                         ]);
-                         const livePlaylist = getPlaylistById(playlistId);
-                         if (!livePlaylist) continue;
-                         const newItems = [...livePlaylist.items];
-                         let changed = false;
-                         for (const [uuid, asset] of Object.entries(map)) {
-                             const itemId = uuidToItemId.get(uuid);
-                             if (!itemId) continue;
-                             const idx = livePlaylist.items.findIndex(e => e.id === itemId);
-                             if (idx === -1) continue;
-                             const existing = livePlaylist.items[idx]!;
-
-                             const fileDurationMs = asset.duration_ms || 0;
-                             const trimInMs = Math.max(0, asset.trim_in_ms || 0);
-                             const trimOutMs =
-                                 asset.trim_out_ms && asset.trim_out_ms > trimInMs
-                                     ? asset.trim_out_ms
-                                     : fileDurationMs;
-                             const effectiveDurationMs =
-                                 trimOutMs > trimInMs
-                                     ? trimOutMs - trimInMs
-                                     : fileDurationMs;
-
-                             const meta = getMetadataFromAssetResponse(asset);
-                             newItems[idx] = {
-                                 ...existing,
-                                 filename: asset.display_name || existing.filename,
-                                 path: asset.current_path || existing.path,
-                                 displayPath: asset.current_path || existing.displayPath,
-                                 duration: effectiveDurationMs / 1000,
-                                 inPoint: trimInMs,
-                                 outPoint: trimOutMs,
-                                 plannedDuration: effectiveDurationMs / 1000,
-                                 complianceRating: meta.ageRating,
-                                 tp_flag: meta.tpFlag,
-                                 content_type: meta.contentType,
-                                 ingestorStatus: (asset.status || 'ready') as IngestorStatus,
-                                 display_name: asset.display_name,
-                                 virtual_folder: asset.virtual_folder,
-                                 current_path: asset.current_path,
-                                 duration_ms: fileDurationMs,
-                                 trim_in_ms: trimInMs,
-                                 trim_out_ms: trimOutMs,
-                                 fps: asset.fps || parseFps(asset.r_frame_rate),
-                                 mezzanine_ok: asset.mezzanine_ok,
-                                 total_frames: asset.total_frames,
-                                 gop_frames: asset.gop_frames,
-                                 keyframe_safe_start_ms: asset.keyframe_safe_start_ms,
-                                 warnings: asset.warnings,
-                             };
-                             changed = true;
-                         }
-                         if (changed) {
-                             updatePlaylistState(playlistId, { items: newItems });
-                             syncPlayoutQueue(playlistId);
-                         }
-                     } catch (e) {
-                         try {
-                             const ingestor = useIngestorStatusStore();
-                             ingestor.logError('ingestor-batch', `Batch resolution failed for chunk ${i}-${i + batch.length}: ${e}`);
-                         } catch {}
-                         console.warn(`[Ingestor] Batch resolution failed for chunk ${i}-${i + batch.length}`, e);
-                     }
-                }
-            })();
-        }
+        resolveItemsBatch(playlist.id, hydrated);
     };
 
-    const relinkItemsByStableId = (entries: MediaRelinkEntry[]) => {
-        if (!entries.length) return 0;
+    /**
+     * Audit F-3: resolve a set of rundown rows against the transcoder in
+     * batches. Replaces the block that used to live inline in
+     * `deserializeRundown`, which had three defects:
+     *
+     *  1. `Map<uuid, itemId>` kept only the *last* row per uuid, so a playlist
+     *     with the same ident twice resolved one row and left the other stuck
+     *     on `'idle'` forever. Idents and bumpers repeat in every real rundown.
+     *     The map is keyed by uuid to a *list* of row ids now.
+     *  2. A uuid the server does not know -- trashed, purged, or from a
+     *     different registry -- was simply absent from the response and never
+     *     touched, so it kept its stale path and its green badge. Every
+     *     requested uuid that does not come back is now `'missing'`, which is
+     *     what that status exists for.
+     *  3. It only looked at rows whose status was `'idle'`, so a persisted
+     *     `'ready'` row was skipped -- exactly the rows that go stale.
+     */
+    const resolveItemsBatch = (playlistId: string, items: RundownItem[]) => {
+        const BATCH_SIZE = 100;
 
-        const byId = new Map<string, MediaRelinkEntry>();
-        for (const entry of entries) {
-            const key = (entry.playoutvueId || '').trim();
-            if (!key || !entry.path) continue;
-            byId.set(key, entry);
+        const uuidToItemIds = new Map<string, string[]>();
+        for (const item of items) {
+            const uuid = (item.playoutvueId || '').trim();
+            if (!uuid || item.type === 'gap' || item.type === 'live') continue;
+            if (uuid.startsWith('local:') || uuid.startsWith('local-subclip:')) continue;
+            const bucket = uuidToItemIds.get(uuid);
+            if (bucket) bucket.push(item.id);
+            else uuidToItemIds.set(uuid, [item.id]);
         }
 
-        let relinkedCount = 0;
+        const uuids = Array.from(uuidToItemIds.keys());
+        if (!uuids.length) return;
 
-        for (const playlist of playlists.value) {
-            const newItems = [...playlist.items];
-            let playlistChanged = false;
+        (async () => {
+            for (let i = 0; i < uuids.length; i += BATCH_SIZE) {
+                const batch = uuids.slice(i, i + BATCH_SIZE);
+                let map: Record<string, any>;
+                try {
+                    map = await Promise.race([
+                        invoke<Record<string, any>>('resolve_ingestor_assets_batch', {
+                            uuids: batch, apiBaseUrlOverride: null
+                        }),
+                        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Batch resolution timeout')), 15_000))
+                    ]);
+                } catch (e) {
+                    // A failed batch is an outage, not a deletion. Leave the
+                    // rows as they are and let the next library poll reconcile
+                    // them (F-0); do not paint them `missing`.
+                    try {
+                        const ingestor = useIngestorStatusStore();
+                        ingestor.logError('ingestor-batch', `Batch resolution failed for chunk ${i}-${i + batch.length}: ${e}`);
+                    } catch {}
+                    console.warn(`[Ingestor] Batch resolution failed for chunk ${i}-${i + batch.length}`, e);
+                    continue;
+                }
 
-            for (let idx = 0; idx < newItems.length; idx++) {
-                const item = newItems[idx];
-                if (!item || item.type === 'gap') continue;
-
-                const key = (item.playoutvueId || '').trim();
-                if (!key) continue;
-
-                const match = byId.get(key);
-                if (!match) continue;
-
+                const livePlaylist = getPlaylistById(playlistId);
+                if (!livePlaylist) continue;
+                const newItems = [...livePlaylist.items];
                 let changed = false;
-                const newItem = { ...item };
 
-                if (match.path && newItem.path !== match.path) {
-                    newItem.path = match.path;
-                    changed = true;
-                }
-
-                const nextShortPath = match.shortPath || match.path;
-                if (nextShortPath && newItem.shortPath !== nextShortPath) {
-                    newItem.shortPath = nextShortPath;
-                    changed = true;
-                }
-
-                const nextFilename = match.filename || filenameFromPath(match.path);
-                if (nextFilename && newItem.type !== 'live' && newItem.filename !== nextFilename) {
-                    newItem.filename = nextFilename;
-                    changed = true;
-                }
-
-                 const trimInMs = Math.max(0, Number(match.trim_in_ms || 0));
-                const trimOutMs = Math.max(0, Number(match.trim_out_ms || 0));
-
-                const nameLower = (match.filename || newItem.filename || '').toLowerCase();
-                const isSubclip = nameLower.includes('sub-clip') || nameLower.includes('subclip');
-
-                if (isSubclip) {
-                    const calculatedDuration = trimOutMs - trimInMs;
-                    newItem.duration = calculatedDuration / 1000;
-                    newItem.plannedDuration = calculatedDuration / 1000;
-                    newItem.inPoint = trimInMs;
-                    newItem.outPoint = trimOutMs;
-                    newItem.duration_ms = calculatedDuration;
-                    changed = true;
-                } else {
-                    const duration = Number(match.duration || 0);
-                    if (duration > 0 && newItem.duration <= 0) {
-                        newItem.duration = duration;
-                        if (newItem.plannedDuration <= 0 && newItem.outPoint <= newItem.inPoint) {
-                            newItem.plannedDuration = duration;
-                        }
+                const applyToRows = (uuid: string, mutate: (item: RundownItem) => RundownItem) => {
+                    for (const itemId of uuidToItemIds.get(uuid) || []) {
+                        const idx = newItems.findIndex((e) => e.id === itemId);
+                        if (idx === -1) continue;
+                        const existing = newItems[idx];
+                        if (!existing) continue;
+                        const next = mutate(existing);
+                        if (next === existing) continue;
+                        newItems[idx] = next;
                         changed = true;
                     }
+                };
 
-                    if (trimInMs > 0 && newItem.inPoint === 0) {
-                        newItem.inPoint = trimInMs;
-                        changed = true;
+                for (const uuid of batch) {
+                    const asset = map[uuid];
+                    if (!asset) {
+                        // Requested and not returned: the server does not know
+                        // this uuid.
+                        applyToRows(uuid, (item) =>
+                            item.ingestorStatus === 'missing'
+                                ? item
+                                : { ...item, ingestorStatus: 'missing' as IngestorStatus });
+                        continue;
                     }
 
-                    if (trimOutMs > 0 && trimOutMs > newItem.inPoint && newItem.outPoint === 0) {
-                        newItem.outPoint = trimOutMs;
-                        newItem.plannedDuration = (newItem.outPoint - newItem.inPoint) / 1000;
-                        changed = true;
-                    }
+                    const fileDurationMs = asset.duration_ms || 0;
+                    const trimInMs = Math.max(0, asset.trim_in_ms || 0);
+                    const trimOutMs =
+                        asset.trim_out_ms && asset.trim_out_ms > trimInMs
+                            ? asset.trim_out_ms
+                            : fileDurationMs;
+                    const effectiveDurationMs =
+                        trimOutMs > trimInMs ? trimOutMs - trimInMs : fileDurationMs;
+                    const meta = getMetadataFromAssetResponse(asset);
+
+                    applyToRows(uuid, (existing) => ({
+                        ...existing,
+                        filename: asset.display_name || existing.filename,
+                        path: asset.current_path || existing.path,
+                        displayPath: asset.current_path || existing.displayPath,
+                        duration: effectiveDurationMs / 1000,
+                        // The server's trims, verbatim. The client no longer
+                        // raises an IN point to keyframe_safe_start_ms (F-2).
+                        inPoint: trimInMs,
+                        outPoint: trimOutMs,
+                        plannedDuration: effectiveDurationMs / 1000,
+                        complianceRating: meta.ageRating,
+                        tp_flag: meta.tpFlag,
+                        content_type: meta.contentType,
+                        ingestorStatus: (asset.status || 'ready') as IngestorStatus,
+                        display_name: asset.display_name,
+                        virtual_folder: asset.virtual_folder,
+                        current_path: asset.current_path,
+                        duration_ms: fileDurationMs,
+                        trim_in_ms: trimInMs,
+                        trim_out_ms: trimOutMs,
+                        fps: asset.fps || parseFps(asset.r_frame_rate),
+                        mezzanine_ok: asset.mezzanine_ok,
+                        total_frames: asset.total_frames,
+                        gop_frames: asset.gop_frames,
+                        keyframe_safe_start_ms: asset.keyframe_safe_start_ms,
+                        warnings: asset.warnings,
+                    }));
                 }
 
                 if (changed) {
-                    newItems[idx] = newItem;
-                    playlistChanged = true;
-                    relinkedCount += 1;
+                    updatePlaylistState(playlistId, { items: newItems });
+                    syncPlayoutQueue(playlistId);
                 }
             }
-
-            if (playlistChanged) {
-                updatePlaylistState(playlist.id, { items: newItems });
-            }
-        }
-
-        return relinkedCount;
+        })();
     };
 
     const duplicateItem = (id: string) => {
@@ -1588,6 +1568,8 @@ export const useRundownStore = defineStore('rundown', () => {
 
         const playlist = getPlaylistById(playlistId);
         if (!playlist) return;
+        // Audit F-1: check existence at arm, not at TAKE.
+        verifyRundownPaths().catch(() => {});
         onAirPlaylistId.value = playlistId;
         updatePlaylistState(playlist.id, {
             currentPlayingIndex: startVisibleIndex,
@@ -1685,6 +1667,265 @@ export const useRundownStore = defineStore('rundown', () => {
         currentPlayingItemId.value = null;
         currentPlayingInstanceId.value = null;
     };
+
+    /**
+     * Audit F-0 — the reported "after a restart, rows that played before fail"
+     * bug.
+     *
+     * The rundown is persisted as whole `RundownItem` objects: path, trims,
+     * `ingestorStatus: 'ready'` and all. Nothing ever re-checked them against
+     * the transcoder after a relaunch, so a row played if and only if the
+     * absolute path it happened to be saved with still existed. Re-adding the
+     * same clip from the library worked because that path copies the library's
+     * *current* `current_path`.
+     *
+     * The library is already a full, 30-second-fresh copy of the registry, so
+     * reconciling against it costs no extra network call. For every row that
+     * carries a server identity, across every playlist:
+     *
+     *  - asset absent from the library  -> `ingestorStatus: 'missing'`, row kept
+     *    (the operator needs to see what is gone, not lose it);
+     *  - asset present -> adopt the server's `current_path`, display name,
+     *    duration and trims verbatim. No clamping happens here (F-2).
+     *
+     * The row that is on air is never re-pathed under the producer; it is
+     * recorded in `deferredReconcileItemIds` and reconciled at the next advance.
+     */
+    const deferredReconcileItemIds = ref<Set<string>>(new Set());
+    let lastLibrarySnapshot: ReconcileAsset[] = [];
+
+    /** A rundown row carries a server identity we can reconcile against. */
+    const isServerIdentity = (id: string | undefined): id is string =>
+        !!id && !id.startsWith('local:') && !id.startsWith('local-subclip:');
+
+    /**
+     * Fold one library asset into one rundown row. Returns the original object
+     * when nothing changed, so the caller can avoid a pointless re-render and
+     * a pointless queue sync.
+     */
+    const applyLibraryAssetToItem = (item: RundownItem, asset: ReconcileAsset): RundownItem => {
+        const fileDurationMs = asset.duration_ms || item.duration_ms || 0;
+        const trimInMs = Math.max(0, asset.trim_in_ms || 0);
+        const trimOutMs =
+            asset.trim_out_ms && asset.trim_out_ms > trimInMs ? asset.trim_out_ms : fileDurationMs;
+        const effectiveMs = trimOutMs > trimInMs ? trimOutMs - trimInMs : fileDurationMs;
+        const path = asset.current_path || item.path;
+        const status = (asset.status || 'ready') as IngestorStatus;
+        const displayName = asset.display_name || item.display_name;
+
+        const unchanged =
+            item.path === path &&
+            item.current_path === path &&
+            item.ingestorStatus === status &&
+            item.duration_ms === fileDurationMs &&
+            item.trim_in_ms === trimInMs &&
+            item.trim_out_ms === trimOutMs &&
+            item.display_name === displayName &&
+            item.mezzanine_ok === asset.mezzanine_ok &&
+            item.keyframe_safe_start_ms === asset.keyframe_safe_start_ms;
+
+        if (unchanged) return item;
+
+        const fps =
+            asset.fps ||
+            (asset.fpsNum && asset.fpsDen ? asset.fpsNum / asset.fpsDen : undefined) ||
+            item.fps;
+
+        return {
+            ...item,
+            filename: asset.display_name || item.filename,
+            display_name: displayName,
+            path,
+            displayPath: path,
+            current_path: path,
+            virtual_folder: asset.virtual_folder ?? item.virtual_folder,
+            duration: effectiveMs / 1000,
+            duration_ms: fileDurationMs,
+            // Verbatim from the server -- the client does not raise an IN point
+            // and does not re-snap an OUT point (audit F-2 / F-8).
+            inPoint: trimInMs,
+            outPoint: trimOutMs,
+            trim_in_ms: trimInMs,
+            trim_out_ms: trimOutMs,
+            plannedDuration: effectiveMs / 1000,
+            ingestorStatus: status,
+            mezzanine_ok: asset.mezzanine_ok,
+            fps,
+            fps_num: asset.fpsNum ?? item.fps_num,
+            fps_den: asset.fpsDen ?? item.fps_den,
+            total_frames: asset.total_frames ?? item.total_frames,
+            gop_frames: asset.gop_frames ?? item.gop_frames,
+            keyframe_safe_start_ms: asset.keyframe_safe_start_ms,
+            warnings: asset.warnings ?? item.warnings,
+        };
+    };
+
+    const reconcileWithLibrary = (assets: ReconcileAsset[]) => {
+        // An empty snapshot means "the library has not loaded / the poll
+        // failed", never "every asset was deleted". Marking a whole rundown
+        // missing on a transient outage would be worse than the bug.
+        if (!assets.length) return 0;
+        lastLibrarySnapshot = assets;
+
+        const byUuid = new Map<string, ReconcileAsset>();
+        for (const asset of assets) {
+            if (asset && asset.uuid) byUuid.set(asset.uuid, asset);
+        }
+
+        const onAirId = onAirPlaylistId.value;
+        const onAirInstanceId = currentPlayingInstanceId.value;
+        const stillDeferred = new Set<string>();
+        let changedCount = 0;
+
+        for (const playlist of playlists.value) {
+            const newItems = [...playlist.items];
+            let playlistChanged = false;
+
+            for (let idx = 0; idx < newItems.length; idx++) {
+                const item = newItems[idx];
+                if (!item || item.type === 'gap' || item.type === 'live') continue;
+
+                const uuid = (item.playoutvueId || '').trim();
+                if (!isServerIdentity(uuid)) continue;
+
+                const asset = byUuid.get(uuid);
+                const next = asset
+                    ? applyLibraryAssetToItem(item, asset)
+                    : (item.ingestorStatus === 'missing'
+                        ? item
+                        : { ...item, ingestorStatus: 'missing' as IngestorStatus });
+
+                if (next === item) continue;
+
+                const isOnAirRow =
+                    playlist.id === onAirId &&
+                    (item.id === onAirInstanceId || idx === playlist.currentPlayingIndex);
+
+                if (isOnAirRow) {
+                    // Never move the path out from under the live producer.
+                    stillDeferred.add(item.id);
+                    continue;
+                }
+
+                newItems[idx] = next;
+                playlistChanged = true;
+                changedCount += 1;
+            }
+
+            if (playlistChanged) {
+                updatePlaylistState(playlist.id, { items: newItems });
+                syncPlayoutQueue(playlist.id);
+            }
+        }
+
+        deferredReconcileItemIds.value = stillDeferred;
+
+        // Audit F-1: the registry can say `ready` about a file that is no
+        // longer on disk. Confirm existence out of band after every reconcile.
+        verifyRundownPaths().catch(() => {});
+
+        return changedCount;
+    };
+
+    /**
+     * Audit F-1: verify that every path the rundown points at still exists,
+     * and mark the rows whose file is gone `missing`.
+     *
+     * A row used to be found broken only at TAKE -- on air, one clip too late.
+     * The check is keyed on `current_path`, so a virtual sub-clip (which shares
+     * its parent's file) goes offline with its parent, and one `stat` covers
+     * every row that references the same file.
+     *
+     * A row that is on air is never demoted: the producer is playing it, so
+     * whatever a `stat` says, it is not missing in any useful sense.
+     */
+    let verifyPathsInFlight = false;
+    const verifyRundownPaths = async () => {
+        if (verifyPathsInFlight) return 0;
+
+        const paths = new Set<string>();
+        for (const playlist of playlists.value) {
+            for (const item of playlist.items) {
+                if (item.type === 'gap' || item.type === 'live') continue;
+                const path = (item.current_path || item.path || '').trim();
+                if (path && !path.startsWith('http')) paths.add(path);
+            }
+        }
+        if (!paths.size) return 0;
+
+        verifyPathsInFlight = true;
+        let existsByPath: Record<string, boolean>;
+        try {
+            existsByPath = await invoke<Record<string, boolean>>('verify_paths_exist', {
+                paths: Array.from(paths)
+            });
+        } catch (error) {
+            // An unavailable check is not evidence of a missing file.
+            console.warn('[Rundown] Path existence check failed', error);
+            return 0;
+        } finally {
+            verifyPathsInFlight = false;
+        }
+
+        const onAirId = onAirPlaylistId.value;
+        const onAirInstanceId = currentPlayingInstanceId.value;
+        let changed = 0;
+
+        for (const playlist of playlists.value) {
+            const newItems = [...playlist.items];
+            let playlistChanged = false;
+
+            for (let idx = 0; idx < newItems.length; idx++) {
+                const item = newItems[idx];
+                if (!item || item.type === 'gap' || item.type === 'live') continue;
+                const path = (item.current_path || item.path || '').trim();
+                if (!path || existsByPath[path] !== false) continue;
+                if (item.ingestorStatus === 'missing') continue;
+                if (playlist.id === onAirId && (item.id === onAirInstanceId || idx === playlist.currentPlayingIndex)) continue;
+
+                newItems[idx] = { ...item, ingestorStatus: 'missing' as IngestorStatus };
+                playlistChanged = true;
+                changed += 1;
+            }
+
+            if (playlistChanged) {
+                updatePlaylistState(playlist.id, { items: newItems });
+            }
+        }
+
+        return changed;
+    };
+
+    /**
+     * Audit F-0: run once after the Pinia restore, so the first frame the
+     * operator sees is honest rather than a wall of green badges copied out of
+     * localStorage. The 30-second library poll reconciles from then on; this
+     * just stops the window between launch and the first poll from lying.
+     *
+     * It resolves against the transcoder directly (rather than waiting for the
+     * library) because the library fetch and this run in parallel, and a row
+     * the registry does not know must go `missing` before anyone can take it.
+     */
+    const reconcileAfterRestore = () => {
+        for (const playlist of playlists.value) {
+            if (!playlist.items.length) continue;
+            resolveItemsBatch(playlist.id, playlist.items);
+        }
+        verifyRundownPaths().catch(() => {});
+    };
+
+    /**
+     * Re-run the reconcile for rows that were skipped because they were on air,
+     * using the last library snapshot. Fired when the on-air row changes.
+     */
+    const flushDeferredReconcile = () => {
+        if (!deferredReconcileItemIds.value.size || !lastLibrarySnapshot.length) return 0;
+        return reconcileWithLibrary(lastLibrarySnapshot);
+    };
+
+    watch(currentPlayingInstanceId, () => {
+        flushDeferredReconcile();
+    });
 
     const resolveAssetFromApi = async (itemId: string) => {
         const playlist = currentPlaylist.value;
@@ -2347,7 +2588,12 @@ export const useRundownStore = defineStore('rundown', () => {
         reorderItems,
         clearRundown,
         updateItem,
-        relinkItemsByStableId,
+        reconcileWithLibrary,
+        reconcileAfterRestore,
+        verifyRundownPaths,
+        resolveItemsBatch,
+        flushDeferredReconcile,
+        deferredReconcileItemIds,
         serializeRundown,
         deserializeRundown,
         setPlaylistOnAir,
