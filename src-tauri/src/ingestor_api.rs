@@ -283,6 +283,10 @@ pub fn map_v2_to_asset_response(v2: V2AssetDto) -> AssetResponse {
         "ready".to_string()
     } else if v2.status == "error" || v2.status == "failed" || !v2.mezzanine_ok || blocking > 0 {
         "error".to_string()
+    } else if v2.status == "missing" {
+        // TRIM-CONTRACT-AUDIT C-4: the mezzanine is gone. Same order as
+        // `apply_strict_readiness`, so the library and the rundown agree.
+        "missing".to_string()
     } else {
         "processing".to_string()
     };
@@ -2238,6 +2242,32 @@ mod tests {
         assert_eq!(mapped.total_frames, Some(750));
         assert_eq!(mapped.gop_frames, Some(50));
         assert_eq!(mapped.keyframe_safe_start_ms, Some(0));
+    }
+
+    #[test]
+    fn map_v2_keeps_missing_status() {
+        // TRIM-CONTRACT-AUDIT C-4: the transcoder marks a ready asset whose
+        // mezzanine vanished as `missing`, with mezzanine_ok still true. It used
+        // to fall through to `processing` ("retry in a moment").
+        let v2: V2AssetDto = serde_json::from_value(serde_json::json!({
+            "uuid": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+            "current_path": "D:/Media/gone.mp4",
+            "duration_ms": 10000,
+            "trim_in_ms": 0,
+            "trim_out_ms": 10000,
+            "fps_num": 25,
+            "fps_den": 1,
+            "mezzanine_ok": true,
+            "status": "missing"
+        }))
+        .unwrap();
+        let mapped = map_v2_to_asset_response(v2);
+        assert_eq!(mapped.status, "missing");
+        assert!(mapped
+            .warnings
+            .unwrap()
+            .iter()
+            .any(|w| w.contains("'missing' is not ready")));
     }
     // ── Audit T2-6 ───────────────────────────────────────────────────────────
 
