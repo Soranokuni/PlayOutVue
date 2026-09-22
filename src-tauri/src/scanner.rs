@@ -695,8 +695,13 @@ fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticSta
     // `-i` keeps a path that starts with `-` from being parsed as an option,
     // and the protocol whitelist stops `http:`/`concat:` style inputs from
     // making ffprobe reach out to the network or read arbitrary files.
+    // Audit E-8: `-v quiet` silenced ffprobe's stderr, so every failure was
+    // reported as the literal string "ffprobe stderr: " with nothing after it
+    // -- including the commonest failure of all, a file that is not there.
+    // `-v error` still keeps stdout to the JSON document while letting the
+    // reason through.
     command.args([
-        "-v", "quiet",
+        "-v", "error",
         "-protocol_whitelist", "file,crypto,data",
         "-print_format", "json",
         "-show_format", "-show_streams",
@@ -710,7 +715,17 @@ fn run_ffprobe(ffprobe: &str, filepath: &str, diagnostics: Option<&DiagnosticSta
         .map_err(|e| format!("ffprobe exec failed: {}", e))?;
 
     if !output.status.success() {
-        let error = format!("ffprobe stderr: {}", String::from_utf8_lossy(&output.stderr));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = stderr.trim();
+        // Audit E-8: name the real fault. A path that does not exist is not an
+        // "ffprobe error" the operator can do anything with.
+        let error = if !std::path::Path::new(filepath).exists() {
+            format!("file does not exist: {}", filepath)
+        } else if stderr.is_empty() {
+            format!("ffprobe exited with {} and no diagnostic output", output.status)
+        } else {
+            format!("ffprobe stderr: {}", stderr)
+        };
         if let Some(diagnostics) = diagnostics {
             log_scanner(diagnostics, "error", format!("ffprobe exited unsuccessfully for '{}': {}", filepath.replace('\\', "/"), error));
         }

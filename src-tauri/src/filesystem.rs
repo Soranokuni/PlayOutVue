@@ -166,3 +166,41 @@ pub async fn browse_filesystem(
         entries,
     })
 }
+
+/// Audit F-1: bulk existence check for rundown rows.
+///
+/// A row used to be discovered as broken only at TAKE, by the pre-flight check
+/// inside `playItemAt` -- on air, one clip too late. The rundown fans this out
+/// after every reconcile (and on drop, and at arm) so a row whose file is gone
+/// is red in the list long before anyone can take it.
+///
+/// Keyed on the path so a virtual sub-clip, which shares its parent's
+/// `current_path`, goes offline with its parent. Paths are de-duplicated by the
+/// caller; each is `stat`ed once on the blocking pool.
+#[tauri::command]
+pub async fn verify_paths_exist(paths: Vec<String>) -> Result<std::collections::HashMap<String, bool>, String> {
+    const MAX_PATHS: usize = 5_000;
+    if paths.len() > MAX_PATHS {
+        return Err(format!(
+            "verify_paths_exist refused {} paths (limit {})",
+            paths.len(),
+            MAX_PATHS
+        ));
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = std::collections::HashMap::with_capacity(paths.len());
+        for path in paths {
+            let trimmed = path.trim();
+            if trimmed.is_empty() {
+                out.insert(path, false);
+                continue;
+            }
+            let exists = Path::new(trimmed).is_file();
+            out.insert(path, exists);
+        }
+        out
+    })
+    .await
+    .map_err(|e| format!("verify_paths_exist task failed: {}", e))
+}

@@ -3,6 +3,7 @@ mod proc_util;
 mod scanner;
 mod stream;
 mod trimmer;
+mod audio_peaks;
 mod playlist;
 mod db;
 mod diagnostics;
@@ -38,9 +39,10 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use runtime_settings::{apply_runtime_settings, RuntimeSettingsState};
 use scanner::{get_media_probe_status, save_media_trim_profile, scan_media, scan_directory, start_media_probe, warm_media_cache, DbState, MediaProbeState};
 use stream::extract_web_stream;
-use trimmer::{get_media_preview_info, get_media_preview_url, compute_frame_trim, parse_timecode};
+use trimmer::{get_media_preview_info, compute_frame_trim, parse_timecode};
+use audio_peaks::get_audio_peaks;
 use playlist::{save_playlist, load_playlist};
-use filesystem::{browse_filesystem, find_default_logos_dir, get_image_dimensions, list_filesystem_roots};
+use filesystem::{browse_filesystem, find_default_logos_dir, get_image_dimensions, list_filesystem_roots, verify_paths_exist};
 use ingestor_api::{
     auto_purge_ingestor_recycle_bin, check_ingestor_health, create_ingestor_subclip,
     list_ingestor_assets, list_ingestor_folder_colors, list_ingestor_recycle_bin,
@@ -218,10 +220,10 @@ pub fn run() {
             push_diagnostic_log,
             redact_path_for_diagnostics,
             extract_web_stream,
-            get_media_preview_url,
             get_media_preview_info,
             compute_frame_trim,
             parse_timecode,
+            get_audio_peaks,
             get_media_url,
             save_playlist,
             load_playlist,
@@ -251,6 +253,7 @@ pub fn run() {
             caspar_test_connection,
             list_filesystem_roots,
             browse_filesystem,
+            verify_paths_exist,
             find_default_logos_dir,
             get_image_dimensions,
             resolve_ingestor_asset,

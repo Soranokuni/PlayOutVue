@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { RundownItem } from './rundownHydrator';
+import { describeItem, type RundownItem } from './rundownHydrator';
 import { useSettingsStore } from '../stores/settings';
 import {
     parseFpsRational,
@@ -133,7 +133,7 @@ export async function dispatchPlay(
     const readiness = await verifyPlaybackReady(item.path);
     if (!readiness.ready) {
         throw new Error(
-            `Playback pre-flight check failed for "${item.path}": ${readiness.error}`
+            `Playback pre-flight check failed for ${describeItem(item)}: ${readiness.error}`
         );
     }
 
@@ -149,7 +149,7 @@ export async function dispatchPlay(
 
     if (trim.start_frame_degenerate) {
         throw new Error(
-            `Degenerate trim for "${item.path}": in-point ${item.trim_in_ms}ms exceeds the file duration, ` +
+            `Degenerate trim for ${describeItem(item)}: in-point ${item.trim_in_ms}ms exceeds the file duration, ` +
             `so playback would start from frame 0. Adjust the trim or re-import the subclip.`
         );
     }
@@ -233,7 +233,7 @@ export async function dispatchLoadbg(
     // 0. Pre-flight: verify file exists and has metadata (skip QC for preload)
     const readiness = await verifyPlaybackReady(item.path);
     if (!readiness.fileExists) {
-        throw new Error(`Preload pre-flight check failed — file not found: "${item.path}"`);
+        throw new Error(`Preload pre-flight check failed — file not found for ${describeItem(item)}`);
     }
 
     // 1. compute_frame_trim
@@ -247,7 +247,7 @@ export async function dispatchLoadbg(
     // "LENGTH <full> AUTO" bug). Same guard as dispatchPlay.
     if ((item.trim_in_ms || 0) > 100 && trim.in_frame === 0) {
         throw new Error(
-            `Degenerate trim for "${item.path}": in-point ${item.trim_in_ms}ms exceeds the file duration, ` +
+            `Degenerate trim for ${describeItem(item)}: in-point ${item.trim_in_ms}ms exceeds the file duration, ` +
             `so the preload would start from frame 0. Adjust the trim or re-import the subclip.`
         );
     }

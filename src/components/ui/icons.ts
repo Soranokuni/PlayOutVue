@@ -47,6 +47,9 @@ export const ICONS = {
   pause: '<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
   rewind: '<path d="M11.5 20.7 3.3 13a1 1 0 0 1 0-1.4l8.2-7.7A1 1 0 0 1 13 4.6v14.8a1 1 0 0 1-1.5.7z"/><path d="M20.5 20.7 12.3 13a1 1 0 0 1 0-1.4l8.2-7.7a1 1 0 0 1 1.5.7v14.8a1 1 0 0 1-1.5.7z"/>',
   'fast-forward': '<path d="M12.5 3.3 20.7 11a1 1 0 0 1 0 1.4l-8.2 7.7a1 1 0 0 1-1.5-.7V4a1 1 0 0 1 1.5-.7z"/><path d="M3.5 3.3 11.7 11a1 1 0 0 1 0 1.4l-8.2 7.7A1 1 0 0 1 2 19.4V4a1 1 0 0 1 1.5-.7z"/>',
+  // Preview audio monitoring (the trimmer), not programme audio.
+  volume: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
+  'volume-off': '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>',
   scissors:
     '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
   save: '<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>',

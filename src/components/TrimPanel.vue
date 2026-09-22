@@ -7,6 +7,10 @@ import { activeTrimmerContext } from '../composables/useOperatorShortcuts';
 import { createVirtualSubclip } from '../services/virtualSubclipService';
 import { describeErrorMessage } from '../lib/describeError';
 import AppIcon from './ui/AppIcon.vue';
+import TrimWaveform from './TrimWaveform.vue';
+import TrimAudioMeter from './TrimAudioMeter.vue';
+import { useTrimAudio } from '../composables/useTrimAudio';
+import { useSettingsStore } from '../stores/settings';
 import {
   createTrimDraft,
   setInAt,
@@ -21,6 +25,9 @@ import {
 export interface LibraryTrimItem {
     id?: string;
     uuid?: string;
+    /** The root asset a virtual sub-clip is cut from. */
+    parentAssetUuid?: string;
+    virtualSubclip?: boolean;
     path: string;
     filename: string;
     type: string;
@@ -33,6 +40,13 @@ export interface LibraryTrimItem {
     fps_den?: number;
     trim_in_ms?: number;
     trim_out_ms?: number;
+    mezzanine_ok?: boolean;
+    total_frames?: number;
+    gop_frames?: number;
+    keyframe_safe_start_ms?: number;
+    complianceRating?: string;
+    tp_flag?: boolean;
+    content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
 }
 
 const store = useRundownStore();
@@ -50,20 +64,66 @@ const activeItem = ref<LibraryTrimItem | null>(null);
 const item = computed(() => activeItem.value);
 const panelRef = ref<HTMLElement | null>(null);
 
+/**
+ * Snapshot the item being trimmed.
+ *
+ * The server identity used to be
+ * `props.libraryItem?.uuid || store.selectedItem?.playoutvueId || source.id`,
+ * which had two faults:
+ *
+ *  - when the panel was opened on a *library* row that carried no uuid, it
+ *    silently borrowed the uuid of whatever happened to be selected in the
+ *    *rundown* -- a different asset;
+ *  - failing that it fell back to `source.id`, which for a rundown row is a
+ *    client-side `uuidv4()` that is not a server asset id at all. It does not
+ *    start with `local:`, so every downstream check ("do we have a server
+ *    identity?") said yes, and "Save virtual sub-clip" posted to
+ *    `/api/assets/<a-random-uuid>/subclip`.
+ *
+ * The identity now comes from the same object as the rest of the snapshot, and
+ * a row with no server identity is honestly marked `local:` so the sub-clip
+ * path takes the local branch instead of guessing.
+ */
 const lockTrimItem = () => {
   const source = props.libraryItem || store.selectedItem;
-  activeItem.value = source ? {
+  if (!source) {
+    activeItem.value = null;
+    return;
+  }
+
+  const anySource = source as any;
+  const serverUuid = anySource.uuid || anySource.playoutvueId || '';
+  const hasServerIdentity =
+    !!serverUuid && !serverUuid.startsWith('local:') && !serverUuid.startsWith('local-subclip:');
+
+  activeItem.value = {
     id: source.id,
-    uuid: (props.libraryItem?.uuid) || (store.selectedItem?.playoutvueId) || source.id,
+    uuid: hasServerIdentity ? serverUuid : `local:${source.path || source.id}`,
+    // A sub-clip of a sub-clip is still a cut of the original asset: chain to
+    // the root so the transcoder is asked to trim the file that actually
+    // exists, not a virtual row.
+    parentAssetUuid: anySource.parentAssetUuid || (hasServerIdentity ? serverUuid : undefined),
+    virtualSubclip: anySource.virtualSubclip,
     path: source.path,
     filename: source.filename,
     type: source.type,
     duration: source.duration,
-    duration_ms: (source as any).duration_ms,
+    duration_ms: anySource.duration_ms,
     inPoint: source.inPoint,
     outPoint: source.outPoint,
-    fps: (source as any).fps || 25
-  } : null;
+    trim_in_ms: anySource.trim_in_ms,
+    trim_out_ms: anySource.trim_out_ms,
+    fps: anySource.fps || 25,
+    fps_num: anySource.fps_num,
+    fps_den: anySource.fps_den,
+    mezzanine_ok: anySource.mezzanine_ok,
+    total_frames: anySource.total_frames,
+    gop_frames: anySource.gop_frames,
+    keyframe_safe_start_ms: anySource.keyframe_safe_start_ms,
+    complianceRating: anySource.complianceRating,
+    tp_flag: anySource.tp_flag,
+    content_type: anySource.content_type,
+  };
 };
 
 // ── Video preview via local streaming server ──────────────────────────────────
@@ -71,54 +131,67 @@ const lockTrimItem = () => {
 const videoRef = ref<HTMLVideoElement | null>(null);
 const videoSrc = ref('');
 const isVideoPlaying = ref(false);
-const isGeneratingProxy = ref(false);
 const previewError = ref('');
-const previewMode = ref<'source' | 'proxy'>('source');
-const proxyAttemptedPath = ref('');
-let previewFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+/** True when the file itself is gone, as opposed to merely undecodable here. */
+const previewSourceMissing = ref(false);
 
-const clearPreviewFallbackTimer = () => {
-  if (!previewFallbackTimer) return;
-  clearTimeout(previewFallbackTimer);
-  previewFallbackTimer = null;
-};
+// Local audio monitoring: volume/mute, audition while stepping, and the peak
+// envelope behind the waveform and the meter. See `useTrimAudio`.
+const settings = useSettingsStore();
+const trimAudio = useTrimAudio({ videoRef, srcRef: videoSrc });
+const { peaks: audioPeaks, peaksState: audioPeaksState, peaksError: audioPeaksError } = trimAudio;
+const audioVolume = computed(() => Number(settings.trimmerAudioVolume) || 0);
+const audioSilent = computed(() => !!settings.trimmerAudioMuted || audioVolume.value === 0);
+const onVolumeInput = (e: Event) => trimAudio.setVolume(Number((e.target as HTMLInputElement).value));
+/** Give the keyboard back to the transport once the slider is let go. */
+const releaseSliderFocus = () => nextTick(() => panelRef.value?.focus());
 
-const loadProxyPreview = async (path: string | undefined, reason: string) => {
-  if (!path || item.value?.type === 'live' || path.startsWith('http')) return;
-  if (proxyAttemptedPath.value === path) return;
-
-  proxyAttemptedPath.value = path;
-  previewMode.value = 'proxy';
-  isGeneratingProxy.value = true;
-  previewError.value = '';
-  videoSrc.value = '';
-  clearPreviewFallbackTimer();
-
-  try {
-    videoSrc.value = await invoke<string>('get_media_preview_url', { inputPath: path });
-  } catch (error) {
-    previewError.value = describeErrorMessage(error, 'Could not load the preview proxy.');
-  } finally {
-    isGeneratingProxy.value = false;
-  }
-};
-
+/**
+ * Audit F-6 / F-7 — the trimmer's "proxy".
+ *
+ * There has never been a proxy. `get_media_preview_url` was identical to
+ * `get_media_url`: both return the same streaming URL for the same original
+ * file. The panel nonetheless carried a whole fallback machine around it --
+ * a `previewMode`, an `isGeneratingProxy` spinner reading "Generating proxy
+ * preview…", a `proxyAttemptedPath` and an unconditional 2.5 s timer that
+ * flipped into "proxy" mode whenever `<video>` had not reported metadata yet.
+ *
+ * The result was that any preview failure -- above all a file that is simply
+ * not on disk any more, which is what the stale-rundown bug (F-0) produced by
+ * the dozen -- was reported to the operator as a proxy problem. They were told
+ * the app was generating something, then that the proxy had failed, when the
+ * truth was "this path does not exist".
+ *
+ * The machinery is gone. The preview now states which of the two things is
+ * actually wrong: the file is missing, or the embedded player cannot decode
+ * this codec (and in that case says plainly that trimming still works, because
+ * the IN/OUT math runs through ffprobe on the Rust side, not through
+ * `<video>`).
+ */
 const loadVideoSrc = async (path: string | undefined) => {
-    clearPreviewFallbackTimer();
     videoSrc.value = '';
     previewError.value = '';
-    isGeneratingProxy.value = false;
-    previewMode.value = 'source';
-    proxyAttemptedPath.value = '';
+    previewSourceMissing.value = false;
     if (!path || item.value?.type === 'live' || path.startsWith('http')) return;
+
+    // Name the right object: a missing file is a missing file, and the
+    // operator gets told so before the player has a chance to blame itself.
+    try {
+        const existence = await invoke<Record<string, boolean>>('verify_paths_exist', { paths: [path] });
+        if (existence[path] === false) {
+            previewSourceMissing.value = true;
+            previewError.value = `File not found on disk: ${path}`;
+            return;
+        }
+    } catch (error) {
+        console.warn('[TrimPanel] existence check unavailable', error);
+    }
+
     try {
         videoSrc.value = await invoke<string>('get_media_url', { path });
-        previewFallbackTimer = setTimeout(() => {
-          loadProxyPreview(path, 'metadata timeout').catch(() => {});
-        }, 2500);
     } catch (e) {
         console.warn('[TrimPanel] failed to get streaming URL:', e);
-        await loadProxyPreview(path, 'source url failure');
+        previewError.value = describeErrorMessage(e, 'Could not open a preview stream for this file.');
     }
 };
 
@@ -168,6 +241,8 @@ const playbackTime = ref(0);
 const draggingTimelineItem = ref<'in' | 'out' | 'playhead' | null>(null);
 
 let pendingSeekMs: number | null = null;
+/** The pending seek was asked for by the operator, so they should hear it. */
+let pendingAudition = false;
 let seekAnimationFrame = 0;
 let lastPlaybackUiUpdateAt = 0;
 let lastKnownPlaybackMs = 0;
@@ -200,22 +275,26 @@ const flushPendingSeek = () => {
   if (!v || pendingSeekMs == null) return;
 
   const clamped = clampMs(pendingSeekMs);
+  const audition = pendingAudition;
   pendingSeekMs = null;
+  pendingAudition = false;
   v.currentTime = clamped / 1000;
   syncPlaybackDisplay(clamped, true);
+  if (audition && v.paused) trimAudio.audition(clamped);
 };
 
-const queueSeek = (ms: number, forceReactive = false) => {
+const queueSeek = (ms: number, forceReactive = false, audition = false) => {
   const clamped = clampMs(ms);
   syncPlaybackDisplay(clamped, forceReactive);
   pendingSeekMs = clamped;
+  pendingAudition = pendingAudition || audition;
   if (!seekAnimationFrame) {
     seekAnimationFrame = requestAnimationFrame(flushPendingSeek);
   }
 };
 
-const seekTo = (ms: number, forceReactive = true) => {
-  queueSeek(ms, forceReactive);
+const seekTo = (ms: number, forceReactive = true, audition = false) => {
+  queueSeek(ms, forceReactive, audition);
 };
 
 const syncPlaybackState = () => {
@@ -236,19 +315,91 @@ const togglePlayback = async () => {
   syncPlaybackState();
 };
 
+// ── Playback loop ────────────────────────────────────────────────────────────
+// With sound on, where playback stops is something the operator *hears*.
+// `timeupdate` fires about four times a second, so stopping at OUT from it
+// overran by up to 250 ms of audio past the cut -- sound that will not be on
+// air. The loop checks every animation frame instead, and also moves the
+// playhead smoothly rather than in quarter-second jumps.
+let playLoopFrame = 0;
+/** Where the current playback must stop, or null to play on. */
+let stopAtMs: number | null = null;
+/**
+ * `playRange` chose `stopAtMs` itself. Media events are queued, so the `pause`
+ * and `play` events from its own pause/play pair arrive after it returns; the
+ * flag stops them overwriting its stop point.
+ */
+let rangeArmed = false;
+
+const playLoop = () => {
+  playLoopFrame = 0;
+  const v = videoRef.value;
+  if (!v || v.paused || v.ended) return;
+  const ms = v.currentTime * 1000;
+  if (stopAtMs != null && ms >= stopAtMs) {
+    const at = stopAtMs;
+    stopAtMs = null;
+    v.pause();
+    v.currentTime = at / 1000;
+    speed.value = 0;
+    syncPlaybackDisplay(at, true);
+    syncPlaybackState();
+    return;
+  }
+  syncPlaybackDisplay(ms);
+  playLoopFrame = requestAnimationFrame(playLoop);
+};
+
+const onVideoPlay = () => {
+  trimAudio.stopAudition();
+  const v = videoRef.value;
+  // Playback that starts before OUT stops at OUT. Starting past OUT plays on,
+  // so the operator can listen to what the cut throws away.
+  if (rangeArmed) {
+    rangeArmed = false;
+  } else {
+    stopAtMs = v && outMs.value > inMs.value && v.currentTime * 1000 < outMs.value - FRAME_MS.value / 2
+      ? outMs.value
+      : null;
+  }
+  syncPlaybackState();
+  if (!playLoopFrame) playLoopFrame = requestAnimationFrame(playLoop);
+};
+
+const onVideoPause = () => {
+  syncPlaybackState();
+};
+
+/** Play `[fromMs, toMs)` and stop exactly at `toMs`. */
+const playRange = async (fromMs: number, toMs: number) => {
+  const v = videoRef.value;
+  if (!v || toMs <= fromMs) return;
+  if (pendingSeekMs != null) flushPendingSeek();
+  if (!v.paused) v.pause();
+  const from = clampMs(fromMs);
+  v.currentTime = from / 1000;
+  syncPlaybackDisplay(from, true);
+  stopAtMs = clampMs(toMs);
+  rangeArmed = true;
+  speed.value = 1;
+  v.playbackRate = 1;
+  await v.play().catch(() => { rangeArmed = false; });
+  syncPlaybackState();
+};
+
+/** Hear the cut as it will air: from IN to OUT. */
+const playSelection = () => playRange(inMs.value, outMs.value > inMs.value ? outMs.value : totalDurationMs.value);
+/** Hear the lead-up to the OUT point, stopping on it. */
+const OUT_PREROLL_MS = 3000;
+const playToOut = () => playRange(Math.max(inMs.value, outMs.value - OUT_PREROLL_MS), outMs.value);
+
 // ── Timeline Scrubbing state ──────────────────────────────────────────────────
 const onTimeUpdate = () => {
-  if (videoRef.value) {
-    const currentMs = videoRef.value.currentTime * 1000;
-    if (outMs.value > inMs.value && currentMs > outMs.value) {
-      seekTo(outMs.value);
-      videoRef.value.pause();
-      syncPlaybackDisplay(outMs.value, true);
-    } else {
-      syncPlaybackDisplay(currentMs);
-    }
-    syncPlaybackState();
-  }
+  const v = videoRef.value;
+  if (!v) return;
+  // While playing, the loop owns the display and the OUT stop.
+  if (v.paused) syncPlaybackDisplay(v.currentTime * 1000);
+  syncPlaybackState();
 };
 
 const getMsFromEvent = (e: MouseEvent) => {
@@ -269,12 +420,12 @@ const handleTimelineDrag = (e: MouseEvent) => {
     const ms = getMsFromEvent(e);
     if (draggingTimelineItem.value === 'in') {
         inMs.value = Math.min(ms, outMs.value);
-    queueSeek(inMs.value);
+    queueSeek(inMs.value, false, true);
     } else if (draggingTimelineItem.value === 'out') {
         outMs.value = Math.max(ms, inMs.value);
-    queueSeek(outMs.value);
+    queueSeek(outMs.value, false, true);
     } else if (draggingTimelineItem.value === 'playhead') {
-    queueSeek(ms);
+    queueSeek(ms, false, true);
     }
 };
 
@@ -292,11 +443,11 @@ const onWindowMouseUp = () => {
 
 // ── Duration from <video> metadata ────────────────────────────────────────────
 const onVideoLoaded = () => {
-    clearPreviewFallbackTimer();
     const v = videoRef.value;
     if (!v || isNaN(v.duration)) return;
     if (!Number.isFinite(v.duration) || v.videoWidth <= 0) {
-      loadProxyPreview(item.value?.path, 'undecodable source').catch(() => {});
+      previewError.value = undecodableMessage();
+      videoSrc.value = '';
       return;
     }
     const dur = v.duration * 1000;
@@ -311,12 +462,17 @@ const onVideoLoaded = () => {
     }
 };
 
+const undecodableMessage = () => {
+  const ext = (item.value?.path || '').split('.').pop()?.toUpperCase() || 'this format';
+  return `The embedded player cannot decode ${ext}. Trimming still works: the IN/OUT timecodes, the frame math and the sub-clip are computed by ffprobe, not by this preview.`;
+};
+
 const onVideoError = () => {
-  if (previewMode.value === 'proxy') {
-    previewError.value = 'Preview is not available for this file in the embedded player.';
-    return;
-  }
-  loadProxyPreview(item.value?.path, 'video decode error').catch(() => {});
+  // Audit F-6: no proxy fallback. Either the file is gone (already reported by
+  // `loadVideoSrc`) or WebView2 cannot decode it. Say which.
+  if (previewSourceMissing.value) return;
+  previewError.value = undecodableMessage();
+  videoSrc.value = '';
 };
 
 // ── Probe via ffprobe (fallback for formats browser can't decode) ─────────────
@@ -363,10 +519,13 @@ watch([item, () => props.isOpen], ([val, open]) => {
   });
   loadVideoSrc(val.path);
   probeDuration();
+  trimAudio.loadPeaks(isLocalFilePath(val.path) && val.type !== 'live' ? val.path : undefined);
     }
     if (!open) {
-      clearPreviewFallbackTimer();
         if (videoRef.value) videoRef.value.pause();
+        trimAudio.stopAudition();
+        stopAtMs = null;
+        rangeArmed = false;
         videoSrc.value = '';
     }
 }, { immediate: true });
@@ -520,9 +679,9 @@ const revertTrimToBaseline = () => {
 };
 
 const jumpToMarker = (marker: 'start' | 'in' | 'out' | 'end') => {
-  if (marker === 'start') return seekTo(0);
-  if (marker === 'in') return seekTo(inMs.value);
-  if (marker === 'out') return seekTo(outMs.value);
+  if (marker === 'start') return seekTo(0, true, true);
+  if (marker === 'in') return seekTo(inMs.value, true, true);
+  if (marker === 'out') return seekTo(outMs.value, true, true);
   seekTo(totalDurationMs.value);
 };
 
@@ -530,7 +689,7 @@ const jumpToMarker = (marker: 'start' | 'in' | 'out' | 'end') => {
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
 const currentVideoMs = () => lastKnownPlaybackMs || ((videoRef.value?.currentTime ?? 0) * 1000);
 const nudge = (frames: number) => {
-  seekTo(currentVideoMs() + frames * FRAME_MS.value);
+  seekTo(currentVideoMs() + frames * FRAME_MS.value, true, true);
 };
 const applySpeed = (s: number) => {
     const v = videoRef.value; if (!v) return;
@@ -608,6 +767,8 @@ const handleKey = (e: KeyboardEvent) => {
     case 'l': e.preventDefault(); applySpeed(speed.value === 2 ? 0 : (speed.value === 0 ? 1 : 2)); break;
     case 'i': e.preventDefault(); setInPoint(); break;
     case 'o': e.preventDefault(); setOutPoint(); break;
+    case 'm': e.preventDefault(); trimAudio.toggleMute(); break;
+    case 'p': e.preventDefault(); if (e.shiftKey) playToOut(); else playSelection(); break;
     }
 };
 onMounted(()  => {
@@ -617,8 +778,9 @@ onMounted(()  => {
 onUnmounted(() => {
     window.removeEventListener('mousemove', onWindowMouseMove);
     window.removeEventListener('mouseup', onWindowMouseUp);
-  clearPreviewFallbackTimer();
   if (seekAnimationFrame) cancelAnimationFrame(seekAnimationFrame);
+  if (playLoopFrame) cancelAnimationFrame(playLoopFrame);
+  trimAudio.dispose();
 });
 
 // ── Save / Trim ───────────────────────────────────────────────────────────────
@@ -787,6 +949,10 @@ const saveAsSubclip = () => {
             <span class="key-cap">←</span><span class="key-cap">→</span> 1f
             <span class="key-sep">•</span>
             <span class="key-cap">⇧←</span><span class="key-cap">⇧→</span> 10f
+            <span class="key-sep">•</span>
+            <span class="key-cap">P</span> Play
+            <span class="key-sep">•</span>
+            <span class="key-cap">M</span> Mute
           </div>
           <button
             v-if="hasTrimRange"
@@ -809,16 +975,12 @@ const saveAsSubclip = () => {
         <div class="player-col">
           <div class="video-container">
             <video v-if="videoSrc" ref="videoRef" :src="videoSrc" class="trim-video"
-              muted preload="metadata" @loadedmetadata="onVideoLoaded" @error="onVideoError" @timeupdate="onTimeUpdate" @play="syncPlaybackState" @pause="syncPlaybackState"></video>
+              preload="metadata" @loadedmetadata="onVideoLoaded" @error="onVideoError" @timeupdate="onTimeUpdate" @play="onVideoPlay" @pause="onVideoPause"></video>
             <div v-else-if="item.type === 'live' || item.path?.startsWith('http')" class="video-placeholder">
               <div class="placeholder-icon"><AppIcon :name="item.type === 'live' ? 'live' : 'graphic'" :size="24" /></div>
               <small class="text-secondary">No local preview</small>
             </div>
-            <div v-else-if="isGeneratingProxy" class="video-placeholder">
-              <div class="placeholder-icon"><AppIcon name="film" :size="24" /></div>
-              <small class="text-secondary">Generating proxy preview…</small>
-            </div>
-            <div v-else-if="previewError" class="video-placeholder">
+            <div v-else-if="previewError" class="video-placeholder" :class="{ 'is-missing': previewSourceMissing }">
               <div class="placeholder-icon"><AppIcon name="alert" :size="24" /></div>
               <small class="text-secondary">{{ previewError }}</small>
             </div>
@@ -845,6 +1007,49 @@ const saveAsSubclip = () => {
             <button class="t-btn t-btn-step" @click="nudge(10)" title="Forward 10 frames [Shift+Right]">+10f</button>
             <button class="t-btn t-btn-nav" @click="jumpToMarker('end')" title="End [End]">⏭</button>
           </div>
+
+          <!-- Local audio monitoring (this machine's output, never the programme bus) -->
+          <div class="audio-strip" :class="{ 'is-silent': audioSilent }">
+            <button
+              class="btn btn--icon btn--sm audio-mute"
+              :aria-pressed="audioSilent"
+              :title="audioSilent ? 'Unmute preview audio [M]' : 'Mute preview audio [M]'"
+              @click="trimAudio.toggleMute()"
+            >
+              <AppIcon :name="audioSilent ? 'volume-off' : 'volume'" :size="14" />
+            </button>
+            <input
+              class="audio-volume"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              :value="audioVolume"
+              aria-label="Preview volume"
+              :title="`Preview volume ${audioVolume}%`"
+              @input="onVolumeInput"
+              @change="releaseSliderFocus"
+            >
+            <TrimAudioMeter
+              v-if="audioPeaksState === 'ready'"
+              :peaks="audioPeaks"
+              :video="videoRef"
+              :frame-ms="FRAME_MS"
+            />
+            <span v-else class="audio-note" :class="`is-${audioPeaksState}`" :title="audioPeaksError || undefined">
+              {{ audioPeaksState === 'loading' ? 'Scanning audio…'
+                : audioPeaksState === 'none' ? 'No audio track'
+                : audioPeaksState === 'error' ? 'Audio scan failed'
+                : 'No level for this source' }}
+            </span>
+            <button
+              class="btn btn--ghost btn--sm audio-scrub"
+              :class="{ 'is-on': settings.trimmerScrubAudio }"
+              :aria-pressed="!!settings.trimmerScrubAudio"
+              title="Play a short burst of sound when stepping frames or dragging while paused"
+              @click="trimAudio.toggleScrub()"
+            >Scrub audio</button>
+          </div>
         </div>
 
         <!-- Right: Controls, Timeline & Timecodes -->
@@ -870,9 +1075,17 @@ const saveAsSubclip = () => {
 
           <!-- Scrub Bar & Timeline -->
           <div class="scrub-area">
-            <div class="timeline-container" ref="timelineRef" @mousedown.left="onTimelineMouseDown($event, 'playhead')">
+            <div class="timeline-container" :class="{ 'has-waveform': !!audioPeaks }" ref="timelineRef" @mousedown.left="onTimelineMouseDown($event, 'playhead')">
               <div class="tm-track-bg">
                 <div class="tm-ticks"></div>
+                <TrimWaveform
+                  v-if="audioPeaks"
+                  :peaks="audioPeaks"
+                  :start-ms="scrubOffsetMs"
+                  :end-ms="scrubOffsetMs + scrubDurationMs"
+                  :in-ms="inMs"
+                  :out-ms="outMs"
+                />
               </div>
               <div class="tm-range" :style="{
                 left:  rangeLeftPct+'%',
@@ -916,6 +1129,7 @@ const saveAsSubclip = () => {
               <input class="tc-input tc-input-in" :value="displayInTC" @change="applyInTC" placeholder="00:00:00:00" spellcheck="false">
               <div class="tc-actions">
                 <button class="mini-btn" @click="jumpToMarker('in')" title="Jump to IN point">Cue</button>
+                <button class="mini-btn" @click="playSelection" title="Play from IN, stop at OUT [P]">Play</button>
                 <button class="mini-btn mini-btn-set" @click="setInPoint()" title="Set IN from current playhead [I]">Set [I]</button>
               </div>
             </div>
@@ -928,6 +1142,7 @@ const saveAsSubclip = () => {
               <input class="tc-input tc-input-out" :value="displayOutTC" @change="applyOutTC" placeholder="00:00:00:00" spellcheck="false">
               <div class="tc-actions">
                 <button class="mini-btn" @click="jumpToMarker('out')" title="Jump to OUT point">Cue</button>
+                <button class="mini-btn" @click="playToOut" title="Play the 3 s before OUT, stop on it [Shift+P]">Play to</button>
                 <button class="mini-btn mini-btn-set" @click="setOutPoint()" title="Set OUT from current playhead [O]">Set [O]</button>
               </div>
             </div>
@@ -1089,6 +1304,7 @@ const saveAsSubclip = () => {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  white-space: nowrap;
 }
 
 .key-cap {
@@ -1234,6 +1450,49 @@ const saveAsSubclip = () => {
   border: 1px solid var(--border-subtle);
 }
 
+.audio-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--bg-tertiary);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+}
+
+.audio-volume {
+  width: 88px;
+  flex: none;
+  accent-color: var(--accent-primary);
+}
+
+.audio-strip.is-silent .audio-volume {
+  opacity: 0.5;
+}
+
+.audio-note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-note.is-error {
+  color: var(--accent-red);
+}
+
+.audio-scrub {
+  flex: none;
+}
+
+.audio-scrub.is-on {
+  color: var(--accent-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
+}
+
 .t-btn {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
@@ -1365,6 +1624,10 @@ const saveAsSubclip = () => {
   cursor: pointer;
   margin: var(--space-1) 0 var(--space-2) 0;
   user-select: none;
+}
+
+.timeline-container.has-waveform {
+  height: 64px;
 }
 
 .tm-track-bg {

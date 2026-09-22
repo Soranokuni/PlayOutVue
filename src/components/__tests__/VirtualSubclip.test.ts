@@ -52,9 +52,21 @@ describe('PR 5C Virtual Subclip Service & Persistence', () => {
     expect(result.state).toBe('local-only');
     expect(result.item).toBeDefined();
     expect(result.item?.display_name).toBe('Local Subclip Test');
-    expect(result.item?.duration_ms).toBe(6000); // 8000 - 2000
+    // Audit E-7: `duration_ms` is the PHYSICAL file's duration, not the
+    // trimmed range. A virtual sub-clip is a trim window over its parent's
+    // file, so the file behind it is still 20 s long; the trimmed length lives
+    // in `duration` / `plannedDuration` and is derivable from the trims. This
+    // assertion used to demand 6000, which made a sub-clip created here
+    // disagree with the same sub-clip added from the library and made a later
+    // re-trim clamp against a duration that was not the file's.
+    expect(result.item?.duration_ms).toBe(20000);
+    expect(result.item?.duration).toBe(6); // 8000 - 2000
+    expect(result.item?.plannedDuration).toBe(6);
     expect(result.item?.trim_in_ms).toBe(2000);
     expect(result.item?.trim_out_ms).toBe(8000);
+    // Milliseconds, like every other in/out point in the rundown.
+    expect(result.item?.inPoint).toBe(2000);
+    expect(result.item?.outPoint).toBe(8000);
     expect(result.item?.parentAssetUuid).toBe('local:asset-123');
     expect(result.item?.virtualSubclip).toBe(true);
     expect(result.item?.persistenceState).toBe('local-only');
@@ -114,7 +126,10 @@ describe('PR 5C Virtual Subclip Service & Persistence', () => {
     });
 
     expect(result.state).toBe('persisted');
-    expect(result.item?.duration_ms).toBe(10000);
+    // The server response carried no duration_ms, so the parent file's 30 s is
+    // kept (audit E-7); the trimmed range is 10 s.
+    expect(result.item?.duration_ms).toBe(30000);
+    expect(result.item?.duration).toBe(10);
     expect(result.item?.playoutvueId).toBe('server-subclip-uuid-999');
     expect(result.item?.parentAssetUuid).toBe('server-uuid-123');
     // Must NOT be marked ready when backend response status is processing and mezzanine_ok is false
@@ -247,8 +262,12 @@ describe('PR 5C Virtual Subclip Service & Persistence', () => {
     expect(result.state).toBe('local-only');
     expect(result.item?.trim_in_ms).toBe(1234);
     expect(result.item?.trim_out_ms).toBe(5678);
-    expect(result.item?.duration_ms).toBe(4444);
-    expect(result.item?.inPoint).toBe(1.234);
-    expect(result.item?.outPoint).toBe(5.678);
+    expect(result.item?.duration_ms).toBe(10000); // the file, not the window
+    expect(result.item?.duration).toBe(4.444);
+    // Audit E-7: in/out points are milliseconds throughout the rundown store
+    // (`makeItem`, `updateItem`, `totalDuration`). This branch used to write
+    // seconds, so a local sub-clip came back with an IN point 1000x too small.
+    expect(result.item?.inPoint).toBe(1234);
+    expect(result.item?.outPoint).toBe(5678);
   });
 });
