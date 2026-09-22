@@ -1341,6 +1341,58 @@ export const useRundownStore = defineStore('rundown', () => {
     };
 
     /**
+     * TRIM-CONTRACT-AUDIT C-3: a `local:` / `local-subclip:` row has no server
+     * identity, so asking the transcoder about it can only fail (the Rust side
+     * rejects any id that is not a canonical uuid) and used to mark the row
+     * `error`, which a take skips. Such a row is checked on disk instead:
+     * present -> `ready`, absent -> `missing`. An unavailable check changes
+     * nothing, and an on-air row is never demoted.
+     */
+    const resolveLocalItems = async (playlistId: string, itemIds: string[]) => {
+        const pathOf = (item: RundownItem) => (item.current_path || item.path || '').trim();
+        const initial = getPlaylistById(playlistId);
+        if (!initial || !itemIds.length) return;
+        const paths = new Set<string>();
+        for (const item of initial.items) {
+            if (!itemIds.includes(item.id)) continue;
+            const path = pathOf(item);
+            if (path) paths.add(path);
+        }
+        if (!paths.size) return;
+
+        let existsByPath: Record<string, boolean>;
+        try {
+            existsByPath = await invoke<Record<string, boolean>>('verify_paths_exist', {
+                paths: Array.from(paths)
+            });
+        } catch (error) {
+            console.warn('[Rundown] Local item path check failed', error);
+            return;
+        }
+
+        const playlist = getPlaylistById(playlistId);
+        if (!playlist) return;
+        const newItems = [...playlist.items];
+        let changed = false;
+        for (let idx = 0; idx < newItems.length; idx++) {
+            const item = newItems[idx];
+            if (!item || !itemIds.includes(item.id)) continue;
+            const exists = existsByPath[pathOf(item)];
+            if (exists === undefined) continue;
+            const onAir = playlist.id === onAirPlaylistId.value
+                && (item.id === currentPlayingInstanceId.value || idx === playlist.currentPlayingIndex);
+            const status: IngestorStatus = exists ? 'ready' : 'missing';
+            if (item.ingestorStatus === status || (!exists && onAir)) continue;
+            newItems[idx] = { ...item, ingestorStatus: status };
+            changed = true;
+        }
+        if (changed) {
+            updatePlaylistState(playlistId, { items: newItems });
+            syncPlayoutQueue(playlistId);
+        }
+    };
+
+    /**
      * Audit F-3: resolve a set of rundown rows against the transcoder in
      * batches. Replaces the block that used to live inline in
      * `deserializeRundown`, which had three defects:
@@ -1361,14 +1413,20 @@ export const useRundownStore = defineStore('rundown', () => {
         const BATCH_SIZE = 100;
 
         const uuidToItemIds = new Map<string, string[]>();
+        const localItemIds: string[] = [];
         for (const item of items) {
             const uuid = (item.playoutvueId || '').trim();
             if (!uuid || item.type === 'gap' || item.type === 'live') continue;
-            if (uuid.startsWith('local:') || uuid.startsWith('local-subclip:')) continue;
+            if (uuid.startsWith('local:') || uuid.startsWith('local-subclip:')) {
+                localItemIds.push(item.id);
+                continue;
+            }
             const bucket = uuidToItemIds.get(uuid);
             if (bucket) bucket.push(item.id);
             else uuidToItemIds.set(uuid, [item.id]);
         }
+
+        if (localItemIds.length) resolveLocalItems(playlistId, localItemIds).catch(() => {});
 
         const uuids = Array.from(uuidToItemIds.keys());
         if (!uuids.length) return;
@@ -1949,6 +2007,10 @@ export const useRundownStore = defineStore('rundown', () => {
 
         const item = playlist.items.find((e) => e.id === itemId);
         if (!item || !item.playoutvueId || item.type === 'gap') return;
+        if (!isServerIdentity(item.playoutvueId)) {
+            await resolveLocalItems(playlist.id, [item.id]);
+            return;
+        }
         const uuid = item.playoutvueId;
 
         /** Apply `mutate` to the row as it is now; false when it is gone. */

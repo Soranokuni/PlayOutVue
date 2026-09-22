@@ -125,7 +125,7 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         expect(hydrated.trim_out_ms).toBe(40_000);
     });
 
-    it.fails('C-3: a local sub-clip is not resolved against the transcoder and is not marked error', async () => {
+    it('C-3: a local sub-clip is not resolved against the transcoder and is not marked error', async () => {
         // validate_uuid on the Rust side rejects anything that is not a canonical uuid.
         vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
             if (cmd === 'resolve_ingestor_asset' && !UUID.test(args?.uuid ?? '')) throw new Error('Invalid asset uuid');
@@ -136,6 +136,33 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         await flush();
 
         expect(store.currentPlaylist!.items[0]!.ingestorStatus).not.toBe('error');
+        expect(store.currentPlaylist!.items[0]!.ingestorStatus).toBe('ready');
+        expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'resolve_ingestor_asset')).toBe(false);
+    });
+
+    it('C-3: a local row whose file is gone is missing, not error', async () => {
+        vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
+            if (cmd === 'verify_paths_exist') return Object.fromEntries((args.paths as string[]).map((p) => [p, false]));
+            return offline(cmd, args);
+        });
+        const store = useRundownStore();
+        store.addItem(draft({ playoutvueId: `local:${PATH}` }) as any);
+        await flush();
+
+        expect(store.currentPlaylist!.items[0]!.ingestorStatus).toBe('missing');
+    });
+
+    it('C-3: a playlist file saved with an errored local sub-clip loads playable', async () => {
+        const store = useRundownStore();
+        store.addItem(draft({ playoutvueId: 'local-subclip:w', inPoint: 30_000, outPoint: 40_000, trim_in_ms: 30_000, trim_out_ms: 40_000 }) as any);
+        await flush();
+        const file = structuredClone(store.serializeRundown('x'));
+        for (const row of file.items) row.igs = 'error'; // what the bug wrote
+
+        store.deserializeRundown(file);
+        await flush();
+
+        expect(store.currentPlaylist!.items[0]!.ingestorStatus).toBe('ready');
     });
 
     it('C-6: a resolve that lands after a reorder writes to its own row', async () => {
