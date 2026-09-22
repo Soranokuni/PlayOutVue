@@ -93,6 +93,7 @@ const INT_FIELDS: Record<string, { min: number; max: number }> = {
     transitionFrames: { min: 0, max: 100 },
     prerollFrames: { min: 0, max: 100 },
     lastAutoPurgeCheck: { min: 0, max: Number.MAX_SAFE_INTEGER },
+    trimmerAudioVolume: { min: 0, max: 100 },
 };
 
 /** A single token of the AMCP grammar: letters, digits, `_`, `-`, `.` */
@@ -173,6 +174,9 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
     if (!['low', 'medium', 'high', 'xhigh', 'max'].includes(state.aiEffort as string)) {
         (state as any).aiEffort = 'medium';
     }
+    for (const key of ['trimmerAudioMuted', 'trimmerScrubAudio'] as const) {
+        if (typeof state[key] !== 'boolean') (state as any)[key] = defaults[key];
+    }
     const cap = Number((state as any).aiMonthlyCapUsd);
     (state as any).aiMonthlyCapUsd = Number.isFinite(cap) && cap >= 0 ? cap : 0;
     return state;
@@ -204,6 +208,13 @@ export const useSettingsStore = defineStore('settings', {
         localMediaPath: '',
         ffmpegBinPath: '',
         debugMode: false,
+
+        // Trimmer audio monitoring (local output only; never the programme bus).
+        // Volume is a percentage of the preview element's level.
+        trimmerAudioMuted: false,
+        trimmerAudioVolume: 80,
+        // Short bursts of sound while stepping frames with the preview paused.
+        trimmerScrubAudio: true,
 
         // Visual Theme — the ids come from `config/themes.ts` (§5.2)
         theme: DEFAULT_THEME_ID as ThemeId,
