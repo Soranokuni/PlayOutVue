@@ -794,7 +794,7 @@ const saveNonDestructive = () => {
     const saveTask = async () => {
       if (item.value) {
         store.updateAssetTrim(
-          { id: item.value.id, uuid: item.value.uuid, path: item.value.path },
+          { id: item.value.id, uuid: item.value.uuid },
           inMs.value,
           outMs.value
         );

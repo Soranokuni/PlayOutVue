@@ -75,20 +75,35 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         vi.mocked(invoke).mockImplementation(offline);
     });
 
-    it.fails('C-1: trimming a parent leaves its sub-clips alone', async () => {
+    it('C-1: trimming a parent leaves its sub-clips alone', async () => {
         const store = useRundownStore();
         store.addItem(draft() as any);
         store.addItem(draft({ playoutvueId: 'sub-uuid', filename: 'Sub', inPoint: 30_000, outPoint: 40_000, trim_in_ms: 30_000, trim_out_ms: 40_000 }) as any);
         store.addItem(draft({ playoutvueId: 'local-subclip:x', filename: 'Local', inPoint: 50_000, outPoint: 60_000, trim_in_ms: 50_000, trim_out_ms: 60_000 }) as any);
         await flush();
 
-        // What TrimPanel.saveNonDestructive does for a library parent asset.
-        store.updateAssetTrim({ id: 'parent-uuid', uuid: 'parent-uuid', path: PATH }, 5_000, 20_000);
+        // What TrimPanel.saveNonDestructive does for a library parent asset. The
+        // path is passed on purpose: rows sharing the file must not match on it.
+        store.updateAssetTrim({ id: 'parent-uuid', uuid: 'parent-uuid', path: PATH } as any, 5_000, 20_000);
 
         expect(trims(store)).toEqual([
             ['parent-uuid', 5_000, 20_000],
             ['sub-uuid', 30_000, 40_000],
             ['local-subclip:x', 50_000, 60_000],
+        ]);
+    });
+
+    it('C-1: a local asset trim reaches its own rows by id, not other rows on the file', async () => {
+        const store = useRundownStore();
+        store.addItem(draft({ playoutvueId: `local:${PATH}` }) as any);
+        store.addItem(draft({ playoutvueId: 'local-subclip:z', inPoint: 50_000, outPoint: 60_000, trim_in_ms: 50_000, trim_out_ms: 60_000 }) as any);
+        await flush();
+
+        store.updateAssetTrim({ id: `local:${PATH}`, uuid: `local:${PATH}`, path: PATH } as any, 5_000, 20_000);
+
+        expect(trims(store)).toEqual([
+            [`local:${PATH}`, 5_000, 20_000],
+            ['local-subclip:z', 50_000, 60_000],
         ]);
     });
 

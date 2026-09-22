@@ -1140,8 +1140,16 @@ export const useRundownStore = defineStore('rundown', () => {
     const lastTrimWarning = ref<TrimWarningNotice | null>(null);
     const dismissTrimWarning = () => { lastTrimWarning.value = null; };
 
+    /**
+     * Apply a saved asset trim to the rows that play that asset.
+     *
+     * Rows are matched by identity only (TRIM-CONTRACT-AUDIT C-1). A sub-clip
+     * shares its parent's `current_path`, so matching by path rewrote every
+     * sub-clip of the file with the parent's window. A `local:` asset has no
+     * server identity and is matched by its `local:` id or the row id.
+     */
     const updateAssetTrim = (
-        identifier: { id?: string; uuid?: string; path?: string },
+        identifier: { id?: string; uuid?: string },
         inMs: number,
         outMs: number
     ) => {
@@ -1157,9 +1165,8 @@ export const useRundownStore = defineStore('rundown', () => {
                 const item = newItems[i]!;
                 const matchById = identifier.id && item.id === identifier.id;
                 const matchByUuid = identifier.uuid && (item.playoutvueId === identifier.uuid || item.id === identifier.uuid);
-                const matchByPath = identifier.path && (item.path === identifier.path || item.current_path === identifier.path || item.shortPath === identifier.path);
 
-                if (matchById || matchByUuid || matchByPath) {
+                if (matchById || matchByUuid) {
                     const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
                     const oldInMs = item.trim_in_ms ?? item.inPoint ?? 0;
                     const oldOutMs = item.trim_out_ms ?? (item.outPoint > 0 ? item.outPoint : totalMs);
