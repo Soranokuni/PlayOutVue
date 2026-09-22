@@ -7,8 +7,8 @@
 // passing, vitest reports that as a failure, and the fixer flips `it.fails` to
 // `it`: the reproduction becomes the regression guard.
 //
-// Not covered here: C-4 (Rust mapping, belongs in ingestor_api.rs tests), C-5
-// (ordering inside TrimPanel.saveNonDestructive), C-7 (Rust compute_frame_trim),
+// Not covered here: C-4 (Rust mapping, in ingestor_api.rs tests), C-5
+// (src/lib/__tests__/trimSave.test.ts), C-7 (Rust compute_frame_trim),
 // C-9 (a design decision, TRIM-CONTRACT-AUDIT §5, not a bug).
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';

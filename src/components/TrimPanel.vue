@@ -6,6 +6,7 @@ import { msToTimecode, parseTimecode, snapMsToFrame, getFrameRate, isDropFrameSu
 import { activeTrimmerContext } from '../composables/useOperatorShortcuts';
 import { createVirtualSubclip } from '../services/virtualSubclipService';
 import { describeErrorMessage } from '../lib/describeError';
+import { saveAssetTrim, hasServerIdentity } from '../lib/trimSave';
 import AppIcon from './ui/AppIcon.vue';
 import TrimWaveform from './TrimWaveform.vue';
 import TrimAudioMeter from './TrimAudioMeter.vue';
@@ -231,7 +232,16 @@ const displayTotalMs = computed(() => viewTrimmed.value ? Math.max(0, outMs.valu
 const scrubToAbsolute = (scrubMs: number) => scrubMs + scrubOffsetMs.value;
 const absoluteToScrub = (absMs: number) => Math.max(0, absMs - scrubOffsetMs.value);
 
-const clampMs = (ms: number) => Math.max(0, Math.min(ms, totalDurationMs.value || ms));
+/**
+ * C-5: the registry's file duration bounds a server asset's OUT. `<video>` and
+ * `scan_media` can report a longer end, which the transcoder rejects.
+ */
+const registryDurationMs = computed(() => {
+  const ms = item.value?.duration_ms;
+  return hasServerIdentity(item.value?.uuid) && ms && ms > 0 ? ms : 0;
+});
+const outBoundMs = (ms: number) => (registryDurationMs.value > 0 ? Math.min(ms, registryDurationMs.value) : ms);
+const clampMs = (ms: number) => Math.max(0, Math.min(ms, outBoundMs(totalDurationMs.value || ms)));
 const isLocalFilePath = (path?: string) => !!path && !/^https?:/i.test(path);
 
 // ── Seek video ────────────────────────────────────────────────────────────────
@@ -455,7 +465,7 @@ const onVideoLoaded = () => {
         fullFileDurationMs.value = dur;
         totalDurationMs.value = dur;
         inMs.value = Math.max(0, Math.min(inMs.value, dur));
-        if (outMs.value === 0 || outMs.value > dur) outMs.value = dur;
+        if (outMs.value === 0 || outMs.value > outBoundMs(dur)) outMs.value = outBoundMs(dur);
       // Seek the preview to the IN point so the visible frame matches the
       // IN timecode (no auto viewTrimmed flip — trimmed view is opt-in).
       seekTo(inMs.value || 0, true);
@@ -484,7 +494,7 @@ const probeDuration = async () => {
         const dur  = parseFloat(meta.duration) * 1000;
         if (dur > 0) {
             totalDurationMs.value = dur;
-            if (outMs.value === 0 || outMs.value > dur) outMs.value = dur;
+            if (outMs.value === 0 || outMs.value > outBoundMs(dur)) outMs.value = outBoundMs(dur);
           syncPlaybackDisplay(inMs.value || 0, true);
         }
     } catch { }
@@ -792,30 +802,15 @@ const saveNonDestructive = () => {
     }
 
     const saveTask = async () => {
-      if (item.value) {
-        store.updateAssetTrim(
-          { id: item.value.id, uuid: item.value.uuid },
-          inMs.value,
-          outMs.value
-        );
-      }
+      if (!item.value) return;
+      // C-5: the transcoder first, the rundown only once it accepted.
+      const saved = await saveAssetTrim(item.value, inMs.value, outMs.value, {
+        invoke: (cmd, args) => invoke(cmd, args),
+        applyToRundown: (identifier, savedIn, savedOut) => store.updateAssetTrim(identifier, savedIn, savedOut),
+      });
+      outMs.value = saved.outMs;
 
-      if (item.value?.uuid && !item.value.uuid.startsWith('local:')) {
-        await invoke('update_ingestor_trim', {
-          uuid: item.value.uuid,
-          trim_in_ms: Math.round(inMs.value),
-          trim_out_ms: Math.round(outMs.value),
-          api_base_url_override: null
-        });
-      } else if (isLocalFilePath(item.value?.path)) {
-        await invoke('save_media_trim_profile', {
-          path: item.value!.path,
-          inMs: Math.round(inMs.value),
-          outMs: Math.round(outMs.value)
-        });
-      }
-
-      setTrimStatus('Trim saved.', 'success');
+      setTrimStatus(saved.clamped ? 'Trim saved. OUT set to the end of the file.' : 'Trim saved.', 'success');
 
       if (item.value?.path) {
         emit('saved', { uuid: item.value.uuid, outputPath: item.value.path });
