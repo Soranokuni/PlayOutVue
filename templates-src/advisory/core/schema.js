@@ -186,7 +186,7 @@
 
       // --- Show tag ------------------------------------------------------------
       { key: 'tag.key', label: "Show tag", preset: 'showTag', control: null, type: 'enum', section: 'tag', tier: 'basic',
-        options: ['none', 'live', 'movie', 'documentary', 'telemarketing', 'show', 'news'], default: 'none', invalidates: 'subtitle' },
+        options: ['none', 'live', 'movie', 'documentary', 'telemarketing', 'show', 'news', 'kids', 'spot', 'promo', 'jingle'], default: 'none', invalidates: 'subtitle' },
       { key: 'tag.active', label: "Tag text", preset: 'activeTagline', control: 'txt-active-tagline', type: 'text', section: 'tag', tier: 'basic',
         default: '', invalidates: 'subtitle' },
       { key: 'tag.text.live', label: "LIVE text", preset: 'tagTexts.live', control: 'txt-tag-live', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'LIVE' },
@@ -194,7 +194,22 @@
       { key: 'tag.text.documentary', label: "DOCUMENTARY text", preset: 'tagTexts.documentary', control: 'txt-tag-documentary', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'DOCUMENTARY' },
       { key: 'tag.text.telemarketing', label: "TELEMARKETING text", preset: 'tagTexts.telemarketing', control: 'txt-tag-telemarketing', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'TELEMARKETING' },
       { key: 'tag.text.show', label: "SERIES text", preset: 'tagTexts.show', control: 'txt-tag-show', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'SERIES' },
-      { key: 'tag.text.news', label: "NEWS text", preset: 'tagTexts.news', control: 'txt-tag-news', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'NEWS' }
+      { key: 'tag.text.news', label: "NEWS text", preset: 'tagTexts.news', control: 'txt-tag-news', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'NEWS' },
+      { key: 'tag.text.kids', label: "KIDS text", preset: 'tagTexts.kids', control: 'txt-tag-kids', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'KID LAND' },
+      { key: 'tag.text.spot', label: "SPOT text", preset: 'tagTexts.spot', control: 'txt-tag-spot', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'SPOT' },
+      { key: 'tag.text.promo', label: "PROMO text", preset: 'tagTexts.promo', control: 'txt-tag-promo', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'COMING UP' },
+      { key: 'tag.text.jingle', label: "JINGLE text", preset: 'tagTexts.jingle', control: 'txt-tag-jingle', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'JINGLE' },
+      // Per content type: does a clip of this type put its tag on air at all.
+      { key: 'tag.enabled.live', label: "LIVE on air", preset: 'tagEnabled.live', control: 'chk-tag-on-live', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.movie', label: "MOVIE on air", preset: 'tagEnabled.movie', control: 'chk-tag-on-movie', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.documentary', label: "DOCUMENTARY on air", preset: 'tagEnabled.documentary', control: 'chk-tag-on-documentary', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.telemarketing', label: "TELEMARKETING on air", preset: 'tagEnabled.telemarketing', control: 'chk-tag-on-telemarketing', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.show', label: "SHOW on air", preset: 'tagEnabled.show', control: 'chk-tag-on-show', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.news', label: "NEWS on air", preset: 'tagEnabled.news', control: 'chk-tag-on-news', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.kids', label: "KIDS on air", preset: 'tagEnabled.kids', control: 'chk-tag-on-kids', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.spot', label: "SPOT on air", preset: 'tagEnabled.spot', control: 'chk-tag-on-spot', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: false },
+      { key: 'tag.enabled.promo', label: "PROMO on air", preset: 'tagEnabled.promo', control: 'chk-tag-on-promo', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: false },
+      { key: 'tag.enabled.jingle', label: "JINGLE on air", preset: 'tagEnabled.jingle', control: 'chk-tag-on-jingle', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: false }
     ];
 
     /** key -> entry, for the hot paths that look entries up per change. */

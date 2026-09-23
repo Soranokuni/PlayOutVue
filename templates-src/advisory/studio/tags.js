@@ -42,6 +42,15 @@
       recordAction('TAG', `Activated on-air show tag: ${text}`);
     }
 
+    /** The On-air switch on a Show tags row. Turning off the tag on air clears it. */
+    function onTagEnabledChanged(tagKey) {
+      const box = document.getElementById('chk-tag-on-' + tagKey);
+      const on = !!(box && box.checked);
+      stateSet('tag.enabled.' + tagKey, on);
+      if (!on && currentShowTag === tagKey) activateShowTag('none');
+      recordAction('TAG', (on ? 'Enabled' : 'Disabled') + ' the ' + tagKey + ' tag on air');
+    }
+
     function onTagInputChanged(tagKey) {
       const input = document.getElementById('txt-tag-' + tagKey);
       const text = input ? toGreekUpper(input.value) : '';

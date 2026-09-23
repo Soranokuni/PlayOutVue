@@ -217,7 +217,7 @@
           <div class="studio-group" id="group-station-show-tags">
             <div class="studio-group-title"><i class="cg-i" data-icon="tag"></i> Show tags</div>
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
-              Edit the text that appears before or after the <strong>|</strong> next to your Station ID. Click <strong>Air This</strong> to switch on-air immediately.
+              Edit the text that appears before or after the <strong>|</strong> next to your Station ID. Click <strong>Air This</strong> to switch on-air immediately. <strong>On air</strong> decides whether clips of that content type show the tag at all.
             </div>
 
             <!-- Interactive Tag Rows with Editable Text Inputs & Icon Indicators -->
@@ -229,6 +229,7 @@
                 </div>
                 <div class="tag-row-label">LIVE:</div>
                 <input type="text" id="txt-tag-live" class="studio-select tag-row-input" value="LIVE" placeholder="LIVE" oninput="onTagInputChanged('live')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-live" checked onchange="onTagEnabledChanged('live')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-live" onclick="activateShowTag('live')">Air This</button>
               </div>
 
@@ -239,6 +240,7 @@
                 </div>
                 <div class="tag-row-label">MOVIE:</div>
                 <input type="text" id="txt-tag-movie" class="studio-select tag-row-input" value="MOVIE TIME" placeholder="MOVIE TIME" oninput="onTagInputChanged('movie')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-movie" checked onchange="onTagEnabledChanged('movie')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-movie" onclick="activateShowTag('movie')">Air This</button>
               </div>
 
@@ -249,6 +251,7 @@
                 </div>
                 <div class="tag-row-label">DOCS:</div>
                 <input type="text" id="txt-tag-documentary" class="studio-select tag-row-input" value="DOCUMENTARY" placeholder="DOCUMENTARY" oninput="onTagInputChanged('documentary')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-documentary" checked onchange="onTagEnabledChanged('documentary')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-documentary" onclick="activateShowTag('documentary')">Air This</button>
               </div>
 
@@ -259,6 +262,7 @@
                 </div>
                 <div class="tag-row-label">TELEMARKETING:</div>
                 <input type="text" id="txt-tag-telemarketing" class="studio-select tag-row-input" value="TELEMARKETING" placeholder="TELEMARKETING" oninput="onTagInputChanged('telemarketing')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-telemarketing" checked onchange="onTagEnabledChanged('telemarketing')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-telemarketing" onclick="activateShowTag('telemarketing')">Air This</button>
               </div>
 
@@ -269,6 +273,7 @@
                 </div>
                 <div class="tag-row-label">SERIES:</div>
                 <input type="text" id="txt-tag-show" class="studio-select tag-row-input" value="SERIES" placeholder="SERIES" oninput="onTagInputChanged('show')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-show" checked onchange="onTagEnabledChanged('show')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-show" onclick="activateShowTag('show')">Air This</button>
               </div>
 
@@ -279,7 +284,52 @@
                 </div>
                 <div class="tag-row-label">NEWS:</div>
                 <input type="text" id="txt-tag-news" class="studio-select tag-row-input" value="NEWS" placeholder="NEWS" oninput="onTagInputChanged('news')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-news" checked onchange="onTagEnabledChanged('news')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-news" onclick="activateShowTag('news')">Air This</button>
+              </div>
+
+              <!-- 7. KIDS -->
+              <div class="show-tag-row" id="row-tag-kids">
+                <div class="tag-row-icon" title="Star">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wkids-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wkids-sh)"><path d="M11 3.2 L13.3 7.9 L18.4 8.6 L14.7 12.2 L15.6 17.3 L11 14.9 L6.4 17.3 L7.3 12.2 L3.6 8.6 L8.7 7.9 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="11" cy="11" r="1.3" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">KIDS:</div>
+                <input type="text" id="txt-tag-kids" class="studio-select tag-row-input" value="KID LAND" placeholder="KID LAND" oninput="onTagInputChanged('kids')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-kids" checked onchange="onTagEnabledChanged('kids')"> On air</label>
+                <button type="button" class="tag-row-btn" id="btn-air-kids" onclick="activateShowTag('kids')">Air This</button>
+              </div>
+
+              <!-- 8. SPOT -->
+              <div class="show-tag-row" id="row-tag-spot">
+                <div class="tag-row-icon" title="Megaphone">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wspot-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wspot-sh)"><path d="M3.5 9 V13 H6.5 L14 17 V5 L6.5 9 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><path d="M16.5 8 A4 4 0 0 1 16.5 14" fill="none" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round" /><line x1="6.5" y1="13" x2="7.5" y2="17.5" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round" /></g></svg>
+                </div>
+                <div class="tag-row-label">SPOT:</div>
+                <input type="text" id="txt-tag-spot" class="studio-select tag-row-input" value="SPOT" placeholder="SPOT" oninput="onTagInputChanged('spot')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-spot" onchange="onTagEnabledChanged('spot')"> On air</label>
+                <button type="button" class="tag-row-btn" id="btn-air-spot" onclick="activateShowTag('spot')">Air This</button>
+              </div>
+
+              <!-- 9. PROMO -->
+              <div class="show-tag-row" id="row-tag-promo">
+                <div class="tag-row-icon" title="Play">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wpromo-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wpromo-sh)"><circle cx="11" cy="11" r="7.8" fill="none" stroke="#ffffff" stroke-width="1.2" /><polygon points="9,7.3 15,11 9,14.7" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">PROMO:</div>
+                <input type="text" id="txt-tag-promo" class="studio-select tag-row-input" value="COMING UP" placeholder="COMING UP" oninput="onTagInputChanged('promo')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-promo" onchange="onTagEnabledChanged('promo')"> On air</label>
+                <button type="button" class="tag-row-btn" id="btn-air-promo" onclick="activateShowTag('promo')">Air This</button>
+              </div>
+
+              <!-- 10. JINGLE -->
+              <div class="show-tag-row" id="row-tag-jingle">
+                <div class="tag-row-icon" title="Music note">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wjingle-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wjingle-sh)"><path d="M8.5 15.5 V5.5 L17 3.8 V13.8" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="6.6" cy="15.6" r="2" fill="#ffffff" /><circle cx="15.1" cy="13.9" r="2" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">JINGLE:</div>
+                <input type="text" id="txt-tag-jingle" class="studio-select tag-row-input" value="JINGLE" placeholder="JINGLE" oninput="onTagInputChanged('jingle')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-jingle" onchange="onTagEnabledChanged('jingle')"> On air</label>
+                <button type="button" class="tag-row-btn" id="btn-air-jingle" onclick="activateShowTag('jingle')">Air This</button>
               </div>
             </div>
 
@@ -298,6 +348,10 @@
                   <option value="telemarketing">Sale Tag</option>
                   <option value="show">Screens</option>
                   <option value="news">Tower Dish</option>
+                  <option value="kids">Star</option>
+                  <option value="spot">Megaphone</option>
+                  <option value="promo">Play</option>
+                  <option value="jingle">Music Note</option>
                 </select>
                 <input type="text" id="txt-active-tagline" class="studio-select" style="flex: 1; font-weight: 700; text-transform: uppercase;" value="HD" placeholder="Custom Tagline" oninput="onActiveTaglineInput(this.value)">
               </div>

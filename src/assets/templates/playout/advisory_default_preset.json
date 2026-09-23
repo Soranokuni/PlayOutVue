@@ -62,7 +62,11 @@
     "movie": "MOVIE TIME",
     "news": "NEWS",
     "show": "SERIES",
-    "telemarketing": "TELEMARKETING"
+    "telemarketing": "TELEMARKETING",
+    "kids": "KID LAND",
+    "spot": "SPOT",
+    "promo": "COMING UP",
+    "jingle": "JINGLE"
   },
   "textOffsetYPx": 0,
   "theme": "frosted",
@@ -76,5 +80,17 @@
   "wordmark": "SITIA",
   "wordmarkSizePx": 40,
   "wordmarkX": 0,
-  "wordmarkY": 0
+  "wordmarkY": 0,
+  "tagEnabled": {
+    "live": true,
+    "movie": true,
+    "documentary": true,
+    "telemarketing": true,
+    "show": true,
+    "news": true,
+    "kids": true,
+    "spot": false,
+    "promo": false,
+    "jingle": false
+  }
 }

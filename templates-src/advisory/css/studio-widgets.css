@@ -276,6 +276,27 @@
       font-weight: 700;
     }
 
+    .tag-row-onair {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #94a3b8;
+      white-space: nowrap;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .tag-row-onair input {
+      margin: 0;
+      accent-color: #38bdf8;
+    }
+
+    .show-tag-row:has(.tag-row-onair input:not(:checked)) .tag-row-input {
+      opacity: 0.5;
+    }
+
     .tag-row-btn {
       background: rgba(15, 23, 42, 0.8);
       border: 1px solid rgba(56, 189, 248, 0.4);

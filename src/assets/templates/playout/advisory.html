@@ -2138,6 +2138,27 @@
       font-weight: 700;
     }
 
+    .tag-row-onair {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #94a3b8;
+      white-space: nowrap;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .tag-row-onair input {
+      margin: 0;
+      accent-color: #38bdf8;
+    }
+
+    .show-tag-row:has(.tag-row-onair input:not(:checked)) .tag-row-input {
+      opacity: 0.5;
+    }
+
     .tag-row-btn {
       background: rgba(15, 23, 42, 0.8);
       border: 1px solid rgba(56, 189, 248, 0.4);
@@ -2882,7 +2903,7 @@
           <div class="studio-group" id="group-station-show-tags">
             <div class="studio-group-title"><i class="cg-i" data-icon="tag"></i> Show tags</div>
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 8px;">
-              Edit the text that appears before or after the <strong>|</strong> next to your Station ID. Click <strong>Air This</strong> to switch on-air immediately.
+              Edit the text that appears before or after the <strong>|</strong> next to your Station ID. Click <strong>Air This</strong> to switch on-air immediately. <strong>On air</strong> decides whether clips of that content type show the tag at all.
             </div>
 
             <!-- Interactive Tag Rows with Editable Text Inputs & Icon Indicators -->
@@ -2894,6 +2915,7 @@
                 </div>
                 <div class="tag-row-label">LIVE:</div>
                 <input type="text" id="txt-tag-live" class="studio-select tag-row-input" value="LIVE" placeholder="LIVE" oninput="onTagInputChanged('live')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-live" checked onchange="onTagEnabledChanged('live')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-live" onclick="activateShowTag('live')">Air This</button>
               </div>
 
@@ -2904,6 +2926,7 @@
                 </div>
                 <div class="tag-row-label">MOVIE:</div>
                 <input type="text" id="txt-tag-movie" class="studio-select tag-row-input" value="MOVIE TIME" placeholder="MOVIE TIME" oninput="onTagInputChanged('movie')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-movie" checked onchange="onTagEnabledChanged('movie')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-movie" onclick="activateShowTag('movie')">Air This</button>
               </div>
 
@@ -2914,6 +2937,7 @@
                 </div>
                 <div class="tag-row-label">DOCS:</div>
                 <input type="text" id="txt-tag-documentary" class="studio-select tag-row-input" value="DOCUMENTARY" placeholder="DOCUMENTARY" oninput="onTagInputChanged('documentary')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-documentary" checked onchange="onTagEnabledChanged('documentary')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-documentary" onclick="activateShowTag('documentary')">Air This</button>
               </div>
 
@@ -2924,6 +2948,7 @@
                 </div>
                 <div class="tag-row-label">TELEMARKETING:</div>
                 <input type="text" id="txt-tag-telemarketing" class="studio-select tag-row-input" value="TELEMARKETING" placeholder="TELEMARKETING" oninput="onTagInputChanged('telemarketing')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-telemarketing" checked onchange="onTagEnabledChanged('telemarketing')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-telemarketing" onclick="activateShowTag('telemarketing')">Air This</button>
               </div>
 
@@ -2934,6 +2959,7 @@
                 </div>
                 <div class="tag-row-label">SERIES:</div>
                 <input type="text" id="txt-tag-show" class="studio-select tag-row-input" value="SERIES" placeholder="SERIES" oninput="onTagInputChanged('show')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-show" checked onchange="onTagEnabledChanged('show')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-show" onclick="activateShowTag('show')">Air This</button>
               </div>
 
@@ -2944,7 +2970,52 @@
                 </div>
                 <div class="tag-row-label">NEWS:</div>
                 <input type="text" id="txt-tag-news" class="studio-select tag-row-input" value="NEWS" placeholder="NEWS" oninput="onTagInputChanged('news')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-news" checked onchange="onTagEnabledChanged('news')"> On air</label>
                 <button type="button" class="tag-row-btn" id="btn-air-news" onclick="activateShowTag('news')">Air This</button>
+              </div>
+
+              <!-- 7. KIDS -->
+              <div class="show-tag-row" id="row-tag-kids">
+                <div class="tag-row-icon" title="Star">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wkids-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wkids-sh)"><path d="M11 3.2 L13.3 7.9 L18.4 8.6 L14.7 12.2 L15.6 17.3 L11 14.9 L6.4 17.3 L7.3 12.2 L3.6 8.6 L8.7 7.9 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="11" cy="11" r="1.3" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">KIDS:</div>
+                <input type="text" id="txt-tag-kids" class="studio-select tag-row-input" value="KID LAND" placeholder="KID LAND" oninput="onTagInputChanged('kids')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-kids" checked onchange="onTagEnabledChanged('kids')"> On air</label>
+                <button type="button" class="tag-row-btn" id="btn-air-kids" onclick="activateShowTag('kids')">Air This</button>
+              </div>
+
+              <!-- 8. SPOT -->
+              <div class="show-tag-row" id="row-tag-spot">
+                <div class="tag-row-icon" title="Megaphone">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wspot-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wspot-sh)"><path d="M3.5 9 V13 H6.5 L14 17 V5 L6.5 9 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><path d="M16.5 8 A4 4 0 0 1 16.5 14" fill="none" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round" /><line x1="6.5" y1="13" x2="7.5" y2="17.5" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round" /></g></svg>
+                </div>
+                <div class="tag-row-label">SPOT:</div>
+                <input type="text" id="txt-tag-spot" class="studio-select tag-row-input" value="SPOT" placeholder="SPOT" oninput="onTagInputChanged('spot')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-spot" onchange="onTagEnabledChanged('spot')"> On air</label>
+                <button type="button" class="tag-row-btn" id="btn-air-spot" onclick="activateShowTag('spot')">Air This</button>
+              </div>
+
+              <!-- 9. PROMO -->
+              <div class="show-tag-row" id="row-tag-promo">
+                <div class="tag-row-icon" title="Play">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wpromo-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wpromo-sh)"><circle cx="11" cy="11" r="7.8" fill="none" stroke="#ffffff" stroke-width="1.2" /><polygon points="9,7.3 15,11 9,14.7" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">PROMO:</div>
+                <input type="text" id="txt-tag-promo" class="studio-select tag-row-input" value="COMING UP" placeholder="COMING UP" oninput="onTagInputChanged('promo')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-promo" onchange="onTagEnabledChanged('promo')"> On air</label>
+                <button type="button" class="tag-row-btn" id="btn-air-promo" onclick="activateShowTag('promo')">Air This</button>
+              </div>
+
+              <!-- 10. JINGLE -->
+              <div class="show-tag-row" id="row-tag-jingle">
+                <div class="tag-row-icon" title="Music note">
+                  <svg class="show-tag-svg" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wjingle-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wjingle-sh)"><path d="M8.5 15.5 V5.5 L17 3.8 V13.8" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="6.6" cy="15.6" r="2" fill="#ffffff" /><circle cx="15.1" cy="13.9" r="2" fill="#ffffff" /></g></svg>
+                </div>
+                <div class="tag-row-label">JINGLE:</div>
+                <input type="text" id="txt-tag-jingle" class="studio-select tag-row-input" value="JINGLE" placeholder="JINGLE" oninput="onTagInputChanged('jingle')">
+                <label class="tag-row-onair" title="Put this tag on air for clips of this content type"><input type="checkbox" id="chk-tag-on-jingle" onchange="onTagEnabledChanged('jingle')"> On air</label>
+                <button type="button" class="tag-row-btn" id="btn-air-jingle" onclick="activateShowTag('jingle')">Air This</button>
               </div>
             </div>
 
@@ -2963,6 +3034,10 @@
                   <option value="telemarketing">Sale Tag</option>
                   <option value="show">Screens</option>
                   <option value="news">Tower Dish</option>
+                  <option value="kids">Star</option>
+                  <option value="spot">Megaphone</option>
+                  <option value="promo">Play</option>
+                  <option value="jingle">Music Note</option>
                 </select>
                 <input type="text" id="txt-active-tagline" class="studio-select" style="flex: 1; font-weight: 700; text-transform: uppercase;" value="HD" placeholder="Custom Tagline" oninput="onActiveTaglineInput(this.value)">
               </div>
@@ -5069,7 +5144,7 @@
 
       // --- Show tag ------------------------------------------------------------
       { key: 'tag.key', label: "Show tag", preset: 'showTag', control: null, type: 'enum', section: 'tag', tier: 'basic',
-        options: ['none', 'live', 'movie', 'documentary', 'telemarketing', 'show', 'news'], default: 'none', invalidates: 'subtitle' },
+        options: ['none', 'live', 'movie', 'documentary', 'telemarketing', 'show', 'news', 'kids', 'spot', 'promo', 'jingle'], default: 'none', invalidates: 'subtitle' },
       { key: 'tag.active', label: "Tag text", preset: 'activeTagline', control: 'txt-active-tagline', type: 'text', section: 'tag', tier: 'basic',
         default: '', invalidates: 'subtitle' },
       { key: 'tag.text.live', label: "LIVE text", preset: 'tagTexts.live', control: 'txt-tag-live', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'LIVE' },
@@ -5077,7 +5152,22 @@
       { key: 'tag.text.documentary', label: "DOCUMENTARY text", preset: 'tagTexts.documentary', control: 'txt-tag-documentary', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'DOCUMENTARY' },
       { key: 'tag.text.telemarketing', label: "TELEMARKETING text", preset: 'tagTexts.telemarketing', control: 'txt-tag-telemarketing', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'TELEMARKETING' },
       { key: 'tag.text.show', label: "SERIES text", preset: 'tagTexts.show', control: 'txt-tag-show', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'SERIES' },
-      { key: 'tag.text.news', label: "NEWS text", preset: 'tagTexts.news', control: 'txt-tag-news', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'NEWS' }
+      { key: 'tag.text.news', label: "NEWS text", preset: 'tagTexts.news', control: 'txt-tag-news', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'NEWS' },
+      { key: 'tag.text.kids', label: "KIDS text", preset: 'tagTexts.kids', control: 'txt-tag-kids', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'KID LAND' },
+      { key: 'tag.text.spot', label: "SPOT text", preset: 'tagTexts.spot', control: 'txt-tag-spot', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'SPOT' },
+      { key: 'tag.text.promo', label: "PROMO text", preset: 'tagTexts.promo', control: 'txt-tag-promo', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'COMING UP' },
+      { key: 'tag.text.jingle', label: "JINGLE text", preset: 'tagTexts.jingle', control: 'txt-tag-jingle', type: 'text', section: 'tag', tier: 'advanced', invalidates: 'subtitle', default: 'JINGLE' },
+      // Per content type: does a clip of this type put its tag on air at all.
+      { key: 'tag.enabled.live', label: "LIVE on air", preset: 'tagEnabled.live', control: 'chk-tag-on-live', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.movie', label: "MOVIE on air", preset: 'tagEnabled.movie', control: 'chk-tag-on-movie', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.documentary', label: "DOCUMENTARY on air", preset: 'tagEnabled.documentary', control: 'chk-tag-on-documentary', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.telemarketing', label: "TELEMARKETING on air", preset: 'tagEnabled.telemarketing', control: 'chk-tag-on-telemarketing', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.show', label: "SHOW on air", preset: 'tagEnabled.show', control: 'chk-tag-on-show', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.news', label: "NEWS on air", preset: 'tagEnabled.news', control: 'chk-tag-on-news', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.kids', label: "KIDS on air", preset: 'tagEnabled.kids', control: 'chk-tag-on-kids', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: true },
+      { key: 'tag.enabled.spot', label: "SPOT on air", preset: 'tagEnabled.spot', control: 'chk-tag-on-spot', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: false },
+      { key: 'tag.enabled.promo', label: "PROMO on air", preset: 'tagEnabled.promo', control: 'chk-tag-on-promo', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: false },
+      { key: 'tag.enabled.jingle', label: "JINGLE on air", preset: 'tagEnabled.jingle', control: 'chk-tag-on-jingle', type: 'bool', section: 'tag', tier: 'basic', invalidates: 'subtitle', default: false }
     ];
 
     /** key -> entry, for the hot paths that look entries up per change. */
@@ -6763,8 +6853,13 @@
         else if (parsed.show_tag === 'documentary' || parsed.content_type === 'documentary') tagKey = 'documentary';
         else if (parsed.show_tag === 'show' || parsed.content_type === 'show') tagKey = 'show';
         else if (parsed.show_tag === 'news' || parsed.content_type === 'news') tagKey = 'news';
+        else if (['kids', 'spot', 'promo', 'jingle'].indexOf(parsed.show_tag) !== -1) tagKey = parsed.show_tag;
+        else if (['kids', 'spot', 'promo', 'jingle'].indexOf(parsed.content_type) !== -1) tagKey = parsed.content_type;
         else if (parsed.show_tag === 'telemarketing' || (parsed.tp && !parsed.content_type)) tagKey = 'telemarketing';
         else if (parsed.show_tag && parsed.show_tag !== 'none' && SHOW_TAG_PRESETS[parsed.show_tag]) tagKey = parsed.show_tag;
+
+        // A type whose tag is switched off in the studio runs clean.
+        if (tagKey && !isShowTagEnabled(tagKey, parsed.styling)) tagKey = null;
 
         if (tagKey && SHOW_TAG_PRESETS[tagKey]) {
           applyShowTagPreset(tagKey, parsed.subtitle);
@@ -6836,6 +6931,19 @@
      * iterate CONTROL_SCHEMA, so a key cannot be in one and missing from the
      * other.
      */
+    /**
+     * Whether a content type's tag goes on air. Reads this update's styling
+     * first: the tag is decided before that styling is applied to the state,
+     * so on the very first update the state still holds the defaults.
+     */
+    function isShowTagEnabled(tagKey, style) {
+      const fromStyle = style && style.tagEnabled ? style.tagEnabled[tagKey] : undefined;
+      if (typeof fromStyle === 'boolean') return fromStyle;
+      const fromState = stateGet('tag.enabled.' + tagKey);
+      if (typeof fromState === 'boolean') return fromState;
+      return SHOW_TAG_DEFAULT_ENABLED[tagKey] !== false;
+    }
+
     function applyStylingVariables(style) {
       if (!style) return;
       beginDeferredRender();
@@ -9001,7 +9109,23 @@
       }
     };
 
-    let BAKED_DEFAULT_PRESET = {"accentColor":"#692c6d","accentLineHeightPx":2,"accentMid":"#692c6d","accentStart":"#ffffff","accentStyle":"gradient","activeTagline":"HD","anchorPosition":"top-right","badgeBorderRadiusPx":12,"badgeFontSizePx":27,"badgeRim":null,"badgeShape":"circle","badgeSizePx":54,"badgeTint":null,"customLogoSvgPath":"","customRatingSvgPaths":{},"customText":"ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16 ΕΤΩΝ","descriptorTexts":{"drugs":"ΧΡΗΣΗ ΟΥΣΙΩΝ","language":"ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ","lead":"ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ","sex":"ΣΕΞ","violence":"ΣΚΗΝΕΣ ΒΙΑΣ"},"displayMode":"logo","explanationFontSizePx":13,"fontFamily":"-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif","hold_time":30,"lightAngleDeg":135,"logoBase":"#702177","logoExtrusion":"convex","logoFont":"inter","logoGrad":"#46104c","logoLeftPx":60,"logoRadius":54,"logoShadow":"#18031d","logoShape":"circle","logoSize":147,"logoSpecular":"#f0f5fc","logoTextColor":"#f7edf9","logoTextShadowColor":"#200324","logoTopPx":60,"microBorder":true,"motionCurve":"elastic","orientation":"default","ratingCutout":"frosted","ratingFont":"-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif","ratingFontSize":27,"ratingHoldSec":30,"ratingShape":"circle","ratingSize":54,"rightOffsetPx":60,"shadowBlurPx":18,"showTag":"none","stencilOffsetX":0,"stencilOffsetY":0,"stencilStyle":"neumorphic","subtitle":"HD","tagTexts":{"documentary":"DOCUMENTARY","live":"LIVE","movie":"MOVIE TIME","news":"NEWS","show":"SERIES","telemarketing":"TELEMARKETING"},"textOffsetYPx":0,"theme":"frosted","themeName":"frosted","topOffsetPx":60,"warningBodyFontSizePx":12,"warningHoldSec":30,"warningIconSizePx":28,"warningLeadFontSizePx":10.5,"warning_hold_time":30,"wordmark":"SITIA","wordmarkSizePx":40,"wordmarkX":0,"wordmarkY":0};
+    // PlayOut's newer content types. Their text is editable like the rest.
+    SHOW_TAG_PRESETS.kids = { id: 'kids', label: 'KID LAND', iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wkids-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wkids-sh)"><path d="M11 3.2 L13.3 7.9 L18.4 8.6 L14.7 12.2 L15.6 17.3 L11 14.9 L6.4 17.3 L7.3 12.2 L3.6 8.6 L8.7 7.9 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="11" cy="11" r="1.3" fill="#ffffff" /></g></svg>` };
+    SHOW_TAG_PRESETS.spot = { id: 'spot', label: 'SPOT', iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wspot-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wspot-sh)"><path d="M3.5 9 V13 H6.5 L14 17 V5 L6.5 9 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><path d="M16.5 8 A4 4 0 0 1 16.5 14" fill="none" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round" /><line x1="6.5" y1="13" x2="7.5" y2="17.5" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round" /></g></svg>` };
+    SHOW_TAG_PRESETS.promo = { id: 'promo', label: 'COMING UP', iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wpromo-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wpromo-sh)"><circle cx="11" cy="11" r="7.8" fill="none" stroke="#ffffff" stroke-width="1.2" /><polygon points="9,7.3 15,11 9,14.7" fill="#ffffff" /></g></svg>` };
+    SHOW_TAG_PRESETS.jingle = { id: 'jingle', label: 'JINGLE', iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wjingle-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wjingle-sh)"><path d="M8.5 15.5 V5.5 L17 3.8 V13.8" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="6.6" cy="15.6" r="2" fill="#ffffff" /><circle cx="15.1" cy="13.9" r="2" fill="#ffffff" /></g></svg>` };
+
+    /**
+     * Whether each type's tag goes on air by default. Ads, promos and idents
+     * run clean unless the operator switches them on in the Show tags panel;
+     * telemarketing keeps its tag, as it always has.
+     */
+    const SHOW_TAG_DEFAULT_ENABLED = {
+      live: true, movie: true, documentary: true, telemarketing: true, show: true, news: true,
+      kids: true, spot: false, promo: false, jingle: false
+    };
+
+    let BAKED_DEFAULT_PRESET = {"accentColor":"#692c6d","accentLineHeightPx":2,"accentMid":"#692c6d","accentStart":"#ffffff","accentStyle":"gradient","activeTagline":"HD","anchorPosition":"top-right","badgeBorderRadiusPx":12,"badgeFontSizePx":27,"badgeRim":null,"badgeShape":"circle","badgeSizePx":54,"badgeTint":null,"customLogoSvgPath":"","customRatingSvgPaths":{},"customText":"ΚΑΤΑΛΛΗΛΟ ΑΝΩ ΤΩΝ 16 ΕΤΩΝ","descriptorTexts":{"drugs":"ΧΡΗΣΗ ΟΥΣΙΩΝ","language":"ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ","lead":"ΤΟ ΠΡΟΓΡΑΜΜΑ ΠΕΡΙΕΧΕΙ","sex":"ΣΕΞ","violence":"ΣΚΗΝΕΣ ΒΙΑΣ"},"displayMode":"logo","explanationFontSizePx":13,"fontFamily":"-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif","hold_time":30,"lightAngleDeg":135,"logoBase":"#702177","logoExtrusion":"convex","logoFont":"inter","logoGrad":"#46104c","logoLeftPx":60,"logoRadius":54,"logoShadow":"#18031d","logoShape":"circle","logoSize":147,"logoSpecular":"#f0f5fc","logoTextColor":"#f7edf9","logoTextShadowColor":"#200324","logoTopPx":60,"microBorder":true,"motionCurve":"elastic","orientation":"default","ratingCutout":"frosted","ratingFont":"-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif","ratingFontSize":27,"ratingHoldSec":30,"ratingShape":"circle","ratingSize":54,"rightOffsetPx":60,"shadowBlurPx":18,"showTag":"none","stencilOffsetX":0,"stencilOffsetY":0,"stencilStyle":"neumorphic","subtitle":"HD","tagEnabled":{"live":true,"movie":true,"documentary":true,"telemarketing":true,"show":true,"news":true,"kids":true,"spot":false,"promo":false,"jingle":false},"tagTexts":{"documentary":"DOCUMENTARY","live":"LIVE","movie":"MOVIE TIME","news":"NEWS","show":"SERIES","telemarketing":"TELEMARKETING","kids":"KID LAND","spot":"SPOT","promo":"COMING UP","jingle":"JINGLE"},"textOffsetYPx":0,"theme":"frosted","themeName":"frosted","topOffsetPx":60,"warningBodyFontSizePx":12,"warningHoldSec":30,"warningIconSizePx":28,"warningLeadFontSizePx":10.5,"warning_hold_time":30,"wordmark":"SITIA","wordmarkSizePx":40,"wordmarkX":0,"wordmarkY":0};
 
     const MASTER_STANDARD_PRESETS = {
       'default': {
@@ -9010,7 +9134,7 @@
         wordmark: 'SITIA',
         subtitle: 'HD',
         showTag: 'none',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -9042,7 +9166,7 @@
         wordmark: 'SITIA',
         subtitle: 'LIVE',
         showTag: 'live',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -9073,7 +9197,7 @@
         wordmark: 'SITIA',
         subtitle: 'MOVIE TIME',
         showTag: 'movie',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 92,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -9104,7 +9228,7 @@
         wordmark: 'SITIA',
         subtitle: 'DOCUMENTARY',
         showTag: 'documentary',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -9135,7 +9259,7 @@
         wordmark: 'SITIA',
         subtitle: 'TELEMARKETING',
         showTag: 'telemarketing',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 86,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -9166,7 +9290,7 @@
         wordmark: 'SITIA',
         subtitle: 'SERIES',
         showTag: 'show',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -9197,7 +9321,7 @@
         wordmark: 'SITIA',
         subtitle: 'NEWS',
         showTag: 'news',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -9824,6 +9948,15 @@
 
       renderStationSubtitle(tagKey, text);
       recordAction('TAG', `Activated on-air show tag: ${text}`);
+    }
+
+    /** The On-air switch on a Show tags row. Turning off the tag on air clears it. */
+    function onTagEnabledChanged(tagKey) {
+      const box = document.getElementById('chk-tag-on-' + tagKey);
+      const on = !!(box && box.checked);
+      stateSet('tag.enabled.' + tagKey, on);
+      if (!on && currentShowTag === tagKey) activateShowTag('none');
+      recordAction('TAG', (on ? 'Enabled' : 'Disabled') + ' the ' + tagKey + ' tag on air');
     }
 
     function onTagInputChanged(tagKey) {
