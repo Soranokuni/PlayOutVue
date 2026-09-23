@@ -18,6 +18,7 @@ const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponen
 );
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import AppIcon from './components/ui/AppIcon.vue';
+import RenderIsland from './components/ui/RenderIsland.vue';
 import ToastHost from './components/ui/ToastHost.vue';
 import Tooltip from './components/ui/Tooltip.vue';
 import { vTooltip } from './lib/tooltip';
@@ -966,7 +967,9 @@ onUnmounted(() => {
 
       <!-- Media Timecode & Next Up Telemetry Dock -->
       <div class="ctrl-section ctrl-telemetry-group">
-        <div class="timecode">{{ currentPlayoutTime }}</div>
+        <!-- The timecode changes on every playback tick; the island keeps
+             that from re-rendering the whole shell template. -->
+        <RenderIsland><div class="timecode">{{ currentPlayoutTime }}</div></RenderIsland>
         <div class="ctrl-nextup-dock" :class="{ 'is-imminent': isNextUpImminent }">
           <div class="nextup-header">
             <span class="label-caps nextup-kicker">NEXT UP</span>

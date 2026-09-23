@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, inject } from 'vue';
 import type { RundownItem } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
 import StatusIndicator from './StatusIndicator.vue';
 import AppIcon from './ui/AppIcon.vue';
+import RenderIsland from './ui/RenderIsland.vue';
+import { RUNDOWN_LIVE_PROGRESS } from '../lib/rundownLiveProgress';
 import type { IconName } from './ui/icons';
 import { resolveRundownStatusTone } from '../lib/statusResolver';
 
@@ -26,8 +28,12 @@ const props = defineProps<{
   nextUpImminent: boolean;
   dropBefore?: boolean;
   dropAfter?: boolean;
-  /** 0-100 gradient progress for the active row. */
-  progressPct: number;
+  /**
+   * 0-100 progress for the active row when no `RundownList` provides the live
+   * value (tests, standalone use). Inside the list the hairline reads
+   * RUNDOWN_LIVE_PROGRESS instead, so the list never re-renders for it.
+   */
+  progressPct?: number;
   /** 'green' = playing instance, 'red' = current playing index row. */
   progressTone: '' | 'green' | 'red';
   /** playbackCountdownStr when this row is the playing instance, else ''. */
@@ -182,7 +188,13 @@ const rowClass = computed(() => ({
  * overlay at the row's bottom edge scaled with `transform: scaleX()` -- work
  * the compositor does without touching layout or paint.
  */
-const progressScale = computed(() => Math.min(1, Math.max(0, props.progressPct / 100)));
+const liveProgress = inject(RUNDOWN_LIVE_PROGRESS, null);
+// Read only inside the hairline's RenderIsland: the 4-10 Hz updates
+// re-render the hairline, not the row.
+const progressScale = computed(() => {
+  const pct = liveProgress && props.progressTone ? liveProgress[props.progressTone].value : (props.progressPct ?? 0);
+  return Math.min(1, Math.max(0, pct / 100));
+});
 const settings = useSettingsStore();
 const itemStatusTone = computed(() =>
   resolveRundownStatusTone(props.item, {
@@ -312,12 +324,13 @@ const itemTooltip = computed(() => {
       </button>
     </div>
 
-    <div
-      v-if="progressTone"
-      class="rw-progress-hairline"
-      :style="{ transform: `scaleX(${progressScale})` }"
-      aria-hidden="true"
-    ></div>
+    <RenderIsland v-if="progressTone">
+      <div
+        class="rw-progress-hairline"
+        :style="{ transform: `scaleX(${progressScale})` }"
+        aria-hidden="true"
+      ></div>
+    </RenderIsland>
   </div>
 </template>
 
