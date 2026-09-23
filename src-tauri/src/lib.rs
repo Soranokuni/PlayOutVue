@@ -21,6 +21,7 @@ mod transcoder_sidecar;
 mod caspar_process;
 mod studio_server;
 mod ai_designer;
+mod recovery;
 
 use studio_server::{save_studio_default_preset, get_studio_default_preset};
 
@@ -124,6 +125,12 @@ fn install_panic_hook() {
         );
         log::error!("{}", report);
         diagnostics::push_caspar_process_log("PANIC", &report);
+        // With `panic = "unwind"` a panic in a spawned task is contained, but
+        // one on the main thread takes the event loop and the process down.
+        // Start a replacement first; it waits for this process to exit.
+        if thread.name() == Some("main") && recovery::auto_restart_allowed() {
+            recovery::spawn_replacement("fatal panic on the main thread");
+        }
         if let Some(mut dir) = dirs_next::data_dir() {
             dir.push("com.playout.client");
             dir.push("crash-reports");
@@ -141,6 +148,15 @@ fn install_panic_hook() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     install_panic_hook();
+
+    // An automatic relaunch waits for the instance it replaces to exit, so
+    // the two never hold the instance lock (and with it CasparCG) at once.
+    let args: Vec<String> = std::env::args().collect();
+    let recovered_launch = args.iter().any(|a| a == recovery::RECOVERED_FLAG);
+    if !recovery::wait_for_predecessor(args.iter().cloned()) {
+        startup_error("Relaunch cancelled: the previous PlayOut instance is still running");
+        return;
+    }
 
     // Start the local media streaming server (async, random port, no memory overhead)
     let _media_server_runtime = match tokio::runtime::Runtime::new() {
@@ -180,13 +196,16 @@ pub fn run() {
     let debug_enabled = settings_state.snapshot().debug_enabled;
     let diagnostics = DiagnosticState::default();
     diagnostics.set_enabled(debug_enabled);
+    let recovery_state = recovery::RecoveryState::boot(recovered_launch);
+    recovery::set_crash_loop(recovery_state.crash_loop());
+    recovery::sync_auto_restart(settings_state.snapshot().playout_auto_restart);
     let supervisor = CasparProcessSupervisor::new(DEFAULT_AMCP_PORT);
     let amcp_client = AmcpClient::new();
     if !supervisor.is_primary() {
         amcp_client.set_read_only(true);
     }
 
-    if let Err(error) = tauri::Builder::default()
+    let app = match tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         // Audit T1-7: the plugin default rotates at 40 KB with KeepOne, i.e.
         // ~80 KB of history on a 24/7 broadcast host. Keep 10 x 50 MiB.
@@ -206,6 +225,7 @@ pub fn run() {
         .manage(CasparPlaybackState::default())
         .manage(supervisor)
         .manage(amcp_client)
+        .manage(recovery_state)
         .invoke_handler(tauri::generate_handler![
             scan_media,
             scan_directory,
@@ -288,13 +308,28 @@ pub fn run() {
             caspar_process_check_port,
             save_studio_default_preset,
             get_studio_default_preset,
-            frontend_ready
+            frontend_ready,
+            recovery::recovery_boot_info,
+            recovery::recovery_ack_previous,
+            recovery::recovery_checkpoint_update,
+            recovery::recovery_note,
+            recovery::recovery_history,
+            recovery::recovery_ui_pong,
+            recovery::recovery_live_playback
         ])
         .setup(|app| {
             init_background_logger();
             let app_handle = app.handle().clone();
             spawn_ingestor_heartbeat(app_handle.clone());
             studio_server::start_studio_server(app_handle);
+
+            let recovery = app.state::<recovery::RecoveryState>().inner().clone();
+            recovery.spawn_writer(app.handle().clone());
+            // Release builds only: in `tauri dev` a devtools breakpoint would
+            // read as a hung UI and be reloaded.
+            if cfg!(not(debug_assertions)) {
+                recovery.spawn_ui_watchdog(app.handle().clone());
+            }
 
             let reveal_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -352,8 +387,25 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
     {
-        startup_error(&format!("error while running tauri application: {}", error));
-    }
+        Ok(app) => app,
+        Err(error) => {
+            startup_error(&format!("error while running tauri application: {}", error));
+            return;
+        }
+    };
+
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            // Journal a clean exit and leave a final checkpoint: a relaunch
+            // then knows this was deliberate and where the channel was.
+            if let (Some(recovery), Some(playback)) = (
+                handle.try_state::<recovery::RecoveryState>(),
+                handle.try_state::<CasparPlaybackState>(),
+            ) {
+                recovery.mark_exit(&playback);
+            }
+        }
+    });
 }
