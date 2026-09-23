@@ -95,8 +95,27 @@ describe('Rundown header, tabs and schedule row (§6.3)', () => {
     store.onAirPlaylistId = store.activePlaylistId;
     await wrapper.vm.$nextTick();
 
+    // On air the strip would hold nothing but a note, so it is not rendered.
     expect(wrapper.find('.pl-schedule').exists()).toBe(false);
-    expect(wrapper.find('.pl-onair-note').exists()).toBe(true);
+    expect(wrapper.find('.playlist-bar').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('carries the item count and running time in the header, with the on-air note as its tooltip', async () => {
+    const store = useRundownStore();
+    store.addItem({ name: 'Clip 1', type: 'video', path: '/media/1.mp4', duration: 60 });
+    store.addItem({ name: 'Clip 2', type: 'video', path: '/media/2.mp4', duration: 125 });
+
+    const wrapper = mount(RundownList, { global: { stubs } });
+    const totals = wrapper.get('.rw-header [data-testid="playlist-totals"]');
+    expect(totals.text()).toContain('2 items');
+    expect(totals.text()).toContain('3m 5s');
+
+    store.onAirPlaylistId = store.activePlaylistId;
+    await wrapper.vm.$nextTick();
+    expect(tooltipTextOf(totals.get('.pl-totals-figures').element as HTMLElement)).toBe(
+      'Timing follows the transport while this playlist is on air.'
+    );
     wrapper.unmount();
   });
 });
