@@ -172,8 +172,9 @@ export const __playoutQueueTestHooks = {
     getCurrentKey: () => currentKey,
     setState(items: PlayoutItem[], key: string | null, playing: boolean) {
         queuedItems = items.map((i: any) => ({ ...i }));
-        currentKey = key;
+        claimCurrentKey(key);
         isCasparPlaying.value = playing;
+        invalidatePreloads();
     },
 };
 
@@ -239,6 +240,9 @@ let playToken = 0;
 // A rundown edit must cancel an in-flight LOADBG without cancelling the
 // on-air item (which would otherwise turn a safe edit into a hard cut).
 let preloadGeneration = 0;
+/// The LOADBG AUTO currently being dispatched, so two preloads released by the
+/// same first-frame confirmation do not both reload the background.
+let preloadInFlight: { key: string; generation: number } | null = null;
 let consecutiveSkips = 0;
 const MAX_CONSECUTIVE_SKIPS = 3;
 // Audit F-4: pace automatic skips so a run of bad rows is legible on air and
@@ -309,6 +313,45 @@ let positionConfirmWaiters: Array<{ uuid: string; resolve: (ok: boolean) => void
 /// `is_premature_auto_switch` in caspar.rs) cannot occur.
 const PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS = 1500;
 
+/// Row id of the clip Rust last proved is rendering on the program layer
+/// (`caspar://foreground-position-confirmed`). Cleared by `claimCurrentKey`,
+/// so a confirmation only ever vouches for the clip claimed as current.
+let firstFrameConfirmedKey: string | null = null;
+
+/// Every change of the on-air identity goes through here. The first-frame
+/// proof belongs to one playback, and a new claim (even of the same row, on a
+/// re-take) must earn it again before anything arms the background.
+function claimCurrentKey(key: string | null) {
+    currentKey = key;
+    firstFrameConfirmedKey = null;
+}
+
+function noteFirstFrameConfirmed(uuid: string) {
+    firstFrameConfirmedKey = uuid;
+    positionConfirmWaiters = resolveWaiters(positionConfirmWaiters, uuid);
+}
+
+/// How a `preloadNextItemAt` caller relates to the first-frame proof.
+/// `await-first-frame`: the caller knows nothing about the on-air clip (a
+/// rundown edit, an adoption), so the preload waits for the proof and is
+/// withheld if it never comes. `verified-by-caller`: the take/advance path
+/// already waited on the proof and applied its own timeout policy.
+type PreloadArmGate = 'await-first-frame' | 'verified-by-caller';
+
+/// Wait until the on-air clip `key` has rendered its first frame. Resolves at
+/// once when the proof for this claim has already arrived.
+function waitForOnAirFirstFrame(key: string, timeoutMs: number): Promise<boolean> {
+    if (firstFrameConfirmedKey === key) return Promise.resolve(true);
+    return waitForPositionConfirmation(key, timeoutMs);
+}
+
+/// A live source plays on its own layer and never reports a layer-10 first
+/// frame, so the gate cannot apply to it; the live path arms its successor the
+/// way it always has.
+function isOnAirLiveSource(): boolean {
+    return queuedItems.some((it) => queueKey(it) === currentKey && it.type === 'live');
+}
+
 type ConfirmationWaiter = { uuid: string; resolve: (ok: boolean) => void };
 
 function waitOnList(
@@ -359,7 +402,7 @@ export const __preloadGateTestHooks = {
     waitForPositionConfirmation,
     waitForForegroundConfirmation,
     resolvePositionConfirmation(uuid: string) {
-        positionConfirmWaiters = resolveWaiters(positionConfirmWaiters, uuid);
+        noteFirstFrameConfirmed(uuid);
     },
     resolveForegroundConfirmation(uuid: string) {
         confirmWaiters = resolveWaiters(confirmWaiters, uuid);
@@ -1112,8 +1155,8 @@ const ensureFeedbackListener = async () => {
         if (!positionConfirmUnlisten) {
             positionConfirmUnlisten = await listen<{ currentUuid: string | null }>('caspar://foreground-position-confirmed', (event) => {
                 const uuid = event.payload?.currentUuid;
-                if (!uuid || positionConfirmWaiters.length === 0) return;
-                positionConfirmWaiters = resolveWaiters(positionConfirmWaiters, uuid);
+                if (!uuid) return;
+                noteFirstFrameConfirmed(uuid);
             });
         }
 
@@ -1256,7 +1299,7 @@ const synchronizeOnAirState = async () => {
             const effectiveDur = trimOut > trimIn ? trimOut - trimIn : totalDur;
             const normalizedElapsed = Math.max(0, producerInfo.elapsedMs - trimIn);
 
-            currentKey = matchedKey;
+            claimCurrentKey(matchedKey);
             isCasparPlaying.value = true;
             playStartIndex.value = matchIndex;
             playStartTime.value = Date.now() - normalizedElapsed;
@@ -1511,7 +1554,8 @@ async function preloadNextItemAt(
     token: number = playToken,
     retriesLeft = 6,
     delayMs = 500,
-    preloadToken: number = preloadGeneration
+    preloadToken: number = preloadGeneration,
+    gate: PreloadArmGate = 'await-first-frame'
 ) {
     const isStale = () => token !== playToken || preloadToken !== preloadGeneration;
     if (isStale()) return;
@@ -1538,7 +1582,7 @@ async function preloadNextItemAt(
             const nextDelay = Math.round(delayMs * 1.5);
             setTimeout(() => {
                 if (isStale()) return;
-                preloadNextItemAt(index, token, retriesLeft - 1, nextDelay, preloadToken).catch(() => {});
+                preloadNextItemAt(index, token, retriesLeft - 1, nextDelay, preloadToken, gate).catch(() => {});
             }, delayMs);
         } else {
             console.warn(`[CasparCG] preloadNextItemAt gave up after retries for item ${item.filename || item.id}`);
@@ -1566,8 +1610,45 @@ async function preloadNextItemAt(
         return;
     }
 
+    // Incident 2026-09-23: a rundown edit re-armed the background (via
+    // refreshQueue) in the ~50 ms between a natural advance claiming B and B
+    // actually reaching air. A was still on air with B in the background, so
+    // LOADBG C … AUTO replaced B and CasparCG cut A -> C, skipping B. Layer 10
+    // has one background slot, and only the clip that has proved it is
+    // rendering on air may have its successor loaded behind it. This is the
+    // one chokepoint for every rundown-driven LOADBG AUTO, whoever calls it.
+    if (gate === 'await-first-frame' && !isOnAirLiveSource()) {
+        const onAirKey = currentKey;
+        if (!onAirKey) return;
+        const confirmed = await waitForOnAirFirstFrame(onAirKey, PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS);
+        if (isStale() || currentKey !== onAirKey) return;
+        if (!confirmed) {
+            // Arming now could overwrite a background that has not reached
+            // air yet. Withhold it: the advance then takes the explicit PLAY
+            // path (a clean cut) instead of skipping a clip.
+            console.warn(`[CasparCG] AUTO preload of ${item.filename || item.id} withheld: on-air clip ${onAirKey} never confirmed its first frame.`);
+            invoke('push_diagnostic_log', {
+                level: 'warn',
+                scope: 'caspar-playout',
+                message: `AUTO preload of ${item.filename || item.id} withheld: on-air clip ${onAirKey} did not confirm its first frame within ${PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS} ms`
+            }).catch(() => {});
+            return;
+        }
+    }
+
+    const key = queueKey(item);
+    const liveItem = findLiveItemById(key) ?? item;
+    if (liveItem.type !== 'video' || !liveItem.path || liveItem.ingestorStatus !== 'ready') return;
+    // A waiting rundown-edit preload and the advance path's own preload are
+    // released by the same confirmation. The second must not reload a
+    // background that is already armed with the same clip and trim.
+    if (preloadedKeys.has(key) && preloadMatchesItem(key, liveItem)) return;
+    if (preloadInFlight && preloadInFlight.key === key && preloadInFlight.generation === preloadGeneration) return;
+
+    const inFlight = { key, generation: preloadGeneration };
+    preloadInFlight = inFlight;
     try {
-        const hydrated = hydratePlayoutItem(item);
+        const hydrated = hydratePlayoutItem(liveItem);
         // Pre-send stale guard: the caller also checks the token after
         // dispatch, but by then the LOADBG may already be on the wire after a
         // newer take()/play() (Bug B). Passing the guard into dispatchLoadbg
@@ -1575,8 +1656,8 @@ async function preloadNextItemAt(
         const result = await dispatchLoadbg(hydrated, PROGRAM_CHANNEL, CASPAR_LAYERS.video, true, isStale);
         if (result === null) return;
         if (!isStale()) {
-            preloadedKeys.add(queueKey(item));
-            preloadedFingerprints.set(queueKey(item), {
+            preloadedKeys.add(key);
+            preloadedFingerprints.set(key, {
                 trimInMs: hydrated.trim_in_ms,
                 trimOutMs: hydrated.trim_out_ms,
                 path: hydrated.path
@@ -1584,7 +1665,15 @@ async function preloadNextItemAt(
         }
     } catch (error) {
         console.warn('[CasparCG] Failed to preload next item', item.filename, error);
+    } finally {
+        if (preloadInFlight === inFlight) preloadInFlight = null;
     }
+}
+
+/// Arm the successor after the caller has already applied the first-frame
+/// gate (take, natural advance, live) and its own timeout policy.
+function preloadNextItemAfterVerifiedStart(index: number, token: number) {
+    return preloadNextItemAt(index, token, 6, 500, preloadGeneration, 'verified-by-caller');
 }
 
 /// Play a single queued item by its array index. Registers it with the Rust
@@ -1620,8 +1709,8 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         // the previous item's EOF fires while duration is resolving, it would
         // otherwise see the OLD currentKey, pass the guard and take us to the
         // wrong next item (plan §1.4).
-        currentKey = queueKey(item);
-        const key = currentKey;
+        const key = queueKey(item);
+        claimCurrentKey(key);
         const durationMs = await ensureItemDurationMs(item);
         // A take()/play()/advance during duration resolution invalidates this
         // play request — abort before any side effect (plan §1.4).
@@ -1672,7 +1761,7 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
                 console.warn('[CasparCG] Failed to register live playback', e);
             });
 
-            await preloadNextItemAt(index + 1, token);
+            await preloadNextItemAfterVerifiedStart(index + 1, token);
             return;
         }
 
@@ -1777,7 +1866,7 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
                 message: `First-frame confirmation for ${key} not received within ${PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS} ms; LOADBG AUTO armed on timeout`
             }).catch(() => {});
         }
-        await preloadNextItemAt(index + 1, token);
+        await preloadNextItemAfterVerifiedStart(index + 1, token);
 
         // Late-resolve duration if still unknown and re-register the deadline.
         // Pass the initial trim duration so the refresh can skip re-registration
@@ -1979,7 +2068,7 @@ async function advanceToNext(token: number, natural: boolean) {
                 const durationMs = computeDurationMsFromTrim(trim, hydrated.id);
                 const expectedOutMs = durationMs;
 
-                currentKey = key;
+                claimCurrentKey(key);
                 const store = useRundownStore();
                 store.stopPlaybackProgressTimer();
                 onAdvanceCallback?.(key);
@@ -2059,7 +2148,7 @@ async function advanceToNext(token: number, natural: boolean) {
                 const firstFrameConfirmed = await firstFrameConfirmation;
                 const safeToArm = firstFrameConfirmed || await foregroundConfirmation;
                 if (safeToArm && transitionToken === playToken) {
-                    await preloadNextItemAt(nextIndex + 1, transitionToken);
+                    await preloadNextItemAfterVerifiedStart(nextIndex + 1, transitionToken);
                 } else if (transitionToken === playToken) {
                     console.warn('[CasparCG] Foreground confirmation timed out; AUTO preload remains disarmed until the next verified transition.');
                 }
@@ -2160,7 +2249,7 @@ export async function playItemWithIntent(
         }
 
         const key = queueKey(item);
-        currentKey = key;
+        claimCurrentKey(key);
 
         let queueIndex = queuedItems.findIndex((it) => queueKey(it) === key);
         if (queueIndex === -1) {
@@ -2246,7 +2335,21 @@ export async function playItemWithIntent(
         if (!await applyComplianceForPlayback(item, requestToken)) return false;
 
         if (queueIndex !== -1 && requestToken === playToken) {
-            await preloadNextItemAt(queueIndex + 1, requestToken);
+            // Same first-frame gate as playItemAt: a LOADBG AUTO sent before
+            // the clip just PLAYed has rendered lets CasparCG's first-tick
+            // AUTO check put the next clip on air instead (incident
+            // 2026-09-18). A direct PLAY leaves no background worth
+            // protecting, so a timeout still arms rather than cold-cutting.
+            const firstFrameConfirmed = await waitForOnAirFirstFrame(key, PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS);
+            if (requestToken !== playToken || currentKey !== key) return true;
+            if (!firstFrameConfirmed) {
+                invoke('push_diagnostic_log', {
+                    level: 'warn',
+                    scope: 'caspar-playout',
+                    message: `First-frame confirmation for ${key} not received within ${PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS} ms; LOADBG AUTO armed on timeout`
+                }).catch(() => {});
+            }
+            await preloadNextItemAfterVerifiedStart(queueIndex + 1, requestToken);
         }
 
         return true;
@@ -2316,9 +2419,9 @@ export const casparPlayoutService: PlayoutService = {
         // EOF advance could fire during the dispatch, advance from the OLD
         // item's position and clobber this manual play with the old item's
         // successor ("plays a file above the running one → skips to next").
-        currentKey = startIndex >= 0 && startIndex < items.length
+        claimCurrentKey(startIndex >= 0 && startIndex < items.length
             ? queueKey(items[startIndex]!)
-            : null;
+            : null);
 
         await ensureFeedbackListener();
         if (!isCasparConnected.value) {
@@ -2367,7 +2470,7 @@ export const casparPlayoutService: PlayoutService = {
         isCasparPlaying.value = false;
         isLiveActive.value = false;
         currentCasparDurationMs.value = 0;
-        currentKey = null;
+        claimCurrentKey(null);
         updateDisplayedTime(0);
         timelineTimers.forEach(clearTimeout);
         timelineTimers = [];
@@ -2425,6 +2528,19 @@ export const casparPlayoutService: PlayoutService = {
                 throw new Error('Cannot cue a non-next item while programme is on air: it would replace the protected AUTO background.');
             }
 
+            // Same rule as preloadNextItemAt: until the on-air clip has
+            // proved it is rendering, the background may still hold the clip
+            // that is about to reach air, and replacing it would skip it.
+            const onAirKey = currentKey;
+            const onAirStarted = isOnAirLiveSource()
+                || await waitForOnAirFirstFrame(onAirKey, PRELOAD_ARM_CONFIRMATION_TIMEOUT_MS);
+            if (currentKey !== onAirKey) {
+                throw new Error('Cannot cue: the on-air item changed while the cue was waiting. Cue again.');
+            }
+            if (!onAirStarted) {
+                throw new Error('Cannot cue yet: the on-air clip has not confirmed it is playing. Try again in a moment.');
+            }
+
             invalidatePreloads();
             const token = playToken;
             const epoch = preloadGeneration;
@@ -2480,7 +2596,7 @@ export const casparPlayoutService: PlayoutService = {
             throw new Error(errorMsg);
         }
 
-        currentKey = queueKey(item);
+        claimCurrentKey(queueKey(item));
         manualTakeFailure.value = null;
         playToken += 1;
         const takeToken = playToken;
