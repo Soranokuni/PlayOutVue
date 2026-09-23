@@ -144,8 +144,18 @@ pub fn update(&self, next: RuntimeSettings) -> RuntimeSettings {
     }
 }
 
+/// Order of `apply_runtime_settings` calls, and the newest one written.
+static APPLY_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static LAST_WRITTEN_SEQUENCE: Mutex<u64> = Mutex::new(0);
+
+/// PERF-PLAN PR F: the settings file is written with an fsync, and the
+/// frontend calls this from a deep watch on every settings change. As a sync
+/// command that fsync ran on the main thread; it now runs on the blocking
+/// pool. Two calls can then be in flight at once, so each carries a sequence
+/// number and one that lost the race to a newer call neither writes nor
+/// applies: the newest settings win, on disk and in memory, as before.
 #[tauri::command]
-pub fn apply_runtime_settings(
+pub async fn apply_runtime_settings(
     settings: RuntimeSettings,
     state: State<'_, RuntimeSettingsState>,
     diagnostics: State<'_, crate::diagnostics::DiagnosticState>,
@@ -153,13 +163,42 @@ pub fn apply_runtime_settings(
     let mut settings = settings;
     settings.ingestor_api_token = settings.ingestor_api_token.trim().to_string();
     settings.ai_api_key = settings.ai_api_key.trim().to_string();
-    if let Err(error) = save_settings_to_disk(&settings) {
-        log::error!("{}", error);
-        return Err(error);
+
+    let sequence = APPLY_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let to_write = settings.clone();
+    let written = tauri::async_runtime::spawn_blocking(move || {
+        write_in_order(&LAST_WRITTEN_SEQUENCE, sequence, || save_settings_to_disk(&to_write))
+    })
+        .await
+        .map_err(|e| format!("settings save task failed: {}", e))?;
+    match written {
+        Err(error) => {
+            log::error!("{}", error);
+            Err(error)
+        }
+        // Superseded by a newer call, which applies its own settings.
+        Ok(false) => Ok(()),
+        Ok(true) => {
+            state.update(settings.clone());
+            diagnostics.set_enabled(settings.debug_enabled);
+            Ok(())
+        }
     }
-    state.update(settings.clone());
-    diagnostics.set_enabled(settings.debug_enabled);
-    Ok(())
+}
+
+/// Run `write` unless a newer call already has. `Ok(false)` = superseded.
+fn write_in_order(
+    last_written: &Mutex<u64>,
+    sequence: u64,
+    write: impl FnOnce() -> Result<(), String>,
+) -> Result<bool, String> {
+    let mut last = last_written.lock();
+    if sequence < *last {
+        return Ok(false);
+    }
+    write()?;
+    *last = sequence;
+    Ok(true)
 }
 
 pub fn get_ingestor_api_base_url<R: Runtime>(app: &AppHandle<R>) -> String {
@@ -257,4 +296,28 @@ pub fn resolve_tool_path<R: Runtime>(app: Option<&AppHandle<R>>, state: Option<&
         .find(|path| path.exists())
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|| name.trim_end_matches(".exe").to_string())
+}
+
+#[cfg(test)]
+mod apply_order_tests {
+    use super::*;
+
+    #[test]
+    fn an_older_apply_that_finishes_late_does_not_overwrite_a_newer_one() {
+        let last = Mutex::new(0);
+        let mut disk = Vec::new();
+        // Call 2 reaches the blocking pool first, call 1 after it.
+        assert_eq!(write_in_order(&last, 2, || { disk.push(2); Ok(()) }), Ok(true));
+        assert_eq!(write_in_order(&last, 1, || { disk.push(1); Ok(()) }), Ok(false));
+        assert_eq!(disk, vec![2]);
+    }
+
+    #[test]
+    fn a_failed_write_does_not_claim_the_sequence() {
+        let last = Mutex::new(0);
+        assert!(write_in_order(&last, 2, || Err("disk full".to_string())).is_err());
+        // The older call may still write, since nothing newer reached disk.
+        assert_eq!(write_in_order(&last, 1, || Ok(())), Ok(true));
+        assert_eq!(write_in_order(&last, 3, || Ok(())), Ok(true));
+    }
 }

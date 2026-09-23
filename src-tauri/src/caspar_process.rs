@@ -1465,8 +1465,17 @@ pub async fn caspar_process_restart(
     supervisor.restart(&app, &settings).await
 }
 
+/// PERF-PLAN PR F: Settings calls this while the operator types the path. As
+/// a sync command it ran on the main thread, and a half-typed UNC path
+/// (`\\host\...`) blocked the WebView for the SMB timeout on `exists()`.
 #[tauri::command]
-pub fn caspar_process_validate_path(path: String) -> Result<CasparValidationInfo, String> {
+pub async fn caspar_process_validate_path(path: String) -> Result<CasparValidationInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || validate_caspar_path(&path))
+        .await
+        .map_err(|e| format!("path validation task failed: {}", e))?
+}
+
+fn validate_caspar_path(path: &str) -> Result<CasparValidationInfo, String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Ok(CasparValidationInfo {

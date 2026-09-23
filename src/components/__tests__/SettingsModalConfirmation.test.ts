@@ -86,6 +86,39 @@ describe('SettingsModal confirmation safety & CasparConfigModal mapping', () => 
     document.body.innerHTML = '';
   });
 
+  it('validates the server location once typing pauses, not per keystroke (PERF-PLAN PR F)', async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mount(SettingsModal, {
+        props: { isOpen: true },
+        attachTo: document.body
+      });
+      await nextTick();
+      const playoutTab = Array.from(document.body.querySelectorAll('button.settings-tab-btn'))
+        .find((b) => b.textContent?.includes('Playout'));
+      playoutTab?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await nextTick();
+      await vi.runOnlyPendingTimersAsync();
+      vi.mocked(casparProcess.validateCasparExecutablePath).mockClear();
+
+      const input = document.body.querySelector('#caspar-exe') as HTMLInputElement;
+      expect(input).toBeTruthy();
+      for (const value of ['\\\\', '\\\\h', '\\\\ho', '\\\\host\\casparcg.exe']) {
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(50);
+      }
+      expect(casparProcess.validateCasparExecutablePath).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(300);
+      expect(casparProcess.validateCasparExecutablePath).toHaveBeenCalledTimes(1);
+      expect(casparProcess.validateCasparExecutablePath).toHaveBeenCalledWith('\\\\host\\casparcg.exe');
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does NOT stop server if user cancels confirmation in ask dialog', async () => {
     vi.mocked(ask).mockResolvedValueOnce(false);
 

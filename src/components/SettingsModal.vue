@@ -349,24 +349,42 @@ const mapLocalState = () => {
     }
 };
 
+// Only the newest check may write the result: a slow answer for a half-typed
+// path must not overwrite the answer for the finished one.
+let validationGeneration = 0;
+
 const validateCasparExe = async (path: string) => {
+    const generation = ++validationGeneration;
     if (!path.trim()) {
         validationInfo.value = null;
+        isValidating.value = false;
         return;
     }
     isValidating.value = true;
     try {
-        validationInfo.value = await validateCasparExecutablePath(path);
+        const info = await validateCasparExecutablePath(path);
+        if (generation === validationGeneration) validationInfo.value = info;
     } catch {
-        validationInfo.value = null;
+        if (generation === validationGeneration) validationInfo.value = null;
     } finally {
-        isValidating.value = false;
+        if (generation === validationGeneration) isValidating.value = false;
     }
 };
 
+/**
+ * PERF-PLAN PR F: every keystroke used to stat the path in Rust. The check
+ * waits until typing pauses; the derived paths below still follow at once.
+ */
+const EXECUTABLE_VALIDATION_DEBOUNCE_MS = 300;
+let executableValidationTimer: ReturnType<typeof setTimeout> | null = null;
+
 const onExecutableInput = (e: Event) => {
     const val = (e.target as HTMLInputElement).value;
-    validateCasparExe(val);
+    if (executableValidationTimer) clearTimeout(executableValidationTimer);
+    executableValidationTimer = setTimeout(() => {
+        executableValidationTimer = null;
+        validateCasparExe(val);
+    }, EXECUTABLE_VALIDATION_DEBOUNCE_MS);
     syncCasparDerivedPaths(val);
 };
 
@@ -484,6 +502,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+    if (executableValidationTimer) {
+        clearTimeout(executableValidationTimer);
+        executableValidationTimer = null;
+    }
     if (templateDeployedUnlisten) {
         templateDeployedUnlisten();
         templateDeployedUnlisten = null;

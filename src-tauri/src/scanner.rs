@@ -822,8 +822,18 @@ fn collect_media_files(root: &Path) -> Result<Vec<PathBuf>, String> {
 
         for entry in entries.flatten() {
             let file_path = entry.path();
+            // PERF-PLAN PR F: `DirEntry::file_type` comes from the directory
+            // listing on Windows, so a plain entry costs no stat; `is_dir()`
+            // then `is_file()` were two per entry, two SMB round trips on a
+            // share. A link still needs the stat to see what it points at.
+            let Ok(kind) = entry.file_type() else { continue };
+            let (is_dir, is_file) = if kind.is_symlink() {
+                (file_path.is_dir(), file_path.is_file())
+            } else {
+                (kind.is_dir(), kind.is_file())
+            };
 
-            if file_path.is_dir() {
+            if is_dir {
                 if file_path
                     .file_name()
                     .and_then(|name| name.to_str())
@@ -837,7 +847,7 @@ fn collect_media_files(root: &Path) -> Result<Vec<PathBuf>, String> {
                 continue;
             }
 
-            if !file_path.is_file() {
+            if !is_file {
                 continue;
             }
 
@@ -1081,13 +1091,30 @@ pub async fn scan_media<R: Runtime>(
     res
 }
 
+/// PERF-PLAN PR F: a sync command runs on the main thread, so this used to
+/// freeze the WebView for the whole save -- a stat of every parent folder, a
+/// read, fingerprint and pretty rewrite of the media index, and a SQLite
+/// upsert, on what is often an SMB share. The work runs on the blocking pool.
 #[tauri::command]
-pub fn save_media_trim_profile<R: Runtime>(
+pub async fn save_media_trim_profile<R: Runtime>(
     path: String,
     in_ms: i64,
     out_ms: i64,
     app: AppHandle<R>,
     db_state: State<'_, DbState>,
+) -> Result<(), String> {
+    let db = db_state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || save_media_trim_profile_blocking(&path, in_ms, out_ms, &app, &db))
+        .await
+        .map_err(|e| format!("trim save task failed: {}", e))?
+}
+
+fn save_media_trim_profile_blocking<R: Runtime>(
+    path: &str,
+    in_ms: i64,
+    out_ms: i64,
+    app: &AppHandle<R>,
+    db: &MediaDb,
 ) -> Result<(), String> {
     let trimmed_path = path.trim();
     if trimmed_path.is_empty() {
@@ -1114,8 +1141,7 @@ pub fn save_media_trim_profile<R: Runtime>(
     media_index::save_trim_profile(&media_root, &file_path, in_ms, out_ms)?;
 
     let normalized_path = file_path.to_string_lossy().into_owned();
-    let mut entry = db_state
-        .0
+    let mut entry = db
         .get_valid(&normalized_path)
         .or_else(|| media_index::hydrate_entry_from_index(&media_root, &file_path).ok().flatten())
         .unwrap_or(CachedMediaEntry {
@@ -1142,7 +1168,7 @@ pub fn save_media_trim_profile<R: Runtime>(
     entry.path = normalized_path;
     entry.trim_in_ms = in_ms;
     entry.trim_out_ms = out_ms;
-    let _ = db_state.0.upsert(&entry);
+    let _ = db.upsert(&entry);
     if let Some(diagnostics) = app.try_state::<DiagnosticState>() {
         diagnostics.push("info", "db", format!("Saved trim profile for '{}' (in: {}ms, out: {}ms)", trimmed_path, in_ms, out_ms));
     }
@@ -1423,4 +1449,30 @@ pub async fn warm_media_cache<R: Runtime>(
     );
 
     Ok(stats)
+}
+
+#[cfg(test)]
+mod collect_media_files_tests {
+    use super::*;
+
+    #[test]
+    fn walks_subfolders_skips_the_alias_folder_and_non_media() {
+        let root = std::env::temp_dir().join(format!("playout-collect-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("shows").join("s1")).unwrap();
+        std::fs::create_dir_all(root.join(CASPAR_ALIAS_DIR_NAME)).unwrap();
+        std::fs::write(root.join("a.mp4"), b"x").unwrap();
+        std::fs::write(root.join("notes.txt"), b"x").unwrap();
+        std::fs::write(root.join("shows").join("s1").join("b.MXF"), b"x").unwrap();
+        std::fs::write(root.join(CASPAR_ALIAS_DIR_NAME).join("alias.mp4"), b"x").unwrap();
+
+        let found: Vec<String> = collect_media_files(&root)
+            .unwrap()
+            .iter()
+            .map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"))
+            .collect();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(found, vec!["a.mp4".to_string(), "shows/s1/b.MXF".to_string()]);
+    }
 }
