@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useStorage } from '@vueuse/core';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { message } from '@tauri-apps/plugin-dialog';
@@ -26,6 +25,7 @@ import { vTooltip } from './lib/tooltip';
 import { applyTheme, applyUiScale } from './lib/theme';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
+import { usePanelLayout, clampLibraryWidth, LIBRARY_WIDTH_DEFAULT } from './composables/usePanelLayout';
 import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
 import { useMediaLibraryStore } from './stores/mediaLibrary';
@@ -304,10 +304,24 @@ const workflowGuide = [
   'Use Settings for connections, media paths, themes, and QC sensitivity modes.'
 ];
 
-// §5.1: 320px default (min 280, max 640). At 280 there were five chrome bars
-// before the first asset and names truncated at ~8 characters.
-const LIBRARY_WIDTH_DEFAULT = 320;
-const leftWidth = useStorage('layout.leftWidth', LIBRARY_WIDTH_DEFAULT);
+// The library's width and its folded state live in `usePanelLayout`, shared
+// with the library header, Ctrl+B and Settings' "Reset panel sizes".
+const { leftWidth, libraryCollapsed, toggleLibraryCollapsed } = usePanelLayout();
+
+// Folding hides whatever had focus inside the library, and unfolding removes
+// the rail button that had it. Either way focus would drop to <body>, so hand
+// it to the control that now stands where the old one was.
+watch(libraryCollapsed, (collapsed) => {
+  const active = document.activeElement as HTMLElement | null;
+  const stranded = !active || active === document.body || !!active.closest('.panel-library');
+  if (!stranded) return;
+  nextTick(() => {
+    const target = collapsed
+      ? document.querySelector<HTMLElement>('[data-testid="library-expand"]')
+      : document.querySelector<HTMLElement>('.media-library-panel');
+    target?.focus();
+  });
+});
 const isResizing = ref<'left'|null>(null);
 let pendingResizeX = 0;
 let resizeFrame = 0;
@@ -377,7 +391,7 @@ const handleGlobalPointerDown = (event: PointerEvent) => {
 const applyResize = () => {
   resizeFrame = 0;
   if (isResizing.value === 'left') {
-    leftWidth.value = Math.max(280, Math.min(640, pendingResizeX));
+    leftWidth.value = clampLibraryWidth(pendingResizeX);
   }
 };
 
@@ -868,7 +882,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="app-shell" :style="{
+  <main class="app-shell" :class="{ 'is-library-collapsed': libraryCollapsed }" :style="{
     '--left-w': `${leftWidth}px`,
     cursor: isResizing ? 'ew-resize' : 'default'
   }">
@@ -924,8 +938,26 @@ onUnmounted(() => {
       </div>
     </div>
     
-    <aside class="panel panel-library glass-panel"><MediaLibrary /></aside>
-    <div class="resizer resizer-left" v-tooltip="'Drag to resize · double-click to reset'" @mousedown="startResizeLeft" @dblclick="leftWidth = LIBRARY_WIDTH_DEFAULT"></div>
+    <!-- The library stays mounted while folded, so its selection, scroll and
+         open folders are where the operator left them. -->
+    <aside v-show="!libraryCollapsed" class="panel panel-library glass-panel"><MediaLibrary /></aside>
+    <aside v-if="libraryCollapsed" class="panel panel-library library-rail glass-panel" aria-label="Library (collapsed)">
+      <button
+        type="button"
+        class="btn btn--icon btn--sm library-rail-btn"
+        aria-label="Expand library"
+        v-tooltip="{ text: 'Expand library', shortcut: 'Ctrl+B' }"
+        data-testid="library-expand"
+        @click="toggleLibraryCollapsed"
+      >
+        <AppIcon name="panel-left-open" :size="16" />
+      </button>
+      <button type="button" class="btn btn--ghost library-rail-label" tabindex="-1" aria-hidden="true" @click="toggleLibraryCollapsed">
+        Library
+      </button>
+    </aside>
+    <div v-if="!libraryCollapsed" class="resizer resizer-left" v-tooltip="'Drag to resize · double-click to reset'" @mousedown="startResizeLeft" @dblclick="leftWidth = LIBRARY_WIDTH_DEFAULT"></div>
+    <div v-else class="resizer-gap" aria-hidden="true"></div>
     
     <section class="panel panel-rundown glass-panel"><RundownList /></section>
 
@@ -1238,6 +1270,33 @@ onUnmounted(() => {
   min-height: 100vh;
 }
 .panel-library  { grid-area: library; overflow:hidden; }
+/* Folded, the library is a rail one control wide: the expand button and the
+   panel's name running down it, so the operator knows what is folded there. */
+.app-shell.is-library-collapsed {
+  grid-template-columns: calc(var(--control-h-md) + var(--space-2)) var(--space-2) 1fr;
+}
+.library-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+.library-rail-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  height: auto;
+  padding: var(--space-2) 0;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.library-rail-label:hover {
+  color: var(--text-primary);
+}
+.resizer-gap { grid-area: r1; }
 .panel-rundown  { grid-area: rundown; overflow:hidden; }
 /* UI F-01: `flex-wrap: nowrap` is load-bearing. The shell's `ctrl` grid row is
    one control high and the shell is `overflow: hidden`, so any wrapped second row

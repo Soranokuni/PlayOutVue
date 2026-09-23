@@ -77,7 +77,7 @@ describe('UI F-10 · AppIcon', () => {
     // Shrinks as the phases land; it may never grow. These three are consumed
     // by dialogs the migration has not reached yet.
     // Round 3 §4 consumes `more-horizontal` in the control bar's More popover.
-    const expectedPending = ['chevron-down', 'help', 'arrow-up', 'more-horizontal'];
+    const expectedPending = ['help', 'arrow-up', 'more-horizontal'];
 
     expect(unused.filter((n) => !expectedPending.includes(n))).toEqual([]);
   });

@@ -12,6 +12,14 @@ import { useMediaLibraryStore, type LibraryAsset, type TreeNode } from '../store
 import { draggingItem } from '../composables/useDragState';
 import { beginLibraryDrag, didCompletePointerDrag } from '../composables/useDragSession';
 import { activeScope, activeLibraryContext } from '../composables/useOperatorShortcuts';
+import {
+    usePanelLayout,
+    clampFolderPaneRatio,
+    FOLDER_PANE_RATIO_DEFAULT,
+    FOLDER_PANE_RATIO_MIN,
+    FOLDER_PANE_RATIO_MAX,
+    FOLDER_PANE_RATIO_STEP,
+} from '../composables/usePanelLayout';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
 import { lazyComponent } from '../lib/lazyComponent';
@@ -277,6 +285,70 @@ const folderRowTabIndex = (row: VisibleTreeRow, index: number) => {
 };
 
 const folderPaneRef = ref<HTMLElement | null>(null);
+
+/*
+ * The folder tree / asset list split. The tree's share of the split area is
+ * the operator's: drag the handle, use the arrow keys while it has focus, or
+ * double-click it to go back to the default. The tree also folds away
+ * entirely, leaving the breadcrumb bar as the folder context.
+ */
+const { folderPaneRatio, folderTreeCollapsed, toggleFolderTreeCollapsed, toggleLibraryCollapsed } = usePanelLayout();
+const libSplitRef = ref<HTMLElement | null>(null);
+const isResizingSplit = ref(false);
+let pendingSplitY = 0;
+let splitFrame = 0;
+
+const applySplitResize = () => {
+    splitFrame = 0;
+    const rect = libSplitRef.value?.getBoundingClientRect();
+    if (!rect || rect.height <= 0) return;
+    folderPaneRatio.value = clampFolderPaneRatio((pendingSplitY - rect.top) / rect.height);
+};
+
+const onSplitPointerMove = (event: PointerEvent) => {
+    pendingSplitY = event.clientY;
+    if (!splitFrame) splitFrame = requestAnimationFrame(applySplitResize);
+};
+
+const stopSplitResize = (event: PointerEvent) => {
+    const handle = event.currentTarget as HTMLElement;
+    if (handle.hasPointerCapture?.(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    handle.removeEventListener('pointermove', onSplitPointerMove);
+    handle.removeEventListener('pointerup', stopSplitResize);
+    handle.removeEventListener('pointercancel', stopSplitResize);
+    if (splitFrame) {
+        cancelAnimationFrame(splitFrame);
+        applySplitResize();
+    }
+    isResizingSplit.value = false;
+};
+
+const startSplitResize = (event: PointerEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture?.(event.pointerId);
+    pendingSplitY = event.clientY;
+    isResizingSplit.value = true;
+    handle.addEventListener('pointermove', onSplitPointerMove);
+    handle.addEventListener('pointerup', stopSplitResize);
+    handle.addEventListener('pointercancel', stopSplitResize);
+};
+
+const onSplitKeydown = (event: KeyboardEvent) => {
+    let next: number | null = null;
+    if (event.key === 'ArrowUp') next = folderPaneRatio.value - FOLDER_PANE_RATIO_STEP;
+    else if (event.key === 'ArrowDown') next = folderPaneRatio.value + FOLDER_PANE_RATIO_STEP;
+    else if (event.key === 'Home') next = FOLDER_PANE_RATIO_MIN;
+    else if (event.key === 'End') next = FOLDER_PANE_RATIO_MAX;
+    if (next === null) return;
+    event.preventDefault();
+    folderPaneRatio.value = clampFolderPaneRatio(next);
+};
+
+const resetFolderPaneRatio = () => {
+    folderPaneRatio.value = FOLDER_PANE_RATIO_DEFAULT;
+};
 
 /*
  * NOTE for whoever picks up §5.3 (folder-tree keyboard navigation).
@@ -2111,6 +2183,16 @@ const menuItems = computed<MenuItem[]>(() => {
           v-tooltip="isScanning ? 'Refreshing…' : 'Refresh from Ingestor'"
           @click="fetchAssets({ force: true })"
         />
+        <BaseButton
+          class="lib-collapse-btn"
+          variant="icon"
+          size="sm"
+          icon="panel-left-close"
+          label="Collapse library"
+          v-tooltip="{ text: 'Collapse library', shortcut: 'Ctrl+B' }"
+          data-testid="library-collapse"
+          @click="toggleLibraryCollapsed"
+        />
       </div>
     </div>
 
@@ -2261,6 +2343,18 @@ const menuItems = computed<MenuItem[]>(() => {
 
     <!-- Active Path Breadcrumb Bar -->
     <div v-else class="lib-breadcrumb-bar">
+      <BaseButton
+        class="lib-tree-toggle"
+        variant="icon"
+        size="sm"
+        :icon="folderTreeCollapsed ? 'chevron-right' : 'chevron-down'"
+        :label="folderTreeCollapsed ? 'Show folder tree' : 'Hide folder tree'"
+        :aria-expanded="!folderTreeCollapsed"
+        aria-controls="lib-folder-pane"
+        v-tooltip="folderTreeCollapsed ? 'Show folder tree' : 'Hide folder tree'"
+        data-testid="folder-tree-toggle"
+        @click="toggleFolderTreeCollapsed"
+      />
       <AppIcon class="breadcrumb-icon" name="folder" :size="14" />
       <div class="breadcrumb-trail custom-scroll">
         <span
@@ -2286,9 +2380,16 @@ const menuItems = computed<MenuItem[]>(() => {
       />
     </div>
 
-    <!-- Two-Pane Explorer Split -->
+    <!-- Two-Pane Explorer Split. The tree's share is `--folder-ratio`; the
+         panes inside keep their own indentation to keep this diff readable. -->
+    <div
+      ref="libSplitRef"
+      class="lib-split"
+      :class="{ 'is-resizing': isResizingSplit }"
+      :style="{ '--folder-ratio': folderPaneRatio }"
+    >
     <!-- Top Pane: Folder Tree & Navigation -->
-    <div class="lib-folder-pane custom-scroll" ref="folderPaneRef">
+    <div v-show="!folderTreeCollapsed" id="lib-folder-pane" class="lib-folder-pane custom-scroll" ref="folderPaneRef">
       <!-- §7.7: a scan takes seconds against a cold Ingestor. Three ghost rows
            say "results are coming, and they will look like this" where
            "Loading…" said only that something was happening somewhere. -->
@@ -2421,8 +2522,24 @@ const menuItems = computed<MenuItem[]>(() => {
       </div>
     </div>
 
-    <!-- Resizable / Visual Divider -->
-    <div class="lib-pane-divider"></div>
+    <!-- The split handle. A 1px rule with a taller invisible grab area. -->
+    <div
+      v-show="!folderTreeCollapsed"
+      class="lib-pane-divider"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize folder tree"
+      aria-controls="lib-folder-pane"
+      :aria-valuenow="Math.round(folderPaneRatio * 100)"
+      :aria-valuemin="FOLDER_PANE_RATIO_MIN * 100"
+      :aria-valuemax="FOLDER_PANE_RATIO_MAX * 100"
+      tabindex="0"
+      v-tooltip="'Drag to resize · double-click to reset'"
+      data-testid="folder-split-handle"
+      @pointerdown="startSplitResize"
+      @dblclick="resetFolderPaneRatio"
+      @keydown="onSplitKeydown"
+    ></div>
 
     <!-- Bottom Pane: High-Density Asset Table -->
     <div
@@ -2567,6 +2684,7 @@ const menuItems = computed<MenuItem[]>(() => {
           </button>
         </div>
       </div>
+    </div>
     </div>
 
     <!-- Context Menu -->
@@ -2808,10 +2926,20 @@ const menuItems = computed<MenuItem[]>(() => {
   color: var(--accent-blue);
 }
 
+.lib-split {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.lib-split.is-resizing {
+  cursor: row-resize;
+}
 .lib-folder-pane {
-  flex: 0 0 35%;
-  min-height: 110px;
-  max-height: 48%;
+  flex: 0 0 calc(var(--folder-ratio, 0.35) * 100%);
+  /* Two folder rows, and room for three assets under it, whatever the ratio. */
+  min-height: calc(var(--row-h-library) * 2);
+  max-height: calc(100% - var(--row-h-library) * 3);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -2821,14 +2949,34 @@ const menuItems = computed<MenuItem[]>(() => {
   flex: 1;
 }
 .lib-pane-divider {
+  position: relative;
   height: 1px;
   background: var(--border-medium);
   flex-shrink: 0;
   margin: 0;
+  cursor: row-resize;
+  touch-action: none;
+  transition: background var(--dur-fast);
+}
+/* The grab area: 4px either side of the rule. */
+.lib-pane-divider::before {
+  content: '';
+  position: absolute;
+  inset: calc(var(--space-1) * -1) 0;
+  z-index: 1;
+}
+.lib-pane-divider:hover,
+.lib-split.is-resizing .lib-pane-divider {
+  background: var(--accent-primary);
+}
+.lib-pane-divider:focus-visible {
+  outline: none;
+  background: var(--accent-primary);
+  box-shadow: var(--focus-ring);
 }
 .lib-asset-pane {
-  flex: 1 1 65%;
-  min-height: 120px;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--space-1) var(--space-2);
   outline: none;

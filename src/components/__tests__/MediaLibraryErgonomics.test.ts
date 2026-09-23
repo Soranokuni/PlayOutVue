@@ -6,6 +6,7 @@ import { tooltipTextOf } from '../../lib/tooltip';
 import { nextTick } from 'vue';
 import MediaLibrary from '../MediaLibrary.vue';
 import { useMediaLibraryStore } from '../../stores/mediaLibrary';
+import { usePanelLayout } from '../../composables/usePanelLayout';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockImplementation((cmd: string) => {
@@ -108,6 +109,35 @@ describe('Aether 3.0 MediaLibrary Ergonomics & Quiet UI', () => {
     expect(wrapper.find('.lib-folder-pane').exists()).toBe(true);
     expect(wrapper.find('.lib-pane-divider').exists()).toBe(true);
     expect(wrapper.find('.lib-asset-pane').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('lets the operator resize the folder tree from the keyboard, and fold it away', async () => {
+    const layout = usePanelLayout();
+    layout.resetPanelLayout();
+    const wrapper = mount(MediaLibrary, {
+      global: { stubs: { ContextMenu: true, FolderPickerModal: true, TrimPanel: true, RecycleBinModal: true } }
+    });
+
+    const handle = wrapper.get('[data-testid="folder-split-handle"]');
+    expect(handle.attributes('role')).toBe('separator');
+    expect(handle.attributes('aria-valuenow')).toBe('35');
+
+    await handle.trigger('keydown', { key: 'ArrowDown' });
+    expect(layout.folderPaneRatio.value).toBe(0.4);
+    expect(wrapper.get('.lib-split').attributes('style')).toContain('--folder-ratio: 0.4');
+
+    await handle.trigger('dblclick');
+    expect(layout.folderPaneRatio.value).toBe(0.35);
+
+    const toggle = wrapper.get('[data-testid="folder-tree-toggle"]');
+    expect(toggle.attributes('aria-expanded')).toBe('true');
+    await toggle.trigger('click');
+    expect(layout.folderTreeCollapsed.value).toBe(true);
+    expect((wrapper.get('.lib-folder-pane').element as HTMLElement).style.display).toBe('none');
+    expect(toggle.attributes('aria-expanded')).toBe('false');
+
+    layout.resetPanelLayout();
     wrapper.unmount();
   });
 

@@ -29,6 +29,7 @@ import { THEMES, DEFAULT_THEME_ID, type ThemeDefinition, type ThemeId } from '..
 import { applyTheme, applyUiScale } from '../lib/theme';
 import AppIcon from './ui/AppIcon.vue';
 import type { IconName } from './ui/icons';
+import { resetPanelLayout as resetSharedPanelLayout } from '../composables/usePanelLayout';
 
 // PERF F-14: both tools are large, rarely used and already `v-if` guarded.
 const { component: CasparConfigModal, preload: preloadCasparConfigModal } = lazyComponent(
@@ -614,9 +615,9 @@ const testIngestorConnection = async () => {
 /* --- Layout reset (§4.2, Advanced) --- */
 
 const resetPanelLayout = () => {
-    // The library width is the one layout value the app persists.
-    localStorage.removeItem('layout.leftWidth');
-    showToast('Panel sizes reset. Reopen the window to see it.', 'info');
+    // Library width, the folded library and the folder tree split, live.
+    resetSharedPanelLayout();
+    showToast('Panel sizes reset.', 'info');
 };
 
 const isSaving = ref(false);
@@ -1334,7 +1335,7 @@ const openTemplateDir = async () => {
             <div class="server-actions">
               <BaseButton variant="secondary" icon="refresh" @click="resetPanelLayout">Reset panel sizes</BaseButton>
             </div>
-            <p class="field-hint">Puts the library panel back to its default width.</p>
+            <p class="field-hint">Puts the library back to its default width, unfolds it, and resets the folder tree split.</p>
           </section>
         </div>
       </div>
