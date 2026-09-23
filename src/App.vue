@@ -29,7 +29,7 @@ import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
 import { useMediaLibraryStore } from './stores/mediaLibrary';
 import { useOperatorShortcuts, activeModalName, closeCommandPalette, activeInspectorItem, openInspectorModal, closeInspectorModal } from './composables/useOperatorShortcuts';
-import { advanceNext, manualTakeFailure } from './services/caspar';
+import { advanceNext, manualTakeFailure, engineRecovery, dismissEngineRecovery } from './services/caspar';
 import { persistenceFault, clearPersistenceFault } from './lib/persistenceStorage';
 import { frontendFaults, dismissFrontendFault } from './lib/frontendFaults';
 import {
@@ -52,6 +52,33 @@ const playoutHalted = ref(false);
 // Audit F-4: the banner used to say only "3 consecutive errors". The operator
 // needs the row and the reason to act on it.
 const playoutHaltDetail = ref('');
+
+// Engine-loss recovery banner: while CasparCG is lost the channel is off air,
+// and the operator must see that and what PlayOut is doing about it.
+const recoveryTitle = computed(() => {
+  switch (engineRecovery.value.phase) {
+    case 'outage': return 'OFF AIR — engine lost.';
+    case 'restoring': return 'Restoring on-air state.';
+    case 'restored': return 'Recovered.';
+    case 'held': return 'Engine back, playout held.';
+    case 'failed': return 'Recovery failed.';
+    default: return '';
+  }
+});
+const recoveryIcon = computed(() => {
+  switch (engineRecovery.value.phase) {
+    case 'restored': return 'check';
+    case 'restoring': return 'processing';
+    case 'failed': return 'error';
+    default: return 'alert';
+  }
+});
+const recoveryDismissible = computed(() => !['outage', 'restoring'].includes(engineRecovery.value.phase));
+let recoveryAutoDismiss: ReturnType<typeof setTimeout> | null = null;
+watch(() => engineRecovery.value.phase, (phase) => {
+  if (recoveryAutoDismiss) clearTimeout(recoveryAutoDismiss);
+  recoveryAutoDismiss = phase === 'restored' ? setTimeout(() => dismissEngineRecovery(), 15_000) : null;
+});
 let unlistenHeartbeat: (() => void) | null = null;
 let unlistenHalted: (() => void) | null = null;
 
@@ -850,6 +877,21 @@ onUnmounted(() => {
         </span>
       </div>
       <button class="halt-dismiss-btn" @click="playoutHalted = false; playoutHaltDetail = ''">Dismiss</button>
+    </div>
+
+    <!-- Engine-loss recovery (services/caspar.ts). -->
+    <div
+      v-if="engineRecovery.phase !== 'idle'"
+      class="halt-banner recovery-banner"
+      :class="`recovery-banner--${engineRecovery.phase}`"
+      role="alert"
+      :aria-live="engineRecovery.phase === 'outage' || engineRecovery.phase === 'failed' ? 'assertive' : 'polite'"
+    >
+      <div class="halt-content">
+        <AppIcon class="halt-icon" :name="recoveryIcon" :size="20" />
+        <span class="halt-text">{{ recoveryTitle }} {{ engineRecovery.message }}.</span>
+      </div>
+      <button v-if="recoveryDismissible" type="button" class="btn btn--sm halt-dismiss-btn" @click="dismissEngineRecovery()">Dismiss</button>
     </div>
 
     <!-- Audit T1-8: rundown changes are not reaching localStorage -->
@@ -2047,6 +2089,39 @@ onUnmounted(() => {
 
 .persist-banner .halt-icon {
   color: var(--status-warning);
+}
+
+.recovery-banner {
+  max-width: min(960px, calc(100vw - 32px));
+}
+
+.recovery-banner--restoring {
+  background: color-mix(in srgb, var(--status-processing) 15%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--status-processing) 45%, transparent);
+}
+
+.recovery-banner--restoring .halt-icon {
+  color: var(--status-processing);
+}
+
+.recovery-banner--restored {
+  background: color-mix(in srgb, var(--status-ready) 14%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--status-ready) 45%, transparent);
+}
+
+.recovery-banner--restored .halt-icon {
+  color: var(--status-ready);
+  animation: none;
+}
+
+.recovery-banner--held {
+  background: color-mix(in srgb, var(--status-warning) 16%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--status-warning) 50%, transparent);
+}
+
+.recovery-banner--held .halt-icon {
+  color: var(--status-warning);
+  animation: none;
 }
 
 .halt-text {

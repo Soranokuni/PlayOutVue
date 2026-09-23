@@ -1661,6 +1661,11 @@ fn clear_playback_state(s: &mut PlaybackStateInner) {
 
 /// Add a CG template to a layer with a JSON payload (serde-serialized, fixing
 /// the broken hand-rolled `escapeJson`).
+///
+/// The CG commands reject a non-2xx reply. They used to return the body as
+/// success, so `CG UPDATE` on a layer emptied by an engine restart (`404`)
+/// looked like a live update and the advisory/station-ID template was never
+/// re-added.
 #[tauri::command]
 pub async fn caspar_cg_add(
     channel: u8,
@@ -1676,6 +1681,7 @@ pub async fn caspar_cg_add(
     let data_str = serde_json::to_string(&data).map_err(|e| format!("CG payload serialize: {}", e))?;
     let cmd = crate::amcp::cg_add_cmd(channel, layer, 1, &template, play, &data_str);
     let resp = client.send(&cmd).await?;
+    validate_amcp_response(&resp)?;
     Ok(resp.body)
 }
 
@@ -1690,6 +1696,7 @@ pub async fn caspar_cg_update(
     let data_str = serde_json::to_string(&data).map_err(|e| format!("CG payload serialize: {}", e))?;
     let cmd = crate::amcp::cg_update_cmd(channel, layer, 1, &data_str);
     let resp = client.send(&cmd).await?;
+    validate_amcp_response(&resp)?;
     Ok(resp.body)
 }
 
@@ -1702,6 +1709,7 @@ pub async fn caspar_cg_play(
 ) -> Result<String, String> {
     let cmd = crate::amcp::cg_play_cmd(channel, layer, 1);
     let resp = client.send(&cmd).await?;
+    validate_amcp_response(&resp)?;
     Ok(resp.body)
 }
 
@@ -1714,6 +1722,7 @@ pub async fn caspar_cg_stop(
 ) -> Result<String, String> {
     let cmd = crate::amcp::cg_stop_cmd(channel, layer, 1);
     let resp = client.send(&cmd).await?;
+    validate_amcp_response(&resp)?;
     Ok(resp.body)
 }
 
