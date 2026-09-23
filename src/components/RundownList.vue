@@ -2461,6 +2461,17 @@ onUnmounted(() => {
   container: rundown / inline-size;
 }
 
+/* The fixed columns plus a 180px title need ~784px. At the 1100px minimum
+   window with the default 320px library the list is 747px, so the Actions
+   column was clipped behind a horizontal scrollbar. Below 800px the title
+   gives up 40px of its floor first; it still flexes wider when there is room.
+   Set on the rows as well as the header, because the property is read where
+   the rows are, below the container. */
+@container rundown (max-width: 800px) {
+  .rw-cols-label,
+  .rw-row { --rw-col-title-min: 140px; }
+}
+
 @container rundown (max-width: 620px) {
   .rw-cols-label .col-trim { display: none; }
 }
