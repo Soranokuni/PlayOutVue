@@ -2251,7 +2251,9 @@ onUnmounted(() => {
   --rw-col-type: 20px;
   --rw-col-title-min: 180px;
   --rw-col-flags: 88px;
-  --rw-col-flags-narrow: 26px;
+  /* Room for the rating chip alone, which scales with the type: at 26px the
+     chip's right edge and border were cut off. */
+  --rw-col-flags-narrow: calc(var(--type-unit) * 2.8);
   --rw-col-trim: 86px;
   --rw-col-dur: 112px;
   --rw-col-at: 84px;
@@ -2536,11 +2538,12 @@ onUnmounted(() => {
   top: 0;
   bottom: 0;
   /* Overlaps the cell by 1px: at a fractional display scale the seam
-     between them let a hairline of the text underneath through. */
+     between them let a hairline of the text underneath through. Exactly as
+     wide as the row's right padding: any wider and, when the row fits, it
+     painted a square strip past the row's rounded edge and gave the list
+     phantom sideways scroll. */
   left: calc(100% - 1px);
-  /* Twice the gutter: at a fractional display scale a sliver of glyph
-     survived at the clip edge. Anything past the list's edge is clipped. */
-  width: calc(var(--scrollbar-w) * 2);
+  width: calc(var(--space-2) + 1px);
   background: inherit;
 }
 
@@ -2567,15 +2570,15 @@ onUnmounted(() => {
 }
 
 @container rundown (max-width: 660px) {
-  /* 26px holds a rating chip but not the word; clipped it read "FLAC". */
+  /* The narrow column holds a rating chip but not the word; clipped it read "FLAC". */
   .rw-cols-label .col-flags { width: var(--rw-col-flags-narrow); visibility: hidden; }
 }
 
-@container rundown (max-width: 596px) {
+@container rundown (max-width: 612px) {
   .rw-cols-label .col-at { display: none; }
 }
 
-@container rundown (max-width: 496px) {
+@container rundown (max-width: 512px) {
   .rw-cols-label,
   .rw-row { --rw-col-title-min: 96px; }
 }

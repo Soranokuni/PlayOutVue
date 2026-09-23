@@ -573,7 +573,9 @@ const itemTooltip = computed(() => {
    header can no longer read "DURATION AT" as one word. */
 .rw-dur     { width: var(--rw-col-dur); display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--space-0); text-align: right; font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: var(--tracking-caps); }
 .rw-at      { width: var(--rw-col-at); display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); flex-shrink: 0; margin-left: var(--space-2); text-align: right; }
-.rw-actions { width: var(--rw-col-actions); display: flex; gap: var(--space-1); flex-shrink: 0; justify-content: flex-end; }
+/* Start-aligned: the on-air row has no delete button (it is protected), and
+   right-aligned its play button slid 30px out of line with every other row. */
+.rw-actions { width: var(--rw-col-actions); display: flex; gap: var(--space-1); flex-shrink: 0; justify-content: flex-start; }
 /* Pinned to the list's right edge, so play and delete stay in reach however
    narrow the panel is; once the list scrolls sideways, the rest of the row
    slides under them. The row's own colour over the panel's, so it matches the
@@ -593,11 +595,12 @@ const itemTooltip = computed(() => {
   top: 0;
   bottom: 0;
   /* Overlaps the cell by 1px: at a fractional display scale the seam
-     between them let a hairline of the text underneath through. */
+     between them let a hairline of the text underneath through. Exactly as
+     wide as the row's right padding: any wider and, when the row fits, it
+     painted a square strip past the row's rounded edge and gave the list
+     phantom sideways scroll. */
   left: calc(100% - 1px);
-  /* Twice the gutter: at a fractional display scale a sliver of glyph
-     survived at the clip edge. Anything past the list's edge is clipped. */
-  width: calc(var(--scrollbar-w) * 2);
+  width: calc(var(--space-2) + 1px);
   background: inherit;
 }
 
@@ -786,10 +789,10 @@ const itemTooltip = computed(() => {
    library split width and a snapped window both count -- the same reasoning
    as the control bar (F-01). The steps are where each layout stops fitting,
    measured at Comfortable: the full row needs 784px, then 744 with the
-   title's floor at 140 (set in RundownList), 650 without Trim, 588 with
-   rating-only flags, 488 without At and 444 with the title's floor at 96.
+   title's floor at 140 (set in RundownList), 650 without Trim, 604 with
+   rating-only flags, 504 without At and 460 with the title's floor at 96.
    Each breakpoint sits 8px early for Large density's wider Actions.
-   RundownList sheds the header labels at the same widths. Below 444 the
+   RundownList sheds the header labels at the same widths. Below 460 the
    list scrolls sideways under the pinned Actions. */
 @container rundown (max-width: 752px) {
   .rw-inout { display: none; }
@@ -800,7 +803,7 @@ const itemTooltip = computed(() => {
   .rw-flags .rw-tag-badge { display: none; }
 }
 
-@container rundown (max-width: 596px) {
+@container rundown (max-width: 612px) {
   .rw-at { display: none; }
 }
 </style>

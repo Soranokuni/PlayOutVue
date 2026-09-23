@@ -50,8 +50,8 @@ describe('rundown in a narrow window', () => {
   it('sheds Trim, then the tag chips, then At, at the same widths in header and rows', () => {
     const steps = (css: string) => [...css.matchAll(/@container rundown \(max-width: (\d+)px\)/g)].map((m) => Number(m[1]));
     const rowSteps = steps(row);
-    expect(rowSteps).toEqual([752, 660, 596]);
+    expect(rowSteps).toEqual([752, 660, 612]);
     // The header sheds the same three, plus the two title-floor steps it owns.
-    expect(steps(list)).toEqual([792, ...rowSteps, 496]);
+    expect(steps(list)).toEqual([792, ...rowSteps, 512]);
   });
 });
