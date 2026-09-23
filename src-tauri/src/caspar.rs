@@ -38,16 +38,6 @@ pub struct CasparOscListenerControl {
     pub watchdog_task: Option<JoinHandle<()>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CasparOscEvent {
-    pub address: String,
-    pub args: Vec<String>,
-    pub position_ms: Option<u64>,
-    pub duration_ms: Option<u64>,
-    pub received_at: String,
-}
-
 #[tauri::command]
 pub async fn prepare_caspar_media_path(path: String, media_root: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || resolve_caspar_media_path(&path, &media_root))
@@ -631,32 +621,17 @@ fn process_decoded_packet<R: Runtime>(
                 let (position_ms, duration_ms) = parse_timing_payload_from_args(&args);
                 handle_playback_osc(app, playback_state, position_ms, duration_ms);
             }
-
-            let event = osc_message_to_event_from_raw(address, args);
-            if let Err(error) = app.emit("caspar-osc", event) {
-                log::warn!("[CasparCG] Failed to emit OSC event: {}", error);
-            }
+            // PERF-PLAN G1: every message used to be re-emitted to the WebView
+            // as `caspar-osc` (thousands a second at 50 Hz, each formatted and
+            // JSON-serialised under the webview/listener locks). Nothing has
+            // listened since advance authority moved here; the path and time
+            // handlers above are the only consumers of OSC.
         }
         OscPacket::Bundle(bundle) => {
             for content in bundle.content {
                 process_decoded_packet(app, content, playback_state);
             }
         }
-    }
-}
-
-fn osc_message_to_event_from_raw(address: String, args: Vec<OscType>) -> CasparOscEvent {
-    let (position_ms, duration_ms) = parse_timing_payload_from_args(&args);
-
-    CasparOscEvent {
-        address,
-        args: args.iter().map(|arg| format!("{:?}", arg)).collect(),
-        position_ms,
-        duration_ms,
-        received_at: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_millis().to_string())
-            .unwrap_or_else(|_| "0".to_string()),
     }
 }
 
