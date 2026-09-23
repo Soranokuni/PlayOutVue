@@ -15,6 +15,19 @@ import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordin
 import { parseDescriptorsFromText, getGreekRatingDefaultText } from '../lib/greekCompliance';
 import { onCasparProcessStateChange, type CasparProcessStatus } from './casparProcess';
 import { planEngineRecovery, type EngineLossSnapshot } from '../lib/engineRecovery';
+import {
+    planRelaunchRecovery,
+    resolveAdoptionIndex,
+    clipBase,
+    type AdoptionHint,
+    type BootInfo,
+    type EngineAtRelaunch,
+    type LivePlayback,
+    type OnAirCheckpoint,
+    type PlayoutCheckpoint,
+    type RelaunchAction,
+    type RelaunchOffer,
+} from '../lib/relaunchRecovery';
 
 export const playbackCoordinator = new PlaybackCoordinator();
 
@@ -217,7 +230,6 @@ let resumeEvalTimer: ReturnType<typeof setTimeout> | null = null;
 let resumeEvalToken = -1;
 let resumeInFlight = false;
 let lastOscTickAtMs = 0;
-let lastSnapshotAtMs = 0;
 /** Resume seek (ms into the current item's content) for the next playItemAt dispatch. */
 let pendingResumeSeekMs = 0;
 const RESUME_EVAL_DELAY_MS = 2000;
@@ -282,6 +294,12 @@ function setEngineRecovery(phase: EngineRecoveryPhase, message: string, extra: P
 function cancelEngineRecovery() {
     recoveryEpoch += 1;
     engineLoss = null;
+    if (relaunchOffer.value) {
+        clearRelaunchTimer();
+        relaunchOffer.value = null;
+        invoke('recovery_note', { event: 'relaunch-offer-withdrawn', detail: 'operator took control' }).catch(() => {});
+    }
+    consumeRelaunchCandidate();
     if (outageProbeTimer) {
         clearTimeout(outageProbeTimer);
         outageProbeTimer = null;
@@ -294,6 +312,320 @@ function cancelEngineRecovery() {
 export function dismissEngineRecovery() {
     if (engineRecovery.value.phase === 'outage' || engineRecovery.value.phase === 'restoring') return;
     engineRecovery.value = { ...engineRecovery.value, phase: 'idle', message: '' };
+}
+
+// --- PlayOut relaunch recovery (src-tauri/src/recovery.rs, lib/relaunchRecovery.ts) ---
+// The Rust checkpoint says what was on air when PlayOut last ran. On the first
+// handshake of a page, a clip CasparCG is still playing is adopted by that
+// identity; if nothing of ours is playing, the operator gets a plan with a
+// countdown (resume / join the schedule / stay off air).
+let bootInfo: BootInfo | null = null;
+let bootInfoPromise: Promise<void> | null = null;
+/// Rust answered: its checkpoint supersedes the localStorage snapshot.
+let rustCheckpointAvailable = false;
+let relaunchCandidate: {
+    checkpoint: PlayoutCheckpoint;
+    onAir: OnAirCheckpoint;
+    source: 'relaunch' | 'ui-reload';
+} | null = null;
+let relaunchTimer: ReturnType<typeof setTimeout> | null = null;
+/// A clip frozen on its last frame is finished, not playing.
+const PRODUCER_ENDED_TOLERANCE_MS = 500;
+
+export interface RelaunchOfferAction {
+    action: RelaunchAction;
+    label: string;
+    primary: boolean;
+}
+
+export interface RelaunchOfferView {
+    offer: RelaunchOffer;
+    playlistId: string;
+    actions: RelaunchOfferAction[];
+    wasFilename: string;
+    wasPositionMs: number;
+    lostAtMs: number;
+    previousSession: 'crashed' | 'closed' | 'ui-reload';
+    crashLoop: boolean;
+    /** Wall-clock time the primary action runs by itself; null = paused or never. */
+    deadlineMs: number | null;
+}
+export const relaunchOffer = ref<RelaunchOfferView | null>(null);
+
+async function ensureBootInfo() {
+    if (bootInfoPromise) return bootInfoPromise;
+    bootInfoPromise = (async () => {
+        try {
+            const info = await invoke<BootInfo | null>('recovery_boot_info');
+            if (!info) return;
+            bootInfo = info;
+            rustCheckpointAvailable = true;
+            const source = info.previousHandled ? 'ui-reload' : 'relaunch';
+            const checkpoint = info.previousHandled ? info.liveCheckpoint : info.previousCheckpoint;
+            // Desired graphics state from before the restart: the reconnect
+            // reconciliation restores the station ID even before any take.
+            if (checkpoint?.graphics?.advisoryOnAir) advisoryShouldBeOnAir = true;
+            if (checkpoint?.onAir) {
+                relaunchCandidate = { checkpoint, onAir: checkpoint.onAir, source };
+            } else if (!info.previousHandled) {
+                invoke('recovery_ack_previous').catch(() => {});
+            }
+        } catch (error) {
+            // No recovery backend (browser preview) or an older binary.
+            console.info('[CasparCG] Recovery checkpoint unavailable', error);
+        }
+    })();
+    return bootInfoPromise;
+}
+
+function consumeRelaunchCandidate() {
+    if (!relaunchCandidate) return;
+    relaunchCandidate = null;
+    invoke('recovery_ack_previous').catch(() => {});
+}
+
+function clearRelaunchTimer() {
+    if (relaunchTimer) clearTimeout(relaunchTimer);
+    relaunchTimer = null;
+}
+
+/// The operator is reading the plan: stop the countdown, keep the offer.
+export function pauseRelaunchCountdown() {
+    if (!relaunchOffer.value || relaunchOffer.value.deadlineMs == null) return;
+    clearRelaunchTimer();
+    relaunchOffer.value = { ...relaunchOffer.value, deadlineMs: null };
+}
+
+const nonNegativeInt = (value: unknown) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+};
+
+/// Only what the advisory template needs, so the checkpoint stays small.
+const compactComplianceItem = (item: PlayoutItem | null) => item ? {
+    id: item.id,
+    type: item.type,
+    complianceRating: item.complianceRating,
+    complianceText: item.complianceText,
+    complianceDescriptors: item.complianceDescriptors,
+    tp_flag: (item as any).tp_flag,
+    content_type: (item as any).content_type,
+} : null;
+
+function checkpointContext() {
+    let store: ReturnType<typeof useRundownStore> | null = null;
+    try { store = useRundownStore(); } catch { /* early boot */ }
+    let onAir: Record<string, unknown> | null = null;
+    if (currentKey && (isCasparPlaying.value || engineLoss)) {
+        const key = currentKey;
+        const item = findLiveItemById(key) ?? queuedItems.find((it) => queueKey(it) === key) ?? null;
+        if (item) {
+            const hydrated = hydratePlayoutItem(item);
+            const index = queuedItems.findIndex((it) => queueKey(it) === key);
+            const next = index >= 0 ? queuedItems[index + 1] : undefined;
+            onAir = {
+                uuid: key,
+                playlistId: store?.onAirPlaylistId ?? null,
+                path: item.path || item.shortPath || '',
+                filename: item.filename || '',
+                trimInMs: nonNegativeInt(hydrated.trim_in_ms),
+                trimOutMs: nonNegativeInt(hydrated.trim_out_ms),
+                durationMs: nonNegativeInt(currentCasparDurationMs.value || itemDurationMs(item)),
+                resumeOffsetMs: nonNegativeInt(resumeOffsetFor(key)),
+                isLive: item.type === 'live',
+                nextUuid: next ? queueKey(next) : null,
+                nextPath: next ? (next.path || next.shortPath || null) : null,
+                playGeneration: nonNegativeInt(playToken),
+            };
+        }
+    }
+    const settings = getSettingsSnapshot();
+    return {
+        onAir,
+        graphics: {
+            advisoryOnAir: advisoryShouldBeOnAir,
+            advisoryItem: compactComplianceItem(lastAppliedComplianceItem),
+            crawlActive: !!settings.cgCrawlActive,
+            crawlText: settings.cgCrawlText || '',
+        },
+        rundownRevision: nonNegativeInt((store as any)?.rundownRevision),
+    };
+}
+
+/// Hand the on-air identity to the Rust checkpoint. An empty event updates
+/// the checkpoint without an as-run entry (graphics refreshes).
+function pushCheckpoint(event: string) {
+    invoke('recovery_checkpoint_update', { event, context: checkpointContext() }).catch(() => {});
+}
+
+function pickRecoveryPlaylistId(
+    store: ReturnType<typeof useRundownStore>,
+    preferred: string | null | undefined,
+    keys: Array<string | null | undefined>,
+    producerPath: string
+): string | null {
+    const exists = (id: string | null | undefined) => !!id && store.playlists.some((pl) => pl.id === id);
+    if (exists(preferred)) return preferred!;
+    for (const key of keys) {
+        if (!key) continue;
+        const holder = store.playlists.find((pl) => pl.items.some((it) => it.id === key));
+        if (holder) return holder.id;
+    }
+    if (exists(store.onAirPlaylistId)) return store.onAirPlaylistId!;
+    if (producerPath) {
+        const base = clipBase(producerPath);
+        const holder = store.playlists.find((pl) => pl.items.some((it: any) => clipBase(it.path || it.shortPath || it.filename || '') === base));
+        if (holder) return holder.id;
+    }
+    return store.currentPlaylist?.id ?? null;
+}
+
+async function fetchLivePlayback(): Promise<LivePlayback | null> {
+    try {
+        return (await invoke<LivePlayback | null>('recovery_live_playback')) ?? null;
+    } catch {
+        return null;
+    }
+}
+
+const actionLabel = (action: RelaunchAction, queue: readonly PlayoutItem[]) => {
+    if (action.kind === 'hold') return 'Stay off air';
+    const name = queue[action.index]?.filename || 'item';
+    const at = action.seekMs > 0 ? ` at ${formatTimecode(action.seekMs)}` : ' from its start';
+    return action.kind === 'join' ? `Join schedule: "${name}"${at}` : `Resume "${name}"${at}`;
+};
+
+/// Nothing of ours is playing after a relaunch: build the plan and offer it.
+function offerRelaunchRecovery(candidate: NonNullable<typeof relaunchCandidate>, engine: EngineAtRelaunch) {
+    if (isCasparPlaying.value) {
+        consumeRelaunchCandidate();
+        return;
+    }
+    const store = useRundownStore();
+    const { onAir, checkpoint } = candidate;
+    const playlistId = pickRecoveryPlaylistId(store, onAir.playlistId, [onAir.uuid], '');
+    if (!playlistId) {
+        consumeRelaunchCandidate();
+        return;
+    }
+    const queue = store.getPlayableItems(playlistId).map((i: any) => ({ ...i })) as PlayoutItem[];
+    queuedItems = queue;
+    const settings = getSettingsSnapshot() as any;
+    const offer = planRelaunchRecovery(
+        {
+            key: onAir.uuid,
+            positionMs: onAir.positionMs,
+            durationMs: onAir.durationMs,
+            nextKey: onAir.nextUuid ?? null,
+            writtenAtMs: checkpoint.writtenAtMs,
+            paused: onAir.paused,
+        },
+        queue.map((it) => {
+            const live = findLiveItemById(queueKey(it)) ?? it;
+            return { id: queueKey(it), type: live.type, ingestorStatus: live.ingestorStatus, durationMs: Math.round(itemDurationMs(live)) };
+        }),
+        engine,
+        Date.now(),
+        {
+            resumeWithinMs: Number(settings.relaunchResumeWithinS ?? 30) * 1000,
+            joinWithinMs: Number(settings.relaunchJoinWithinMin ?? 30) * 60_000,
+            // "Resume after a restart" off: never act without the operator.
+            countdownS: settings.autoResumeAfterRestart === false ? 0 : Number(settings.relaunchCountdownS ?? 10),
+        },
+        { crashLoop: !!bootInfo?.crashLoop }
+    );
+
+    const actions: RelaunchOfferAction[] = [
+        { action: offer.primary, label: actionLabel(offer.primary, queue), primary: true },
+        ...offer.alternatives.map((action) => ({ action, label: actionLabel(action, queue), primary: false })),
+    ];
+    if (offer.primary.kind !== 'hold') {
+        actions.push({ action: { kind: 'hold', index: -1, seekMs: 0 }, label: 'Stay off air', primary: false });
+    }
+    const previous = bootInfo?.previousSession;
+    relaunchOffer.value = {
+        offer,
+        playlistId,
+        actions,
+        wasFilename: onAir.filename || onAir.uuid,
+        wasPositionMs: onAir.positionMs,
+        lostAtMs: checkpoint.writtenAtMs,
+        previousSession: candidate.source === 'ui-reload' ? 'ui-reload' : (previous && !previous.clean ? 'crashed' : 'closed'),
+        crashLoop: !!bootInfo?.crashLoop,
+        deadlineMs: offer.autoConfirmS != null ? Date.now() + offer.autoConfirmS * 1000 : null,
+    };
+    clearRelaunchTimer();
+    if (offer.autoConfirmS != null) {
+        const primary = offer.primary;
+        relaunchTimer = setTimeout(() => {
+            relaunchTimer = null;
+            void resolveRelaunchOffer(primary);
+        }, offer.autoConfirmS * 1000);
+    }
+    invoke('recovery_note', {
+        event: 'relaunch-offer',
+        uuid: onAir.uuid,
+        filename: onAir.filename,
+        positionMs: nonNegativeInt(onAir.positionMs),
+        detail: `${actions[0]!.label} (${offer.reason}; off air ${Math.round(offer.offAirMs / 1000)} s)`,
+    }).catch(() => {});
+}
+
+/// Carry out the operator's (or the countdown's) choice.
+export async function resolveRelaunchOffer(action: RelaunchAction) {
+    const view = relaunchOffer.value;
+    if (!view) return;
+    clearRelaunchTimer();
+    relaunchOffer.value = null;
+    consumeRelaunchCandidate();
+    const store = useRundownStore();
+    const queue = store.getPlayableItems(view.playlistId).map((i: any) => ({ ...i })) as PlayoutItem[];
+    const label = actionLabel(action, queue);
+    invoke('recovery_note', { event: `relaunch-${action.kind}`, detail: label }).catch(() => {});
+
+    if (action.kind === 'hold') {
+        // Leave the engine exactly as it is; clear only PlayOut's idea of
+        // what is on air, and bring the station ID back.
+        claimCurrentKey(null);
+        isCasparPlaying.value = false;
+        store.clearOnAirState();
+        clearPlaybackState();
+        if (advisoryShouldBeOnAir && !isAdvisoryTemplateLoaded && isCasparConnected.value) {
+            await casparPlayoutService.applyComplianceForItem?.(idleStationIdItem()).catch(() => {});
+        }
+        pushCheckpoint('hold');
+        setEngineRecovery('held', `PlayOut restarted; "${view.wasFilename}" was not resumed. Take an item to go back on air`);
+        return;
+    }
+
+    const target = queue[action.index];
+    if (!target) {
+        setEngineRecovery('failed', `PlayOut restarted but the planned item is no longer in the rundown. Take an item manually`);
+        return;
+    }
+    const playlist = store.playlists.find((pl) => pl.id === view.playlistId);
+    const visibleIndex = playlist ? playlist.items.findIndex((it) => it.id === target.id) : -1;
+    if (visibleIndex >= 0) store.setPlaylistOnAir(view.playlistId, visibleIndex);
+    setEngineRecovery('restoring', label.replace(/^Resume/, 'Resuming').replace(/^Join schedule/, 'Joining the schedule'), {
+        itemId: target.id,
+        filename: target.filename ?? null,
+        positionMs: action.seekMs,
+    });
+    try {
+        await casparPlayoutService.play(queue, action.index, action.seekMs);
+    } catch (error) {
+        console.error('[CasparCG] Relaunch recovery failed', error);
+    }
+    if (isCasparPlaying.value && currentKey === target.id) {
+        const offAirS = ((Date.now() - view.lostAtMs) / 1000).toFixed(0);
+        setEngineRecovery('restored', `PlayOut restarted: ${label}; back on air (checkpoint ${offAirS} s old)`, {
+            itemId: target.id,
+            filename: target.filename ?? null,
+            positionMs: action.seekMs,
+        });
+    } else {
+        setEngineRecovery('failed', `PlayOut restarted but "${target.filename || target.id}" could not be played. Take an item manually`);
+    }
 }
 
 function parseTimeToMs(t: string | number): number {
@@ -645,6 +977,7 @@ function enterEngineOutage(reason: string) {
         positionMs,
     });
     recordFrontendFault('caspar-recovery', `CasparCG lost while on air: ${reason}`);
+    pushCheckpoint('engine-lost');
 }
 
 const normalizeMediaPath = (rawPath: string) => {
@@ -1257,22 +1590,9 @@ const ensureFeedbackListener = async () => {
                 if (durationMs > 0 && currentCasparDurationMs.value <= 0) {
                     currentCasparDurationMs.value = durationMs + offsetMs;
                 }
-                if (currentUuid && Date.now() - lastSnapshotAtMs >= 1000) {
-                    const item = findLiveItemById(currentUuid);
-                    const snapshotDurationMs = offsetMs > 0
-                        ? currentCasparDurationMs.value
-                        : (durationMs || currentCasparDurationMs.value);
-                    savePlaybackState(currentUuid, Date.now() - positionMs, snapshotDurationMs, {
-                        itemId: item?.id,
-                        path: item?.path,
-                        trimInMs: (item as any)?.trim_in_ms,
-                        trimOutMs: (item as any)?.trim_out_ms,
-                        positionMs,
-                        updatedAt: Date.now(),
-                        channelOutputRateHz: getSettingsSnapshot().playoutProfile === 'PAL_1080P25' ? 25 : 50,
-                    });
-                    lastSnapshotAtMs = Date.now();
-                }
+                // PlayOut-crash resume is checkpointed by Rust from its own
+                // playback clock (recovery.rs); the per-second localStorage
+                // snapshot this used to write is no longer needed.
             });
         }
 
@@ -1425,29 +1745,59 @@ const synchronizeOnAirState = async () => {
             `at ${(producerInfo.elapsedMs / 1000).toFixed(1)}s / ${(producerInfo.durationMs / 1000).toFixed(1)}s (paused: ${producerInfo.paused})`
         );
 
+        const candidate = relaunchCandidate;
+        const checkpoint = candidate?.onAir ?? null;
+        // Same process (only the UI reloaded): Rust's registration is the
+        // exact identity of what is on air.
+        const live = await fetchLivePlayback();
         if (queuedItems.length === 0) {
             const store = useRundownStore();
-            const playlistItems = store.onAirPlaylist?.items || store.activeItems;
-            if (playlistItems && playlistItems.length > 0) {
-                queuedItems = playlistItems.map((i: any) => ({ ...i }));
-            } else if (store.playlists && store.playlists.length > 0) {
-                const detectedBase = normBasename(producerInfo.path);
-                for (const pl of store.playlists) {
-                    if (pl.items.some((it: any) => normBasename(it.path || it.shortPath || it.filename || '') === detectedBase)) {
-                        store.activatePlaylist?.(pl.id);
-                        store.onAirPlaylistId = pl.id;
-                        queuedItems = pl.items.map((i: any) => ({ ...i }));
-                        break;
-                    }
-                }
+            const playlistId = pickRecoveryPlaylistId(
+                store,
+                checkpoint?.playlistId,
+                [live?.currentUuid, checkpoint?.uuid],
+                producerInfo.path
+            );
+            if (playlistId) {
+                if (store.onAirPlaylistId !== playlistId) store.onAirPlaylistId = playlistId;
+                // Playable items only: gap markers are not in the playout queue
+                // and would shift every index mapped back to the rundown.
+                queuedItems = store.getPlayableItems(playlistId).map((i: any) => ({ ...i }));
             }
         }
 
-        const detectedBase = normBasename(producerInfo.path);
-        const matchIndex = queuedItems.findIndex((it) => {
-            const itPath = it.path || it.shortPath || it.filename || '';
-            return normBasename(itPath) === detectedBase;
+        const adoptionQueue = queuedItems.map((it) => {
+            const liveItem = findLiveItemById(queueKey(it)) ?? it;
+            const hydrated = hydratePlayoutItem(liveItem);
+            return {
+                id: queueKey(it),
+                path: liveItem.path || liveItem.shortPath || liveItem.filename || '',
+                trimInMs: hydrated.trim_in_ms || 0,
+                trimOutMs: hydrated.trim_out_ms || 0,
+            };
         });
+        const hints: AdoptionHint[] = [];
+        if (live?.isPlaying && live.currentUuid) hints.push({ key: live.currentUuid, path: live.currentPath });
+        if (checkpoint) {
+            hints.push({ key: checkpoint.uuid, path: checkpoint.path });
+            if (checkpoint.nextUuid) hints.push({ key: checkpoint.nextUuid, path: checkpoint.nextPath });
+        }
+        const nearIndex = checkpoint ? adoptionQueue.findIndex((c) => c.id === checkpoint.uuid) : -1;
+        const matchIndex = resolveAdoptionIndex(adoptionQueue, producerInfo.path, producerInfo.elapsedMs, hints, nearIndex);
+
+        // Frozen on its last frame: the clip is over, and the channel is
+        // effectively off air. With a checkpoint the relaunch plan decides
+        // what comes next; without one, adopting it advances at once (as before).
+        const matched = matchIndex >= 0 ? adoptionQueue[matchIndex]! : null;
+        const fileEnd = matched ? (matched.trimOutMs > 0 ? matched.trimOutMs : producerInfo.durationMs) : 0;
+        const producerEnded = !!matched && fileEnd > 0 && producerInfo.elapsedMs >= fileEnd - PRODUCER_ENDED_TOLERANCE_MS;
+        if (matched && producerEnded && candidate && checkpoint && !engineLoss) {
+            const engine: EngineAtRelaunch = matched.id === checkpoint.uuid
+                ? 'ended-on-current'
+                : matched.id === checkpoint.nextUuid ? 'ended-on-next' : 'foreign';
+            offerRelaunchRecovery(candidate, engine);
+            return;
+        }
 
         if (matchIndex >= 0) {
             const matchedItem = queuedItems[matchIndex]!;
@@ -1525,6 +1875,18 @@ const synchronizeOnAirState = async () => {
             } catch (err) {
                 console.warn('[CasparCG] Failed to register adopted playback in Rust:', err);
             }
+            // CasparCG never stopped: the pickup was the whole recovery.
+            if (relaunchCandidate) {
+                invoke('recovery_note', {
+                    event: 'relaunch-pickup',
+                    uuid: matchedKey,
+                    filename: matchedItem.filename,
+                    positionMs: nonNegativeInt(normalizedElapsed),
+                    detail: `CasparCG was still playing it (${relaunchCandidate.source})`,
+                }).catch(() => {});
+                consumeRelaunchCandidate();
+            }
+            pushCheckpoint('adopt');
 
             try {
                 await casparPlayoutService.applyComplianceForItem?.(matchedItem);
@@ -1546,6 +1908,8 @@ const synchronizeOnAirState = async () => {
         }
     }
 
+    const engineAtRelaunch: EngineAtRelaunch = producerInfo.hasProducer && producerInfo.path ? 'foreign' : 'empty';
+
     if (engineLoss) {
         // Layer 10 is empty: the engine restarted and the interrupted clip is
         // gone. Detached from the handshake so a slow or failed resume can
@@ -1553,6 +1917,11 @@ const synchronizeOnAirState = async () => {
         const loss = engineLoss;
         engineLoss = null;
         void runEngineRecovery(loss);
+        return;
+    }
+
+    if (relaunchCandidate && !relaunchOffer.value) {
+        offerRelaunchRecovery(relaunchCandidate, engineAtRelaunch);
         return;
     }
 
@@ -1758,6 +2127,7 @@ const performHandshake = async () => {
     // A fresh engine: the supervisor saw the process go, or the OSC clock
     // stayed silent since the loss (a surviving engine keeps sending OSC over
     // UDP while the AMCP socket is down).
+    await ensureBootInfo();
     const freshEngine = engineRestartSuspected || (engineLoss != null && lastOscTickAtMs <= engineLoss.lostAt);
     engineRestartSuspected = false;
     engineExitObserved = false;
@@ -1803,6 +2173,9 @@ const evaluateResume = async (isForcedServerRestart = false) => {
 
         const settings = useSettingsStore();
         if (settings.autoResumeAfterRestart === false) return;
+        // Rust checkpoints on-air state (recovery.rs); the relaunch offer has
+        // already handled it. The localStorage snapshot is for older binaries.
+        if (rustCheckpointAvailable) return;
 
         const state = loadPlaybackState();
         if (!state || state.paused) return;
@@ -2112,6 +2485,7 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
             }).catch((e: any) => {
                 console.warn('[CasparCG] Failed to register live playback', e);
             });
+            pushCheckpoint('take-live');
 
             await preloadNextItemAfterVerifiedStart(index + 1, token);
             return;
@@ -2189,6 +2563,7 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         // pattern (progressStartTime captured after all async prepare work).
         const progressStartTime = Date.now();
         store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs + resumeSeekMs, progressStartTime - resumeSeekMs);
+        pushCheckpoint(resumeSeekMs > 0 ? 'resume' : 'take');
 
         // Arm the next clip only after CasparCG proves the clip we just PLAYed
         // has rendered a frame. Issuing LOADBG … AUTO earlier lets CasparCG's
@@ -2487,6 +2862,7 @@ async function advanceToNext(token: number, natural: boolean) {
                 // ONLY after the Rust watchdog is armed.
                 registerPlayStart(hydrated.id, durationMs);
                 store.startPlaybackProgressTimer(hydrated.id, durationMs, progressStartTime);
+                pushCheckpoint('advance');
 
                 // Do not overwrite the current item's LOADBG background until
                 // OSC proves it has become foreground. This preserves B when
@@ -2687,6 +3063,7 @@ export async function playItemWithIntent(
         registerPlayStart(hydrated.id, dispatchResult.durationMs);
         store.startPlaybackProgressTimer(hydrated.id, dispatchResult.durationMs, progressStartTime);
         updateDisplayedTime(0);
+        pushCheckpoint('take');
 
         onAdvanceCallback?.(key);
         if (!await applyComplianceForPlayback(item, requestToken)) return false;
@@ -2804,6 +3181,7 @@ export const casparPlayoutService: PlayoutService = {
         isCasparPlaying.value = false;
         // Tell Rust to suppress the watchdog/EOF advance while paused.
         await invoke('caspar_set_playback_paused', { paused: true }).catch(() => {});
+        pushCheckpoint('pause');
         const snapshot = loadPlaybackState();
         if (snapshot) {
             savePlaybackState(snapshot.uuid, Date.now() - currentCasparMs.value, snapshot.durationMs, {
@@ -2855,6 +3233,7 @@ export const casparPlayoutService: PlayoutService = {
 
         const store = useRundownStore();
         store.stopPlaybackProgressTimer();
+        pushCheckpoint('stop');
     },
 
     async cue(item) {
@@ -3248,6 +3627,7 @@ export const casparPlayoutService: PlayoutService = {
                 console.warn('[CasparCG] Failed to add unified advisory CG', e);
             });
         }
+        pushCheckpoint('');
     },
 
     /// Clears per-item compliance layers: 31 (rating), 32 (explanation), 34 (TP).
@@ -3261,6 +3641,7 @@ export const casparPlayoutService: PlayoutService = {
         for (const layer of [CASPAR_LAYERS.rating, CASPAR_LAYERS.explanation, CASPAR_LAYERS.tp]) {
             await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer }).catch(() => {});
         }
+        pushCheckpoint('');
     },
 
     /// Forces a refresh of Layer 32 (e.g. after template deployment)
@@ -3346,6 +3727,7 @@ export const toggleCrawlTicker = async () => {
             await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: crawlLayer }).catch(() => {});
         }, 1000);
         settings.updateSettings({ cgCrawlActive: false });
+        pushCheckpoint('crawl-off');
     } else {
         await invoke('caspar_cg_add', {
             channel: PROGRAM_CHANNEL,
@@ -3357,6 +3739,7 @@ export const toggleCrawlTicker = async () => {
             console.warn('[CasparCG] Failed to add crawl CG', e);
         });
         settings.updateSettings({ cgCrawlActive: true });
+        pushCheckpoint('crawl-on');
     }
 };
 

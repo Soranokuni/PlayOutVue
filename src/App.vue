@@ -10,6 +10,7 @@ import MediaInspector from './components/MediaInspector.vue';
 import { lazyComponent } from './lib/lazyComponent';
 import { fitToWidth, MAX_FIT_STEP } from './lib/fitToWidth';
 import CommandPaletteModal from './components/CommandPaletteModal.vue';
+import RelaunchRecoveryDialog from './components/RelaunchRecoveryDialog.vue';
 // PERF F-14: Settings is 1.8k lines and opened rarely; load it on demand and
 // mount it only while open so its watchers/listeners do not run at startup.
 const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponent(
@@ -329,6 +330,7 @@ watch(
     casparAutoStart: settings.casparAutoStart,
     casparKeepAliveOnExit: settings.casparKeepAliveOnExit,
     casparAutoRelaunchOnCrash: settings.casparAutoRelaunchOnCrash,
+    playoutAutoRestart: settings.playoutAutoRestart,
     // The AI designer's key reaches the Rust bridge and stops there — it is
     // never written into the advisory template, which is copied to the
     // CasparCG host.
@@ -757,6 +759,10 @@ const revealWindow = () => {
 };
 
 onMounted(async () => {
+  // UI watchdog (src-tauri/src/recovery.rs): Rust pings through the WebView's
+  // script queue; a UI that stops answering is reloaded. The first answer arms it.
+  (window as any).__playoutPing = () => { invoke('recovery_ui_pong').catch(() => {}); };
+  (window as any).__playoutPing();
   window.addEventListener('pointerdown', handleGlobalPointerDown);
   window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
   startControlBarObserver();
@@ -821,7 +827,10 @@ onMounted(async () => {
       });
     }
   }
-  rundown.restorePlaybackState();
+  // No `rundown.restorePlaybackState()` here any more: it restarted a progress
+  // bar from the persisted start time whether or not anything was playing.
+  // What is on air after a restart is decided by the CasparCG handshake
+  // (adoption, or the relaunch-recovery plan), which starts the progress itself.
   // Audit F-0: the rundown is restored from localStorage byte-for-byte --
   // paths, trims and `ready` badges alike -- and nothing used to re-check it.
   // Resolve every restored row against the transcoder once at launch; the
@@ -1202,6 +1211,7 @@ onUnmounted(() => {
     <MediaInspector :is-open="activeModalName === 'inspector'" :target-item="activeInspectorItem" @close="closeInspectorModal" />
     <SettingsModal v-if="showSettings" :is-open="showSettings" @close="showSettings = false" />
     <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
+    <RelaunchRecoveryDialog />
 
     <!-- UI §3.2: one toast host for the whole app. -->
     <ToastHost />

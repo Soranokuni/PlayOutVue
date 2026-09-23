@@ -215,6 +215,10 @@ const localState = ref({
     transitionFrames: 2,
     prerollFrames: 2,
     autoResumeAfterRestart: true,
+    playoutAutoRestart: true,
+    relaunchResumeWithinS: 30,
+    relaunchJoinWithinMin: 30,
+    relaunchCountdownS: 10,
     ingestorApiBaseUrl: '',
     ingestorApiToken: '',
     aiProvider: 'anthropic' as const,
@@ -308,6 +312,10 @@ const mapLocalState = () => {
         transitionFrames: settings.transitionFrames,
         prerollFrames: settings.prerollFrames,
         autoResumeAfterRestart: settings.autoResumeAfterRestart !== false,
+        playoutAutoRestart: settings.playoutAutoRestart !== false,
+        relaunchResumeWithinS: settings.relaunchResumeWithinS ?? 30,
+        relaunchJoinWithinMin: settings.relaunchJoinWithinMin ?? 30,
+        relaunchCountdownS: settings.relaunchCountdownS ?? 10,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
         ingestorApiToken: settings.ingestorApiToken || '',
         aiProvider: settings.aiProvider || 'anthropic',
@@ -949,6 +957,31 @@ const openTemplateDir = async () => {
               <input v-model="localState.autoResumeAfterRestart" type="checkbox" />
               <span>Resume the clip from its crash-time position after a restart</span>
             </label>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">PlayOut recovery</h3>
+            <label class="check-row">
+              <input v-model="localState.playoutAutoRestart" type="checkbox" />
+              <span>Restart Aether automatically after it crashes or hangs (paused during a crash loop)</span>
+            </label>
+            <p class="field-hint">
+              After a restart with the channel stopped, Aether offers a plan and runs it when the countdown ends.
+            </p>
+            <div class="field">
+              <label class="field-label" for="relaunch-resume">Resume the interrupted clip if off air for less than (s)</label>
+              <input id="relaunch-resume" v-model.number="localState.relaunchResumeWithinS" class="input" type="number" min="0" max="3600" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="relaunch-join">Otherwise join the schedule if off air for less than (min)</label>
+              <input id="relaunch-join" v-model.number="localState.relaunchJoinWithinMin" class="input" type="number" min="0" max="1440" />
+              <p class="field-hint">Longer outages always wait for the operator.</p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="relaunch-countdown">Countdown before the plan runs by itself (s)</label>
+              <input id="relaunch-countdown" v-model.number="localState.relaunchCountdownS" class="input" type="number" min="0" max="120" />
+              <p class="field-hint">0 always waits for the operator. The as-run journal is in the app data folder under <span class="mono">recovery/</span>.</p>
+            </div>
           </section>
 
           <section class="settings-section">

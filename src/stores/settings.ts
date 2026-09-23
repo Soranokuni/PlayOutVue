@@ -94,6 +94,9 @@ const INT_FIELDS: Record<string, { min: number; max: number }> = {
     prerollFrames: { min: 0, max: 100 },
     lastAutoPurgeCheck: { min: 0, max: Number.MAX_SAFE_INTEGER },
     trimmerAudioVolume: { min: 0, max: 100 },
+    relaunchResumeWithinS: { min: 0, max: 3600 },
+    relaunchJoinWithinMin: { min: 0, max: 24 * 60 },
+    relaunchCountdownS: { min: 0, max: 120 },
 };
 
 /** A single token of the AMCP grammar: letters, digits, `_`, `-`, `.` */
@@ -174,7 +177,7 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
     if (!['low', 'medium', 'high', 'xhigh', 'max'].includes(state.aiEffort as string)) {
         (state as any).aiEffort = 'medium';
     }
-    for (const key of ['trimmerAudioMuted', 'trimmerScrubAudio'] as const) {
+    for (const key of ['trimmerAudioMuted', 'trimmerScrubAudio', 'playoutAutoRestart'] as const) {
         if (typeof state[key] !== 'boolean') (state as any)[key] = defaults[key];
     }
     const cap = Number((state as any).aiMonthlyCapUsd);
@@ -258,6 +261,17 @@ export const useSettingsStore = defineStore('settings', {
         // Crash recovery: re-issue PLAY ... SEEK at the crash-time position
         // when CasparCG restarts while a clip was on air.
         autoResumeAfterRestart: true,
+
+        // PlayOut's own crash recovery (src-tauri/src/recovery.rs,
+        // lib/relaunchRecovery.ts). After a relaunch with the channel stopped:
+        // off air less than `relaunchResumeWithinS` -> resume the interrupted
+        // clip; less than `relaunchJoinWithinMin` -> join the schedule where it
+        // would be now; longer -> hold for the operator. The plan auto-confirms
+        // after `relaunchCountdownS` (0 = always wait for the operator).
+        playoutAutoRestart: true,
+        relaunchResumeWithinS: 30,
+        relaunchJoinWithinMin: 30,
+        relaunchCountdownS: 10,
 
         // Character Generator (CG) settings.
         //
