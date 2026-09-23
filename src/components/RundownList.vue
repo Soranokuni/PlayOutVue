@@ -2172,6 +2172,8 @@ onUnmounted(() => {
   color: var(--text-on-danger);
 }
 
+/* A compact chip: type-floor size on a unit leading, so it sits centred with
+   clear space above the tab's underline instead of filling the tab height. */
 .playlist-tab-state {
   margin-left: auto;
   font-size: var(--fs-xs);
@@ -2181,7 +2183,7 @@ onUnmounted(() => {
   background: var(--status-onair);
   border-radius: var(--radius-pill);
   padding: var(--space-0) var(--space-2);
-  line-height: var(--lh-body);
+  line-height: var(--lh-none);
 }
 .playlist-tab-count {
   margin-left: auto;
