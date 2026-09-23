@@ -129,7 +129,10 @@ export async function createVirtualSubclip(
 
       const subclipItem: RundownItem = {
         id: crypto.randomUUID(),
-        playoutvueId: response?.uuid || `subclip-${crypto.randomUUID()}`,
+        // No uuid in the answer means the server gave this row no identity to
+        // reconcile against. `subclip-…` passed for a server id, so the next
+        // library poll marked the new sub-clip missing.
+        playoutvueId: response?.uuid || `local-subclip:${crypto.randomUUID()}`,
         parentAssetUuid,
         display_name: response?.display_name || trimmedName,
         filename: response?.display_name || trimmedName,

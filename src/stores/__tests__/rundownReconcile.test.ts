@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import { useRundownStore, type ReconcileAsset } from '../rundown';
+import { casparPlayoutService } from '../../services/caspar';
 import { clampTrimIn, clampTrimOut } from '../../utils/frameMath';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -265,5 +266,88 @@ describe('audit F-1 — existence is checked before air, not at TAKE', () => {
         // An unavailable check is not evidence of a missing file.
         expect(store.currentPlaylist!.items.find((i) => i.id === row.id)!.ingestorStatus)
             .not.toBe('missing');
+    });
+});
+
+// PERF-PLAN PR C: the registry and the disk check used to disagree on every
+// poll about a file the registry calls `ready` but this machine cannot open.
+// Each poll set the row `ready` (re-arming the on-air queue through
+// refreshQueue, the path behind the 2026-09-23 skipped-clip incident) and the
+// disk check set it `missing` again.
+describe('PERF-PLAN PR C — reconcile respects the disk check', () => {
+    let onDisk: boolean;
+
+    beforeEach(() => {
+        setActivePinia(createPinia());
+        vi.mocked(invoke).mockReset();
+        onDisk = false;
+        vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
+            if (cmd === 'verify_paths_exist') {
+                return Object.fromEntries((args.paths as string[]).map((p) => [p, onDisk]));
+            }
+            // addItem resolves the new row against the transcoder.
+            if (cmd === 'resolve_ingestor_asset') return asset({ uuid: 'uuid-a' });
+            return {};
+        });
+    });
+
+    const library = [asset({ uuid: 'uuid-a' })];
+
+    /** Add the row and let the add-time resolve, the first poll and its disk check settle. */
+    const settle = async (store: ReturnType<typeof useRundownStore>) => {
+        const row = addRow(store);
+        await flush();
+        store.reconcileWithLibrary(library);
+        await flush();
+        store.reconcileWithLibrary(library);
+        await flush();
+        return row;
+    };
+    const status = (store: ReturnType<typeof useRundownStore>, id: string) =>
+        store.currentPlaylist!.items.find((i) => i.id === id)!.ingestorStatus;
+
+    it('a ready asset whose file is gone stays missing, and polls stop touching the rundown', async () => {
+        const store = useRundownStore();
+        const row = await settle(store);
+        expect(status(store, row.id)).toBe('missing');
+
+        const refreshQueue = vi.mocked(casparPlayoutService.refreshQueue!);
+        refreshQueue.mockClear();
+        const items = store.currentPlaylist!.items;
+
+        for (let poll = 0; poll < 3; poll++) {
+            expect(store.reconcileWithLibrary(library)).toBe(0);
+            await flush();
+        }
+
+        expect(status(store, row.id)).toBe('missing');
+        expect(store.currentPlaylist!.items).toBe(items);
+        expect(refreshQueue).not.toHaveBeenCalled();
+    });
+
+    it('a file that comes back goes ready at the next disk check, not the next poll', async () => {
+        const store = useRundownStore();
+        const row = await settle(store);
+        expect(status(store, row.id)).toBe('missing');
+
+        onDisk = true;
+        await store.verifyRundownPaths();
+        await flush();
+
+        expect(status(store, row.id)).toBe('ready');
+    });
+
+    it('an unchanged library with the file present never re-arms the queue', async () => {
+        onDisk = true;
+        const store = useRundownStore();
+        await settle(store);
+
+        const refreshQueue = vi.mocked(casparPlayoutService.refreshQueue!);
+        refreshQueue.mockClear();
+        for (let poll = 0; poll < 3; poll++) {
+            store.reconcileWithLibrary(library);
+            await flush();
+        }
+        expect(refreshQueue).not.toHaveBeenCalled();
     });
 });

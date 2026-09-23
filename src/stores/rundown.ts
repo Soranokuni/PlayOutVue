@@ -393,6 +393,17 @@ export const useRundownStore = defineStore('rundown', () => {
     const activePlaylistId = ref(initialPlaylist.id);
     const onAirPlaylistId = ref<string | null>(null);
 
+    /**
+     * Paths the last `verifyRundownPaths` found absent. The registry can call
+     * an asset `ready` while the playout machine cannot see its file; without
+     * this, every poll set such a row `ready` (re-arming the on-air queue)
+     * and the disk check set it `missing` again.
+     */
+    let missingOnDisk = new Set<string>();
+    /** The registry's status for a row, unless this machine cannot open its file. */
+    const statusFromRegistry = (path: string | undefined, status: IngestorStatus): IngestorStatus =>
+        path && missingOnDisk.has(path.trim()) ? 'missing' : status;
+
     const activePlayingUuid = ref<string | null>(null);
     // PERF-PLAN PR B: the progress loop writes these 4x a second. As store
     // state, every write fired the persist plugin's deep watch over all
@@ -1511,7 +1522,7 @@ export const useRundownStore = defineStore('rundown', () => {
                         complianceRating: meta.ageRating,
                         tp_flag: meta.tpFlag,
                         content_type: meta.contentType,
-                        ingestorStatus: (asset.status || 'ready') as IngestorStatus,
+                        ingestorStatus: statusFromRegistry(asset.current_path || existing.path, (asset.status || 'ready') as IngestorStatus),
                         display_name: asset.display_name,
                         virtual_folder: asset.virtual_folder,
                         current_path: asset.current_path,
@@ -1778,7 +1789,9 @@ export const useRundownStore = defineStore('rundown', () => {
             asset.trim_out_ms && asset.trim_out_ms > trimInMs ? asset.trim_out_ms : fileDurationMs;
         const effectiveMs = trimOutMs > trimInMs ? trimOutMs - trimInMs : fileDurationMs;
         const path = asset.current_path || item.path;
-        const status = (asset.status || 'ready') as IngestorStatus;
+        // The disk check outranks the registry: a file this machine cannot
+        // open is missing, whatever the transcoder says about it.
+        const status = statusFromRegistry(path, (asset.status || 'ready') as IngestorStatus);
         const displayName = asset.display_name || item.display_name;
 
         const unchanged =
@@ -1939,6 +1952,11 @@ export const useRundownStore = defineStore('rundown', () => {
             verifyPathsInFlight = false;
         }
 
+        // Every rundown path was checked, so this result replaces the last.
+        const previouslyMissing = missingOnDisk;
+        missingOnDisk = new Set(Object.keys(existsByPath).filter((path) => existsByPath[path] === false));
+        const recovered = [...previouslyMissing].some((path) => !missingOnDisk.has(path));
+
         const onAirId = onAirPlaylistId.value;
         const onAirInstanceId = currentPlayingInstanceId.value;
         let changed = 0;
@@ -1964,6 +1982,9 @@ export const useRundownStore = defineStore('rundown', () => {
                 updatePlaylistState(playlist.id, { items: newItems });
             }
         }
+
+        // A file that is back should not wait for the next poll to go green.
+        if (recovered && lastLibrarySnapshot.length) reconcileWithLibrary(lastLibrarySnapshot);
 
         return changed;
     };
@@ -2087,7 +2108,7 @@ export const useRundownStore = defineStore('rundown', () => {
                 complianceRating: meta.ageRating,
                 tp_flag: meta.tpFlag,
                 content_type: meta.contentType,
-                ingestorStatus: response.status as IngestorStatus,
+                ingestorStatus: statusFromRegistry(response.current_path || item.path, response.status as IngestorStatus),
                 display_name: response.display_name,
                 virtual_folder: response.virtual_folder,
                 current_path: response.current_path,

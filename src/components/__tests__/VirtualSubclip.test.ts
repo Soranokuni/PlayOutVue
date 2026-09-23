@@ -136,6 +136,25 @@ describe('PR 5C Virtual Subclip Service & Persistence', () => {
     expect(result.item?.ingestorStatus).toBe('processing');
   });
 
+  it('gives a sub-clip the server returned no uuid for a local identity', async () => {
+    // `subclip-<uuid>` passed for a server id, so the next library poll marked
+    // the brand-new row missing (PERF-PLAN PR C).
+    vi.mocked(invoke).mockResolvedValue({ status: 'ready', current_path: '/media/test.mp4' });
+    const result = await createVirtualSubclip({
+      item: {
+        id: 'row-1', playoutvueId: 'server-parent', uuid: 'server-parent', filename: 'test.mp4',
+        path: '/media/test.mp4', displayPath: '/media/test.mp4', shortPath: 'test.mp4', libraryIndicator: 'none',
+        duration: 20, seek: 0, length: 20, inPoint: 0, outPoint: 20, plannedDuration: 20, note: '',
+        complianceRating: 'none', complianceDescriptors: [], complianceText: '', ingestorStatus: 'ready',
+        type: 'video', duration_ms: 20000, trim_in_ms: 0, trim_out_ms: 20000
+      } as RundownItem,
+      displayName: 'No uuid',
+      trimInMs: 2000,
+      trimOutMs: 8000
+    });
+    expect(result.item?.playoutvueId).toMatch(/^local-subclip:/);
+  });
+
   it('fails safely when backend IPC rejects with an error', async () => {
     vi.mocked(invoke).mockRejectedValueOnce(new Error('Backend database error'));
 
