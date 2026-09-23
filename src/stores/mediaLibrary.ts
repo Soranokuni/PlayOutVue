@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, toRaw, watch } from 'vue';
 import { useMediaDefaultsStore, type LibraryIndicator } from './mediaDefaults';
 import { useRundownStore, parseBroadcastRating, serializeBroadcastRating } from './rundown';
 import type { ComplianceRating } from './rundown';
@@ -193,6 +193,26 @@ export function buildVirtualFolderTree(
     return root;
 }
 
+/**
+ * Structural equality for JSON-shaped API payloads. Used to keep the object
+ * identity of assets a poll did not change, so nothing that depends on them
+ * (the tree, the row memo, the rundown reconcile) has to run again.
+ */
+export function sameJsonValue(a: unknown, b: unknown): boolean {
+    if (Object.is(a, b)) return true;
+    if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    const left = a as Record<string, unknown>;
+    const right = b as Record<string, unknown>;
+    const keys = Object.keys(left);
+    if (keys.length !== Object.keys(right).length) return false;
+    for (const key of keys) {
+        if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+        if (!sameJsonValue(left[key], right[key])) return false;
+    }
+    return true;
+}
+
 export const useMediaLibraryStore = defineStore('mediaLibrary',
     () => {
         const mediaDefaults = useMediaDefaultsStore();
@@ -261,20 +281,23 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             };
 
             traverse(tree);
-            return ensureFolderAsSelected(result);
+            return result;
         });
 
-        // Ensure selected folder is expanded so its contents are visible
-        function ensureFolderAsSelected(nodes: TreeNode[]): TreeNode[] {
-            if (!selectedNodeId.value) return nodes;
-            const selectedFolder = nodes.find(
-                (n) => n.id === selectedNodeId.value && n.type === 'folder'
-            );
+        // Ensure the selected folder is expanded so its contents are visible.
+        // PERF-PLAN PR E: this ran inside `allTreeNodes`, which made the whole
+        // tree depend on the selection -- and write state from a computed --
+        // so every click rebuilt it. A watcher on the selection and the
+        // expanded set keeps the behaviour without the dependency, and reads
+        // the (lazy) tree only when a folder is selected.
+        // (`toggleFolder` mutates the array in place, so watch its contents.)
+        watch([selectedNodeId, () => [...expandedFolders.value]], ([selectedId]) => {
+            if (!selectedId?.startsWith('folder:')) return;
+            const selectedFolder = allTreeNodes.value.find((n) => n.id === selectedId && n.type === 'folder');
             if (selectedFolder && !selectedFolder.expanded) {
                 ensureExpanded(selectedFolder.virtualFolder);
             }
-            return nodes;
-        }
+        }, { flush: 'sync' });
 
         const selectedAsset = computed<LibraryAsset | null>(() => {
             if (!selectedNodeId.value?.startsWith('asset:')) return null;
@@ -307,7 +330,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                 return;
             }
 
-            const nodes = options.visibleNodes || allTreeNodes.value;
+            // Only a range needs the node order.
+            const nodes = options.range ? (options.visibleNodes || allTreeNodes.value) : [];
 
             if (options.range && selectionAnchorNodeId.value && nodes.length) {
                 const anchorIdx = nodes.findIndex((n) => n.id === selectionAnchorNodeId.value);
@@ -433,15 +457,27 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                     virtual_folder: override ? normalizeVirtualFolder(override) : normalizeVirtualFolder(asset.virtual_folder),
                 };
             });
-            assets.value.splice(0, assets.value.length, ...processed);
+            // PERF-PLAN PR E: a poll used to replace every asset object, so each
+            // 30 s the tree was rebuilt and every row re-rendered even when the
+            // registry had not changed. Unchanged assets keep their object.
+            const previousByUuid = new Map(assets.value.map((asset) => [asset.uuid, asset]));
+            const merged = processed.map((asset) => {
+                const previous = previousByUuid.get(asset.uuid);
+                return previous && sameJsonValue(toRaw(previous), asset) ? previous : asset;
+            });
+            const current = assets.value;
+            const unchanged = merged.length === current.length && merged.every((asset, index) => asset === current[index]);
+            if (!unchanged) assets.value.splice(0, current.length, ...merged);
 
             // Audit F-0: the library snapshot is the only fresh view of the
             // registry the client has. Every time it lands, the rundown rows
             // -- which are restored verbatim from localStorage and were never
             // re-checked -- get reconciled against it. No extra network call.
+            // (Also when unchanged: the reconcile is what triggers the disk
+            // check, and after PR C an unchanged snapshot changes no row.)
             if (options.reconcile === false) return;
             try {
-                useRundownStore().reconcileWithLibrary(processed);
+                useRundownStore().reconcileWithLibrary(merged);
             } catch (error) {
                 console.warn('[MediaLibrary] Rundown reconcile failed', error);
             }
@@ -892,7 +928,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                     apiBaseUrlOverride: null
                 });
                 if (res) {
-                    recycleBinAssets.value = res.map((a) => ({
+                    const next: LibraryAsset[] = res.map((a) => ({
                         uuid: a.uuid,
                         current_path: a.current_path,
                         display_name: a.display_name || a.current_path?.split(/[/\\]/).pop() || 'Untitled',
@@ -913,6 +949,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                         deleted_at: a.deleted_at,
                         original_virtual_folder: a.original_virtual_folder
                     }));
+                    // Polled every 30 s; an identical list must not notify.
+                    if (!sameJsonValue(toRaw(recycleBinAssets.value), next)) recycleBinAssets.value = next;
                 }
             } catch (error) {
                 console.warn('[LibraryStore] Failed to fetch recycle bin:', error);
@@ -1161,8 +1199,17 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         }
 
         return {
-            assets,
-            recycleBinAssets,
+            // PERF-PLAN PR E: writable getters, not state. As state, the
+            // persist plugin's deep watch walked every asset on every store
+            // change (each click); neither list is persisted anyway.
+            assets: computed({
+                get: () => assets.value,
+                set: (value: LibraryAsset[]) => { assets.value = value; }
+            }),
+            recycleBinAssets: computed({
+                get: () => recycleBinAssets.value,
+                set: (value: LibraryAsset[]) => { recycleBinAssets.value = value; }
+            }),
             isRecycleBinLoading,
             currentFolderPath,
             searchQuery,
