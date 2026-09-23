@@ -90,9 +90,13 @@ export function classifyActiveScope(): ShortcutScope {
   // focused input inside a modal or the trimmer must keep native typing,
   // undo and Escape semantics; otherwise Ctrl+Z in a Settings field undid
   // the on-air rundown (OPERATOR-UI-CONTRACT §5: text-input above trimmer).
+  // A focused split handle (`role="separator"`) owns its arrow keys the same
+  // way: they move the split. Inside the library the scope's own arrow
+  // navigation claimed them first, so the handle could not be moved by keyboard.
   if (
     active?.isContentEditable ||
-    ['INPUT', 'TEXTAREA', 'SELECT'].includes(active?.tagName ?? '')
+    ['INPUT', 'TEXTAREA', 'SELECT'].includes(active?.tagName ?? '') ||
+    active?.getAttribute?.('role') === 'separator'
   ) {
     return 'text-input';
   }
@@ -254,6 +258,13 @@ export function useOperatorShortcuts() {
       (scope === 'rundown' || scope === 'library' || scope === 'global')
     ) {
       const key = event.key.toLowerCase();
+      // Ctrl/Cmd+B folds the library to a rail and back, as a sidebar does.
+      if (key === 'b' && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        await commandRegistry.execute('view.toggleLibrary', ctx);
+        return;
+      }
       const playlistCommandId =
         key === 's' ? 'playlist.save' : key === 'o' ? (event.shiftKey ? 'playlist.append' : 'playlist.load') : null;
       if (playlistCommandId) {

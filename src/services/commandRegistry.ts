@@ -1,4 +1,5 @@
 import type { useRundownStore } from '../stores/rundown';
+import { toggleLibraryCollapsed } from '../composables/usePanelLayout';
 
 export type ShortcutScope =
   | 'global'
@@ -820,6 +821,19 @@ commandRegistry.register({
   isVisible: () => true,
   isEnabled: () => true,
   execute: () => dispatchPlaylistFileAction('append')
+});
+
+commandRegistry.register({
+  id: 'view.toggleLibrary',
+  label: 'Collapse / Expand Library',
+  scopes: ['rundown', 'library', 'global'],
+  defaultShortcut: 'Ctrl/Cmd+B',
+  category: 'View',
+  safety: 'safe',
+  paletteVisible: true,
+  isVisible: () => true,
+  isEnabled: () => true,
+  execute: () => toggleLibraryCollapsed()
 });
 
 commandRegistry.register({

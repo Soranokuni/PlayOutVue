@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, nextTick, ref, watch, onMounted, onUnmounted, type PropType } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
@@ -29,6 +29,8 @@ import { THEMES, DEFAULT_THEME_ID, type ThemeDefinition, type ThemeId } from '..
 import { applyTheme, applyUiScale } from '../lib/theme';
 import AppIcon from './ui/AppIcon.vue';
 import type { IconName } from './ui/icons';
+import { SETTINGS_RAIL, searchSettings, type SettingsSection } from '../lib/settingsSearch';
+import { resetPanelLayout as resetSharedPanelLayout } from '../composables/usePanelLayout';
 
 // PERF F-14: both tools are large, rarely used and already `v-if` guarded.
 const { component: CasparConfigModal, preload: preloadCasparConfigModal } = lazyComponent(
@@ -41,7 +43,9 @@ const { component: DeckLinkWizard, preload: preloadDeckLinkWizard } = lazyCompon
 );
 
 const props = defineProps({
-  isOpen: Boolean
+  isOpen: Boolean,
+  /** The rail section to open on, e.g. the engine from the connection chip. */
+  initialSection: { type: String as PropType<SettingsSection>, default: 'appearance' }
 });
 
 const emit = defineEmits(['close']);
@@ -51,49 +55,106 @@ const showDecklinkWizard = ref(false);
 /**
  * UI §4.1: a left rail of seven groups replaces three emoji tabs holding
  * twelve sections. The class stays `settings-tab-btn` because
- * SettingsModalConfirmation.test.ts pins it, and the "Playout engine" entry
- * still contains the word the test looks for.
+ * SettingsModalConfirmation.test.ts pins it. The rail and the search index
+ * behind "Find a setting…" live in `lib/settingsSearch.ts`.
  */
-type SettingsSection = 'appearance' | 'playout' | 'hardware' | 'media' | 'graphics' | 'qc' | 'advanced';
-
-const RAIL: { id: SettingsSection; label: string; icon: IconName }[] = [
-    { id: 'appearance', label: 'Appearance', icon: 'graphic' },
-    { id: 'playout', label: 'Playout engine', icon: 'play' },
-    { id: 'hardware', label: 'Hardware', icon: 'live' },
-    { id: 'media', label: 'Media & ingest', icon: 'film' },
-    { id: 'graphics', label: 'Graphics (CG)', icon: 'ticker' },
-    { id: 'qc', label: 'QC & compliance', icon: 'check' },
-    { id: 'advanced', label: 'Advanced', icon: 'settings' },
-];
-
-const activeSection = ref<SettingsSection>('appearance');
+const activeSection = ref<SettingsSection>(props.initialSection);
 const modalBodyRef = ref<HTMLElement | null>(null);
 const sectionFilter = ref('');
 
-/** Which rail entries still match the filter box. */
-const visibleRail = computed(() => {
-    const query = sectionFilter.value.trim().toLowerCase();
-    if (!query) return RAIL;
-    return RAIL.filter((entry) => entry.label.toLowerCase().includes(query));
-});
+const searchHits = computed(() => searchSettings(sectionFilter.value));
+const isSearching = computed(() => sectionFilter.value.trim().length > 0);
 
-const selectSection = (id: SettingsSection) => {
-    activeSection.value = id;
+interface RailItem {
+    key: string;
+    section: SettingsSection;
+    label: string;
+    /** A search hit's section, under its title. */
+    sub?: string;
+    icon?: IconName;
+    /** The section title a search hit scrolls to. */
+    target?: string;
+}
+
+/** The rail, or while the filter has text, the settings that match it. */
+const railItems = computed<RailItem[]>(() =>
+    isSearching.value
+        ? searchHits.value.map((hit) => ({
+              key: `${hit.section}:${hit.title}`,
+              section: hit.section,
+              label: hit.title,
+              sub: hit.sectionLabel,
+              target: hit.title,
+          }))
+        : SETTINGS_RAIL.map((entry) => ({ key: entry.id, section: entry.id, label: entry.label, icon: entry.icon }))
+);
+
+/** The section title the last search jump landed on. */
+const revealedTitle = ref<string | null>(null);
+let pendingReveal: string | null = null;
+let hitFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Scroll a section into view by its title and flash it once. */
+const revealSection = (title: string) => {
+    const pane = modalBodyRef.value;
+    if (!pane) return;
+    const heading = Array.from(pane.querySelectorAll<HTMLElement>('.section-title')).find(
+        (el) => el.textContent?.trim() === title
+    );
+    const section = heading?.closest<HTMLElement>('.settings-section');
+    if (!section) return;
+    pane.scrollTop = Math.max(0, section.offsetTop - pane.offsetTop);
+    pane.querySelectorAll('.settings-section.is-search-hit').forEach((el) => el.classList.remove('is-search-hit'));
+    section.classList.add('is-search-hit');
+    if (hitFlashTimer) clearTimeout(hitFlashTimer);
+    hitFlashTimer = setTimeout(() => section.classList.remove('is-search-hit'), 1600);
+};
+
+const selectRailItem = (item: RailItem) => {
+    revealedTitle.value = item.target ?? null;
+    if (!item.target) {
+        activeSection.value = item.section;
+        return;
+    }
+    if (activeSection.value === item.section) {
+        nextTick(() => revealSection(item.target!));
+        return;
+    }
+    pendingReveal = item.target;
+    activeSection.value = item.section;
+};
+
+const isRailItemActive = (item: RailItem) =>
+    item.section === activeSection.value && (!item.target || item.target === revealedTitle.value);
+
+const goToFirstHit = () => {
+    const first = railItems.value[0];
+    if (isSearching.value && first) selectRailItem(first);
 };
 
 // UI F-07: the panes share one scroll container, so moving between them carried
 // the previous offset over -- the Playout pane opened scrolled to its bottom.
+// A search jump scrolls to its section instead.
 watch(activeSection, () => {
     nextTick(() => {
-        if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
+        const title = pendingReveal;
+        pendingReveal = null;
+        if (title) revealSection(title);
+        else if (modalBodyRef.value) modalBodyRef.value.scrollTop = 0;
     });
 });
 
-// Keep a matching entry selected as the operator types in the filter.
-watch(visibleRail, (entries) => {
-    if (entries.length && !entries.some((entry) => entry.id === activeSection.value)) {
-        activeSection.value = entries[0]!.id;
+// The pane follows the best match as the operator types.
+watch(
+    () => searchHits.value[0],
+    (best, previous) => {
+        if (!best || (previous && best.section === previous.section && best.title === previous.title)) return;
+        goToFirstHit();
     }
+);
+
+onUnmounted(() => {
+    if (hitFlashTimer) clearTimeout(hitFlashTimer);
 });
 const validationInfo = ref<CasparValidationInfo | null>(null);
 const isValidating = ref(false);
@@ -614,9 +675,9 @@ const testIngestorConnection = async () => {
 /* --- Layout reset (§4.2, Advanced) --- */
 
 const resetPanelLayout = () => {
-    // The library width is the one layout value the app persists.
-    localStorage.removeItem('layout.leftWidth');
-    showToast('Panel sizes reset. Reopen the window to see it.', 'info');
+    // Library width, the folded library and the folder tree split, live.
+    resetSharedPanelLayout();
+    showToast('Panel sizes reset.', 'info');
 };
 
 const isSaving = ref(false);
@@ -809,21 +870,32 @@ const openTemplateDir = async () => {
       <nav class="settings-rail" aria-label="Settings sections">
         <div class="rail-filter">
           <AppIcon class="rail-filter-icon" name="search" />
-          <input v-model="sectionFilter" class="input rail-filter-input" type="search" placeholder="Find a setting…" />
+          <input
+            v-model="sectionFilter"
+            class="input rail-filter-input"
+            type="search"
+            placeholder="Find a setting…"
+            aria-label="Find a setting"
+            data-testid="settings-search"
+            @keydown.enter.prevent="goToFirstHit"
+          />
         </div>
         <button
-          v-for="entry in visibleRail"
-          :key="entry.id"
+          v-for="item in railItems"
+          :key="item.key"
           type="button"
           class="settings-tab-btn"
-          :class="{ active: activeSection === entry.id }"
-          :aria-current="activeSection === entry.id ? 'true' : undefined"
-          @click="selectSection(entry.id)"
+          :class="{ active: isRailItemActive(item), 'is-hit': !!item.target }"
+          :aria-current="isRailItemActive(item) ? 'true' : undefined"
+          @click="selectRailItem(item)"
         >
-          <AppIcon :name="entry.icon" />
-          <span>{{ entry.label }}</span>
+          <AppIcon v-if="item.icon" :name="item.icon" />
+          <span class="rail-item-text">
+            <span class="rail-item-label">{{ item.label }}</span>
+            <span v-if="item.sub" class="rail-item-sub">{{ item.sub }}</span>
+          </span>
         </button>
-        <p v-if="!visibleRail.length" class="rail-empty">No section matches “{{ sectionFilter }}”.</p>
+        <p v-if="isSearching && !railItems.length" class="rail-empty">No setting matches “{{ sectionFilter }}”.</p>
       </nav>
 
       <div class="settings-pane custom-scroll" ref="modalBodyRef">
@@ -850,9 +922,9 @@ const openTemplateDir = async () => {
               v-model="localState.uiScale"
               label="Density"
               :options="[
-                { value: 'standard', title: 'Standard', badge: '100%', description: '42 px rundown rows — fits more on a laptop screen.' },
-                { value: 'comfortable', title: 'Comfortable', badge: '115% · recommended', description: '48 px rows with larger titles and timing.' },
-                { value: 'large', title: 'Large', badge: '130%', description: '54 px rows and bigger targets, for wall monitors.' }
+                { value: 'standard', title: 'Standard', badge: 'Dense', description: '36 px rundown rows and smaller type — fits the most on a laptop screen.' },
+                { value: 'comfortable', title: 'Comfortable', badge: 'Recommended', description: '40 px rows — the default for a desk monitor.' },
+                { value: 'large', title: 'Large', badge: 'Wall monitor', description: '48 px rows, larger type and bigger targets.' }
               ]"
             />
           </section>
@@ -1334,7 +1406,7 @@ const openTemplateDir = async () => {
             <div class="server-actions">
               <BaseButton variant="secondary" icon="refresh" @click="resetPanelLayout">Reset panel sizes</BaseButton>
             </div>
-            <p class="field-hint">Puts the library panel back to its default width.</p>
+            <p class="field-hint">Puts the library back to its default width, unfolds it, and resets the folder tree split.</p>
           </section>
         </div>
       </div>
@@ -1386,9 +1458,11 @@ const openTemplateDir = async () => {
     display: grid;
     grid-template-columns: 180px 1fr;
     gap: var(--space-4);
-    min-height: 420px;
-    /* Give the dialog body a working height so the pane scrolls, not the page. */
-    max-height: calc(100vh - 260px);
+    /* One fixed height for every section. Sized to its content, the dialog
+       grew and shrank as the operator moved down the rail, and the rail moved
+       with it. A short section now leaves blank space below it; a long one
+       scrolls inside the pane. */
+    height: min(600px, calc(100vh - 260px));
 }
 
 /* --- Left rail (§4.1) --------------------------------------------------- */
@@ -1457,6 +1531,36 @@ const openTemplateDir = async () => {
     background: var(--bg-active);
     color: var(--text-primary);
     border-color: color-mix(in srgb, var(--accent-primary) 35%, transparent);
+}
+
+.rail-item-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0);
+    min-width: 0;
+}
+
+.rail-item-label,
+.rail-item-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-item-sub {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-regular);
+    color: var(--text-muted);
+}
+
+/* A search jump lands on a section: its title takes the accent for a moment,
+   so the eye finds the setting in a pane that may hold five. */
+.settings-section .section-title {
+    transition: color var(--dur-slow) var(--ease-out);
+}
+
+.settings-section.is-search-hit .section-title {
+    color: var(--accent-primary);
 }
 
 .rail-empty {

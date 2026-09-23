@@ -9,6 +9,7 @@ import { registerRundownDropSurface, beginRundownDrag, indicatorGeometry, active
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
+import PlaylistTotals from './PlaylistTotals.vue';
 import { usePlaylistFile } from '../composables/usePlaylistFile';
 import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
 import { commercialTagBadge, commercialTagTone, contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
@@ -1369,9 +1370,13 @@ onUnmounted(() => {
   <div class="rundown-wrapper">
     <!-- Header with clock -->
     <div class="rw-header">
+      <!-- Title over its totals, the way the library header reads. -->
       <div class="rw-header-title">
-        <h2 class="text-warning rw-header-name">{{ store.currentPlaylistName }}</h2>
-        <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge"><AppIcon name="play" :size="12" /> ON AIR</span>
+        <div class="rw-header-name-row">
+          <h2 class="text-warning rw-header-name">{{ store.currentPlaylistName }}</h2>
+          <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge"><AppIcon name="play" :size="12" /> ON AIR</span>
+        </div>
+        <PlaylistTotals />
       </div>
 
       <div class="rw-header-spacer"></div>
@@ -1763,7 +1768,6 @@ onUnmounted(() => {
 
 <style scoped>
 .rundown-wrapper { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
-.rw-header-title,
 .rw-header-actions {
   display: flex;
   align-items: center;
@@ -1771,9 +1775,42 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+/* The one part of the header that gives way: the name ellipsises and the
+   totals line after it, so the actions never wrap. */
+.rw-header-title {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-0);
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.rw-header-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .rw-header-name {
   margin: 0;
   font-size: var(--fs-lg);
+  line-height: var(--lh-tight);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* One line, icon beside the word. As a blockified flex item the svg took a
+   line of its own and the pill stood 33px tall in a 44px header. */
+.rw-header-name-row .playing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  white-space: nowrap;
+  line-height: var(--lh-none);
 }
 
 .rw-header-spacer {
@@ -2178,6 +2215,14 @@ onUnmounted(() => {
   margin-bottom: var(--space-2);
   background: var(--bg-tertiary);
   flex-shrink: 0;
+  /* The micro-label type. 77b2486 rewrote this rule for the sticky header and
+     dropped this line, so the labels fell back to body size in primary white
+     and read louder than the rows under them. */
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 .rw-list {
   flex: 1;
@@ -2414,6 +2459,17 @@ onUnmounted(() => {
    containers 8px apart shed their columns at two different window widths. */
 .rw-list {
   container: rundown / inline-size;
+}
+
+/* The fixed columns plus a 180px title need ~784px. At the 1100px minimum
+   window with the default 320px library the list is 747px, so the Actions
+   column was clipped behind a horizontal scrollbar. Below 800px the title
+   gives up 40px of its floor first; it still flexes wider when there is room.
+   Set on the rows as well as the header, because the property is read where
+   the rows are, below the container. */
+@container rundown (max-width: 800px) {
+  .rw-cols-label,
+  .rw-row { --rw-col-title-min: 140px; }
 }
 
 @container rundown (max-width: 620px) {
