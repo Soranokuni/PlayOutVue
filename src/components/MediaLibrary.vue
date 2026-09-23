@@ -37,6 +37,7 @@ import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaL
 import { describeErrorMessage, rawErrorText } from '../lib/describeError';
 import EmptyState from './ui/EmptyState.vue';
 import BaseButton from './ui/BaseButton.vue';
+import { LIBRARY_SORT_OPTIONS, DEFAULT_LIBRARY_SORT, nextLibrarySort, sanitizeLibrarySort, sortLibraryAssets, type LibrarySort, type LibrarySortKey } from '../lib/librarySort';
 
 // PERF F-14: pickers/bin are opened rarely; fetch on first open, mount only while open.
 const { component: FolderPickerModal } = lazyComponent(
@@ -244,12 +245,47 @@ const unratedCount = computed(() => {
     return n;
 });
 
+// List order: name by default, or duration / date added. Persisted per
+// workstation like the row density. The same sorted array feeds the arrow-key
+// walk, so the keys step through exactly what is on screen.
+const librarySortStored = useStorage<LibrarySort>('layout.librarySort', { ...DEFAULT_LIBRARY_SORT });
+const librarySort = computed(() => sanitizeLibrarySort(librarySortStored.value));
+const showSortMenu = ref(false);
+const librarySortLabel = computed(() => {
+    const option = LIBRARY_SORT_OPTIONS.find((o) => o.key === librarySort.value.key);
+    return `Sorted by ${option?.label.toLowerCase() ?? 'name'}, ${librarySort.value.dir === 'asc' ? 'ascending' : 'descending'}`;
+});
+function chooseLibrarySort(key: LibrarySortKey) {
+    librarySortStored.value = nextLibrarySort(librarySort.value, key);
+}
+
+// "Date added" is the mezzanine's creation time on disk. Only fetched while
+// that sort is active, and only for paths not seen yet.
+const createdMsByPath = ref<Record<string, number>>({});
+const createdTimesRequested = new Set<string>();
+async function fetchCreatedTimes() {
+    if (librarySort.value.key !== 'added') return;
+    const paths = mediaLibrary.assets
+        .map((a) => a.current_path)
+        .filter((p): p is string => !!p && !createdTimesRequested.has(p));
+    if (!paths.length) return;
+    for (const p of paths) createdTimesRequested.add(p);
+    try {
+        const times = await invoke<Record<string, number>>('get_file_created_times', { paths });
+        if (times) createdMsByPath.value = { ...createdMsByPath.value, ...times };
+    } catch {
+        // Unreadable paths just sort last; let a later poll retry them.
+        for (const p of paths) createdTimesRequested.delete(p);
+    }
+}
+watch([() => librarySort.value.key, () => mediaLibrary.assets], () => { void fetchCreatedTimes(); }, { immediate: true });
+
 const displayedAssets = computed<LibraryAsset[]>(() => {
     const deleted = new Set(mediaLibrary.deletedUuids);
     const query = mediaLibrary.searchQuery.trim().toLowerCase();
     const unratedOnly = showUnratedOnly.value;
 
-    return mediaLibrary.assets.filter(a => {
+    const filtered = mediaLibrary.assets.filter(a => {
         if (deleted.has(a.uuid)) return false;
         if (unratedOnly && !isUnrated(a)) return false;
 
@@ -264,6 +300,9 @@ const displayedAssets = computed<LibraryAsset[]>(() => {
         const vf = a.virtual_folder || '/';
         return vf === cur || vf.startsWith(cur + '/');
     });
+
+    const created = createdMsByPath.value;
+    return sortLibraryAssets(filtered, librarySort.value, (a) => created[a.current_path]);
 });
 
 /* ----------------------------------------------------------- §5.3 / F-22 ---
@@ -796,6 +835,7 @@ function onAssetClick(asset: LibraryAsset, event?: MouseEvent) {
     mediaLibrary.selectNode(`asset:${asset.uuid}`, {
         multi: event?.ctrlKey || event?.metaKey,
         range: event?.shiftKey,
+        visibleNodes: visibleAssetNodes.value,
     });
     if (libTreeRef.value) {
         libTreeRef.value.focus({ preventScroll: true });
@@ -1487,16 +1527,24 @@ watch(
     { immediate: true }
 );
 
-const visibleAssetNodes = computed(() => {
-    const displayedUuids = new Set(displayedAssets.value.map(a => a.uuid));
-    return mediaLibrary.allTreeNodes.filter(
-        (node) => node.type === 'asset' && node.asset && displayedUuids.has(node.asset.uuid)
-    );
-});
+// Built from the rendered list itself rather than the folder tree, which is
+// ordered by folder then name and leaves out collapsed folders -- walking it
+// made the arrow keys jump around whenever the list was sorted differently.
+const visibleAssetNodes = computed<TreeNode[]>(() =>
+    displayedAssets.value.map((asset) => ({
+        id: `asset:${asset.uuid}`,
+        type: 'asset' as const,
+        name: asset.display_name,
+        virtualFolder: asset.virtual_folder || '/',
+        depth: 0,
+        asset,
+    }))
+);
 
 function onGlobalClick() {
     closeContextMenu();
     showActionsMenu.value = false;
+    showSortMenu.value = false;
 }
 
 // The app menu's library actions, for a right-click on empty library space.
@@ -2250,6 +2298,34 @@ const menuItems = computed<MenuItem[]>(() => {
         @click="libraryRowMode = libraryRowMode === 'two-line' ? 'single' : 'two-line'"
       />
 
+      <div class="lib-actions-dropdown-wrap">
+        <BaseButton
+          class="lib-sort-trigger"
+          variant="icon"
+          size="sm"
+          :icon="librarySort.dir === 'asc' ? 'sort-asc' : 'sort-desc'"
+          :class="{ active: librarySort.key !== 'name' || librarySort.dir !== 'asc' }"
+          label="Sort library"
+          v-tooltip="librarySortLabel"
+          data-testid="library-sort-trigger"
+          @click.stop="showSortMenu = !showSortMenu; showActionsMenu = false"
+        />
+        <div v-if="showSortMenu" class="lib-actions-menu popover-surface" role="menu" data-testid="library-sort-menu" @click.stop>
+          <button
+            v-for="option in LIBRARY_SORT_OPTIONS"
+            :key="option.key"
+            class="lib-actions-item popover-item"
+            role="menuitemradio"
+            :aria-checked="librarySort.key === option.key"
+            :data-sort-key="option.key"
+            @click="chooseLibrarySort(option.key); showSortMenu = false"
+          >
+            <AppIcon :name="librarySort.dir === 'asc' ? 'arrow-up' : 'arrow-down'" :size="14" :class="{ 'lib-sort-dir-hidden': librarySort.key !== option.key }" />
+            <span>{{ option.label }}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Actions Dropdown -->
       <div class="lib-actions-dropdown-wrap">
         <BaseButton
@@ -2259,7 +2335,7 @@ const menuItems = computed<MenuItem[]>(() => {
           icon="more-vertical"
           label="Asset and folder actions"
           v-tooltip="showActionsMenu ? 'Close actions menu' : 'Asset and folder actions'"
-          @click.stop="showActionsMenu = !showActionsMenu"
+          @click.stop="showActionsMenu = !showActionsMenu; showSortMenu = false"
         />
         <div v-if="showActionsMenu" class="lib-actions-menu popover-surface" role="menu" @click.stop>
           <button
@@ -3043,6 +3119,11 @@ const menuItems = computed<MenuItem[]>(() => {
   gap: var(--space-0);
 }
 
+/* Keeps the labels aligned: only the active sort key shows its arrow. */
+.lib-sort-dir-hidden {
+  visibility: hidden;
+}
+
 .lib-inline-rename {
   background: var(--bg-input);
   border: 1px solid var(--accent-blue);
@@ -3516,7 +3597,8 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-asset-list.row-mode-two-line .lib-row.is-asset {
   contain-intrinsic-size: calc(var(--row-h-library) * 1.45);
 }
-.lib-row-mode-toggle.active {
+.lib-row-mode-toggle.active,
+.lib-sort-trigger.active {
   border-color: color-mix(in srgb, var(--accent-blue) 55%, transparent);
   color: var(--accent-blue);
   background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
