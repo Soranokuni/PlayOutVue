@@ -10,6 +10,7 @@ import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPla
 import LiveEntryDialog from './LiveEntryDialog.vue';
 import PlaylistControls from './PlaylistControls.vue';
 import PlaylistTotals from './PlaylistTotals.vue';
+import { onAppMenuAction } from '../lib/appMenu';
 import { usePlaylistFile } from '../composables/usePlaylistFile';
 import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
 import { commercialTagBadge, commercialTagTone, contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
@@ -1283,7 +1284,13 @@ watch(
   }
 );
 
+let stopAppMenu: (() => void) | null = null;
+
 onMounted(() => {
+  // The app menu's "Add live block…" opens the same dialog as the header button.
+  stopAppMenu = onAppMenuAction((action) => {
+    if (action === 'rundown.liveBlock') showLiveDialog.value = true;
+  });
   hydrateMissingDurations().catch((error) => {
     console.warn('[Rundown] Initial duration hydration failed', error);
   });
@@ -1360,6 +1367,7 @@ onUnmounted(() => {
   window.removeEventListener('click', closePlaylistMenu);
   window.removeEventListener('click', disarmDelete);
   window.removeEventListener('playout:playlist-file', onPlaylistFileShortcut as EventListener);
+  stopAppMenu?.();
   window.removeEventListener('keydown', onDeleteArmEscape, true);
   disarmDelete();
 });

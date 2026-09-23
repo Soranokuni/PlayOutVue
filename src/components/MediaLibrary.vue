@@ -20,6 +20,7 @@ import {
     FOLDER_PANE_RATIO_MAX,
     FOLDER_PANE_RATIO_STEP,
 } from '../composables/usePanelLayout';
+import { onAppMenuAction } from '../lib/appMenu';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
 import { lazyComponent } from '../lib/lazyComponent';
@@ -1498,7 +1499,14 @@ function onGlobalClick() {
     showActionsMenu.value = false;
 }
 
+// The app menu's library actions, for a right-click on empty library space.
+let stopAppMenu: (() => void) | null = null;
+
 onMounted(() => {
+    stopAppMenu = onAppMenuAction((action) => {
+        if (action === 'library.newFolder') doNewVirtualFolder(mediaLibrary.currentFolderPath || '/');
+        else if (action === 'library.refresh') void fetchAssets({ force: true });
+    });
     activeLibraryContext.value = {
         getSelectedAssetIds: () => mediaLibrary.selectedAssetIds,
         getVisibleAssetIds: () => visibleAssetNodes.value.map((n) => n.asset?.uuid || n.id),
@@ -1650,6 +1658,7 @@ function onLibraryVisibilityChange() {
 }
 
 onUnmounted(() => {
+    stopAppMenu?.();
     activeLibraryContext.value = null;
     if (periodicWarmupTimer) {
         clearInterval(periodicWarmupTimer);
@@ -2551,7 +2560,6 @@ const menuItems = computed<MenuItem[]>(() => {
       aria-multiselectable="true"
       tabindex="0"
       @focus="activeScope = 'library'"
-      @contextmenu.prevent
     >
       <!-- §7.7: a scan takes seconds against a cold Ingestor. Three ghost rows
            say "results are coming, and they will look like this" where
