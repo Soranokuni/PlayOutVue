@@ -7,8 +7,8 @@
 // passing, vitest reports that as a failure, and the fixer flips `it.fails` to
 // `it`: the reproduction becomes the regression guard.
 //
-// Not covered here: C-4 (Rust mapping, belongs in ingestor_api.rs tests), C-5
-// (ordering inside TrimPanel.saveNonDestructive), C-7 (Rust compute_frame_trim),
+// Not covered here: C-4 (Rust mapping, in ingestor_api.rs tests), C-5
+// (src/lib/__tests__/trimSave.test.ts), C-7 (Rust compute_frame_trim),
 // C-9 (a design decision, TRIM-CONTRACT-AUDIT §5, not a bug).
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
@@ -75,20 +75,35 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         vi.mocked(invoke).mockImplementation(offline);
     });
 
-    it.fails('C-1: trimming a parent leaves its sub-clips alone', async () => {
+    it('C-1: trimming a parent leaves its sub-clips alone', async () => {
         const store = useRundownStore();
         store.addItem(draft() as any);
         store.addItem(draft({ playoutvueId: 'sub-uuid', filename: 'Sub', inPoint: 30_000, outPoint: 40_000, trim_in_ms: 30_000, trim_out_ms: 40_000 }) as any);
         store.addItem(draft({ playoutvueId: 'local-subclip:x', filename: 'Local', inPoint: 50_000, outPoint: 60_000, trim_in_ms: 50_000, trim_out_ms: 60_000 }) as any);
         await flush();
 
-        // What TrimPanel.saveNonDestructive does for a library parent asset.
-        store.updateAssetTrim({ id: 'parent-uuid', uuid: 'parent-uuid', path: PATH }, 5_000, 20_000);
+        // What TrimPanel.saveNonDestructive does for a library parent asset. The
+        // path is passed on purpose: rows sharing the file must not match on it.
+        store.updateAssetTrim({ id: 'parent-uuid', uuid: 'parent-uuid', path: PATH } as any, 5_000, 20_000);
 
         expect(trims(store)).toEqual([
             ['parent-uuid', 5_000, 20_000],
             ['sub-uuid', 30_000, 40_000],
             ['local-subclip:x', 50_000, 60_000],
+        ]);
+    });
+
+    it('C-1: a local asset trim reaches its own rows by id, not other rows on the file', async () => {
+        const store = useRundownStore();
+        store.addItem(draft({ playoutvueId: `local:${PATH}` }) as any);
+        store.addItem(draft({ playoutvueId: 'local-subclip:z', inPoint: 50_000, outPoint: 60_000, trim_in_ms: 50_000, trim_out_ms: 60_000 }) as any);
+        await flush();
+
+        store.updateAssetTrim({ id: `local:${PATH}`, uuid: `local:${PATH}`, path: PATH } as any, 5_000, 20_000);
+
+        expect(trims(store)).toEqual([
+            [`local:${PATH}`, 5_000, 20_000],
+            ['local-subclip:z', 50_000, 60_000],
         ]);
     });
 
@@ -110,7 +125,7 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         expect(hydrated.trim_out_ms).toBe(40_000);
     });
 
-    it.fails('C-3: a local sub-clip is not resolved against the transcoder and is not marked error', async () => {
+    it('C-3: a local sub-clip is not resolved against the transcoder and is not marked error', async () => {
         // validate_uuid on the Rust side rejects anything that is not a canonical uuid.
         vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
             if (cmd === 'resolve_ingestor_asset' && !UUID.test(args?.uuid ?? '')) throw new Error('Invalid asset uuid');
@@ -121,9 +136,36 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         await flush();
 
         expect(store.currentPlaylist!.items[0]!.ingestorStatus).not.toBe('error');
+        expect(store.currentPlaylist!.items[0]!.ingestorStatus).toBe('ready');
+        expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'resolve_ingestor_asset')).toBe(false);
     });
 
-    it.fails('C-6: a resolve that lands after a reorder writes to its own row', async () => {
+    it('C-3: a local row whose file is gone is missing, not error', async () => {
+        vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
+            if (cmd === 'verify_paths_exist') return Object.fromEntries((args.paths as string[]).map((p) => [p, false]));
+            return offline(cmd, args);
+        });
+        const store = useRundownStore();
+        store.addItem(draft({ playoutvueId: `local:${PATH}` }) as any);
+        await flush();
+
+        expect(store.currentPlaylist!.items[0]!.ingestorStatus).toBe('missing');
+    });
+
+    it('C-3: a playlist file saved with an errored local sub-clip loads playable', async () => {
+        const store = useRundownStore();
+        store.addItem(draft({ playoutvueId: 'local-subclip:w', inPoint: 30_000, outPoint: 40_000, trim_in_ms: 30_000, trim_out_ms: 40_000 }) as any);
+        await flush();
+        const file = structuredClone(store.serializeRundown('x'));
+        for (const row of file.items) row.igs = 'error'; // what the bug wrote
+
+        store.deserializeRundown(file);
+        await flush();
+
+        expect(store.currentPlaylist!.items[0]!.ingestorStatus).toBe('ready');
+    });
+
+    it('C-6: a resolve that lands after a reorder writes to its own row', async () => {
         let release: (value: any) => void = () => {};
         vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
             if (cmd === 'resolve_ingestor_asset' && args.uuid === 'b-uuid') return new Promise((resolve) => { release = resolve; });
@@ -141,6 +183,29 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         const a = store.currentPlaylist!.items.find((i) => i.playoutvueId === 'a-uuid')!;
         expect(a.filename).toBe('A');
         expect(a.path).toBe('D:/a.mp4');
+        const b = store.currentPlaylist!.items.find((i) => i.playoutvueId === 'b-uuid')!;
+        expect(b.path).toBe('D:/b.mp4');
+        expect(b.trim_in_ms).toBe(1_000);
+        expect(b.trim_out_ms).toBe(9_000);
+    });
+
+    it('C-6: a resolve that fails late does not drop rows added meanwhile', async () => {
+        let fail: (error: Error) => void = () => {};
+        vi.mocked(invoke).mockImplementation(async (cmd: string, args: any) => {
+            if (cmd === 'resolve_ingestor_asset' && args.uuid === 'a-uuid') return new Promise((_, reject) => { fail = reject; });
+            return offline(cmd, args);
+        });
+        const store = useRundownStore();
+        store.addItem(draft({ playoutvueId: 'a-uuid', filename: 'A', path: 'D:/a.mp4' }) as any);
+        store.addItem(draft({ playoutvueId: 'b-uuid', filename: 'B', path: 'D:/b.mp4' }) as any);
+        await flush();
+        fail(new Error('offline'));
+        await flush();
+
+        expect(store.currentPlaylist!.items.map((i) => [i.playoutvueId, i.ingestorStatus])).toEqual([
+            ['a-uuid', 'error'],
+            ['b-uuid', 'error'],
+        ]);
     });
 
     it.fails('C-8: SEEK lands on the requested second whatever the file frame rate', () => {

@@ -911,7 +911,7 @@ export const useRundownStore = defineStore('rundown', () => {
         triggerNuclearReactivity(playlist.id, newItems);
         updateTrigger.value += 1;
         if (newItem.playoutvueId && newItem.type !== 'gap') {
-            resolveAssetFromApi(newItem.id);
+            resolveAssetFromApi(newItem.id, playlist.id);
         }
     };
 
@@ -934,7 +934,7 @@ export const useRundownStore = defineStore('rundown', () => {
         });
         updateTrigger.value += 1;
         if (newItem.playoutvueId && newItem.type !== 'gap') {
-            resolveAssetFromApi(newItem.id);
+            resolveAssetFromApi(newItem.id, playlist.id);
         }
     };
 
@@ -1140,8 +1140,16 @@ export const useRundownStore = defineStore('rundown', () => {
     const lastTrimWarning = ref<TrimWarningNotice | null>(null);
     const dismissTrimWarning = () => { lastTrimWarning.value = null; };
 
+    /**
+     * Apply a saved asset trim to the rows that play that asset.
+     *
+     * Rows are matched by identity only (TRIM-CONTRACT-AUDIT C-1). A sub-clip
+     * shares its parent's `current_path`, so matching by path rewrote every
+     * sub-clip of the file with the parent's window. A `local:` asset has no
+     * server identity and is matched by its `local:` id or the row id.
+     */
     const updateAssetTrim = (
-        identifier: { id?: string; uuid?: string; path?: string },
+        identifier: { id?: string; uuid?: string },
         inMs: number,
         outMs: number
     ) => {
@@ -1157,9 +1165,8 @@ export const useRundownStore = defineStore('rundown', () => {
                 const item = newItems[i]!;
                 const matchById = identifier.id && item.id === identifier.id;
                 const matchByUuid = identifier.uuid && (item.playoutvueId === identifier.uuid || item.id === identifier.uuid);
-                const matchByPath = identifier.path && (item.path === identifier.path || item.current_path === identifier.path || item.shortPath === identifier.path);
 
-                if (matchById || matchByUuid || matchByPath) {
+                if (matchById || matchByUuid) {
                     const totalMs = item.duration_ms || (item.duration ? item.duration * 1000 : 0);
                     const oldInMs = item.trim_in_ms ?? item.inPoint ?? 0;
                     const oldOutMs = item.trim_out_ms ?? (item.outPoint > 0 ? item.outPoint : totalMs);
@@ -1334,6 +1341,58 @@ export const useRundownStore = defineStore('rundown', () => {
     };
 
     /**
+     * TRIM-CONTRACT-AUDIT C-3: a `local:` / `local-subclip:` row has no server
+     * identity, so asking the transcoder about it can only fail (the Rust side
+     * rejects any id that is not a canonical uuid) and used to mark the row
+     * `error`, which a take skips. Such a row is checked on disk instead:
+     * present -> `ready`, absent -> `missing`. An unavailable check changes
+     * nothing, and an on-air row is never demoted.
+     */
+    const resolveLocalItems = async (playlistId: string, itemIds: string[]) => {
+        const pathOf = (item: RundownItem) => (item.current_path || item.path || '').trim();
+        const initial = getPlaylistById(playlistId);
+        if (!initial || !itemIds.length) return;
+        const paths = new Set<string>();
+        for (const item of initial.items) {
+            if (!itemIds.includes(item.id)) continue;
+            const path = pathOf(item);
+            if (path) paths.add(path);
+        }
+        if (!paths.size) return;
+
+        let existsByPath: Record<string, boolean>;
+        try {
+            existsByPath = await invoke<Record<string, boolean>>('verify_paths_exist', {
+                paths: Array.from(paths)
+            });
+        } catch (error) {
+            console.warn('[Rundown] Local item path check failed', error);
+            return;
+        }
+
+        const playlist = getPlaylistById(playlistId);
+        if (!playlist) return;
+        const newItems = [...playlist.items];
+        let changed = false;
+        for (let idx = 0; idx < newItems.length; idx++) {
+            const item = newItems[idx];
+            if (!item || !itemIds.includes(item.id)) continue;
+            const exists = existsByPath[pathOf(item)];
+            if (exists === undefined) continue;
+            const onAir = playlist.id === onAirPlaylistId.value
+                && (item.id === currentPlayingInstanceId.value || idx === playlist.currentPlayingIndex);
+            const status: IngestorStatus = exists ? 'ready' : 'missing';
+            if (item.ingestorStatus === status || (!exists && onAir)) continue;
+            newItems[idx] = { ...item, ingestorStatus: status };
+            changed = true;
+        }
+        if (changed) {
+            updatePlaylistState(playlistId, { items: newItems });
+            syncPlayoutQueue(playlistId);
+        }
+    };
+
+    /**
      * Audit F-3: resolve a set of rundown rows against the transcoder in
      * batches. Replaces the block that used to live inline in
      * `deserializeRundown`, which had three defects:
@@ -1354,14 +1413,20 @@ export const useRundownStore = defineStore('rundown', () => {
         const BATCH_SIZE = 100;
 
         const uuidToItemIds = new Map<string, string[]>();
+        const localItemIds: string[] = [];
         for (const item of items) {
             const uuid = (item.playoutvueId || '').trim();
             if (!uuid || item.type === 'gap' || item.type === 'live') continue;
-            if (uuid.startsWith('local:') || uuid.startsWith('local-subclip:')) continue;
+            if (uuid.startsWith('local:') || uuid.startsWith('local-subclip:')) {
+                localItemIds.push(item.id);
+                continue;
+            }
             const bucket = uuidToItemIds.get(uuid);
             if (bucket) bucket.push(item.id);
             else uuidToItemIds.set(uuid, [item.id]);
         }
+
+        if (localItemIds.length) resolveLocalItems(playlistId, localItemIds).catch(() => {});
 
         const uuids = Array.from(uuidToItemIds.keys());
         if (!uuids.length) return;
@@ -1927,27 +1992,46 @@ export const useRundownStore = defineStore('rundown', () => {
         flushDeferredReconcile();
     });
 
-    const resolveAssetFromApi = async (itemId: string) => {
-        const playlist = currentPlaylist.value;
+    /**
+     * Resolve one row against the transcoder.
+     *
+     * The row is found again by id after the await and written through the
+     * live playlist (TRIM-CONTRACT-AUDIT C-6). Holding the index, or the
+     * playlist object, across the await wrote the asset onto whichever row had
+     * moved into that slot after a reorder, and wrote back a stale item list
+     * that dropped rows added in the meantime.
+     */
+    const resolveAssetFromApi = async (itemId: string, playlistId = activePlaylistId.value) => {
+        const playlist = getPlaylistById(playlistId);
         if (!playlist) return;
 
-        const index = playlist.items.findIndex((e) => e.id === itemId);
-        if (index === -1) return;
-
-        const item = playlist.items[index];
+        const item = playlist.items.find((e) => e.id === itemId);
         if (!item || !item.playoutvueId || item.type === 'gap') return;
+        if (!isServerIdentity(item.playoutvueId)) {
+            await resolveLocalItems(playlist.id, [item.id]);
+            return;
+        }
+        const uuid = item.playoutvueId;
 
-        playlist.items[index] = {
-            ...item,
-            id: item.id,
-            type: item.type,
-            ingestorStatus: 'processing' as IngestorStatus
+        /** Apply `mutate` to the row as it is now; false when it is gone. */
+        const writeLive = (mutate: (existing: RundownItem) => RundownItem) => {
+            const live = getPlaylistById(playlist.id);
+            if (!live) return false;
+            const idx = live.items.findIndex((e) => e.id === itemId);
+            const existing = idx === -1 ? undefined : live.items[idx];
+            // Same row id, but re-pointed at another asset meanwhile.
+            if (!existing || existing.playoutvueId !== uuid) return false;
+            const newItems = [...live.items];
+            newItems[idx] = mutate(existing);
+            updatePlaylistState(live.id, { items: newItems });
+            return true;
         };
-        triggerRef(playlists);
+
+        writeLive((existing) => ({ ...existing, ingestorStatus: 'processing' as IngestorStatus }));
 
         try {
             const response = await invoke<any>('resolve_ingestor_asset', {
-                uuid: item.playoutvueId,
+                uuid,
                 apiBaseUrlOverride: null
             });
 
@@ -2011,25 +2095,16 @@ export const useRundownStore = defineStore('rundown', () => {
                 warnings: response.warnings,
             };
 
-            const newItems = [...playlist.items];
-            const existing = newItems[index];
-            if (existing) {
-                newItems[index] = { ...existing, ...updates } as RundownItem;
-                updatePlaylistState(playlist.id, { items: newItems });
+            if (writeLive((existing) => ({ ...existing, ...updates } as RundownItem))) {
+                syncPlayoutQueue(playlist.id);
             }
-            syncPlayoutQueue(playlist.id);
         } catch (error) {
             try {
                 const ingestor = useIngestorStatusStore();
-                ingestor.logError('ingestor-resolve', `Failed to resolve asset ${item.playoutvueId}: ${error}`);
+                ingestor.logError('ingestor-resolve', `Failed to resolve asset ${uuid}: ${error}`);
             } catch {}
-            const newErrorItems = [...playlist.items];
-            const existingErr = newErrorItems[index];
-            if (existingErr) {
-                newErrorItems[index] = { ...existingErr, ingestorStatus: 'error' as IngestorStatus } as RundownItem;
-                updatePlaylistState(playlist.id, { items: newErrorItems });
-            }
-            console.error('[Ingestor] Failed to resolve asset', item.playoutvueId, error);
+            writeLive((existing) => ({ ...existing, ingestorStatus: 'error' as IngestorStatus }));
+            console.error('[Ingestor] Failed to resolve asset', uuid, error);
         }
     };
 

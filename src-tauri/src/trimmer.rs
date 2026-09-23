@@ -272,7 +272,6 @@ pub async fn compute_frame_trim<R: Runtime>(
         ));
     }
 
-    let fps = entry.fps_num as f64 / entry.fps_den as f64;
     let total_dur = if entry.duration_ms < 0 { 0 } else { entry.duration_ms };
 
     let in_ms = trim_in_ms.max(0);
@@ -316,11 +315,7 @@ pub async fn compute_frame_trim<R: Runtime>(
         );
     }
 
-    // Clamp trim_in_ms between 0 and the file's real duration. The previous
-    // implementation trusted the DB duration blindly; an inflated DB duration
-    // let IN points beyond the real file through, which produced a SEEK past
-    // EOF and a corrupted LENGTH. Hard-clamp to [0, total_dur].
-    let in_ms = if in_ms > total_dur {
+    if in_ms > total_dur {
         diagnostics.push(
             "error",
             "trim",
@@ -329,29 +324,54 @@ pub async fn compute_frame_trim<R: Runtime>(
                 in_ms, total_dur, path
             ),
         );
-        0
-    } else {
-        in_ms
-    };
+    }
 
-    // Resolve the OUT point. trim_out_ms <= 0 or beyond the file means "play
-    // to the end". Otherwise clamp it into (in_ms, total_dur].
+    frame_trim_for_file(&path, total_dur, entry.fps_num, entry.fps_den, trim_in_ms, trim_out_ms)
+}
+
+/// The frame window for `trim_in_ms..trim_out_ms` on a file of `total_dur` ms.
+///
+/// An IN at or beyond the end of the file is an error, never a start from 0.
+/// It used to be replaced with 0 (TRIM-CONTRACT-AUDIT C-7): the take then sent
+/// PLAY with no SEEK and the full LENGTH, so the whole file went to air. The
+/// usual trigger is a stale or short cache entry for a sub-clip's file. The
+/// message says "Degenerate trim" so the dispatcher treats it as a hard error.
+///
+/// An OUT that is unset (`<= 0`) or beyond the file means "play to the end".
+pub fn frame_trim_for_file(
+    path: &str,
+    total_dur: i64,
+    fps_num: i64,
+    fps_den: i64,
+    trim_in_ms: i64,
+    trim_out_ms: i64,
+) -> Result<FrameTrimResult, String> {
+    if fps_num <= 0 || fps_den <= 0 {
+        return Err(format!("Invalid frame rate for asset: {}/{}", fps_num, fps_den));
+    }
+    let fps = fps_num as f64 / fps_den as f64;
+    let total_dur = total_dur.max(0);
+    let in_ms = trim_in_ms.max(0);
+
+    if in_ms >= total_dur {
+        return Err(format!(
+            "Degenerate trim for {}: IN {}ms is at/after the file end ({}ms).              The IN point exceeds the real media duration — adjust the trim.",
+            path, in_ms, total_dur
+        ));
+    }
+
     let out_ms = if trim_out_ms <= 0 || trim_out_ms > total_dur {
         total_dur
     } else {
-        trim_out_ms.max(in_ms).min(total_dur)
+        trim_out_ms.max(in_ms)
     };
 
     if out_ms <= in_ms {
-        // Degenerate trim (e.g. IN clamped to the very end because it exceeded
-        // the real file length). Previously this fell back to a hardcoded
-        // `in_ms + 2000` phantom window which is what produced the spurious
-        // ~2s/2min clip. Instead, surface a clear error so the caller marks
-        // the item as broken rather than silently playing a stub.
+        // No phantom `in_ms + 2000` window: an empty trim is an error the
+        // caller marks, rather than a stub that plays.
         return Err(format!(
-            "Degenerate trim for {}: IN {}ms is at/after the file end ({}ms). \
-             The IN point exceeds the real media duration — adjust the trim.",
-            path, in_ms, total_dur
+            "Degenerate trim for {}: OUT {}ms is not after IN {}ms (file {}ms) — adjust the trim.",
+            path, out_ms, in_ms, total_dur
         ));
     }
 
@@ -371,13 +391,45 @@ pub async fn compute_frame_trim<R: Runtime>(
         in_frame,
         out_frame,
         duration_frames,
-        fps_rational: format!("{}/{}", entry.fps_num, entry.fps_den),
+        fps_rational: format!("{}/{}", fps_num, fps_den),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── TRIM-CONTRACT-AUDIT C-7 ──────────────────────────────────────────────
+
+    #[test]
+    fn frame_trim_rejects_an_in_point_past_the_file_instead_of_starting_at_zero() {
+        // A sub-clip IN of 30 s against a cache entry that says the file is 10 s.
+        let err = frame_trim_for_file("D:/m/sub.mp4", 10_000, 25, 1, 30_000, 40_000).unwrap_err();
+        assert!(err.to_lowercase().contains("degenerate trim"), "{}", err);
+        // IN exactly at the end is just as empty.
+        assert!(frame_trim_for_file("D:/m/sub.mp4", 10_000, 25, 1, 10_000, 0).is_err());
+    }
+
+    #[test]
+    fn frame_trim_keeps_a_valid_window() {
+        let t = frame_trim_for_file("D:/m/a.mp4", 100_000, 25, 1, 30_000, 40_000).unwrap();
+        assert_eq!((t.in_frame, t.out_frame, t.duration_frames), (750, 1000, 250));
+        assert_eq!(t.fps_rational, "25/1");
+    }
+
+    #[test]
+    fn frame_trim_reads_an_unset_or_long_out_as_the_file_end() {
+        let t = frame_trim_for_file("D:/m/a.mp4", 10_000, 25, 1, 2_000, 0).unwrap();
+        assert_eq!((t.in_frame, t.out_frame), (50, 250));
+        let t = frame_trim_for_file("D:/m/a.mp4", 10_000, 25, 1, 2_000, 12_000).unwrap();
+        assert_eq!((t.in_frame, t.out_frame), (50, 250));
+    }
+
+    #[test]
+    fn frame_trim_rejects_an_out_before_in_and_a_bad_rate() {
+        assert!(frame_trim_for_file("D:/m/a.mp4", 10_000, 25, 1, 5_000, 3_000).is_err());
+        assert!(frame_trim_for_file("D:/m/a.mp4", 10_000, 0, 1, 0, 0).is_err());
+    }
 
     #[test]
     fn parse_timecode_mmss_25fps() {
