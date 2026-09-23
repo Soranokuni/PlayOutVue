@@ -77,15 +77,18 @@ export interface ContentDescriptor {
   id: ContentDescriptorId;
   label: string;
   shortLabel: string;
+  /** One-letter chip shown in library and rundown rows. The only place these
+   *  letters live, so a translation swaps them here (e.g. V · S · D · L). */
+  initial: string;
   tag: string;
   icon: string;
 }
 
 export const GREEK_CONTENT_DESCRIPTORS: ContentDescriptor[] = [
-  { id: 'violence', label: 'Βία (Σκηνές Βίας)', shortLabel: 'ΒΙΑ', tag: 'ΣΚΗΝΕΣ ΒΙΑΣ', icon: '⚔️' },
-  { id: 'sex', label: 'Σεξ (Σκηνές Σεξ)', shortLabel: 'ΣΕΞ', tag: 'ΣΚΗΝΕΣ ΣΕΞ', icon: '🔞' },
-  { id: 'substances', label: 'Χρήση Ουσιών / Ναρκωτικά', shortLabel: 'ΟΥΣΙΕΣ', tag: 'ΧΡΗΣΗ ΟΥΣΙΩΝ', icon: '💊' },
-  { id: 'language', label: 'Ακατάλληλη Φρασεολογία / Ύβρεις', shortLabel: 'ΦΡΑΣΕΟΛΟΓΙΑ', tag: 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ', icon: '💬' }
+  { id: 'violence', label: 'Βία (Σκηνές Βίας)', shortLabel: 'ΒΙΑ', initial: 'Β', tag: 'ΣΚΗΝΕΣ ΒΙΑΣ', icon: '⚔️' },
+  { id: 'sex', label: 'Σεξ (Σκηνές Σεξ)', shortLabel: 'ΣΕΞ', initial: 'Σ', tag: 'ΣΚΗΝΕΣ ΣΕΞ', icon: '🔞' },
+  { id: 'substances', label: 'Χρήση Ουσιών / Ναρκωτικά', shortLabel: 'ΟΥΣΙΕΣ', initial: 'Ο', tag: 'ΧΡΗΣΗ ΟΥΣΙΩΝ', icon: '💊' },
+  { id: 'language', label: 'Ακατάλληλη Φρασεολογία / Ύβρεις', shortLabel: 'ΦΡΑΣΕΟΛΟΓΙΑ', initial: 'Φ', tag: 'ΑΚΑΤΑΛΛΗΛΗ ΦΡΑΣΕΟΛΟΓΙΑ', icon: '💬' }
 ];
 
 export interface GreekCompliancePreset {

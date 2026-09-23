@@ -2252,7 +2252,8 @@ onUnmounted(() => {
   --rw-col-status: 20px;
   --rw-col-type: 20px;
   --rw-col-title-min: 180px;
-  --rw-col-flags: 88px;
+  /* Rating chip plus up to four ΕΣΡ letter chips. */
+  --rw-col-flags: 112px;
   /* Room for the rating chip alone, which scales with the type: at 26px the
      chip's right edge and border were cut off. */
   --rw-col-flags-narrow: calc(var(--type-unit) * 2.8);
