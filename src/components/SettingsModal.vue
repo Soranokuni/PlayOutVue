@@ -850,9 +850,9 @@ const openTemplateDir = async () => {
               v-model="localState.uiScale"
               label="Density"
               :options="[
-                { value: 'standard', title: 'Standard', badge: '100%', description: '42 px rundown rows — fits more on a laptop screen.' },
-                { value: 'comfortable', title: 'Comfortable', badge: '115% · recommended', description: '48 px rows with larger titles and timing.' },
-                { value: 'large', title: 'Large', badge: '130%', description: '54 px rows and bigger targets, for wall monitors.' }
+                { value: 'standard', title: 'Standard', badge: 'Dense', description: '36 px rundown rows and smaller type — fits the most on a laptop screen.' },
+                { value: 'comfortable', title: 'Comfortable', badge: 'Recommended', description: '40 px rows — the default for a desk monitor.' },
+                { value: 'large', title: 'Large', badge: 'Wall monitor', description: '48 px rows, larger type and bigger targets.' }
               ]"
             />
           </section>

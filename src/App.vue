@@ -1225,7 +1225,9 @@ onUnmounted(() => {
 .app-shell {
   display: grid;
   grid-template-columns: var(--left-w) var(--space-2) 1fr;
-  grid-template-rows: 1fr calc(var(--control-h-md) + var(--space-2) * 3);
+  /* The bar is the control height plus 6px above and below it, and the 8px
+     gutter over it (`.control-bar`'s margin-top). */
+  grid-template-rows: 1fr calc(var(--control-h-md) + var(--space-2) + var(--space-3));
   grid-template-areas: "library r1 rundown" "ctrl ctrl ctrl";
   height: 100vh; gap: 0; padding: var(--space-2); overflow: hidden;
   background: var(--bg-primary);
@@ -1238,7 +1240,7 @@ onUnmounted(() => {
 .panel-library  { grid-area: library; overflow:hidden; }
 .panel-rundown  { grid-area: rundown; overflow:hidden; }
 /* UI F-01: `flex-wrap: nowrap` is load-bearing. The shell's `ctrl` grid row is
-   a fixed 58px and the shell is `overflow: hidden`, so any wrapped second row
+   one control high and the shell is `overflow: hidden`, so any wrapped second row
    is clipped out of reach. Collapse tiers below shed content instead. */
 .control-bar {
   grid-area: ctrl;

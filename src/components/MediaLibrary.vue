@@ -2839,7 +2839,7 @@ const menuItems = computed<MenuItem[]>(() => {
 }
 .lib-asset-pane .lib-row.is-asset {
   content-visibility: auto;
-  contain-intrinsic-size: 38px;
+  contain-intrinsic-size: var(--row-h-library);
 }
 
 .system-node-recycle-bin {
@@ -3358,7 +3358,7 @@ const menuItems = computed<MenuItem[]>(() => {
   color: var(--text-secondary);
 }
 .lib-asset-list.row-mode-two-line .lib-row.is-asset {
-  contain-intrinsic-size: 55px;
+  contain-intrinsic-size: calc(var(--row-h-library) * 1.45);
 }
 .lib-row-mode-toggle.active {
   border-color: color-mix(in srgb, var(--accent-blue) 55%, transparent);
