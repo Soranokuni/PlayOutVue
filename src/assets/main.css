@@ -734,12 +734,21 @@
   /* §3.9 — the one stacking token a component could not express locally. */
   --z-context-menu-nested: 1250;
 
-  /* §3.5: the complete glow vocabulary. Three glows, one blur radius each,
-     every one derived from a status token — so they are written once here
-     rather than per theme, and a theme that re-tunes `--status-onair` gets the
-     matching glow for free. Outside `main.css` the only permitted box-shadow
-     values are these, `--shadow-1/2/3`, `--shadow-inset`, `--shadow-highlight`
-     and `--focus-ring`. */
+}
+
+/* §3.5: the complete glow vocabulary. Three glows, one blur radius each,
+   every one derived from a status token — so they are written once here
+   rather than per theme, and a theme that re-tunes `--status-onair` gets the
+   matching glow for free. Outside `main.css` the only permitted box-shadow
+   values are these, `--shadow-1/2/3`, `--shadow-inset`, `--shadow-highlight`
+   and `--focus-ring`.
+
+   Declared on `body` as well as `:root`: a custom property resolves its
+   `var()`s where it is declared, and the themes set their status tokens on
+   `body.*-theme`. On `:root` alone these took Dark's values and every other
+   theme inherited Dark's glows and panel highlight. */
+:root,
+body {
   --shadow-highlight: inset 0 1px 0 var(--highlight-top);
   --glow-onair: 0 0 0 1px color-mix(in srgb, var(--status-onair) 55%, transparent), 0 0 16px var(--onair-glow);
   --glow-armed: 0 0 0 1px color-mix(in srgb, var(--status-armed) 55%, transparent), 0 0 12px color-mix(in srgb, var(--status-armed) 35%, transparent);
