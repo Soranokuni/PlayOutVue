@@ -35,6 +35,7 @@ describe('RundownList tick isolation', () => {
   afterEach(() => {
     wrapper?.unmount();
     wrapper = null;
+    store.stopPlaybackProgressTimer();
     isCasparPlaying.value = false;
     currentCasparMs.value = 0;
     vi.useRealTimers();
@@ -63,6 +64,9 @@ describe('RundownList tick isolation', () => {
   it('sub-second playback ticks and progress updates do not re-render the list', async () => {
     wrapper = mountList();
     currentCasparMs.value = 5_000;
+    // The store's progress loop (4 Hz) on the playing instance. 1 s long, so
+    // its countdown string stays '-00:01' for the half second below.
+    store.startPlaybackProgressTimer(store.currentPlayingInstanceId!, 1_000);
     await nextTick();
     const tree = listSubTree(wrapper);
     const hairline = () => wrapper!.get('[data-progress-tone] .rw-progress-hairline').attributes('style');
@@ -72,10 +76,9 @@ describe('RundownList tick isolation', () => {
       currentCasparMs.value = 5_000 + i * 100;
       await nextTick();
     }
-    store.playbackProgressPct = 42;
-    await nextTick();
+    await vi.advanceTimersByTimeAsync(500);
 
-    expect(hairline()).toContain('scaleX(0.42)');
+    expect(hairline()).toContain('scaleX(0.5)');
     expect(listSubTree(wrapper)).toBe(tree);
   });
 

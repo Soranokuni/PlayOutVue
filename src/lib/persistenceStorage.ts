@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { StorageLike } from 'pinia-plugin-persistedstate';
+import type { Serializer, StorageLike } from 'pinia-plugin-persistedstate';
 
 /**
  * Audit T1-8: pinia-plugin-persistedstate swallows `setItem` failures unless
@@ -31,6 +31,12 @@ export interface GuardedStorageOptions {
 export interface GuardedStorage extends StorageLike {
   /** Write every pending value now. Safe to call at any time. */
   flush(): void;
+  /**
+   * Queue a value that is produced only when it is written (debounce end,
+   * flush, or a read of the pending key). Without a debounce it is produced
+   * and written at once.
+   */
+  setItemLazy(key: string, produce: () => string): void;
 }
 
 export const persistenceFault = ref<PersistenceFault | null>(null);
@@ -96,8 +102,21 @@ export function createGuardedStorage(base?: StorageLike, options: GuardedStorage
     }
   };
 
-  const pending = new Map<string, string>();
+  const pending = new Map<string, string | (() => string)>();
   let timer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Produce a lazy value; a failure is reported like a failed write. */
+  const resolveValue = (key: string, value: string | (() => string)): string | null => {
+    if (typeof value === 'string') return value;
+    try {
+      return value();
+    } catch (error) {
+      const message = `Failed to serialise "${key}": ${error instanceof Error ? error.message : String(error)}`;
+      persistenceFault.value = { key, message, at: Date.now() };
+      console.error('[Persistence]', message);
+      return null;
+    }
+  };
 
   const flush = (): void => {
     if (timer) {
@@ -107,7 +126,16 @@ export function createGuardedStorage(base?: StorageLike, options: GuardedStorage
     if (pending.size === 0) return;
     const batch = Array.from(pending.entries());
     pending.clear();
-    for (const [key, value] of batch) writeNow(key, value);
+    for (const [key, value] of batch) {
+      const resolved = resolveValue(key, value);
+      if (resolved !== null) writeNow(key, resolved);
+    }
+  };
+
+  const queue = (key: string, value: string | (() => string)): void => {
+    pending.set(key, value);
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(flush, debounceMs);
   };
 
   if (debounceMs > 0) {
@@ -118,7 +146,7 @@ export function createGuardedStorage(base?: StorageLike, options: GuardedStorage
   return {
     getItem(key: string): string | null {
       const queued = pending.get(key);
-      if (queued !== undefined) return queued;
+      if (queued !== undefined) return resolveValue(key, queued);
       try {
         return resolveBase()?.getItem(key) ?? null;
       } catch (error) {
@@ -131,10 +159,58 @@ export function createGuardedStorage(base?: StorageLike, options: GuardedStorage
         writeNow(key, value);
         return;
       }
-      pending.set(key, value);
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(flush, debounceMs);
+      queue(key, value);
+    },
+    setItemLazy(key: string, produce: () => string): void {
+      if (debounceMs === 0) {
+        const resolved = resolveValue(key, produce);
+        if (resolved !== null) writeNow(key, resolved);
+        return;
+      }
+      queue(key, produce);
     },
     flush,
+  };
+}
+
+const DEFERRED_JSON = '\u0000deferred-json';
+
+/**
+ * PERF-PLAN PR B: a debounced storage whose JSON is built when it is written.
+ *
+ * pinia-plugin-persistedstate serialises the picked state on every store
+ * change and only then hands the string to `setItem`, so a debounced storage
+ * still paid a full `JSON.stringify` of every playlist per change (a
+ * selection move, an arrow key held down). This pair defers it: the
+ * serializer only remembers the state it was given and returns a token, and
+ * the storage turns the token into a lazy write of the latest state. A burst
+ * of changes costs one stringify, at flush time, of the newest state; the
+ * pagehide / unload / hidden flush still writes it synchronously.
+ *
+ * Use one pair per store key.
+ */
+export function createDeferredJsonPersistence(
+  base?: StorageLike,
+  options: GuardedStorageOptions = {}
+): { storage: GuardedStorage; serializer: Serializer } {
+  const guarded = createGuardedStorage(base, options);
+  let latest: unknown;
+  return {
+    serializer: {
+      serialize: (value) => {
+        latest = value;
+        return DEFERRED_JSON;
+      },
+      deserialize: (raw) => JSON.parse(raw)
+    },
+    storage: {
+      getItem: (key) => guarded.getItem(key),
+      setItem: (key, value) => {
+        if (value === DEFERRED_JSON) guarded.setItemLazy(key, () => JSON.stringify(latest));
+        else guarded.setItem(key, value);
+      },
+      setItemLazy: (key, produce) => guarded.setItemLazy(key, produce),
+      flush: () => guarded.flush()
+    }
   };
 }
