@@ -1405,6 +1405,7 @@ onUnmounted(() => {
         </div>
 
         <BaseButton
+          class="rw-live-block-btn"
           variant="ghost"
           size="sm"
           icon="live"
@@ -1415,7 +1416,7 @@ onUnmounted(() => {
         </BaseButton>
         <BaseButton
           v-if="isPlayoutPlaying"
-          class="btn-stop"
+          class="btn-stop rw-header-stop-btn"
           variant="ghost"
           size="sm"
           icon="stop"
@@ -1499,6 +1500,22 @@ onUnmounted(() => {
             @click.stop="showPlaylistMenu = !showPlaylistMenu"
           />
           <div v-if="showPlaylistMenu" class="rw-overflow-menu popover-surface" role="menu" @click.stop>
+            <!-- A very narrow panel folds the header's file group in here. -->
+            <div class="rw-overflow-file-items">
+              <button class="popover-item" role="menuitem" @click="runPlaylistFileAction('load')">
+                <AppIcon class="rw-overflow-icon tone-accent" name="folder-open" :size="14" />
+                <span>Load playlist…</span>
+              </button>
+              <button class="popover-item" role="menuitem" @click="runPlaylistFileAction('append')">
+                <AppIcon class="rw-overflow-icon tone-accent" name="file-plus" :size="14" />
+                <span>Append playlist…</span>
+              </button>
+              <button class="popover-item" role="menuitem" @click="runPlaylistFileAction('save')">
+                <AppIcon class="rw-overflow-icon tone-accent" name="save" :size="14" />
+                <span>Save playlist…</span>
+              </button>
+              <div class="popover-divider" role="separator" />
+            </div>
             <button class="rw-overflow-item popover-item" role="menuitem" @click="startRenameActivePlaylist">
               <AppIcon class="rw-overflow-icon tone-accent" name="rename" :size="14" />
               <span>Rename playlist…</span>
@@ -1767,7 +1784,43 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.rundown-wrapper { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+.rundown-wrapper { height:100%; display:flex; flex-direction:column; overflow:hidden; position:relative; container: rundown-panel / inline-size; }
+
+/* A snapped window: the header's worded buttons keep their icons and
+   tooltips and lose their words, so the playlist name keeps its room. The
+   words are clipped rather than removed, so the buttons keep their names. */
+@container rundown-panel (max-width: 900px) {
+  .rw-ticker-toggle-btn :deep(.btn-label),
+  .rw-live-block-btn :deep(.btn-label),
+  .rw-header-stop-btn :deep(.btn-label) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Narrower still, so the name and its totals keep a readable width: the
+   wall clock steps down a size, the actions close up, and two duplicates go
+   -- the ON AIR pill (the playlist tab says it too) and Stop (the control
+   bar's STOP is always on screen). */
+@container rundown-panel (max-width: 640px) {
+  /* Scoped under the header so these beat the base rules further down. */
+  .rw-header .studio-clock-wrap .clock-display { font-size: var(--fs-lg); }
+  .rw-header .rw-header-actions { gap: var(--space-1); }
+  .rw-header .rw-header-name-row .playing-badge,
+  .rw-header .rw-header-stop-btn { display: none; }
+}
+
+/* The narrowest panel the 1100px window allows (library at its 640px
+   maximum) is ~436px: Load / Append / Save move into the header's More menu. */
+.rw-overflow-file-items { display: none; }
+@container rundown-panel (max-width: 500px) {
+  .rw-header .rw-file-group { display: none; }
+  .rw-header .rw-overflow-file-items { display: contents; }
+}
 .rw-header-actions {
   display: flex;
   align-items: center;
@@ -1776,13 +1829,16 @@ onUnmounted(() => {
 }
 
 /* The one part of the header that gives way: the name ellipsises and the
-   totals line after it, so the actions never wrap. */
+   totals line after it, so the actions never wrap. It keeps a floor, and
+   clips at it, so a narrow panel cannot squeeze it to nothing and let the
+   name row spill under the actions. */
 .rw-header-title {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: var(--space-0);
-  min-width: 0;
+  min-width: calc(var(--space-8) * 3);
+  overflow: hidden;
   flex: 0 1 auto;
 }
 
@@ -2223,6 +2279,8 @@ onUnmounted(() => {
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
+  /* As wide as the rows under it, so its labels scroll with them. */
+  min-width: min-content;
 }
 .rw-list {
   flex: 1;
@@ -2453,7 +2511,30 @@ onUnmounted(() => {
    6 px away read as one word, "DURATIONAT". */
 .rw-cols-label .col-dur { width: var(--rw-col-dur); text-align: right; flex-shrink: 0; }
 .rw-cols-label .col-at { width: var(--rw-col-at); text-align: right; flex-shrink: 0; margin-left: var(--space-2); }
-.rw-cols-label .col-actions { width: var(--rw-col-actions); text-align: right; flex-shrink: 0; }
+.rw-cols-label .col-actions {
+  width: var(--rw-col-actions);
+  text-align: right;
+  flex-shrink: 0;
+  /* Pinned with the row cells under it, gutter cover included -- which is
+     why this one label does not clip its overflow like the others. */
+  position: sticky;
+  right: 0;
+  overflow: visible;
+  background: var(--bg-tertiary);
+}
+.rw-cols-label .col-actions::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Overlaps the cell by 1px: at a fractional display scale the seam
+     between them let a hairline of the text underneath through. */
+  left: calc(100% - 1px);
+  /* Twice the gutter: at a fractional display scale a sliver of glyph
+     survived at the clip edge. Anything past the list's edge is clipped. */
+  width: calc(var(--scrollbar-w) * 2);
+  background: inherit;
+}
 
 /* One container for both, now that the header lives inside the list: two
    containers 8px apart shed their columns at two different window widths. */
@@ -2461,23 +2542,34 @@ onUnmounted(() => {
   container: rundown / inline-size;
 }
 
-/* The fixed columns plus a 180px title need ~784px. At the 1100px minimum
-   window with the default 320px library the list is 747px, so the Actions
-   column was clipped behind a horizontal scrollbar. Below 800px the title
-   gives up 40px of its floor first; it still flexes wider when there is room.
-   Set on the rows as well as the header, because the property is read where
-   the rows are, below the container. */
-@container rundown (max-width: 800px) {
+/* The column ladder, narrowest last. The fixed columns plus a 180px title
+   need 784px. First the title gives up 40px of its floor (it still grows
+   when there is room), then Trim goes, then the tag chips (the rating
+   stays), then At, and last the title's floor drops again. Below that the
+   list scrolls sideways under the pinned Actions. RundownRow sheds its cells
+   at the same widths. The title floor is set on the rows as well as the
+   header, because the property is read below the container. */
+@container rundown (max-width: 792px) {
   .rw-cols-label,
   .rw-row { --rw-col-title-min: 140px; }
 }
 
-@container rundown (max-width: 620px) {
+@container rundown (max-width: 752px) {
   .rw-cols-label .col-trim { display: none; }
 }
 
-@container rundown (max-width: 520px) {
-  .rw-cols-label .col-flags { width: var(--rw-col-flags-narrow); }
+@container rundown (max-width: 660px) {
+  /* 26px holds a rating chip but not the word; clipped it read "FLAC". */
+  .rw-cols-label .col-flags { width: var(--rw-col-flags-narrow); visibility: hidden; }
+}
+
+@container rundown (max-width: 596px) {
+  .rw-cols-label .col-at { display: none; }
+}
+
+@container rundown (max-width: 496px) {
+  .rw-cols-label,
+  .rw-row { --rw-col-title-min: 96px; }
 }
 
 /* --- Day separator -------------------------------------------------------- */
