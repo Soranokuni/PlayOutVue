@@ -2178,6 +2178,14 @@ onUnmounted(() => {
   margin-bottom: var(--space-2);
   background: var(--bg-tertiary);
   flex-shrink: 0;
+  /* The micro-label type. 77b2486 rewrote this rule for the sticky header and
+     dropped this line, so the labels fell back to body size in primary white
+     and read louder than the rows under them. */
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 .rw-list {
   flex: 1;
