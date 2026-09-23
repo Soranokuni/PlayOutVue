@@ -602,6 +602,9 @@ const itemTooltip = computed(() => {
   left: calc(100% - 1px);
   width: calc(var(--space-2) + 1px);
   background: inherit;
+  /* Beneath the buttons (the cell is its own stacking context): above them,
+     its 1px overlap cut the delete button's right edge and hover border. */
+  z-index: -1;
 }
 
 /* The delete control appears on hover or keyboard focus, so a 300-row list is
