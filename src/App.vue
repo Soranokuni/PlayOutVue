@@ -18,6 +18,7 @@ const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponen
 );
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import AppIcon from './components/ui/AppIcon.vue';
+import RenderIsland from './components/ui/RenderIsland.vue';
 import ToastHost from './components/ui/ToastHost.vue';
 import Tooltip from './components/ui/Tooltip.vue';
 import { vTooltip } from './lib/tooltip';
@@ -154,7 +155,11 @@ const controlBarRef = ref<HTMLElement | null>(null);
 const controlBarStep = ref(0);
 let controlBarObserver: ResizeObserver | null = null;
 
+/** Bumped on every fit, so the window fallback can tell one already ran. */
+let controlBarFits = 0;
+
 const fitControlBar = () => {
+  controlBarFits += 1;
   const el = controlBarRef.value;
   if (!el) return;
   // An element with no layout (happy-dom, or a bar not yet in the grid) reports
@@ -201,13 +206,26 @@ const startControlBarObserver = () => {
   // environments where ResizeObserver does not deliver.
   fitControlBar();
   requestAnimationFrame(fitControlBar);
-  window.addEventListener('resize', fitControlBar);
+  window.addEventListener('resize', onWindowResizeFit);
+};
+
+/**
+ * The fallback for a ResizeObserver that does not deliver. A window resize
+ * event fires before the frame's observations, so wait a frame and fit only
+ * if the observer did not: each fit stands on up to six rungs, forcing a
+ * layout each (PERF-PLAN PR H -- it used to run twice per resize event).
+ */
+const onWindowResizeFit = () => {
+  const seen = controlBarFits;
+  requestAnimationFrame(() => {
+    if (controlBarFits === seen) fitControlBar();
+  });
 };
 
 const stopControlBarObserver = () => {
   controlBarObserver?.disconnect();
   controlBarObserver = null;
-  window.removeEventListener('resize', fitControlBar);
+  window.removeEventListener('resize', onWindowResizeFit);
 };
 
 /** At the last rung the utilities fold into one popover. */
@@ -966,7 +984,9 @@ onUnmounted(() => {
 
       <!-- Media Timecode & Next Up Telemetry Dock -->
       <div class="ctrl-section ctrl-telemetry-group">
-        <div class="timecode">{{ currentPlayoutTime }}</div>
+        <!-- The timecode changes on every playback tick; the island keeps
+             that from re-rendering the whole shell template. -->
+        <RenderIsland><div class="timecode">{{ currentPlayoutTime }}</div></RenderIsland>
         <div class="ctrl-nextup-dock" :class="{ 'is-imminent': isNextUpImminent }">
           <div class="nextup-header">
             <span class="label-caps nextup-kicker">NEXT UP</span>
@@ -1289,9 +1309,10 @@ onUnmounted(() => {
   color:var(--status-onair); font-size:var(--fs-sm); font-weight:var(--fw-semibold);
   padding:0 var(--space-3); letter-spacing:var(--tracking-caps); margin-left:0;
 }
-/* PERF: the pill is on screen for the whole session, so the breathing glow
-   lives on an overlay whose opacity animates on the compositor rather than a
-   box-shadow keyframe that repaints the button every frame. */
+/* PERF: the glow lives on an overlay so it never repaints the button.
+   PERF-PLAN PR H: the resting pill is on screen for the whole shift, so its
+   glow is steady; only the armed state below breathes, because that one is
+   asking for the second click. */
 .btn-live-now::after {
   content:'';
   position:absolute;
@@ -1299,8 +1320,7 @@ onUnmounted(() => {
   border-radius:inherit;
   pointer-events:none;
   box-shadow:var(--glow-onair);
-  animation:onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
-  will-change:opacity;
+  opacity:var(--opacity-muted);
 }
 .btn-live-now:hover:not(:disabled) {
   background:color-mix(in srgb, var(--status-onair) 26%, var(--bg-hover));
@@ -1531,11 +1551,27 @@ onUnmounted(() => {
   box-sizing: border-box;
   /* PERF F-23: `all` also animated the dock width every time the label changed. */
   transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+  /* Stacking context for the imminent tint below: a z-index:-1 child then
+     paints over the dock's own background but under its text. */
+  position: relative;
+  isolation: isolate;
 }
 
+/* PERF-PLAN PR H: the whole dock used to pulse, so in the last ten seconds
+   the countdown and the next title faded to 35% -- the moment the operator
+   reads them. The border is steady now and only a tint layer breathes. */
 .ctrl-nextup-dock.is-imminent {
   border-color: var(--status-cued);
+}
+
+.ctrl-nextup-dock.is-imminent::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
   background: color-mix(in srgb, var(--status-cued) 15%, transparent);
+  pointer-events: none;
   animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 }
 

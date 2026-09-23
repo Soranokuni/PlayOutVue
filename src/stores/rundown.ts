@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { createGuardedStorage } from '../lib/persistenceStorage';
+import { createDeferredJsonPersistence } from '../lib/persistenceStorage';
 import { v4 as uuidv4 } from 'uuid';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, shallowRef, triggerRef, ref, watch, toRaw } from 'vue';
@@ -393,7 +393,21 @@ export const useRundownStore = defineStore('rundown', () => {
     const activePlaylistId = ref(initialPlaylist.id);
     const onAirPlaylistId = ref<string | null>(null);
 
+    /**
+     * Paths the last `verifyRundownPaths` found absent. The registry can call
+     * an asset `ready` while the playout machine cannot see its file; without
+     * this, every poll set such a row `ready` (re-arming the on-air queue)
+     * and the disk check set it `missing` again.
+     */
+    let missingOnDisk = new Set<string>();
+    /** The registry's status for a row, unless this machine cannot open its file. */
+    const statusFromRegistry = (path: string | undefined, status: IngestorStatus): IngestorStatus =>
+        path && missingOnDisk.has(path.trim()) ? 'missing' : status;
+
     const activePlayingUuid = ref<string | null>(null);
+    // PERF-PLAN PR B: the progress loop writes these 4x a second. As store
+    // state, every write fired the persist plugin's deep watch over all
+    // playlists; they are returned as getters instead (see the return block).
     const playbackProgressPct = ref<number>(0);
     const playbackCountdownStr = ref<string>('');
     const updateTrigger = ref(0);
@@ -1508,7 +1522,7 @@ export const useRundownStore = defineStore('rundown', () => {
                         complianceRating: meta.ageRating,
                         tp_flag: meta.tpFlag,
                         content_type: meta.contentType,
-                        ingestorStatus: (asset.status || 'ready') as IngestorStatus,
+                        ingestorStatus: statusFromRegistry(asset.current_path || existing.path, (asset.status || 'ready') as IngestorStatus),
                         display_name: asset.display_name,
                         virtual_folder: asset.virtual_folder,
                         current_path: asset.current_path,
@@ -1775,7 +1789,9 @@ export const useRundownStore = defineStore('rundown', () => {
             asset.trim_out_ms && asset.trim_out_ms > trimInMs ? asset.trim_out_ms : fileDurationMs;
         const effectiveMs = trimOutMs > trimInMs ? trimOutMs - trimInMs : fileDurationMs;
         const path = asset.current_path || item.path;
-        const status = (asset.status || 'ready') as IngestorStatus;
+        // The disk check outranks the registry: a file this machine cannot
+        // open is missing, whatever the transcoder says about it.
+        const status = statusFromRegistry(path, (asset.status || 'ready') as IngestorStatus);
         const displayName = asset.display_name || item.display_name;
 
         const unchanged =
@@ -1883,7 +1899,11 @@ export const useRundownStore = defineStore('rundown', () => {
             }
         }
 
-        deferredReconcileItemIds.value = stillDeferred;
+        // A new Set every poll would notify every reader for nothing.
+        const previousDeferred = deferredReconcileItemIds.value;
+        if (previousDeferred.size !== stillDeferred.size || [...stillDeferred].some((id) => !previousDeferred.has(id))) {
+            deferredReconcileItemIds.value = stillDeferred;
+        }
 
         // Audit F-1: the registry can say `ready` about a file that is no
         // longer on disk. Confirm existence out of band after every reconcile.
@@ -1932,6 +1952,11 @@ export const useRundownStore = defineStore('rundown', () => {
             verifyPathsInFlight = false;
         }
 
+        // Every rundown path was checked, so this result replaces the last.
+        const previouslyMissing = missingOnDisk;
+        missingOnDisk = new Set(Object.keys(existsByPath).filter((path) => existsByPath[path] === false));
+        const recovered = [...previouslyMissing].some((path) => !missingOnDisk.has(path));
+
         const onAirId = onAirPlaylistId.value;
         const onAirInstanceId = currentPlayingInstanceId.value;
         let changed = 0;
@@ -1957,6 +1982,9 @@ export const useRundownStore = defineStore('rundown', () => {
                 updatePlaylistState(playlist.id, { items: newItems });
             }
         }
+
+        // A file that is back should not wait for the next poll to go green.
+        if (recovered && lastLibrarySnapshot.length) reconcileWithLibrary(lastLibrarySnapshot);
 
         return changed;
     };
@@ -2080,7 +2108,7 @@ export const useRundownStore = defineStore('rundown', () => {
                 complianceRating: meta.ageRating,
                 tp_flag: meta.tpFlag,
                 content_type: meta.contentType,
-                ingestorStatus: response.status as IngestorStatus,
+                ingestorStatus: statusFromRegistry(response.current_path || item.path, response.status as IngestorStatus),
                 display_name: response.display_name,
                 virtual_folder: response.virtual_folder,
                 current_path: response.current_path,
@@ -2136,22 +2164,32 @@ export const useRundownStore = defineStore('rundown', () => {
         return totalMs;
     };
 
+    // PERF-PLAN PR B: narrow inputs for the ETAs. A selection change replaces
+    // the playlist object but none of these, so arrow keys no longer
+    // reformat every row's ETA.
+    const hasCurrentPlaylist = computed(() => !!currentPlaylist.value);
+    const etaStartFromTime = computed(() => currentPlaylist.value?.startFromTime);
+    const etaStartFromWeekday = computed(() => currentPlaylist.value?.startFromWeekday);
+
     const activeItemsETAs = computed(() => {
-        const playlist = currentPlaylist.value;
-        if (!playlist) return [];
-        
+        if (!hasCurrentPlaylist.value) return [];
+        const items = activeItems.value;
+        const startFromTime = etaStartFromTime.value;
+
         const playingCurrentPlaylist = isCurrentPlaylistOnAir.value && currentPlayingIndex.value >= 0;
-        const wallClock = clockMs.value;
+        // Read the wall clock only when the anchor uses it: a playing
+        // playlist anchored to its start does not change every second.
+        const wallClock = () => clockMs.value;
 
         const anchorEpoch = playingCurrentPlaylist
-            ? (playStartTime.value || wallClock)
-            : (playlist.startFromTime
-                ? applyWeekdayAnchor(parseClockAnchor(playlist.startFromTime, wallClock), playlist.startFromWeekday)
-                : wallClock);
-        
+            ? (playStartTime.value || wallClock())
+            : (startFromTime
+                ? applyWeekdayAnchor(parseClockAnchor(startFromTime, wallClock()), etaStartFromWeekday.value!)
+                : wallClock());
+
         let accumulatedTime = anchorEpoch;
 
-        return playlist.items.map((item, index) => {
+        return items.map((item, index) => {
             if (item.type === 'gap') {
                 const gapLabel = item.hardStartTime || item.filename.replace(/^Start @\s*/, '');
                 if (!playingCurrentPlaylist && gapLabel) {
@@ -2668,7 +2706,9 @@ export const useRundownStore = defineStore('rundown', () => {
         verifyRundownPaths,
         resolveItemsBatch,
         flushDeferredReconcile,
-        deferredReconcileItemIds,
+        // Getters, not state: volatile values must not fire the persist
+        // plugin's deep watch (PERF-PLAN PR B).
+        deferredReconcileItemIds: computed(() => deferredReconcileItemIds.value),
         serializeRundown,
         deserializeRundown,
         setPlaylistOnAir,
@@ -2679,13 +2719,13 @@ export const useRundownStore = defineStore('rundown', () => {
         clearOnAirState,
         resolveAssetFromApi,
         activePlayingUuid,
-        playbackProgressPct,
-        playbackCountdownStr,
+        playbackProgressPct: computed(() => playbackProgressPct.value),
+        playbackCountdownStr: computed(() => playbackCountdownStr.value),
         updateTrigger,
         startPlaybackProgressTimer,
         stopPlaybackProgressTimer,
         restorePlaybackState,
-        clockMs,
+        clockMs: computed(() => clockMs.value),
         activeItemsETAs,
         indexOfActiveItem,
         nowDisplayTime,
@@ -2731,7 +2771,8 @@ export const useRundownStore = defineStore('rundown', () => {
             'isRundownLocked'
         ],
         // PERF F-08: coalesce the whole-playlists serialisation that every
-        // structural mutation triggers; flushed on hide/unload.
-        storage: createGuardedStorage(undefined, { debounceMs: 250 })
+        // structural mutation triggers; flushed on hide/unload. PERF-PLAN PR B:
+        // the JSON itself is built at flush time, not on every change.
+        ...createDeferredJsonPersistence(undefined, { debounceMs: 250 })
     }
 });

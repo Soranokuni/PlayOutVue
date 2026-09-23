@@ -59,7 +59,17 @@ function updateIndicatorVisuals() {
     indicatorGeometry.value = null;
     return;
   }
-  indicatorGeometry.value = computeIndicatorGeometry(session.dropTarget, session.snapshot);
+  const next = computeIndicatorGeometry(session.dropTarget, session.snapshot);
+  // Runs every animation frame of a drag; a new object with the same values
+  // would still re-render the whole rundown list.
+  if (!sameIndicatorGeometry(indicatorGeometry.value, next)) indicatorGeometry.value = next;
+}
+
+function sameIndicatorGeometry(a: IndicatorGeometry | null, b: IndicatorGeometry | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.top === b.top && a.left === b.left && a.width === b.width
+    && a.visible === b.visible && a.label === b.label && a.isAppend === b.isAppend;
 }
 
 function scheduleTargetResolution() {

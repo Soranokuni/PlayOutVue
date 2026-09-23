@@ -89,9 +89,11 @@ const tooltip = computed(() => {
   opacity: 0;
 }
 
+/* PERF-PLAN PR H: "online" is the normal state for the whole shift, so its
+   ring is steady. The warning state below still breathes. */
 .status-dot.online::after {
   color: var(--status-ready);
-  animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+  opacity: var(--opacity-muted);
 }
 
 .status-dot.auth-rejected::after {

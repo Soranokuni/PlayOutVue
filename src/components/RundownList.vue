@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist, type InsertionTarget } from '../stores/rundown';
@@ -25,6 +25,8 @@ import { buildRowRectsFromDOM, calculatePointerDropTarget, toInsertionTarget, sa
 import { GREEK_COMPLIANCE_PRESETS, GREEK_CONTENT_DESCRIPTORS, buildGreekAdvisoryText, parseDescriptorsFromText, type GreekCompliancePreset, type ContentDescriptorId } from '../lib/greekCompliance';
 import EmptyState from './ui/EmptyState.vue';
 import BaseButton from './ui/BaseButton.vue';
+import RenderIsland from './ui/RenderIsland.vue';
+import { RUNDOWN_LIVE_PROGRESS } from '../lib/rundownLiveProgress';
 import DangerConfirm from './ui/DangerConfirm.vue';
 import { showToast } from '../lib/toasts';
 
@@ -293,7 +295,10 @@ const nextPlayableVisibleIndex = computed(() => {
 });
 
 const isNextUpRow = (index: number) => index === nextPlayableVisibleIndex.value;
-const isNextUpImminent = (index: number) => isNextUpRow(index) && currentRemainingMs.value > 0 && currentRemainingMs.value <= 10_000;
+// A boolean computed flips once, at the 10 s mark; reading the remaining ms
+// directly made the list template depend on every playback tick.
+const nextUpImminent = computed(() => currentRemainingMs.value > 0 && currentRemainingMs.value <= 10_000);
+const isNextUpImminent = (index: number) => isNextUpRow(index) && nextUpImminent.value;
 
 const scheduledTimes = computed(() => {
   return store.activeItemsETAs.map((eta, index) => ({
@@ -323,6 +328,17 @@ const calcProgress = (item: RundownItem, index: number) => {
   if (!duration || duration <= 0) return 0;
   return Math.max(0, Math.min(100, (currentPlayoutMs.value / duration) * 100));
 };
+
+// Read by the on-air row's hairline only (see RundownLiveProgress). The list
+// template must not read these, or it re-renders on every playback tick.
+provide(RUNDOWN_LIVE_PROGRESS, {
+  green: computed(() => store.playbackProgressPct),
+  red: computed(() => {
+    const index = store.currentPlayingIndex;
+    const item = store.activeItems[index];
+    return item ? calcProgress(item, index) : 0;
+  })
+});
 
 const hydrateMissingDurations = async () => {
   const candidates = store.activeItems.filter((item) =>
@@ -1039,15 +1055,27 @@ const msToCompactDisplay = (ms: number) => {
   return hours > 0 ? `${hours}:${minutes}:${seconds}` : `${minutes}:${seconds}`;
 };
 
+// The label changes once a second; the position under it changes on every
+// tick. Going through a computed keeps the list template on the former.
+const playingElapsedLabel = computed(() => msToCompactDisplay(currentPlayoutMs.value));
+
 const rowElapsedLabel = (item: RundownItem, index: number) => {
   if (item.type === 'gap') return '';
   if (index !== store.currentPlayingIndex || !isPlayoutPlaying.value || !store.isCurrentPlaylistOnAir) return '';
-  return msToCompactDisplay(currentPlayoutMs.value);
+  return playingElapsedLabel.value;
 };
+
+// At-rest totals, formatted once per rundown change instead of once per row
+// on every list render.
+const restingTotalLabels = computed(() => {
+  const labels = new Map<string, string>();
+  store.activeItems.forEach((item, index) => labels.set(item.id, durationLabel(item, index)));
+  return labels;
+});
 
 const rowTotalLabel = (item: RundownItem, index: number) => {
   // At rest the row shows its full total, exactly as before.
-  if (!rowElapsedLabel(item, index)) return durationLabel(item, index);
+  if (!rowElapsedLabel(item, index)) return restingTotalLabels.value.get(item.id) ?? durationLabel(item, index);
   const totalMs = effectiveDurationMs(item, index);
   if (item.type === 'live' && totalMs <= 0) return 'LIVE';
   return msToCompactDisplay(totalMs);
@@ -1090,12 +1118,6 @@ const rowProgressTone = (item: RundownItem, index: number): '' | 'green' | 'red'
   if (item.id === store.currentPlayingInstanceId) return 'green';
   if (index === store.currentPlayingIndex && isPlayoutPlaying.value && store.isCurrentPlaylistOnAir && item.type !== 'live' && item.type !== 'gap') return 'red';
   return '';
-};
-const rowProgressPct = (item: RundownItem, index: number): number => {
-  const tone = rowProgressTone(item, index);
-  if (tone === 'green') return store.playbackProgressPct;
-  if (tone === 'red') return calcProgress(item, index);
-  return 0;
 };
 const rowCountdown = (item: RundownItem) => (item.id === store.currentPlayingInstanceId ? store.playbackCountdownStr : '');
 const rowDayLabel = (index: number) => scheduledTimes.value[index]?.dayLabel || '·';
@@ -1373,7 +1395,8 @@ onUnmounted(() => {
              nothing could ever turn it off, so it claimed a clock-sync state the
              app does not observe. Dropped until a real source exists. -->
         <div class="studio-clock-wrap" v-tooltip="'Studio wall clock (system time)'">
-          <span class="clock-display">{{ studioClockTimecode }}</span>
+          <!-- 25 updates a second: the island keeps them out of the list render. -->
+          <RenderIsland><span class="clock-display">{{ studioClockTimecode }}</span></RenderIsland>
         </div>
 
         <BaseButton
@@ -1625,7 +1648,6 @@ onUnmounted(() => {
           rowIsPlayed(index),
           isNextUpRow(index),
           isNextUpImminent(index),
-          rowProgressPct(item, index),
           rowProgressTone(item, index),
           rowCountdown(item),
           rowElapsedLabel(item, index),
@@ -1652,7 +1674,6 @@ onUnmounted(() => {
           :played="rowIsPlayed(index)"
           :next-up="isNextUpRow(index)"
           :next-up-imminent="isNextUpImminent(index)"
-          :progress-pct="rowProgressPct(item, index)"
           :progress-tone="rowProgressTone(item, index)"
           :countdown="rowCountdown(item)"
           :elapsed-label="rowElapsedLabel(item, index)"

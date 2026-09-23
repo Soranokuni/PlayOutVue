@@ -40,7 +40,7 @@ use runtime_settings::{apply_runtime_settings, RuntimeSettingsState};
 use scanner::{get_media_probe_status, save_media_trim_profile, scan_media, scan_directory, start_media_probe, warm_media_cache, DbState, MediaProbeState};
 use stream::extract_web_stream;
 use trimmer::{get_media_preview_info, compute_frame_trim, parse_timecode};
-use audio_peaks::get_audio_peaks;
+use audio_peaks::{cancel_audio_peaks, get_audio_peaks};
 use playlist::{save_playlist, load_playlist};
 use filesystem::{browse_filesystem, find_default_logos_dir, get_image_dimensions, list_filesystem_roots, verify_paths_exist};
 use ingestor_api::{
@@ -224,6 +224,7 @@ pub fn run() {
             compute_frame_trim,
             parse_timecode,
             get_audio_peaks,
+            cancel_audio_peaks,
             get_media_url,
             save_playlist,
             load_playlist,

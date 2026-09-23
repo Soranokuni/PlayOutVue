@@ -268,11 +268,12 @@ const isFolderRowSelected = (row: VisibleTreeRow) =>
     mediaLibrary.selectedNodeId === row.id ||
     (mediaLibrary.currentFolderPath === row.path && !mediaLibrary.selectedAssetId);
 
+const anyFolderRowSelected = computed(() => displayedFolderRows.value.some((candidate) => isFolderRowSelected(candidate)));
+
 /** Roving tabindex: one stop for the whole tree, on the selected row. */
 const folderRowTabIndex = (row: VisibleTreeRow, index: number) => {
     if (isFolderRowSelected(row)) return 0;
-    const anySelected = displayedFolderRows.value.some((candidate) => isFolderRowSelected(candidate));
-    return !anySelected && index === 0 ? 0 : -1;
+    return !anyFolderRowSelected.value && index === 0 ? 0 : -1;
 };
 
 const folderPaneRef = ref<HTMLElement | null>(null);
@@ -319,8 +320,10 @@ watch(debouncedLibraryQuery, (query) => {
     mediaLibrary.searchQuery = query.trim().toLowerCase();
 }, { immediate: true });
 
+const deletedUuidSet = computed(() => new Set(mediaLibrary.deletedUuids));
+
 const visibleFileCount = computed(() =>
-    mediaLibrary.assets.filter((a) => !mediaLibrary.deletedUuids.includes(a.uuid)).length
+    mediaLibrary.assets.filter((a) => !deletedUuidSet.value.has(a.uuid)).length
 );
 
 const formatDuration = (seconds: number) => {
@@ -351,7 +354,7 @@ const formatTabularDuration = (seconds: number): string => {
 const totalLibraryDuration = computed(() => {
     let ms = 0;
     for (const asset of mediaLibrary.assets) {
-        if (!mediaLibrary.deletedUuids.includes(asset.uuid)) {
+        if (!deletedUuidSet.value.has(asset.uuid)) {
             ms += Math.max(0, asset.duration_ms);
         }
     }
@@ -664,8 +667,10 @@ function onFolderDoubleClick(folderPath: string) {
     expandedFolders.value[folderPath] = !expandedFolders.value[folderPath];
 }
 
+const selectedNodeIdSet = computed(() => new Set(mediaLibrary.selectedNodeIds));
+
 function isAssetSelected(uuid: string): boolean {
-    return mediaLibrary.selectedNodeIds.includes(`asset:${uuid}`) || mediaLibrary.selectedNodeId === `asset:${uuid}`;
+    return selectedNodeIdSet.value.has(`asset:${uuid}`) || mediaLibrary.selectedNodeId === `asset:${uuid}`;
 }
 
 function isAssetPrimarySelected(uuid: string): boolean {
@@ -2449,9 +2454,21 @@ const menuItems = computed<MenuItem[]>(() => {
         :hint="libraryQuery ? 'Try a shorter search, or clear it to browse folders again.' : 'Point Settings › Media & ingest at the Ingestor API or a media folder.'"
       />
       <div v-else class="lib-asset-list" :class="`row-mode-${libraryRowMode}`">
+        <!-- PERF-PLAN PR E: a click re-rendered all 2 000 rows. The memo lists
+             everything a row reads besides its asset; assets are replaced,
+             never mutated, and a poll keeps unchanged ones by identity. -->
         <div
           v-for="asset in displayedAssets"
           :key="asset.uuid"
+          v-memo="[
+            asset,
+            isAssetSelected(asset.uuid),
+            isAssetPrimarySelected(asset.uuid),
+            libraryRowMode,
+            showUnratedOnly,
+            settings.qcSensitivity,
+            inlineEditingAssetUuid === asset.uuid ? inlineRenameAssetValue : null
+          ]"
           class="lib-row is-asset"
           :class="{
             'is-selected': isAssetSelected(asset.uuid),

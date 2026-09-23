@@ -103,15 +103,17 @@ const paint = () => {
 };
 
 const tick = (now: number) => {
-  loop = requestAnimationFrame(tick);
+  loop = 0;
   const dt = lastNow ? now - lastNow : 0;
   lastNow = now;
 
   let inputs: [number, number] = [-Infinity, -Infinity];
+  let moving = false;
   const v = props.video;
   if (props.peaks && v) {
     const pos = v.currentTime * 1000;
     const playing = !v.paused && !v.ended;
+    moving = playing || pos !== lastPosMs;
     // Playing: everything that went past since the last frame, so no peak is
     // skipped. Paused (or after a jump): the one frame under the playhead.
     const contiguous = playing && lastPosMs >= 0 && pos >= lastPosMs && pos - lastPosMs < 250;
@@ -123,21 +125,51 @@ const tick = (now: number) => {
   }
   channels = [stepMeter(channels[0], inputs[0], dt), stepMeter(channels[1], inputs[1], dt)];
   paint();
+
+  // Parked on a frame with the bars at rest and the hold caught up, every
+  // further frame would paint the same picture: stop until something moves.
+  const settled = !moving && channels.every((c, i) => c.db === inputs[i] && c.holdDb === c.db);
+  if (!settled) loop = requestAnimationFrame(tick);
 };
 
-watch(() => settings.theme, () => nextTick(readPalette));
+/** Restart the loop after it went idle. */
+const wake = () => {
+  if (loop) return;
+  lastNow = 0;
+  loop = requestAnimationFrame(tick);
+};
+
+// What can move a parked meter: playback, a seek (frame step, playhead drag).
+const VIDEO_EVENTS = ['play', 'seeking', 'seeked', 'timeupdate'] as const;
+watch(
+  () => props.video,
+  (video, previous) => {
+    VIDEO_EVENTS.forEach((name) => previous?.removeEventListener(name, wake));
+    VIDEO_EVENTS.forEach((name) => video?.addEventListener(name, wake));
+    wake();
+  }
+);
+
+watch(() => settings.theme, () => nextTick(() => {
+  readPalette();
+  wake();
+}));
 watch(() => props.peaks, () => {
   channels = [freshMeterChannel(), freshMeterChannel()];
   lastPosMs = -1;
+  wake();
 });
 
 onMounted(() => {
   readPalette();
-  loop = requestAnimationFrame(tick);
+  VIDEO_EVENTS.forEach((name) => props.video?.addEventListener(name, wake));
+  wake();
 });
 
 onBeforeUnmount(() => {
+  VIDEO_EVENTS.forEach((name) => props.video?.removeEventListener(name, wake));
   if (loop) cancelAnimationFrame(loop);
+  loop = 0;
 });
 </script>
 

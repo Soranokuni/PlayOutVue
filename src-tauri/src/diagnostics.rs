@@ -259,8 +259,10 @@ pub fn clear_diagnostic_logs(diagnostics: State<'_, DiagnosticState>) {
     diagnostics.clear();
 }
 
+/// PERF-PLAN PR F: async, with the file write on the blocking pool (it can be
+/// a network path the operator picked).
 #[tauri::command]
-pub fn export_diagnostic_logs(output_path: String, diagnostics: State<'_, DiagnosticState>) -> Result<String, String> {
+pub async fn export_diagnostic_logs(output_path: String, diagnostics: State<'_, DiagnosticState>) -> Result<String, String> {
     let entries = diagnostics.recent(MAX_DIAGNOSTIC_ENTRIES);
     let mut content = String::new();
 
@@ -275,10 +277,13 @@ pub fn export_diagnostic_logs(output_path: String, diagnostics: State<'_, Diagno
         );
     }
 
-    std::fs::write(&output_path, content)
-        .map_err(|error| format!("Failed to export diagnostic logs '{}': {}", output_path, error))?;
-
-    Ok(output_path)
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(&output_path, content)
+            .map_err(|error| format!("Failed to export diagnostic logs '{}': {}", output_path, error))?;
+        Ok(output_path)
+    })
+    .await
+    .map_err(|e| format!("diagnostic export task failed: {}", e))?
 }
 
 fn now_ms() -> u64 {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createGuardedStorage, persistenceFault, clearPersistenceFault, flushPersistence } from '../persistenceStorage';
+import { createGuardedStorage, createDeferredJsonPersistence, persistenceFault, clearPersistenceFault, flushPersistence } from '../persistenceStorage';
 
 class FakeStorage {
   data = new Map<string, string>();
@@ -115,6 +115,66 @@ describe('PERF F-08 · debounced guarded storage', () => {
   it('debounceMs 0 behaves synchronously (default)', () => {
     const base = new FakeStorage();
     const storage = createGuardedStorage(base, { debounceMs: 0 });
+    storage.setItem('k', 'v');
+    expect(base.getItem('k')).toBe('v');
+  });
+});
+
+describe('PERF-PLAN PR B · deferred JSON persistence', () => {
+  beforeEach(() => {
+    clearPersistenceFault();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('stringifies once, at flush, the latest state of a burst', () => {
+    const base = new FakeStorage();
+    const { storage, serializer } = createDeferredJsonPersistence(base, { debounceMs: 250 });
+    const stringify = vi.spyOn(JSON, 'stringify');
+
+    for (let i = 1; i <= 20; i++) storage.setItem('rundown', serializer.serialize({ step: i }));
+    expect(stringify).not.toHaveBeenCalled();
+    expect(base.getItem('rundown')).toBeNull();
+
+    vi.advanceTimersByTime(250);
+    expect(stringify).toHaveBeenCalledTimes(1);
+    expect(base.getItem('rundown')).toBe('{"step":20}');
+    stringify.mockRestore();
+  });
+
+  it('reads a pending value back as JSON and round-trips through the serializer', () => {
+    const base = new FakeStorage();
+    const { storage, serializer } = createDeferredJsonPersistence(base, { debounceMs: 250 });
+    storage.setItem('rundown', serializer.serialize({ a: [1, 2] }));
+    const raw = storage.getItem('rundown');
+    expect(raw).toBe('{"a":[1,2]}');
+    expect(serializer.deserialize(raw as string)).toEqual({ a: [1, 2] });
+  });
+
+  it('writes synchronously on flushPersistence (pagehide / unload / hidden)', () => {
+    const base = new FakeStorage();
+    const { storage, serializer } = createDeferredJsonPersistence(base, { debounceMs: 250 });
+    storage.setItem('rundown', serializer.serialize({ onAir: true }));
+    flushPersistence();
+    expect(base.getItem('rundown')).toBe('{"onAir":true}');
+  });
+
+  it('reports a state that cannot be serialised instead of throwing from the timer', () => {
+    const base = new FakeStorage();
+    const { storage, serializer } = createDeferredJsonPersistence(base, { debounceMs: 250 });
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    storage.setItem('rundown', serializer.serialize(cyclic));
+    expect(() => vi.advanceTimersByTime(250)).not.toThrow();
+    expect(persistenceFault.value?.key).toBe('rundown');
+    expect(base.getItem('rundown')).toBeNull();
+  });
+
+  it('passes a plain string through untouched', () => {
+    const base = new FakeStorage();
+    const { storage } = createDeferredJsonPersistence(base, { debounceMs: 0 });
     storage.setItem('k', 'v');
     expect(base.getItem('k')).toBe('v');
   });

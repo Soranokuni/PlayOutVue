@@ -211,4 +211,74 @@ describe('trimmer audio monitoring', () => {
     await first;
     expect(api.peaks.value?.steps).toBe(1);
   });
+
+  // PERF-PLAN PR D: the trim panel stays mounted, so "closed" has to release
+  // what "unmounted" used to.
+  it('closing the panel cancels a running scan and drops its late result', async () => {
+    let resolveScan: (v: ArrayBuffer) => void = () => {};
+    const invokeFn = vi.fn((cmd: string) =>
+      cmd === 'get_audio_peaks' ? new Promise((resolve) => (resolveScan = resolve)) : Promise.resolve()
+    );
+    const { api } = setup(invokeFn);
+
+    const pending = api.loadPeaks('D:/media/long.mp4');
+    expect(api.peaksState.value).toBe('loading');
+    api.release();
+    await Promise.resolve();
+
+    expect(invokeFn).toHaveBeenCalledWith('cancel_audio_peaks');
+    expect(api.peaksState.value).toBe('idle');
+    resolveScan(Uint8Array.from([9, 9]).buffer);
+    await pending;
+    expect(api.peaks.value).toBeNull();
+    expect(api.peaksState.value).toBe('idle');
+  });
+
+  it('closing the panel with no scan running does not call the backend', async () => {
+    const invokeFn = vi.fn().mockResolvedValue(Uint8Array.from([1, 1]).buffer);
+    const { api } = setup(invokeFn);
+    await api.loadPeaks('D:/media/a.mp4');
+    invokeFn.mockClear();
+    api.release();
+    await Promise.resolve();
+    expect(invokeFn).not.toHaveBeenCalled();
+  });
+
+  it('closing the panel releases the audition stream; the next burst opens a new one', async () => {
+    const created: FakeAudio[] = [];
+    const videoRef = ref<HTMLVideoElement | null>(pausedVideo());
+    const srcRef = ref('http://127.0.0.1:1/?file=a.mp4&t=x');
+    const api = useTrimAudio({
+      videoRef,
+      srcRef,
+      createAudio: () => {
+        const audio = new FakeAudio();
+        created.push(audio);
+        return audio as unknown as HTMLAudioElement;
+      },
+      invokeFn: vi.fn() as any,
+    });
+
+    api.audition(1000);
+    await vi.advanceTimersByTimeAsync(AUDITION_MS + 400);
+    const first = created[0]!;
+    const released = vi.spyOn(first, 'removeAttribute');
+    api.release();
+    expect(released).toHaveBeenCalledWith('src');
+
+    api.audition(2000);
+    await vi.advanceTimersByTimeAsync(AUDITION_MS + 400);
+    expect(created).toHaveLength(2);
+  });
+
+  it('moving to a stream URL while scanning cancels the scan', async () => {
+    const invokeFn = vi.fn((cmd: string) =>
+      cmd === 'get_audio_peaks' ? new Promise(() => {}) : Promise.resolve()
+    );
+    const { api } = setup(invokeFn);
+    void api.loadPeaks('D:/media/long.mp4');
+    await api.loadPeaks('https://example.com/live.m3u8');
+    await Promise.resolve();
+    expect(invokeFn).toHaveBeenCalledWith('cancel_audio_peaks');
+  });
 });
