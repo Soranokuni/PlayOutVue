@@ -91,12 +91,22 @@ export function useTrimAudio(options: TrimAudioOptions) {
   };
 
   // ── Peak envelope ─────────────────────────────────────────────────────────
+  /** Stop the Rust-side scan. A newer `get_audio_peaks` supersedes it by itself. */
+  const cancelScan = () => {
+    void Promise.resolve()
+      .then(() => call('cancel_audio_peaks'))
+      .catch(() => undefined);
+  };
+
   const loadPeaks = async (path: string | undefined) => {
     const generation = ++peaksGeneration;
+    const wasScanning = peaksState.value === 'loading';
     peaks.value = null;
     peaksError.value = '';
     if (!path || /^https?:/i.test(path)) {
       peaksState.value = 'idle';
+      // A local path would supersede the running scan in Rust; this does not.
+      if (wasScanning) cancelScan();
       return;
     }
     peaksState.value = 'loading';
@@ -217,9 +227,20 @@ export function useTrimAudio(options: TrimAudioOptions) {
     auditionEl?.pause();
   }
 
-  const dispose = () => {
+  /**
+   * The panel closed (or unmounted): stop the sound, drop the audition
+   * element's stream and abandon a scan still running. The trim panel stays
+   * mounted, so doing this only on unmount kept a media-server stream and a
+   * decoder alive for the whole session, and a closed panel's ffmpeg kept
+   * reading its file to the end.
+   */
+  const release = () => {
     stopAudition();
     peaksGeneration++;
+    if (peaksState.value === 'loading') {
+      peaksState.value = 'idle';
+      cancelScan();
+    }
     if (auditionEl) {
       auditionEl.removeAttribute('src');
       auditionEl.load?.();
@@ -227,6 +248,8 @@ export function useTrimAudio(options: TrimAudioOptions) {
     auditionEl = null;
     auditionSrc = '';
   };
+
+  const dispose = release;
 
   return {
     peaks,
@@ -238,6 +261,7 @@ export function useTrimAudio(options: TrimAudioOptions) {
     toggleMute,
     setVolume,
     toggleScrub,
+    release,
     dispose,
   };
 }

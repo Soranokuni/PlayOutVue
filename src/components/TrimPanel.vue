@@ -533,7 +533,7 @@ watch([item, () => props.isOpen], ([val, open]) => {
     }
     if (!open) {
         if (videoRef.value) videoRef.value.pause();
-        trimAudio.stopAudition();
+        trimAudio.release();
         stopAtMs = null;
         rangeArmed = false;
         videoSrc.value = '';
