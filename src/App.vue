@@ -10,6 +10,7 @@ import MediaInspector from './components/MediaInspector.vue';
 import { lazyComponent } from './lib/lazyComponent';
 import { fitToWidth, MAX_FIT_STEP } from './lib/fitToWidth';
 import CommandPaletteModal from './components/CommandPaletteModal.vue';
+import RelaunchRecoveryDialog from './components/RelaunchRecoveryDialog.vue';
 // PERF F-14: Settings is 1.8k lines and opened rarely; load it on demand and
 // mount it only while open so its watchers/listeners do not run at startup.
 const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponent(
@@ -29,7 +30,7 @@ import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
 import { useMediaLibraryStore } from './stores/mediaLibrary';
 import { useOperatorShortcuts, activeModalName, closeCommandPalette, activeInspectorItem, openInspectorModal, closeInspectorModal } from './composables/useOperatorShortcuts';
-import { advanceNext, manualTakeFailure } from './services/caspar';
+import { advanceNext, manualTakeFailure, engineRecovery, dismissEngineRecovery } from './services/caspar';
 import { persistenceFault, clearPersistenceFault } from './lib/persistenceStorage';
 import { frontendFaults, dismissFrontendFault } from './lib/frontendFaults';
 import {
@@ -52,6 +53,33 @@ const playoutHalted = ref(false);
 // Audit F-4: the banner used to say only "3 consecutive errors". The operator
 // needs the row and the reason to act on it.
 const playoutHaltDetail = ref('');
+
+// Engine-loss recovery banner: while CasparCG is lost the channel is off air,
+// and the operator must see that and what PlayOut is doing about it.
+const recoveryTitle = computed(() => {
+  switch (engineRecovery.value.phase) {
+    case 'outage': return 'OFF AIR — engine lost.';
+    case 'restoring': return 'Restoring on-air state.';
+    case 'restored': return 'Recovered.';
+    case 'held': return 'Engine back, playout held.';
+    case 'failed': return 'Recovery failed.';
+    default: return '';
+  }
+});
+const recoveryIcon = computed(() => {
+  switch (engineRecovery.value.phase) {
+    case 'restored': return 'check';
+    case 'restoring': return 'processing';
+    case 'failed': return 'error';
+    default: return 'alert';
+  }
+});
+const recoveryDismissible = computed(() => !['outage', 'restoring'].includes(engineRecovery.value.phase));
+let recoveryAutoDismiss: ReturnType<typeof setTimeout> | null = null;
+watch(() => engineRecovery.value.phase, (phase) => {
+  if (recoveryAutoDismiss) clearTimeout(recoveryAutoDismiss);
+  recoveryAutoDismiss = phase === 'restored' ? setTimeout(() => dismissEngineRecovery(), 15_000) : null;
+});
 let unlistenHeartbeat: (() => void) | null = null;
 let unlistenHalted: (() => void) | null = null;
 
@@ -302,6 +330,7 @@ watch(
     casparAutoStart: settings.casparAutoStart,
     casparKeepAliveOnExit: settings.casparKeepAliveOnExit,
     casparAutoRelaunchOnCrash: settings.casparAutoRelaunchOnCrash,
+    playoutAutoRestart: settings.playoutAutoRestart,
     // The AI designer's key reaches the Rust bridge and stops there — it is
     // never written into the advisory template, which is copied to the
     // CasparCG host.
@@ -730,6 +759,10 @@ const revealWindow = () => {
 };
 
 onMounted(async () => {
+  // UI watchdog (src-tauri/src/recovery.rs): Rust pings through the WebView's
+  // script queue; a UI that stops answering is reloaded. The first answer arms it.
+  (window as any).__playoutPing = () => { invoke('recovery_ui_pong').catch(() => {}); };
+  (window as any).__playoutPing();
   window.addEventListener('pointerdown', handleGlobalPointerDown);
   window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
   startControlBarObserver();
@@ -794,7 +827,10 @@ onMounted(async () => {
       });
     }
   }
-  rundown.restorePlaybackState();
+  // No `rundown.restorePlaybackState()` here any more: it restarted a progress
+  // bar from the persisted start time whether or not anything was playing.
+  // What is on air after a restart is decided by the CasparCG handshake
+  // (adoption, or the relaunch-recovery plan), which starts the progress itself.
   // Audit F-0: the rundown is restored from localStorage byte-for-byte --
   // paths, trims and `ready` badges alike -- and nothing used to re-check it.
   // Resolve every restored row against the transcoder once at launch; the
@@ -850,6 +886,21 @@ onUnmounted(() => {
         </span>
       </div>
       <button class="halt-dismiss-btn" @click="playoutHalted = false; playoutHaltDetail = ''">Dismiss</button>
+    </div>
+
+    <!-- Engine-loss recovery (services/caspar.ts). -->
+    <div
+      v-if="engineRecovery.phase !== 'idle'"
+      class="halt-banner recovery-banner"
+      :class="`recovery-banner--${engineRecovery.phase}`"
+      role="alert"
+      :aria-live="engineRecovery.phase === 'outage' || engineRecovery.phase === 'failed' ? 'assertive' : 'polite'"
+    >
+      <div class="halt-content">
+        <AppIcon class="halt-icon" :name="recoveryIcon" :size="20" />
+        <span class="halt-text">{{ recoveryTitle }} {{ engineRecovery.message }}.</span>
+      </div>
+      <button v-if="recoveryDismissible" type="button" class="btn btn--sm halt-dismiss-btn" @click="dismissEngineRecovery()">Dismiss</button>
     </div>
 
     <!-- Audit T1-8: rundown changes are not reaching localStorage -->
@@ -1160,6 +1211,7 @@ onUnmounted(() => {
     <MediaInspector :is-open="activeModalName === 'inspector'" :target-item="activeInspectorItem" @close="closeInspectorModal" />
     <SettingsModal v-if="showSettings" :is-open="showSettings" @close="showSettings = false" />
     <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
+    <RelaunchRecoveryDialog />
 
     <!-- UI §3.2: one toast host for the whole app. -->
     <ToastHost />
@@ -2047,6 +2099,39 @@ onUnmounted(() => {
 
 .persist-banner .halt-icon {
   color: var(--status-warning);
+}
+
+.recovery-banner {
+  max-width: min(960px, calc(100vw - 32px));
+}
+
+.recovery-banner--restoring {
+  background: color-mix(in srgb, var(--status-processing) 15%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--status-processing) 45%, transparent);
+}
+
+.recovery-banner--restoring .halt-icon {
+  color: var(--status-processing);
+}
+
+.recovery-banner--restored {
+  background: color-mix(in srgb, var(--status-ready) 14%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--status-ready) 45%, transparent);
+}
+
+.recovery-banner--restored .halt-icon {
+  color: var(--status-ready);
+  animation: none;
+}
+
+.recovery-banner--held {
+  background: color-mix(in srgb, var(--status-warning) 16%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--status-warning) 50%, transparent);
+}
+
+.recovery-banner--held .halt-icon {
+  color: var(--status-warning);
+  animation: none;
 }
 
 .halt-text {

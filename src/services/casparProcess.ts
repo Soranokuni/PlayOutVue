@@ -29,6 +29,8 @@ export interface CasparProcessStatus {
   autoRelaunchOnCrash: boolean;
   circuitBreakerTripped: boolean;
   canControl: boolean;
+  /** Engines the supervisor relaunched after an unexpected exit, this session. */
+  autoRelaunchCount?: number;
 }
 
 export interface CasparValidationInfo {

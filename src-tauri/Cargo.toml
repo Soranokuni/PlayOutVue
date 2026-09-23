@@ -53,6 +53,7 @@ windows-sys = { version = "0.60", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_NetworkManagement_IpHelper",
     "Win32_Networking_WinSock",
+    "Win32_System_Recovery",
 ] }
 
 # src-tauri/Cargo.toml

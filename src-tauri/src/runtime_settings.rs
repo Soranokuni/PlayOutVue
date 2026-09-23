@@ -24,6 +24,10 @@ pub struct RuntimeSettings {
     pub caspar_keep_alive_on_exit: bool,
     #[serde(default = "default_true")]
     pub caspar_auto_relaunch_on_crash: bool,
+    /// Ask Windows to relaunch PlayOut after it crashes or hangs (Restart
+    /// Manager), and relaunch it ourselves after a fatal main-thread panic.
+    #[serde(default = "default_true")]
+    pub playout_auto_restart: bool,
 
     // --- CG Studio AI designer ------------------------------------------
     /// Provider for the CG Studio AI designer. An enum in all but name so
@@ -82,6 +86,7 @@ impl Default for RuntimeSettings {
             caspar_auto_start: false,
             caspar_keep_alive_on_exit: true,
             caspar_auto_relaunch_on_crash: true,
+            playout_auto_restart: true,
             ai_provider: default_ai_provider(),
             ai_api_key: String::new(),
             ai_model: default_ai_model(),
@@ -108,6 +113,7 @@ impl std::fmt::Debug for RuntimeSettings {
             .field("caspar_auto_start", &self.caspar_auto_start)
             .field("caspar_keep_alive_on_exit", &self.caspar_keep_alive_on_exit)
             .field("caspar_auto_relaunch_on_crash", &self.caspar_auto_relaunch_on_crash)
+            .field("playout_auto_restart", &self.playout_auto_restart)
             .field("ai_provider", &self.ai_provider)
             .field(
                 "ai_api_key",
@@ -181,6 +187,7 @@ pub async fn apply_runtime_settings(
         Ok(true) => {
             state.update(settings.clone());
             diagnostics.set_enabled(settings.debug_enabled);
+            crate::recovery::sync_auto_restart(settings.playout_auto_restart);
             Ok(())
         }
     }

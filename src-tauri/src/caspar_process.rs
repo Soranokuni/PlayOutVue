@@ -71,6 +71,10 @@ pub struct CasparProcessStatus {
     pub auto_relaunch_on_crash: bool,
     pub circuit_breaker_tripped: bool,
     pub can_control: bool,
+    /// Engines relaunched by the supervisor after an unexpected exit, this
+    /// session. Lets the operator see a flapping engine at a glance.
+    #[serde(default)]
+    pub auto_relaunch_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -282,18 +286,26 @@ impl JobObjectGuard {
 // Process Scanning & External Process Control
 // ---------------------------------------------------------------------------
 
+/// One `casparcg.exe` in the process table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CasparProcEntry {
+    pub pid: u32,
+    pub parent_pid: u32,
+}
+
 #[cfg(windows)]
-pub fn find_caspar_process_pid() -> Option<u32> {
+pub fn enumerate_caspar_processes() -> Vec<CasparProcEntry> {
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
         TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
 
+    let mut found = Vec::new();
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if snapshot == INVALID_HANDLE_VALUE {
-            return None;
+            return found;
         }
 
         let mut entry: PROCESSENTRY32W = std::mem::zeroed();
@@ -304,9 +316,10 @@ pub fn find_caspar_process_pid() -> Option<u32> {
                 let name = String::from_utf16_lossy(&entry.szExeFile);
                 let clean_name = name.trim_matches('\0').to_lowercase();
                 if clean_name == "casparcg.exe" {
-                    let pid = entry.th32ProcessID;
-                    CloseHandle(snapshot);
-                    return Some(pid);
+                    found.push(CasparProcEntry {
+                        pid: entry.th32ProcessID,
+                        parent_pid: entry.th32ParentProcessID,
+                    });
                 }
                 if Process32NextW(snapshot, &mut entry) == 0 {
                     break;
@@ -315,13 +328,123 @@ pub fn find_caspar_process_pid() -> Option<u32> {
         }
 
         CloseHandle(snapshot);
-        None
+    }
+    found
+}
+
+#[cfg(not(windows))]
+pub fn enumerate_caspar_processes() -> Vec<CasparProcEntry> {
+    Vec::new()
+}
+
+/// The engine among the `casparcg.exe` processes. CasparCG's HTML producer
+/// runs CEF, whose renderer/GPU helpers are the same `casparcg.exe` image
+/// parented by the engine. Picking "the first casparcg.exe" used to return a
+/// helper, so the supervisor watched the wrong PID, and after a crash an
+/// orphaned helper was adopted as a "booting" engine that then "exited" --
+/// the Starting -> Crashed flash with no relaunch.
+pub fn select_engine_pid(procs: &[CasparProcEntry]) -> Option<u32> {
+    procs
+        .iter()
+        .find(|p| !procs.iter().any(|q| q.pid == p.parent_pid))
+        .map(|p| p.pid)
+}
+
+/// `casparcg.exe` helpers whose parent is `parent_pid`.
+pub fn caspar_children_of(procs: &[CasparProcEntry], parent_pid: u32) -> Vec<u32> {
+    procs
+        .iter()
+        .filter(|p| p.parent_pid == parent_pid && p.pid != parent_pid)
+        .map(|p| p.pid)
+        .collect()
+}
+
+pub fn find_caspar_process_pid() -> Option<u32> {
+    select_engine_pid(&enumerate_caspar_processes())
+}
+
+/// The engine serving `port`: the `casparcg.exe` that owns the AMCP listener,
+/// else (still booting) the root `casparcg.exe` in the process table.
+pub fn find_engine_pid(port: u16) -> Option<u32> {
+    find_pid_listening_on_port(port)
+        .filter(is_casparcg_pid)
+        .or_else(find_caspar_process_pid)
+}
+
+/// Terminate the CEF helpers a dead engine left behind. They hold GPU and
+/// DeckLink resources, and while they linger the next start would take one
+/// of them for a booting engine.
+pub fn terminate_orphaned_helpers(dead_engine_pid: u32) -> usize {
+    let orphans = caspar_children_of(&enumerate_caspar_processes(), dead_engine_pid);
+    for pid in &orphans {
+        terminate_process_by_pid(*pid);
+    }
+    if !orphans.is_empty() {
+        crate::diagnostics::push_caspar_process_log(
+            "WARN",
+            &format!(
+                "Terminated {} orphaned CasparCG helper process(es) of dead engine PID {}",
+                orphans.len(),
+                dead_engine_pid
+            ),
+        );
+    }
+    orphans.len()
+}
+
+/// Full image path of a live process.
+#[cfg(windows)]
+pub fn process_image_path(pid: u32) -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return None;
+        }
+        let mut buffer = vec![0u16; 32_768];
+        let mut size = buffer.len() as u32;
+        let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut size);
+        CloseHandle(handle);
+        if ok == 0 || size == 0 {
+            return None;
+        }
+        Some(PathBuf::from(OsString::from_wide(&buffer[..size as usize])))
     }
 }
 
 #[cfg(not(windows))]
-pub fn find_caspar_process_pid() -> Option<u32> {
+pub fn process_image_path(_pid: u32) -> Option<PathBuf> {
     None
+}
+
+/// Whether two executable paths name the same file (case-insensitive on the
+/// canonical form, so `/` vs `\` and `C:` vs `c:` do not matter).
+pub fn same_executable(a: &Path, b: &Path) -> bool {
+    let norm = |p: &Path| {
+        std::fs::canonicalize(p)
+            .unwrap_or_else(|_| p.to_path_buf())
+            .to_string_lossy()
+            .replace('/', "\\")
+            .trim_start_matches(r"\\?\")
+            .to_lowercase()
+    };
+    norm(a) == norm(b)
+}
+
+/// An adopted engine is *ours to supervise* when it runs the executable
+/// PlayOut is configured to launch. That is the normal 24/7 case: the engine
+/// PlayOut started in an earlier session and left running on exit. An engine
+/// started from some other install stays external and is never relaunched.
+pub fn is_configured_engine(image: &Path, settings: &RuntimeSettings) -> bool {
+    resolve_caspar_executable(&settings.casparcg_executable_path)
+        .map(|configured| same_executable(image, &configured))
+        .unwrap_or(false)
 }
 
 /// Image name (lower-case, e.g. `casparcg.exe`) of a live process, if any.
@@ -582,11 +705,33 @@ pub fn resolve_caspar_cwd(exe_path: &Path) -> PathBuf {
 /// PERF R-1: the Toolhelp snapshot walk is a blocking Win32 call; keep it
 /// off the async runtime worker so a slow process table cannot stall AMCP or
 /// OSC handling that shares the executor.
-pub async fn find_caspar_process_pid_async() -> Option<u32> {
-    match tauri::async_runtime::spawn_blocking(find_caspar_process_pid).await {
+pub async fn find_engine_pid_async(port: u16) -> Option<u32> {
+    match tauri::async_runtime::spawn_blocking(move || find_engine_pid(port)).await {
         Ok(pid) => pid,
-        Err(_) => find_caspar_process_pid(),
+        Err(_) => find_engine_pid(port),
     }
+}
+
+/// Crash-loop protection: more than this many unexpected exits inside
+/// `CRASH_WINDOW` trips the breaker and pauses auto-relaunch.
+const MAX_CRASHES_BEFORE_TRIP: usize = 3;
+const CRASH_WINDOW: Duration = Duration::from_secs(60);
+/// Settle delay before relaunch attempt N (1-based). The first relaunch is
+/// fast because every second is dead air; later ones back off so a fault that
+/// kills the engine on boot (a bad config, a missing DeckLink) is not hammered.
+const RELAUNCH_BACKOFF_MS: [u64; MAX_CRASHES_BEFORE_TRIP] = [500, 2_000, 5_000];
+/// A `casparcg.exe` without an open AMCP port is either an engine still
+/// booting or a CEF helper outliving its engine. Wait this long for one or
+/// the other before deciding whether to adopt it or spawn a new engine.
+const ADOPT_BOOT_GRACE: Duration = Duration::from_secs(8);
+/// After an adopted engine exits, give an external launcher (CasparCG
+/// Launcher, a service wrapper) this long to bring it back before PlayOut
+/// relaunches it itself, so the two never race to start a second engine.
+const EXTERNAL_RELAUNCH_GRACE: Duration = Duration::from_millis(1_500);
+
+pub fn relaunch_backoff(attempt: usize) -> Duration {
+    let index = attempt.clamp(1, RELAUNCH_BACKOFF_MS.len()) - 1;
+    Duration::from_millis(RELAUNCH_BACKOFF_MS[index])
 }
 
 pub async fn is_port_listening(port: u16) -> bool {
@@ -615,6 +760,7 @@ struct SupervisorInner {
     last_error: Option<String>,
     expected_stop: bool,
     circuit_breaker_tripped: bool,
+    auto_relaunch_count: u32,
     #[allow(dead_code)]
     job_guard: Option<JobObjectGuard>,
     adopted_watchdog: Option<tauri::async_runtime::JoinHandle<()>>,
@@ -642,6 +788,7 @@ impl CasparProcessSupervisor {
                 last_error: None,
                 expected_stop: false,
                 circuit_breaker_tripped: false,
+                auto_relaunch_count: 0,
                 job_guard: None,
                 adopted_watchdog: None,
             })),
@@ -659,8 +806,9 @@ impl CasparProcessSupervisor {
     }
 
     pub async fn get_status(&self, settings: &RuntimeSettings) -> CasparProcessStatus {
-        let port_open = is_port_listening(self.amcp_port).await;
-        let detected_pid = find_caspar_process_pid_async().await;
+        let port = self.amcp_port;
+        let port_open = is_port_listening(port).await;
+        let detected_pid = find_engine_pid_async(port).await;
         self.get_status_with(settings, port_open, detected_pid).await
     }
 
@@ -719,6 +867,7 @@ impl CasparProcessSupervisor {
             auto_relaunch_on_crash: settings.caspar_auto_relaunch_on_crash,
             circuit_breaker_tripped: inner.circuit_breaker_tripped,
             can_control,
+            auto_relaunch_count: inner.auto_relaunch_count,
         }
     }
 
@@ -735,7 +884,24 @@ impl CasparProcessSupervisor {
         })
     }
 
-    async fn ensure_adopted_watchdog<R: Runtime>(
+    /// Boxed like `start()`: the adopted watchdog re-adopts an engine that
+    /// came back on its own, and that recursion needs a nameable `Send` future.
+    fn ensure_adopted_watchdog<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        settings: &RuntimeSettings,
+        port: u16,
+        pid: Option<u32>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        let app = app.clone();
+        let settings = settings.clone();
+        let supervisor = self.clone();
+        Box::pin(async move {
+            supervisor.ensure_adopted_watchdog_internal(&app, &settings, port, pid).await
+        })
+    }
+
+    async fn ensure_adopted_watchdog_internal<R: Runtime>(
         &self,
         app: &AppHandle<R>,
         settings: &RuntimeSettings,
@@ -759,9 +925,11 @@ impl CasparProcessSupervisor {
         let supervisor_clone = self.clone();
         let app_clone = app.clone();
         let settings_clone = settings.clone();
+        // Captured now: once the engine is dead its image path is gone too.
+        let image = pid.and_then(process_image_path);
 
         let handle = tauri::async_runtime::spawn(async move {
-            run_adopted_process_watchdog(supervisor_clone, app_clone, settings_clone, port, pid).await;
+            run_adopted_process_watchdog(supervisor_clone, app_clone, settings_clone, port, pid, image).await;
         });
 
         inner.adopted_watchdog = Some(handle);
@@ -784,8 +952,25 @@ impl CasparProcessSupervisor {
         }
 
         let port = self.amcp_port;
-        let port_open = is_port_listening(port).await;
-        let detected_pid = find_caspar_process_pid_async().await;
+        let mut port_open = is_port_listening(port).await;
+        let mut detected_pid = find_engine_pid_async(port).await;
+
+        // A casparcg.exe without the AMCP port is an engine still booting or a
+        // CEF helper outliving a dead engine. Adopting a helper "succeeds",
+        // then reports a crash a moment later when the helper exits, and no
+        // engine is ever started. Wait until the port opens or the process
+        // goes away before choosing between adopt and spawn.
+        if !port_open && detected_pid.is_some() {
+            let waited_since = Instant::now();
+            while waited_since.elapsed() < ADOPT_BOOT_GRACE {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                port_open = is_port_listening(port).await;
+                detected_pid = find_engine_pid_async(port).await;
+                if port_open || detected_pid.is_none() {
+                    break;
+                }
+            }
+        }
 
         // If port is listening or process is already running, adopt it seamlessly
         if port_open || detected_pid.is_some() {
@@ -1058,8 +1243,14 @@ async fn run_adopted_process_watchdog<R: Runtime>(
     settings: RuntimeSettings,
     port: u16,
     pid: Option<u32>,
+    image: Option<PathBuf>,
 ) {
+    // A port-only probe opens an AMCP session on the engine every second and
+    // a loaded engine can miss one 500 ms connect; only a run of misses is an
+    // exit. A PID answers without touching the engine, so it is preferred.
+    const PORT_MISSES_FOR_EXIT: u32 = 3;
     let mut healthy_seconds = 0u32;
+    let mut port_misses = 0u32;
     loop {
         tokio::time::sleep(Duration::from_millis(1000)).await;
         healthy_seconds += 1;
@@ -1078,50 +1269,129 @@ async fn run_adopted_process_watchdog<R: Runtime>(
 
         let is_alive = if let Some(p) = pid {
             is_process_alive_by_pid(p)
+        } else if is_port_listening(port).await {
+            port_misses = 0;
+            true
         } else {
-            is_port_listening(port).await
+            port_misses += 1;
+            port_misses < PORT_MISSES_FOR_EXIT
         };
 
-        if !is_alive {
-            let exit_code = if let Some(p) = pid {
-                get_process_exit_code(p).unwrap_or(-1)
-            } else {
-                -1
-            };
+        if is_alive {
+            continue;
+        }
 
-            // Audit T2-13: this watchdog supervises an instance PlayOut did
-            // *not* spawn (adopted by port/PID). An operator closing that
-            // window, or a launcher restarting it, must not trigger our
-            // crash-relaunch logic: we would race the external launcher and
-            // could start a second engine. Report the exit and stop here;
-            // auto-relaunch applies only to PlayOut-spawned children.
+        let exit_code = pid.and_then(get_process_exit_code).unwrap_or(-1);
+        let live_settings = app
+            .try_state::<RuntimeSettingsState>()
+            .map(|state| state.snapshot())
+            .unwrap_or_else(|| settings.clone());
+        let expected = supervisor.inner.lock().await.expected_stop;
+        let ours = image
+            .as_deref()
+            .map(|img| is_configured_engine(img, &live_settings))
+            .unwrap_or(false);
+
+        if !expected && ours && live_settings.caspar_auto_relaunch_on_crash && supervisor.is_primary() {
+            // The engine runs the executable PlayOut is configured to launch:
+            // normally the one PlayOut itself started in an earlier session and
+            // kept running on exit (24/7 continuity). It gets the same crash
+            // handling as a child, after a short grace in which an external
+            // launcher may bring it back first (Audit T2-13: never race one).
             {
                 let mut inner = supervisor.inner.lock().await;
                 inner.pid = None;
                 inner.exit_code = Some(exit_code);
+                inner.state = CasparProcessState::Starting;
+                inner.last_error = Some(format!(
+                    "CasparCG (PID {:?}) exited unexpectedly with code {}; recovering",
+                    pid, exit_code
+                ));
+                // Detach (not abort) this task's own handle: the re-adoption
+                // below must not cancel the task that is running it.
                 inner.adopted_watchdog = None;
-                inner.state = if inner.expected_stop {
-                    CasparProcessState::Stopped
-                } else {
-                    CasparProcessState::Crashed
-                };
-                if !inner.expected_stop {
-                    inner.last_error = Some(format!(
-                        "External CasparCG instance exited (code {}). Not relaunching an instance PlayOut did not start.",
-                        exit_code
-                    ));
+            }
+            emit_state_change(&app, &supervisor, &live_settings).await;
+            if let Some(dead) = pid {
+                terminate_orphaned_helpers(dead);
+            }
+
+            let grace_started = Instant::now();
+            while grace_started.elapsed() < EXTERNAL_RELAUNCH_GRACE {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                if supervisor.inner.lock().await.expected_stop {
+                    return;
+                }
+                let port_open = is_port_listening(port).await;
+                let revived = find_engine_pid_async(port).await;
+                if port_open || revived.is_some() {
+                    crate::diagnostics::push_caspar_process_log(
+                        "INFO",
+                        &format!(
+                            "CasparCG came back on its own (PID {:?}, port open: {}); adopting it instead of relaunching",
+                            revived, port_open
+                        ),
+                    );
+                    {
+                        let mut inner = supervisor.inner.lock().await;
+                        inner.pid = revived;
+                        inner.state = if port_open {
+                            CasparProcessState::Operational
+                        } else {
+                            CasparProcessState::Starting
+                        };
+                        inner.last_error = None;
+                    }
+                    supervisor
+                        .ensure_adopted_watchdog(&app, &live_settings, port, revived)
+                        .await;
+                    emit_state_change(&app, &supervisor, &live_settings).await;
+                    return;
                 }
             }
-            crate::diagnostics::push_caspar_process_log(
-                "WARN",
-                &format!(
-                    "Adopted CasparCG instance (PID: {:?}) exited with code {}; auto-relaunch skipped for external instances.",
-                    pid, exit_code
-                ),
-            );
-            emit_state_change(&app, &supervisor, &settings).await;
+
+            handle_crash(&supervisor, &app, exit_code, None, &live_settings).await;
             return;
         }
+
+        // Audit T2-13: an engine PlayOut would not have launched (another
+        // install, a different build) is external. An operator closing that
+        // window, or a launcher restarting it, must not trigger our
+        // crash-relaunch logic: we would race the external launcher and could
+        // start a second engine. Report the exit and stop here.
+        {
+            let mut inner = supervisor.inner.lock().await;
+            inner.pid = None;
+            inner.exit_code = Some(exit_code);
+            inner.adopted_watchdog = None;
+            inner.state = if inner.expected_stop {
+                CasparProcessState::Stopped
+            } else {
+                CasparProcessState::Crashed
+            };
+            if !inner.expected_stop {
+                inner.last_error = Some(if ours {
+                    format!("Server crashed with exit code {} (auto-relaunch is off)", exit_code)
+                } else {
+                    format!(
+                        "External CasparCG instance exited (code {}). Not relaunching an instance PlayOut is not configured to launch.",
+                        exit_code
+                    )
+                });
+            }
+        }
+        crate::diagnostics::push_caspar_process_log(
+            "WARN",
+            &format!(
+                "Adopted CasparCG instance (PID: {:?}, image: {:?}) exited with code {}; not relaunched ({})",
+                pid,
+                image,
+                exit_code,
+                if expected { "expected stop" } else if ours { "auto-relaunch off" } else { "external instance" }
+            ),
+        );
+        emit_state_change(&app, &supervisor, &live_settings).await;
+        return;
     }
 }
 
@@ -1154,10 +1424,10 @@ async fn run_process_watchdog<R: Runtime>(
                     Ok(Some(status)) => {
                         let code = status.code().unwrap_or(-1);
                         let was_expected = inner.expected_stop;
+                        let dead_pid = inner.pid.take();
                         inner.child = None;
-                        inner.pid = None;
                         inner.exit_code = Some(code);
-                        Some((code, was_expected))
+                        Some((code, was_expected, dead_pid))
                     }
                     Ok(None) => None,
                     Err(e) => {
@@ -1169,9 +1439,9 @@ async fn run_process_watchdog<R: Runtime>(
             }
         };
 
-        if let Some((code, was_expected)) = poll {
+        if let Some((code, was_expected, dead_pid)) = poll {
             if !was_expected {
-                handle_crash(&supervisor, &app, code, &settings).await;
+                handle_crash(&supervisor, &app, code, dead_pid, &settings).await;
             } else {
                 let mut inner = supervisor.inner.lock().await;
                 inner.state = CasparProcessState::Stopped;
@@ -1234,13 +1504,13 @@ async fn run_process_watchdog<R: Runtime>(
                 Ok(Some(status)) => {
                     let code = status.code().unwrap_or(-1);
                     let was_expected = inner.expected_stop;
+                    let dead_pid = inner.pid.take();
                     inner.child = None;
-                    inner.pid = None;
                     inner.exit_code = Some(code);
                     drop(inner);
 
                     if !was_expected {
-                        handle_crash(&supervisor, &app, code, &settings).await;
+                        handle_crash(&supervisor, &app, code, dead_pid, &settings).await;
                     } else {
                         let mut inner = supervisor.inner.lock().await;
                         inner.state = CasparProcessState::Stopped;
@@ -1268,6 +1538,7 @@ async fn handle_crash<R: Runtime>(
     supervisor: &CasparProcessSupervisor,
     app: &AppHandle<R>,
     exit_code: i32,
+    dead_pid: Option<u32>,
     fallback_settings: &RuntimeSettings,
 ) {
     log::warn!("[CasparProcess] Process exited unexpectedly with code {}", exit_code);
@@ -1276,11 +1547,17 @@ async fn handle_crash<R: Runtime>(
         &format!("CasparCG process exited unexpectedly with code {}", exit_code),
     );
 
+    // The dead engine's CEF helpers would otherwise be taken for a booting
+    // engine by the relaunch below (and they hold GPU/DeckLink resources).
+    if let Some(pid) = dead_pid {
+        terminate_orphaned_helpers(pid);
+    }
+
     let crash_count_in_window = {
         let now = Instant::now();
         let mut history = supervisor.crash_history.lock();
         while let Some(&front) = history.front() {
-            if now.duration_since(front) > Duration::from_secs(60) {
+            if now.duration_since(front) > CRASH_WINDOW {
                 history.pop_front();
             } else {
                 break;
@@ -1297,24 +1574,24 @@ async fn handle_crash<R: Runtime>(
         fallback_settings.clone()
     };
 
-    let max_crashes_before_trip = 3;
-
     // Check sliding window circuit breaker
-    if crash_count_in_window > max_crashes_before_trip {
+    if crash_count_in_window > MAX_CRASHES_BEFORE_TRIP {
         let mut inner = supervisor.inner.lock().await;
         inner.state = CasparProcessState::Crashed;
         inner.circuit_breaker_tripped = true;
         inner.last_error = Some(format!(
-            "Circuit breaker tripped: CasparCG crashed {} times in 60s. Auto-relaunch paused to prevent crash loop.",
-            crash_count_in_window
+            "Circuit breaker tripped: CasparCG crashed {} times in {}s. Auto-relaunch paused to prevent crash loop.",
+            crash_count_in_window,
+            CRASH_WINDOW.as_secs()
         ));
         drop(inner);
 
         crate::diagnostics::push_caspar_process_log(
             "ERROR",
             &format!(
-                "Circuit breaker TRIPPED ({} crashes in 60s). Auto-relaunch paused. Check logs and configuration.",
-                crash_count_in_window
+                "Circuit breaker TRIPPED ({} crashes in {}s). Auto-relaunch paused. Check logs and configuration.",
+                crash_count_in_window,
+                CRASH_WINDOW.as_secs()
             ),
         );
         emit_state_change(app, supervisor, &settings).await;
@@ -1331,12 +1608,16 @@ async fn handle_crash<R: Runtime>(
     }
 
     // Auto-relaunch allowed!
+    let backoff = relaunch_backoff(crash_count_in_window);
     {
         let mut inner = supervisor.inner.lock().await;
         inner.state = CasparProcessState::Starting;
         inner.last_error = Some(format!(
-            "Server crashed (code {}). Auto-relaunching in 1.5s (attempt {} of {})...",
-            exit_code, crash_count_in_window, max_crashes_before_trip
+            "Server crashed (code {}). Auto-relaunching in {} ms (attempt {} of {})...",
+            exit_code,
+            backoff.as_millis(),
+            crash_count_in_window,
+            MAX_CRASHES_BEFORE_TRIP
         ));
     }
     emit_state_change(app, supervisor, &settings).await;
@@ -1344,12 +1625,19 @@ async fn handle_crash<R: Runtime>(
     crate::diagnostics::push_caspar_process_log(
         "WARN",
         &format!(
-            "Auto-relaunch active. Waiting 1500ms settle delay before restart (attempt {} of {})...",
-            crash_count_in_window, max_crashes_before_trip
+            "Auto-relaunch active. Waiting {} ms before restart (attempt {} of {})...",
+            backoff.as_millis(),
+            crash_count_in_window,
+            MAX_CRASHES_BEFORE_TRIP
         ),
     );
 
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    tokio::time::sleep(backoff).await;
+
+    // An operator Stop during the backoff wins over the relaunch.
+    if supervisor.inner.lock().await.expected_stop {
+        return;
+    }
 
     let settings_now = if let Some(state) = app.try_state::<RuntimeSettingsState>() {
         state.snapshot()
@@ -1360,16 +1648,27 @@ async fn handle_crash<R: Runtime>(
     let supervisor_restart = supervisor.clone();
     let app_restart = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = supervisor_restart.start(&app_restart, &settings_now).await {
-            crate::diagnostics::push_caspar_process_log(
-                "ERROR",
-                &format!("Auto-relaunch failed to spawn CasparCG: {}", e),
-            );
-            let mut inner = supervisor_restart.inner.lock().await;
-            inner.state = CasparProcessState::Crashed;
-            inner.last_error = Some(format!("Auto-relaunch failed: {}", e));
-            drop(inner);
-            emit_state_change(&app_restart, &supervisor_restart, &settings_now).await;
+        match supervisor_restart.start(&app_restart, &settings_now).await {
+            Ok(()) => {
+                let mut inner = supervisor_restart.inner.lock().await;
+                inner.auto_relaunch_count = inner.auto_relaunch_count.saturating_add(1);
+                drop(inner);
+                crate::diagnostics::push_caspar_process_log(
+                    "INFO",
+                    "Auto-relaunch issued; waiting for the AMCP port before playout recovery",
+                );
+            }
+            Err(e) => {
+                crate::diagnostics::push_caspar_process_log(
+                    "ERROR",
+                    &format!("Auto-relaunch failed to spawn CasparCG: {}", e),
+                );
+                let mut inner = supervisor_restart.inner.lock().await;
+                inner.state = CasparProcessState::Crashed;
+                inner.last_error = Some(format!("Auto-relaunch failed: {}", e));
+                drop(inner);
+                emit_state_change(&app_restart, &supervisor_restart, &settings_now).await;
+            }
         }
     });
 }
@@ -1396,7 +1695,7 @@ pub async fn caspar_process_get_status<R: Runtime>(
     let settings = settings_state.snapshot();
     let port = supervisor.amcp_port;
     let port_open = is_port_listening(port).await;
-    let detected_pid = find_caspar_process_pid_async().await;
+    let detected_pid = find_engine_pid_async(port).await;
     if (port_open || detected_pid.is_some()) && supervisor.is_primary() {
         supervisor.ensure_adopted_watchdog(&app, &settings, port, detected_pid).await;
     }
@@ -1412,7 +1711,7 @@ pub async fn caspar_process_adopt<R: Runtime>(
     let settings = settings_state.snapshot();
     let port = supervisor.amcp_port;
     let port_open = is_port_listening(port).await;
-    let detected_pid = find_caspar_process_pid_async().await;
+    let detected_pid = find_engine_pid_async(port).await;
     if port_open || detected_pid.is_some() {
         {
             let mut inner = supervisor.inner.lock().await;
@@ -1551,6 +1850,52 @@ mod tests {
     }
 
     #[test]
+    fn engine_is_the_root_casparcg_not_a_cef_helper() {
+        // Engine 100 (parent: explorer 4) with CEF helpers 200/201 under it.
+        // The table order puts a helper first, as Toolhelp often does.
+        let procs = [
+            CasparProcEntry { pid: 200, parent_pid: 100 },
+            CasparProcEntry { pid: 100, parent_pid: 4 },
+            CasparProcEntry { pid: 201, parent_pid: 100 },
+        ];
+        assert_eq!(select_engine_pid(&procs), Some(100));
+        assert_eq!(caspar_children_of(&procs, 100), vec![200, 201]);
+        assert!(caspar_children_of(&procs, 200).is_empty());
+    }
+
+    #[test]
+    fn orphaned_helpers_are_found_by_their_dead_parent() {
+        // The engine (100) is gone; its helpers still name it as parent.
+        let procs = [
+            CasparProcEntry { pid: 200, parent_pid: 100 },
+            CasparProcEntry { pid: 201, parent_pid: 100 },
+        ];
+        assert_eq!(caspar_children_of(&procs, 100), vec![200, 201]);
+        assert_eq!(select_engine_pid(&[]), None);
+    }
+
+    #[test]
+    fn relaunch_backs_off_and_saturates() {
+        assert_eq!(relaunch_backoff(0), Duration::from_millis(500));
+        assert_eq!(relaunch_backoff(1), Duration::from_millis(500));
+        assert_eq!(relaunch_backoff(2), Duration::from_millis(2_000));
+        assert_eq!(relaunch_backoff(3), Duration::from_millis(5_000));
+        assert_eq!(relaunch_backoff(9), Duration::from_millis(5_000));
+    }
+
+    #[test]
+    fn same_executable_ignores_case_and_separators() {
+        assert!(same_executable(
+            Path::new("C:/CasparCG/casparcg.exe"),
+            Path::new("c:\\casparcg\\CASPARCG.EXE")
+        ));
+        assert!(!same_executable(
+            Path::new("C:/CasparCG/casparcg.exe"),
+            Path::new("D:/CasparCG/casparcg.exe")
+        ));
+    }
+
+    #[test]
     fn test_process_state_serialization() {
         assert_eq!(CasparProcessState::Unconfigured.as_str(), "unconfigured");
         assert_eq!(CasparProcessState::Stopped.as_str(), "stopped");
@@ -1587,6 +1932,7 @@ mod tests {
             auto_relaunch_on_crash: true,
             circuit_breaker_tripped: false,
             can_control: true,
+            auto_relaunch_count: 0,
         };
 
         let json = serde_json::to_string(&status).unwrap();
