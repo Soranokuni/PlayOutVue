@@ -25,6 +25,7 @@ import { vTooltip } from './lib/tooltip';
 import { applyTheme, applyUiScale } from './lib/theme';
 import { activePlayoutCapabilities, activePlayoutLabel, currentPlayoutTime, getActivePlayoutService, isPlayoutConnected, isPlayoutPlaying, isPlayoutLive } from './services/playout';
 import { useSettingsStore } from './stores/settings';
+import type { SettingsSection } from './lib/settingsSearch';
 import { usePanelLayout, clampLibraryWidth, LIBRARY_WIDTH_DEFAULT } from './composables/usePanelLayout';
 import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
@@ -48,6 +49,12 @@ const rundown  = useRundownStore();
 const isStreaming  = ref(false);
 const isSdiActive  = ref(false);
 const showSettings = ref(false);
+/** Where Settings opens: the engine section when it is opened from the chip. */
+const settingsSection = ref<SettingsSection>('appearance');
+const openSettings = (section: SettingsSection = 'appearance') => {
+  settingsSection.value = section;
+  showSettings.value = true;
+};
 const ingestorStatus = useIngestorStatusStore();
 const playoutHalted = ref(false);
 // Audit F-4: the banner used to say only "3 consecutive errors". The operator
@@ -378,13 +385,29 @@ const closeFooterPanels = () => {
   showProductInfo.value = false;
   showQuickGuide.value = false;
   showControlBarMore.value = false;
+  showConnectionMenu.value = false;
+};
+
+/**
+ * The connection chip's menu. The chip says what is true; the menu holds the
+ * verb, so "Disconnect" is no longer one stray click away beside PLAY.
+ */
+const showConnectionMenu = ref(false);
+const toggleConnectionMenu = () => {
+  const next = !showConnectionMenu.value;
+  closeFooterPanels();
+  showConnectionMenu.value = next;
+};
+const runConnectionMenuAction = () => {
+  showConnectionMenu.value = false;
+  void handleConnectionAction();
 };
 
 const handleGlobalPointerDown = (event: PointerEvent) => {
   const target = event.target as HTMLElement | null;
   if (footerMetaRef.value && target && footerMetaRef.value.contains(target)) return;
   // §4.2 step 5: the More popover dismisses the same way the meta popovers do.
-  if (target?.closest('.ctrl-more-wrap')) return;
+  if (target?.closest('.ctrl-more-wrap') || target?.closest('.conn-chip-wrap')) return;
   closeFooterPanels();
 };
 
@@ -518,7 +541,7 @@ const handleConnectionAction = async () => {
   }
 
   if (processState.value === 'unconfigured') {
-    showSettings.value = true;
+    openSettings('playout');
     return;
   }
 
@@ -968,17 +991,60 @@ onUnmounted(() => {
            to it says what will happen. They used to be one control whose label
            flipped between the two. -->
       <div class="ctrl-section ctrl-engine">
-        <span class="conn-status" v-tooltip="connectionLabel">
-          <span
-            class="status-dot"
-            :class="[
-              'tone-' + connectionTone,
-              { pulse: connectionTone === 'processing' || processState === 'unconfigured' || processState === 'crashed' }
-            ]"
-          ></span>
-          <span class="conn-text">{{ connectionShortState }}</span>
-        </span>
+        <!-- One chip for the state; its menu holds the verbs. While the engine
+             is not connected the verb also stays out on the bar, because
+             recovering from an outage should never be two clicks deep. -->
+        <div class="conn-chip-wrap">
+          <button
+            class="btn btn--ghost ctrl-btn conn-chip"
+            :class="{ 'is-open': showConnectionMenu }"
+            aria-haspopup="menu"
+            :aria-expanded="showConnectionMenu"
+            :aria-label="`CasparCG: ${connectionLabel}`"
+            v-tooltip="`CasparCG: ${connectionLabel}`"
+            data-testid="connection-chip"
+            @click.stop="toggleConnectionMenu"
+          >
+            <span
+              class="status-dot"
+              :class="[
+                'tone-' + connectionTone,
+                { pulse: connectionTone === 'processing' || processState === 'unconfigured' || processState === 'crashed' }
+              ]"
+            ></span>
+            <span class="conn-text">{{ connectionShortState }}</span>
+            <AppIcon class="ctrl-btn-glyph conn-chip-caret" name="chevron-down" :size="12" />
+          </button>
+          <div v-if="showConnectionMenu" class="conn-menu popover-surface" role="menu" data-testid="connection-menu" @click.stop>
+            <div class="popover-item is-static">
+              <span class="status-dot" :class="'tone-' + connectionTone"></span>
+              <span>CasparCG</span>
+              <span class="popover-item-badge">{{ connectionLabel }}</span>
+            </div>
+            <div class="popover-divider" role="separator" />
+            <button
+              class="popover-item"
+              :class="{ 'popover-item--danger': isPlayoutConnected }"
+              role="menuitem"
+              :disabled="isStarting || processState === 'starting'"
+              @click="runConnectionMenuAction"
+            >
+              <AppIcon name="zap" :size="14" />
+              <span>{{ connectionActionLabel }}</span>
+            </button>
+            <button
+              class="popover-item"
+              role="menuitem"
+              @pointerenter="preloadSettingsModal()"
+              @click="showConnectionMenu = false; openSettings('playout')"
+            >
+              <AppIcon name="settings" :size="14" />
+              <span>Engine settings…</span>
+            </button>
+          </div>
+        </div>
         <button
+          v-if="!isPlayoutConnected"
           class="btn btn--ghost ctrl-btn conn-action-btn"
           :disabled="isStarting || processState === 'starting'"
           v-tooltip="`${connectionActionLabel} — CasparCG: ${connectionLabel}`"
@@ -1130,7 +1196,7 @@ onUnmounted(() => {
           v-tooltip="'Settings'"
           @pointerenter="preloadSettingsModal()"
           @focus="preloadSettingsModal()"
-          @click="showSettings = true"
+          @click="openSettings()"
         >
           <AppIcon class="ctrl-btn-glyph" name="settings" />
           <span class="ctrl-btn-label">Settings</span>
@@ -1168,7 +1234,7 @@ onUnmounted(() => {
             class="popover-item"
             role="menuitem"
             @pointerenter="preloadSettingsModal()"
-            @click="showControlBarMore = false; showSettings = true"
+            @click="showControlBarMore = false; openSettings()"
           >
             <AppIcon name="settings" :size="14" />
             <span>Settings…</span>
@@ -1241,7 +1307,7 @@ onUnmounted(() => {
     </footer>
 
     <MediaInspector :is-open="activeModalName === 'inspector'" :target-item="activeInspectorItem" @close="closeInspectorModal" />
-    <SettingsModal v-if="showSettings" :is-open="showSettings" @close="showSettings = false" />
+    <SettingsModal v-if="showSettings" :is-open="showSettings" :initial-section="settingsSection" @close="showSettings = false" />
     <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
     <RelaunchRecoveryDialog />
 
@@ -1574,73 +1640,47 @@ onUnmounted(() => {
   gap: var(--space-2);
 }
 
-.conn-status {
-  display: inline-flex;
-  align-items: center;
+.conn-chip-wrap {
+  position: relative;
+}
+
+.conn-chip {
   gap: var(--space-2);
+  padding: 0 var(--space-2);
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
   letter-spacing: var(--tracking-caps);
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.conn-chip.is-open {
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.conn-chip-caret {
+  color: var(--text-muted);
+}
+
+.conn-menu {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: 0;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+  z-index: var(--z-popover);
+}
+
+.conn-menu .popover-item.is-static {
   cursor: default;
 }
 
 .conn-action-btn {
   font-size: var(--fs-xs);
   padding: var(--space-2) var(--space-3);
-}
-
-.conn-popover {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
-  width: 220px;
-  padding: var(--space-3);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-medium);
-  background: var(--bg-secondary);
-  box-shadow: var(--shadow-3);
-  z-index: var(--z-popover);
-}
-
-.conn-popover-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-2);
-}
-
-.conn-popover-title {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
-  color: var(--text-primary);
-}
-
-.conn-popover-close {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: var(--fs-md);
-}
-
-.conn-popover-body {
-  font-size: var(--fs-xs);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin-bottom: var(--space-3);
-}
-
-.conn-popover-row {
-  display: flex;
-  justify-content: space-between;
-}
-
-.conn-popover-footer {
-  display: flex;
-  justify-content: flex-end;
 }
 
 .ctrl-telemetry-group {
@@ -1970,6 +2010,9 @@ onUnmounted(() => {
 
 /* Step 3: long labels become their short forms. The engine action keeps its
    glyph and its tooltip; the dot beside it is what actually says "connected". */
+.control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .conn-chip-caret {
+  display: none;
+}
 .control-bar:is([data-step='3'], [data-step='4'], [data-step='5']) .conn-action-btn .ctrl-btn-label {
   display: none;
 }

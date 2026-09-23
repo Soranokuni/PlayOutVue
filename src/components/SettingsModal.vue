@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, nextTick, ref, watch, onMounted, onUnmounted, type PropType } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
@@ -43,7 +43,9 @@ const { component: DeckLinkWizard, preload: preloadDeckLinkWizard } = lazyCompon
 );
 
 const props = defineProps({
-  isOpen: Boolean
+  isOpen: Boolean,
+  /** The rail section to open on, e.g. the engine from the connection chip. */
+  initialSection: { type: String as PropType<SettingsSection>, default: 'appearance' }
 });
 
 const emit = defineEmits(['close']);
@@ -56,7 +58,7 @@ const showDecklinkWizard = ref(false);
  * SettingsModalConfirmation.test.ts pins it. The rail and the search index
  * behind "Find a setting…" live in `lib/settingsSearch.ts`.
  */
-const activeSection = ref<SettingsSection>('appearance');
+const activeSection = ref<SettingsSection>(props.initialSection);
 const modalBodyRef = ref<HTMLElement | null>(null);
 const sectionFilter = ref('');
 
