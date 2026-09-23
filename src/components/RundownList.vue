@@ -3,7 +3,6 @@ import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 
 import { invoke } from '@tauri-apps/api/core';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { useRundownStore, type ComplianceRating, type RundownItem, type RundownPlaylist, type InsertionTarget } from '../stores/rundown';
-import type { LibraryIndicator } from '../stores/mediaDefaults';
 import { draggingItem } from '../composables/useDragState';
 import { registerRundownDropSurface, beginRundownDrag, indicatorGeometry, activeDragSession, refreshGeometrySnapshot, type DropSurface, type DragSession } from '../composables/useDragSession';
 import { currentPlayoutMs, currentTotalPlayoutMs, getActivePlayoutService, isPlayoutPlaying, registerPlayoutAdvanceListener } from '../services/playout';
@@ -13,7 +12,8 @@ import PlaylistTotals from './PlaylistTotals.vue';
 import { onAppMenuAction } from '../lib/appMenu';
 import { usePlaylistFile } from '../composables/usePlaylistFile';
 import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
-import { commercialTagBadge, commercialTagTone, contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
+import { contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
+import { CONTENT_TYPES, effectiveContentType, type ContentType } from '../lib/contentTypes';
 import AppIcon from './ui/AppIcon.vue';
 import { vTooltip } from '../lib/tooltip';
 import type { IconName } from './ui/icons';
@@ -248,12 +248,6 @@ const ratingOptions: Array<{ id: ComplianceRating; label: string }> = [
   { id: '12', label: '12+' },
   { id: '16', label: '16+' },
   { id: '18', label: '18+' }
-];
-
-const indicatorOptions: Array<{ id: LibraryIndicator; label: string }> = [
-  { id: 'none', label: 'None' },
-  { id: 'spot', label: 'Spot' },
-  { id: 'telemarketing', label: 'Telemarketing' }
 ];
 
 const { timecode: studioClockTimecode } = useStudioClock();
@@ -578,7 +572,7 @@ const saveMetadata = async (
     complianceText?: string;
     timeline?: Array<{ start: number; end: number; text: string }>;
     tp_flag?: boolean;
-    content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+    content_type?: ContentType;
   },
   localItemId?: string
 ) => {
@@ -588,13 +582,12 @@ const saveMetadata = async (
   }
 };
 
-const contentTypeOptions = [
+// Programme types, then interstitials. Spot and Telemarketing used to be a
+// separate "Commercial tag" submenu; they are content types now.
+const contentTypeOptions: ReadonlyArray<{ id: ContentType; label: string }> = [
   { id: 'none', label: 'None' },
-  { id: 'movie', label: 'Movie' },
-  { id: 'show', label: 'Show' },
-  { id: 'documentary', label: 'Documentary' },
-  { id: 'news', label: 'News' }
-] as const;
+  ...CONTENT_TYPES.map((t) => ({ id: t.id, label: t.label })),
+];
 
 interface AgeRatingOption {
   id: ComplianceRating;
@@ -703,17 +696,10 @@ const ctxToggleTP = async () => {
   closeContextMenu();
 };
 
-const ctxSetContentType = async (cType: 'movie' | 'show' | 'documentary' | 'news' | 'none') => {
+const ctxSetContentType = async (cType: ContentType) => {
   const item = contextMenu.value.item;
   if (item && item.type !== 'gap') {
     await saveMetadata(item.playoutvueId, { content_type: cType }, item.id);
-  }
-  closeContextMenu();
-};
-
-const ctxSetIndicator = (indicator: LibraryIndicator) => {
-  if (contextMenu.value.item && contextMenu.value.item.type !== 'gap') {
-    store.updateItem(contextMenu.value.item.id, { libraryIndicator: indicator });
   }
   closeContextMenu();
 };
@@ -774,8 +760,7 @@ const menuItems = computed<MenuItem[]>(() => {
   if (item.type !== 'gap') {
     const currentRating = item.complianceRating || 'none';
     const descriptorCount = Array.isArray(item.complianceDescriptors) ? item.complianceDescriptors.length : 0;
-    const currentType = item.content_type || 'none';
-    const currentTag = item.libraryIndicator || 'none';
+    const currentType = effectiveContentType(item.content_type, item.libraryIndicator);
 
     list.push(
       { type: 'divider' },
@@ -859,28 +844,11 @@ const menuItems = computed<MenuItem[]>(() => {
         label: 'Content type',
         children: contentTypeOptions.map(ct => ({
           type: 'action',
-          icon: ((item.content_type || 'none') === ct.id ? 'radio-on' : 'radio-off') as IconName,
+          icon: (currentType === ct.id ? 'radio-on' : 'radio-off') as IconName,
           tone: contentTypeTone(ct.id),
           label: ct.label,
-          checked: (item.content_type || 'none') === ct.id,
+          checked: currentType === ct.id,
           action: () => ctxSetContentType(ct.id)
-        }))
-      },
-      {
-        type: 'submenu',
-        id: 'commercial-tag',
-        icon: 'tag',
-        tone: commercialTagTone(currentTag),
-        badge: commercialTagBadge(currentTag),
-        label: 'Commercial tag',
-        children: indicatorOptions.map(ind => ({
-          type: 'action',
-          icon: ((item.libraryIndicator || 'none') === ind.id ? 'radio-on' : 'radio-off') as IconName,
-          tone: commercialTagTone(ind.id),
-          badge: commercialTagBadge(ind.id),
-          label: ind.label,
-          checked: (item.libraryIndicator || 'none') === ind.id,
-          action: () => ctxSetIndicator(ind.id)
         }))
       }
     );

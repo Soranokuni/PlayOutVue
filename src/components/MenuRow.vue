@@ -129,9 +129,11 @@ defineProps<{
 .menu-item[data-tone='type-show'] { --menu-tone: var(--type-show); --menu-tone-fg: var(--text-on-accent); }
 .menu-item[data-tone='type-documentary'] { --menu-tone: var(--type-documentary); --menu-tone-fg: var(--text-on-danger); }
 .menu-item[data-tone='type-news'] { --menu-tone: var(--type-news); --menu-tone-fg: var(--text-on-success); }
-
-.menu-item[data-tone='tag-spot'] { --menu-tone: var(--tag-spot); --menu-tone-fg: var(--text-on-warning); }
-.menu-item[data-tone='tag-telemarketing'] { --menu-tone: var(--tag-telemarketing); --menu-tone-fg: var(--text-on-danger); }
+.menu-item[data-tone='type-kids'] { --menu-tone: var(--type-kids); --menu-tone-fg: var(--text-on-warning); }
+.menu-item[data-tone='type-spot'] { --menu-tone: var(--type-spot); --menu-tone-fg: var(--text-on-warning); }
+.menu-item[data-tone='type-promo'] { --menu-tone: var(--type-promo); --menu-tone-fg: var(--text-on-success); }
+.menu-item[data-tone='type-jingle'] { --menu-tone: var(--type-jingle); --menu-tone-fg: var(--text-on-danger); }
+.menu-item[data-tone='type-telemarketing'] { --menu-tone: var(--type-telemarketing); --menu-tone-fg: var(--text-on-success); }
 
 /* Hover is the tone at low alpha plus a 2 px leading bar in the tone at full
    strength: the tint alone is too weak to identify a colour at 12 %, and the

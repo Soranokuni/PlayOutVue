@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRundownStore } from '../stores/rundown';
+import type { ContentType } from '../lib/contentTypes';
 import { invoke } from '@tauri-apps/api/core';
 import { msToTimecode, parseTimecode, snapMsToFrame, getFrameRate, isDropFrameSupported } from '../lib/timecode';
 import { activeTrimmerContext } from '../composables/useOperatorShortcuts';
@@ -47,7 +48,7 @@ export interface LibraryTrimItem {
     keyframe_safe_start_ms?: number;
     complianceRating?: string;
     tp_flag?: boolean;
-    content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+    content_type?: ContentType;
 }
 
 const store = useRundownStore();
