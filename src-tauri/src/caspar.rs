@@ -749,10 +749,9 @@ fn handle_playback_path_osc<R: Runtime>(
         // near its end: CasparCG performed the AUTO transition prematurely.
         // Report it once, operator-visible, and let the gate keep the state
         // machine from acting on it (never re-issue PLAY).
+        let outgoing_norm = extract_raw_filename_lower(&s.outgoing_path);
         if !s.premature_switch_flagged
-            && path_norm == expected_norm
-            && !registered_norm.is_empty()
-            && path_norm != registered_norm
+            && is_premature_switch_observation(&path_norm, &expected_norm, &registered_norm, &outgoing_norm, s.path_confirmed)
             && is_premature_auto_switch(now_mono, s.auto_advance_not_before_ms, PREMATURE_SWITCH_MARGIN_MS)
         {
             s.premature_switch_flagged = true;
@@ -882,6 +881,29 @@ pub fn is_premature_auto_switch(now_mono_ms: u64, gate_ms: u64, margin_ms: u64) 
     gate_ms != u64::MAX && gate_ms != 0 && now_mono_ms.saturating_add(margin_ms) < gate_ms
 }
 
+/// Pure decision: does this foreground `/file/path` show the preloaded clip
+/// on air in place of the registered one? All names are normalized
+/// basenames. Until the registered clip has been seen on air
+/// (`path_confirmed`), a path naming the outgoing clip's file is that clip's
+/// tail, even when the clip queued after the next one is cut from the same
+/// file. Incident 2026-09-23: A (subclip of X) -> B -> C (another subclip of
+/// X) reported a premature switch on every B registration, while CasparCG
+/// played A, B and C in order. Paths carry no trim, so the one case left
+/// undetectable is C replacing B when both A and C come from the same file.
+pub fn is_premature_switch_observation(
+    path_norm: &str,
+    expected_norm: &str,
+    registered_norm: &str,
+    outgoing_norm: &str,
+    path_confirmed: bool,
+) -> bool {
+    if registered_norm.is_empty() || path_norm != expected_norm || path_norm == registered_norm {
+        return false;
+    }
+    let is_outgoing_tail = !path_confirmed && !outgoing_norm.is_empty() && path_norm == outgoing_norm;
+    !is_outgoing_tail
+}
+
 /// Pure decision: give up waiting for an in-window position sample and accept
 /// the live position as-is.
 pub fn should_abandon_position_reset_wait(now_mono_ms: u64, waiting_since_ms: u64, ignored_samples: u32) -> bool {
@@ -953,6 +975,10 @@ pub struct PlaybackStateInner {
     /// Whether the position has advanced at least once since playback started.
     pub position_ever_advanced: bool,
     pub registered_current_path: String,
+    /// The previously registered clip's path while the new registration is
+    /// not yet confirmed on air; its `/file/path` samples are the outgoing
+    /// clip's tail, not a transition (see `is_premature_switch_observation`).
+    pub outgoing_path: String,
     pub path_confirmed: bool,
     pub trim_in_ms: u64,
     pub trim_out_ms: u64,
@@ -1009,6 +1035,7 @@ impl Default for PlaybackStateInner {
             position_stalled_ticks: 0,
             position_ever_advanced: false,
             registered_current_path: String::new(),
+            outgoing_path: String::new(),
             path_confirmed: true,
             trim_in_ms: 0,
             trim_out_ms: 0,
@@ -1432,6 +1459,7 @@ pub(crate) fn register_playback_internal(
         || old_registered.is_empty()
         || transitioned_before_registration
         || same_file_transition_before_registration;
+    s.outgoing_path = if s.path_confirmed { String::new() } else { old_registered.clone() };
 
     s.current_file_path = current_path.clone();
     s.registered_current_path = current_path;
@@ -1605,6 +1633,7 @@ fn clear_playback_state(s: &mut PlaybackStateInner) {
     s.expected_out_point_ms = u64::MAX;
     s.current_file_path = String::new();
     s.registered_current_path = String::new();
+    s.outgoing_path = String::new();
     s.path_confirmed = true;
     s.expected_next_path = None;
     s.last_osc_at_ms = 0;
@@ -1978,6 +2007,83 @@ mod tests {
         clear_playback_state(&mut state);
         assert!(!state.position_confirmation_emitted);
         assert!(!state.premature_switch_flagged);
+    }
+
+    #[test]
+    fn premature_switch_ignores_the_outgoing_clip_when_the_clip_after_next_shares_its_file() {
+        // 2026-09-23 12:46:16: 3_arias (subclip) -> 1c registered -> 3_arias
+        // (another subclip) preloaded next. The outgoing clip's path is not
+        // a transition while 1c has not been seen on air.
+        assert!(!is_premature_switch_observation("3_arias", "3_arias", "1c", "3_arias", false));
+        // 12:40:46: 9b -> 3_arias subclip registered -> 9b subclip next.
+        assert!(!is_premature_switch_observation("9b", "9b", "3_arias", "9b", false));
+        // Once 1c is confirmed on air, the next clip's file appearing is a
+        // real premature AUTO even though A came from the same file.
+        assert!(is_premature_switch_observation("3_arias", "3_arias", "1c", "3_arias", true));
+    }
+
+    #[test]
+    fn premature_switch_still_reports_a_skipped_clip() {
+        // 2026-09-23 10:53:15: LOADBG 9b overwrote 1c in the background, and
+        // CasparCG cut 3_arias -> 9b. 1c never reached air (not confirmed),
+        // and 9b is not the outgoing file.
+        assert!(is_premature_switch_observation("9b", "9b", "1c", "3_arias", false));
+        // Unrelated paths are never a premature switch.
+        assert!(!is_premature_switch_observation("1c", "9b", "1c", "3_arias", false));
+        assert!(!is_premature_switch_observation("zz", "9b", "1c", "3_arias", true));
+        assert!(!is_premature_switch_observation("9b", "9b", "", "3_arias", true));
+    }
+
+    #[test]
+    fn registration_remembers_the_outgoing_path_only_until_confirmed() {
+        let mut state = PlaybackStateInner {
+            registered_current_path: "C:/Media/3_arias.mp4".to_string(),
+            ..PlaybackStateInner::default()
+        };
+        register_playback_internal(
+            &mut state,
+            "b".to_string(),
+            22_120,
+            22_120,
+            "C:/Media/1c.mp4".to_string(),
+            Some("C:/Media/3_arias.mp4".to_string()),
+            0,
+            Some(1),
+            None,
+            None,
+            None,
+            None,
+            Some(22_120),
+            Some(false),
+            None,
+            1_000,
+        );
+        assert!(!state.path_confirmed);
+        assert_eq!(state.outgoing_path, "C:/Media/3_arias.mp4");
+
+        // A first registration has nothing outgoing to fence.
+        clear_playback_state(&mut state);
+        assert!(state.outgoing_path.is_empty());
+        register_playback_internal(
+            &mut state,
+            "a".to_string(),
+            22_120,
+            22_120,
+            "C:/Media/1c.mp4".to_string(),
+            None,
+            0,
+            Some(1),
+            None,
+            None,
+            None,
+            None,
+            Some(22_120),
+            Some(false),
+            None,
+            1_000,
+        );
+        assert!(state.path_confirmed);
+        assert!(state.outgoing_path.is_empty());
     }
 
     #[test]
