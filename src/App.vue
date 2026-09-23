@@ -10,6 +10,7 @@ import { lazyComponent } from './lib/lazyComponent';
 import { fitToWidth, MAX_FIT_STEP } from './lib/fitToWidth';
 import CommandPaletteModal from './components/CommandPaletteModal.vue';
 import RelaunchRecoveryDialog from './components/RelaunchRecoveryDialog.vue';
+import AppContextMenu from './components/AppContextMenu.vue';
 // PERF F-14: Settings is 1.8k lines and opened rarely; load it on demand and
 // mount it only while open so its watchers/listeners do not run at startup.
 const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponent(
@@ -1310,6 +1311,10 @@ onUnmounted(() => {
     <SettingsModal v-if="showSettings" :is-open="showSettings" :initial-section="settingsSection" @close="showSettings = false" />
     <CommandPaletteModal :is-open="activeModalName === 'command-palette'" @close="closeCommandPalette" />
     <RelaunchRecoveryDialog />
+
+    <!-- The right-click menu for empty space; it also keeps WebView2's
+         browser menu (Refresh, Inspect…) out of the operator's reach. -->
+    <AppContextMenu @open-settings="openSettings()" />
 
     <!-- UI §3.2: one toast host for the whole app. -->
     <ToastHost />

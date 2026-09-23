@@ -143,11 +143,11 @@ export function isInteractiveControl(element: HTMLElement | null): boolean {
   return false;
 }
 
-export async function executeRegisteredCommand(commandId: string): Promise<boolean> {
+/** The context a command runs in right now, for callers outside the key router. */
+export function currentCommandContext(): CommandContext {
   const rundown = useRundownStore();
-  const scope = classifyActiveScope();
-  const ctx: CommandContext = {
-    scope,
+  return {
+    scope: classifyActiveScope(),
     rundown,
     selection: {
       selectedItemIds: rundown.selectedItemIds,
@@ -157,7 +157,10 @@ export async function executeRegisteredCommand(commandId: string): Promise<boole
     trimmer: activeTrimmerContext.value,
     requireTakeConfirmation: requireTakeConfirmation.value
   };
-  return commandRegistry.execute(commandId, ctx);
+}
+
+export async function executeRegisteredCommand(commandId: string): Promise<boolean> {
+  return commandRegistry.execute(commandId, currentCommandContext());
 }
 
 let shortcutsMounted = false;

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { vTooltip } from '../lib/tooltip';
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRundownStore } from '../stores/rundown';
 import { usePlaylistFile } from '../composables/usePlaylistFile';
+import { onAppMenuAction } from '../lib/appMenu';
 import BaseButton from './ui/BaseButton.vue';
 
 /**
@@ -82,6 +83,15 @@ const cancelGapLine = () => {
     showGapInput.value = false;
     gapTimeDraft.value = '';
 };
+
+// The app menu's "Insert hard start…" opens the same inline field.
+let stopAppMenu: (() => void) | null = null;
+onMounted(() => {
+    stopAppMenu = onAppMenuAction((action) => {
+        if (action === 'rundown.hardStart') addGapLine();
+    });
+});
+onUnmounted(() => stopAppMenu?.());
 
 const commitGapLine = () => {
     const value = gapTimeDraft.value.trim();

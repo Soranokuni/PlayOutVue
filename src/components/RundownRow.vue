@@ -342,6 +342,11 @@ const itemTooltip = computed(() => {
   gap: var(--rw-col-gap);
   min-height: var(--row-h-rundown, 48px);
   height: var(--row-h-rundown, 48px);
+  /* Never narrower than its columns. At a snapped window the columns used to
+     spill past the row's box: the play button sat outside the row, the tint
+     and the progress hairline stopped short of it. Now the box grows with
+     them and the list scrolls the whole row. */
+  min-width: min-content;
   padding: 0 var(--space-2);
   margin: var(--space-0) 0;
   border-radius: var(--radius-md);
@@ -349,10 +354,13 @@ const itemTooltip = computed(() => {
   cursor: pointer;
   user-select: none;
   transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast);
-  /* §5.3: a row is its own surface, not the panel it sits in. */
-  background: var(--surface-row);
+  /* §5.3: a row is its own surface, not the panel it sits in. Every state
+     below sets `--rw-row-bg` rather than `background`, so the pinned Actions
+     cell can paint exactly the row's colour over an opaque base. */
+  --rw-row-bg: var(--surface-row);
+  background: var(--rw-row-bg);
 }
-.rw-row:hover { background: var(--bg-hover); }
+.rw-row:hover { --rw-row-bg: var(--bg-hover); }
 /* §6.2 precedence, top wins:
    1 playing · 2 next-up-imminent · 3 next-up · 4 selected · 5 played ·
    6 content-type (a 3px left bar only) · 7 rating (its chip only).
@@ -415,7 +423,7 @@ const itemTooltip = computed(() => {
 .rw-row.gap-line {
   border-style: dashed;
   border-color: color-mix(in srgb, var(--accent-orange) 45%, transparent);
-  background: color-mix(in srgb, var(--accent-orange) 8%, var(--bg-secondary));
+  --rw-row-bg: color-mix(in srgb, var(--accent-orange) 8%, var(--bg-secondary));
 }
 .rw-row.gap-line .rw-name,
 .rw-row.gap-line .rw-dur,
@@ -441,26 +449,26 @@ const itemTooltip = computed(() => {
  * times a second for the length of the clip.
  */
 .rw-row.selected {
-  background: var(--bg-active);
+  --rw-row-bg: var(--bg-active);
   border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
 }
 
 .rw-row.next-up {
-  background: color-mix(in srgb, var(--accent-yellow) 12%, var(--bg-secondary));
+  --rw-row-bg: color-mix(in srgb, var(--accent-yellow) 12%, var(--bg-secondary));
   border-color: color-mix(in srgb, var(--accent-yellow) 35%, transparent);
 }
 
 .rw-row.playing:not([data-progress-tone]) {
-  background: color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary));
+  --rw-row-bg: color-mix(in srgb, var(--accent-red) 12%, var(--bg-secondary));
   border-color: color-mix(in srgb, var(--accent-red) 45%, transparent);
 }
 
 .rw-row[data-progress-tone='green'] {
-  background: color-mix(in srgb, var(--status-ready) 12%, var(--bg-secondary));
+  --rw-row-bg: color-mix(in srgb, var(--status-ready) 12%, var(--bg-secondary));
   border-color: color-mix(in srgb, var(--status-ready) 40%, transparent);
 }
 .rw-row[data-progress-tone='red'] {
-  background: color-mix(in srgb, var(--status-onair) 16%, var(--bg-secondary));
+  --rw-row-bg: color-mix(in srgb, var(--status-onair) 16%, var(--bg-secondary));
   border-color: color-mix(in srgb, var(--status-onair) 40%, transparent);
 }
 
@@ -565,7 +573,39 @@ const itemTooltip = computed(() => {
    header can no longer read "DURATION AT" as one word. */
 .rw-dur     { width: var(--rw-col-dur); display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--space-0); text-align: right; font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text-primary); font-variant-numeric: tabular-nums; flex-shrink: 0; font-family: var(--font-mono); letter-spacing: var(--tracking-caps); }
 .rw-at      { width: var(--rw-col-at); display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); flex-shrink: 0; margin-left: var(--space-2); text-align: right; }
-.rw-actions { width: var(--rw-col-actions); display: flex; gap: var(--space-1); flex-shrink: 0; justify-content: flex-end; }
+/* Start-aligned: the on-air row has no delete button (it is protected), and
+   right-aligned its play button slid 30px out of line with every other row. */
+.rw-actions { width: var(--rw-col-actions); display: flex; gap: var(--space-1); flex-shrink: 0; justify-content: flex-start; }
+/* Pinned to the list's right edge, so play and delete stay in reach however
+   narrow the panel is; once the list scrolls sideways, the rest of the row
+   slides under them. The row's own colour over the panel's, so it matches the
+   row exactly whether or not anything is underneath. */
+.rw-actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: linear-gradient(var(--rw-row-bg), var(--rw-row-bg)), var(--bg-secondary);
+}
+/* Overflowing content paints into the list's reserved scrollbar gutter, just
+   right of the pinned cell; this extends the cell's surface over it. When the
+   row fits, it lies inside the row's own padding in the row's own colour. */
+.rw-actions::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Overlaps the cell by 1px: at a fractional display scale the seam
+     between them let a hairline of the text underneath through. Exactly as
+     wide as the row's right padding: any wider and, when the row fits, it
+     painted a square strip past the row's rounded edge and gave the list
+     phantom sideways scroll. */
+  left: calc(100% - 1px);
+  width: calc(var(--space-2) + 1px);
+  background: inherit;
+  /* Beneath the buttons (the cell is its own stacking context): above them,
+     its 1px overlap cut the delete button's right edge and hover border. */
+  z-index: -1;
+}
 
 /* The delete control appears on hover or keyboard focus, so a 300-row list is
    not 300 delete buttons one mis-click away from the rundown. */
@@ -676,6 +716,11 @@ const itemTooltip = computed(() => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /* The row is `min-width: min-content`, and a title with no break points
+     ("Feature_Film_Noir_1958") has its whole length as its min-content, so
+     one long name widened every row past the list. Contained, the title
+     contributes only its floor, `--rw-col-title-min`, and ellipsises. */
+  contain: inline-size;
 }
 .rw-name-text {
   white-space: nowrap;
@@ -743,14 +788,25 @@ const itemTooltip = computed(() => {
 }
 
 /* --- Responsive column shedding (§6.1) ------------------------------------
-   Driven by the rundown panel's own width via a container query, so the
-   library split width counts — the same reasoning as the control bar (F-01). */
-@container rundown (max-width: 620px) {
+   Driven by the rundown list's own width via a container query, so the
+   library split width and a snapped window both count -- the same reasoning
+   as the control bar (F-01). The steps are where each layout stops fitting,
+   measured at Comfortable: the full row needs 784px, then 744 with the
+   title's floor at 140 (set in RundownList), 650 without Trim, 604 with
+   rating-only flags, 504 without At and 460 with the title's floor at 96.
+   Each breakpoint sits 8px early for Large density's wider Actions.
+   RundownList sheds the header labels at the same widths. Below 460 the
+   list scrolls sideways under the pinned Actions. */
+@container rundown (max-width: 752px) {
   .rw-inout { display: none; }
 }
 
-@container rundown (max-width: 520px) {
+@container rundown (max-width: 660px) {
   .rw-flags { width: var(--rw-col-flags-narrow); }
   .rw-flags .rw-tag-badge { display: none; }
+}
+
+@container rundown (max-width: 612px) {
+  .rw-at { display: none; }
 }
 </style>
