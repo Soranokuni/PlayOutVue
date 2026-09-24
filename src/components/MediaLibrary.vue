@@ -38,6 +38,7 @@ import { buildVirtualFolderTree, type VirtualFolderNode } from '../stores/mediaL
 import { describeErrorMessage, rawErrorText } from '../lib/describeError';
 import EmptyState from './ui/EmptyState.vue';
 import BaseButton from './ui/BaseButton.vue';
+import DescriptorChips from './ui/DescriptorChips.vue';
 import { LIBRARY_SORT_OPTIONS, DEFAULT_LIBRARY_SORT, nextLibrarySort, sanitizeLibrarySort, sortLibraryAssets, type LibrarySort, type LibrarySortKey } from '../lib/librarySort';
 
 // PERF F-14: pickers/bin are opened rarely; fetch on first open, mount only while open.
@@ -816,6 +817,8 @@ function assetFlagTooltip(asset: LibraryAsset): string {
     const parts = [`Age rating ${meta.ageRating.toUpperCase()}`];
     if (meta.tpFlag) parts.push('Product placement (TP)');
     if (meta.contentType !== 'none') parts.push(contentTypeLabel(meta.contentType));
+    const descriptors = GREEK_CONTENT_DESCRIPTORS.filter((d) => meta.descriptors?.includes(d.id)).map((d) => d.label);
+    if (descriptors.length) parts.push(descriptors.join(', '));
     return parts.join(' · ');
 }
 
@@ -2758,6 +2761,7 @@ const menuItems = computed<MenuItem[]>(() => {
                   class="mcr-badge badge-tp"
                   title="Product placement (TP)"
                 >TP</span>
+                <DescriptorChips :ids="cachedRatingMeta(asset).descriptors" />
               </span>
             </span>
             <span v-if="libraryRowMode === 'two-line'" class="lib-subline">

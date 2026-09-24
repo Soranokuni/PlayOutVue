@@ -193,6 +193,15 @@
   --rating-18-fg: #ffffff;
   --rating-tp: #9333ea;
   --rating-tp-fg: #ffffff;
+  /* ΕΣΡ content descriptors (letter chips beside the age chip). */
+  --desc-violence: #f87171;
+  --desc-violence-fg: #1a0505;
+  --desc-sex: #f472b6;
+  --desc-sex-fg: #1f0612;
+  --desc-substances: #a78bfa;
+  --desc-substances-fg: #0f0726;
+  --desc-language: #fbbf24;
+  --desc-language-fg: #1a1206;
 
   /* Content type */
   --type-movie: #f43f5e;
@@ -256,6 +265,15 @@
   --rating-18-fg: #181915;
   --rating-tp: #ae81ff;
   --rating-tp-fg: #181915;
+  /* ΕΣΡ content descriptors (letter chips beside the age chip). */
+  --desc-violence: #f92672;
+  --desc-violence-fg: #181915;
+  --desc-sex: #ff6ac1;
+  --desc-sex-fg: #181915;
+  --desc-substances: #ae81ff;
+  --desc-substances-fg: #181915;
+  --desc-language: #e6db74;
+  --desc-language-fg: #181915;
 
   --type-movie: #f92672;
   --type-show: #66d9ef;
@@ -310,6 +328,15 @@
   --rating-18-fg: #ffffff;
   --rating-tp: #7e22ce;
   --rating-tp-fg: #ffffff;
+  /* ΕΣΡ content descriptors (letter chips beside the age chip). */
+  --desc-violence: #b91c1c;
+  --desc-violence-fg: #ffffff;
+  --desc-sex: #be185d;
+  --desc-sex-fg: #ffffff;
+  --desc-substances: #6d28d9;
+  --desc-substances-fg: #ffffff;
+  --desc-language: #92400e;
+  --desc-language-fg: #ffffff;
 
   --type-movie: #be123c;
   --type-show: #0369a1;
@@ -431,6 +458,15 @@
   --rating-18-fg: #ffffff;
   --rating-tp: #9333ea;
   --rating-tp-fg: #ffffff;
+  /* ΕΣΡ content descriptors (letter chips beside the age chip). */
+  --desc-violence: #f87171;
+  --desc-violence-fg: #1a0505;
+  --desc-sex: #f472b6;
+  --desc-sex-fg: #1f0612;
+  --desc-substances: #a78bfa;
+  --desc-substances-fg: #0f0726;
+  --desc-language: #fbbf24;
+  --desc-language-fg: #1a1206;
 
   --type-movie: #f0506e;
   --type-show: #7cc4fa;
@@ -522,6 +558,15 @@
   --rating-18-fg: #ffffff;
   --rating-tp: #9333ea;
   --rating-tp-fg: #ffffff;
+  /* ΕΣΡ content descriptors (letter chips beside the age chip). */
+  --desc-violence: #f87171;
+  --desc-violence-fg: #1a0505;
+  --desc-sex: #f472b6;
+  --desc-sex-fg: #1f0612;
+  --desc-substances: #a78bfa;
+  --desc-substances-fg: #0f0726;
+  --desc-language: #fbbf24;
+  --desc-language-fg: #1a1206;
 
   --type-movie: #f0506e;
   --type-show: #8fb8e8;
@@ -613,6 +658,15 @@
   --rating-18-fg: #ffffff;
   --rating-tp: #7e22ce;
   --rating-tp-fg: #ffffff;
+  /* ΕΣΡ content descriptors (letter chips beside the age chip). */
+  --desc-violence: #b91c1c;
+  --desc-violence-fg: #ffffff;
+  --desc-sex: #be185d;
+  --desc-sex-fg: #ffffff;
+  --desc-substances: #6d28d9;
+  --desc-substances-fg: #ffffff;
+  --desc-language: #92400e;
+  --desc-language-fg: #ffffff;
 
   --type-movie: #b91c1c;
   --type-show: #1d4ed8;

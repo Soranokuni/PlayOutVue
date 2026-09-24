@@ -4,6 +4,7 @@ import type { RundownItem } from '../stores/rundown';
 import type { LibraryIndicator } from '../stores/mediaDefaults';
 import StatusIndicator from './StatusIndicator.vue';
 import AppIcon from './ui/AppIcon.vue';
+import DescriptorChips from './ui/DescriptorChips.vue';
 import RenderIsland from './ui/RenderIsland.vue';
 import { RUNDOWN_LIVE_PROGRESS } from '../lib/rundownLiveProgress';
 import type { IconName } from './ui/icons';
@@ -266,6 +267,7 @@ const itemTooltip = computed(() => {
         <span v-if="item.tp_flag" class="rw-tp-dot" aria-hidden="true"></span>
       </span>
       <span v-else-if="item.tp_flag" class="rw-tag-badge tone-tp" title="Product placement">TP</span>
+      <DescriptorChips class="rw-desc-chips" :ids="item.complianceDescriptors" />
 
       <span
         v-if="item.libraryIndicator && item.libraryIndicator !== 'none'"
@@ -803,7 +805,8 @@ const itemTooltip = computed(() => {
 
 @container rundown (max-width: 660px) {
   .rw-flags { width: var(--rw-col-flags-narrow); }
-  .rw-flags .rw-tag-badge { display: none; }
+  .rw-flags .rw-tag-badge,
+  .rw-flags .rw-desc-chips { display: none; }
 }
 
 @container rundown (max-width: 612px) {

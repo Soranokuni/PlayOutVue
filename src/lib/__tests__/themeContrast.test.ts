@@ -119,6 +119,23 @@ describe('§10 · theme contrast floors', () => {
     expect(failures).toEqual([]);
   });
 
+  it('keeps every ΕΣΡ descriptor chip readable', () => {
+    const failures: string[] = [];
+
+    for (const theme of THEMES) {
+      for (const id of ['violence', 'sex', 'substances', 'language']) {
+        const bg = token(theme, `--desc-${id}`);
+        const fg = token(theme, `--desc-${id}-fg`);
+        const ratio = contrast(fg, bg);
+        if (ratio < AA_NORMAL) {
+          failures.push(`${theme}: descriptor ${id} is ${ratio.toFixed(2)}:1 (${fg} on ${bg})`);
+        }
+      }
+    }
+
+    expect(failures).toEqual([]);
+  });
+
   it('keeps the filled on-air and danger surfaces readable', () => {
     const failures: string[] = [];
 
