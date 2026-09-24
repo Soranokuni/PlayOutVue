@@ -43,7 +43,7 @@ use stream::extract_web_stream;
 use trimmer::{get_media_preview_info, compute_frame_trim, parse_timecode};
 use audio_peaks::{cancel_audio_peaks, get_audio_peaks};
 use playlist::{save_playlist, load_playlist};
-use filesystem::{browse_filesystem, find_default_logos_dir, get_file_created_times, get_image_dimensions, list_filesystem_roots, verify_paths_exist};
+use filesystem::{browse_filesystem, find_default_logos_dir, get_disk_space, get_file_created_times, get_image_dimensions, list_filesystem_roots, verify_paths_exist};
 use ingestor_api::{
     auto_purge_ingestor_recycle_bin, check_ingestor_health, create_ingestor_subclip,
     list_ingestor_assets, list_ingestor_folder_colors, list_ingestor_recycle_bin,
@@ -276,6 +276,7 @@ pub fn run() {
             browse_filesystem,
             verify_paths_exist,
             get_file_created_times,
+            get_disk_space,
             find_default_logos_dir,
             get_image_dimensions,
             resolve_ingestor_asset,

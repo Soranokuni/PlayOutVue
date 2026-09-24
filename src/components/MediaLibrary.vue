@@ -21,6 +21,7 @@ import {
     FOLDER_PANE_RATIO_STEP,
 } from '../composables/usePanelLayout';
 import { onAppMenuAction } from '../lib/appMenu';
+import { useDiskSpace } from '../composables/useDiskSpace';
 import { type LibraryCommandContext, type LibraryInsertResult } from '../services/commandRegistry';
 import TrimPanel from './TrimPanel.vue';
 import { lazyComponent } from '../lib/lazyComponent';
@@ -433,6 +434,11 @@ watch(debouncedLibraryQuery, (query) => {
 }, { immediate: true });
 
 const deletedUuidSet = computed(() => new Set(mediaLibrary.deletedUuids));
+
+// Free space on the media volume: the configured media root, or failing that
+// wherever the mezzanines actually live.
+const diskProbePath = computed(() => settings.localMediaPath?.trim() || mediaLibrary.assets[0]?.current_path || '');
+const disk = useDiskSpace(diskProbePath);
 
 const visibleFileCount = computed(() =>
     mediaLibrary.assets.filter((a) => !deletedUuidSet.value.has(a.uuid)).length
@@ -2200,6 +2206,14 @@ const menuItems = computed<MenuItem[]>(() => {
       <div class="lib-header-copy">
         <span class="text-accent lib-title">Library</span>
         <span class="lib-subtitle">
+          <template v-if="disk.label.value">
+            <span
+              class="lib-disk-free"
+              :class="`tone-${disk.tone.value}`"
+              data-testid="library-disk-free"
+              v-tooltip="disk.tooltip.value"
+            >{{ disk.label.value }}</span> ·
+          </template>
           {{ visibleFileCount }} {{ visibleFileCount === 1 ? 'asset' : 'assets' }}
           <template v-if="totalLibraryDuration"> · {{ totalLibraryDuration }}</template>
           <template v-if="probeProgressLabel"> · {{ probeProgressLabel }}</template>
@@ -2874,6 +2888,9 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-header-copy { display: flex; flex-direction: column; justify-content: center; gap: var(--space-0); min-width: 0; }
 .lib-title { font-size: var(--fs-lg); font-weight: var(--fw-bold); line-height: var(--lh-tight); color: var(--text-primary); }
 .lib-subtitle { color: var(--text-secondary); font-size: var(--fs-xs); line-height: var(--lh-tight); }
+.lib-disk-free { font-variant-numeric: tabular-nums; }
+.lib-disk-free.tone-low { color: var(--accent-yellow); font-weight: var(--fw-semibold); }
+.lib-disk-free.tone-critical { color: var(--status-error); font-weight: var(--fw-bold); }
 
 /* §2.1: one row, fixed priority order, never wrapping. It used to be
    `flex-wrap: wrap`, so at a narrow library width the `New` button dropped to

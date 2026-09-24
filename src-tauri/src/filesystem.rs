@@ -261,3 +261,77 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 }
+
+#[derive(Serialize)]
+pub struct DiskSpace {
+    pub free_bytes: u64,
+    pub total_bytes: u64,
+    /// The directory actually queried (the nearest existing ancestor).
+    pub path: String,
+}
+
+/// Free and total space of the volume holding `path`, for the library header
+/// gauge. `path` may be a file or a folder that doesn't exist yet; the nearest
+/// existing ancestor directory is queried.
+#[tauri::command]
+pub async fn get_disk_space(path: String) -> Result<DiskSpace, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = nearest_existing_dir(Path::new(path.trim()))
+            .ok_or_else(|| format!("No existing directory for {}", path))?;
+        let (free_bytes, total_bytes) = volume_space(&dir)?;
+        Ok(DiskSpace { free_bytes, total_bytes, path: dir.to_string_lossy().into_owned() })
+    })
+    .await
+    .map_err(|e| format!("get_disk_space task failed: {}", e))?
+}
+
+fn nearest_existing_dir(path: &Path) -> Option<PathBuf> {
+    if path.as_os_str().is_empty() {
+        return None;
+    }
+    path.ancestors().find(|p| !p.as_os_str().is_empty() && p.is_dir()).map(Path::to_path_buf)
+}
+
+#[cfg(target_os = "windows")]
+fn volume_space(dir: &Path) -> Result<(u64, u64), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut available: u64 = 0;
+    let mut total: u64 = 0;
+    let mut total_free: u64 = 0;
+    // SAFETY: `wide` is NUL-terminated and outlives the call; the out pointers
+    // are valid, aligned u64s on this stack frame.
+    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut available, &mut total, &mut total_free) };
+    if ok == 0 {
+        return Err(format!("GetDiskFreeSpaceExW failed: {}", std::io::Error::last_os_error()));
+    }
+    // "Available to caller" honours quotas, which is what an ingest can use.
+    Ok((available, total))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn volume_space(_dir: &Path) -> Result<(u64, u64), String> {
+    Err("Disk space is only reported on Windows".to_string())
+}
+
+#[cfg(test)]
+mod disk_tests {
+    use super::*;
+
+    #[test]
+    fn nearest_dir_walks_up_from_a_missing_file() {
+        let tmp = std::env::temp_dir();
+        let missing = tmp.join("playout-no-such-dir").join("clip.mxf");
+        assert_eq!(nearest_existing_dir(&missing).as_deref(), Some(tmp.as_path()));
+        assert!(nearest_existing_dir(Path::new("")).is_none());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn reports_space_for_the_temp_volume() {
+        let (free, total) = volume_space(&std::env::temp_dir()).unwrap();
+        assert!(total > 0 && free <= total);
+    }
+}
