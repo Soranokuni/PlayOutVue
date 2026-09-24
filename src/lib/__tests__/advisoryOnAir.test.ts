@@ -253,6 +253,29 @@ describe('CG advisory: on-air runtime', () => {
         expect(builtIn && builtIn.style.display).toBe('');
     });
 
+    it('tags the new content types, and runs ads clean unless the studio switches them on', () => {
+        const update = (window as unknown as { update: (d: unknown) => void }).update;
+        const activeTag = () => (document.getElementById('sel-active-tag-icon') as HTMLSelectElement).value;
+        const tagText = (key: string) => (document.getElementById('txt-tag-' + key) as HTMLInputElement).value;
+
+        update({ content_type: 'kids', show_tag: 'kids', styling: {} });
+        expect(activeTag()).toBe('kids');
+        expect(tagText('kids')).toBe('KID LAND');
+
+        // Spots, promos and idents run without a tag by default.
+        update({ content_type: 'spot', show_tag: 'spot', styling: {} });
+        expect(activeTag()).toBe('none');
+
+        // Switched on in the studio, the same spot carries its tag -- decided
+        // from this update's styling, before that styling reaches the state.
+        update({ content_type: 'spot', show_tag: 'spot', styling: { tagEnabled: { spot: true } } });
+        expect(activeTag()).toBe('spot');
+
+        // And a normally tagged type can be switched off.
+        update({ content_type: 'movie', show_tag: 'movie', styling: { tagEnabled: { movie: false } } });
+        expect(activeTag()).toBe('none');
+    });
+
     it('keeps the on-air console silent', () => {
         // recordAction re-rendered a display:none card on every update.
         const list = document.getElementById('console-action-list');

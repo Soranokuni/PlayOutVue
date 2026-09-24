@@ -91,8 +91,13 @@
         else if (parsed.show_tag === 'documentary' || parsed.content_type === 'documentary') tagKey = 'documentary';
         else if (parsed.show_tag === 'show' || parsed.content_type === 'show') tagKey = 'show';
         else if (parsed.show_tag === 'news' || parsed.content_type === 'news') tagKey = 'news';
+        else if (['kids', 'spot', 'promo', 'jingle'].indexOf(parsed.show_tag) !== -1) tagKey = parsed.show_tag;
+        else if (['kids', 'spot', 'promo', 'jingle'].indexOf(parsed.content_type) !== -1) tagKey = parsed.content_type;
         else if (parsed.show_tag === 'telemarketing' || (parsed.tp && !parsed.content_type)) tagKey = 'telemarketing';
         else if (parsed.show_tag && parsed.show_tag !== 'none' && SHOW_TAG_PRESETS[parsed.show_tag]) tagKey = parsed.show_tag;
+
+        // A type whose tag is switched off in the studio runs clean.
+        if (tagKey && !isShowTagEnabled(tagKey, parsed.styling)) tagKey = null;
 
         if (tagKey && SHOW_TAG_PRESETS[tagKey]) {
           applyShowTagPreset(tagKey, parsed.subtitle);
@@ -164,6 +169,19 @@
      * iterate CONTROL_SCHEMA, so a key cannot be in one and missing from the
      * other.
      */
+    /**
+     * Whether a content type's tag goes on air. Reads this update's styling
+     * first: the tag is decided before that styling is applied to the state,
+     * so on the very first update the state still holds the defaults.
+     */
+    function isShowTagEnabled(tagKey, style) {
+      const fromStyle = style && style.tagEnabled ? style.tagEnabled[tagKey] : undefined;
+      if (typeof fromStyle === 'boolean') return fromStyle;
+      const fromState = stateGet('tag.enabled.' + tagKey);
+      if (typeof fromState === 'boolean') return fromState;
+      return SHOW_TAG_DEFAULT_ENABLED[tagKey] !== false;
+    }
+
     function applyStylingVariables(style) {
       if (!style) return;
       beginDeferredRender();

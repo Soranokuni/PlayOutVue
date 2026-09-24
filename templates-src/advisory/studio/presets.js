@@ -35,6 +35,22 @@
       }
     };
 
+    // PlayOut's newer content types. Their text is editable like the rest.
+    SHOW_TAG_PRESETS.kids = { id: 'kids', label: 'KID LAND', iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wkids-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wkids-sh)"><path d="M11 3.2 L13.3 7.9 L18.4 8.6 L14.7 12.2 L15.6 17.3 L11 14.9 L6.4 17.3 L7.3 12.2 L3.6 8.6 L8.7 7.9 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="11" cy="11" r="1.3" fill="#ffffff" /></g></svg>` };
+    SHOW_TAG_PRESETS.spot = { id: 'spot', label: 'SPOT', iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wspot-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wspot-sh)"><path d="M3.5 9 V13 H6.5 L14 17 V5 L6.5 9 Z" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><path d="M16.5 8 A4 4 0 0 1 16.5 14" fill="none" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round" /><line x1="6.5" y1="13" x2="7.5" y2="17.5" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round" /></g></svg>` };
+    SHOW_TAG_PRESETS.promo = { id: 'promo', label: 'COMING UP', iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wpromo-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wpromo-sh)"><circle cx="11" cy="11" r="7.8" fill="none" stroke="#ffffff" stroke-width="1.2" /><polygon points="9,7.3 15,11 9,14.7" fill="#ffffff" /></g></svg>` };
+    SHOW_TAG_PRESETS.jingle = { id: 'jingle', label: 'JINGLE', iconSvg: `<svg class="show-tag-svg" width="18" height="18" viewBox="0 0 22 22" shape-rendering="geometricPrecision"><defs><filter id="wjingle-sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0.6" dy="1" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.9" /></filter></defs><g filter="url(#wjingle-sh)"><path d="M8.5 15.5 V5.5 L17 3.8 V13.8" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round" /><circle cx="6.6" cy="15.6" r="2" fill="#ffffff" /><circle cx="15.1" cy="13.9" r="2" fill="#ffffff" /></g></svg>` };
+
+    /**
+     * Whether each type's tag goes on air by default. Ads, promos and idents
+     * run clean unless the operator switches them on in the Show tags panel;
+     * telemarketing keeps its tag, as it always has.
+     */
+    const SHOW_TAG_DEFAULT_ENABLED = {
+      live: true, movie: true, documentary: true, telemarketing: true, show: true, news: true,
+      kids: true, spot: false, promo: false, jingle: false
+    };
+
     let BAKED_DEFAULT_PRESET = null; // @generated from advisory_default_preset.json
 
     const MASTER_STANDARD_PRESETS = {
@@ -44,7 +60,7 @@
         wordmark: 'SITIA',
         subtitle: 'HD',
         showTag: 'none',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -76,7 +92,7 @@
         wordmark: 'SITIA',
         subtitle: 'LIVE',
         showTag: 'live',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -107,7 +123,7 @@
         wordmark: 'SITIA',
         subtitle: 'MOVIE TIME',
         showTag: 'movie',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 92,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -138,7 +154,7 @@
         wordmark: 'SITIA',
         subtitle: 'DOCUMENTARY',
         showTag: 'documentary',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -169,7 +185,7 @@
         wordmark: 'SITIA',
         subtitle: 'TELEMARKETING',
         showTag: 'telemarketing',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 86,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -200,7 +216,7 @@
         wordmark: 'SITIA',
         subtitle: 'SERIES',
         showTag: 'show',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
@@ -231,7 +247,7 @@
         wordmark: 'SITIA',
         subtitle: 'NEWS',
         showTag: 'news',
-        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS' },
+        tagTexts: { live: 'LIVE', movie: 'MOVIE TIME', documentary: 'DOCUMENTARY', telemarketing: 'TELEMARKETING', show: 'SERIES', news: 'NEWS', kids: 'KID LAND', spot: 'SPOT', promo: 'COMING UP', jingle: 'JINGLE' },
         logoSize: 88,
         logoRadius: 54,
         logoExtrusion: 'convex',
