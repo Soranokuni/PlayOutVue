@@ -4,6 +4,7 @@ import { useMediaDefaultsStore, type LibraryIndicator } from './mediaDefaults';
 import { useRundownStore, parseBroadcastRating, serializeBroadcastRating } from './rundown';
 import type { ComplianceRating } from './rundown';
 import type { ContentDescriptorId } from '../lib/greekCompliance';
+import type { ContentType } from '../lib/contentTypes';
 import { invoke } from '@tauri-apps/api/core';
 import { message } from '@tauri-apps/plugin-dialog';
 import { normalizePurgeOutcome, type PurgeOutcome } from '../lib/ingestorFeedback';
@@ -820,7 +821,7 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
                 complianceDescriptors?: ContentDescriptorId[];
                 complianceText?: string;
                 tp_flag?: boolean;
-                content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+                content_type?: ContentType;
                 timeline?: Array<{ start: number; end: number; text: string }>;
             }
         ) {

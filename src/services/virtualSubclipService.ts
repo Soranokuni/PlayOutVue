@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { RundownItem } from '../stores/rundown';
+import type { ContentType } from '../lib/contentTypes';
 
 export interface VirtualSubclipRequestItem {
   id?: string;
@@ -16,7 +17,7 @@ export interface VirtualSubclipRequestItem {
   fps_den?: number;
   complianceRating?: any;
   tp_flag?: boolean;
-  content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+  content_type?: ContentType;
 }
 
 export interface VirtualSubclipRequest {

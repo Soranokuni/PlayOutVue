@@ -37,8 +37,11 @@ export type MenuTone =
   | 'type-show'
   | 'type-documentary'
   | 'type-news'
-  | 'tag-spot'
-  | 'tag-telemarketing';
+  | 'type-kids'
+  | 'type-spot'
+  | 'type-promo'
+  | 'type-jingle'
+  | 'type-telemarketing';
 
 export interface MenuItem {
   type: 'action' | 'divider' | 'submenu' | 'label' | 'toggle';

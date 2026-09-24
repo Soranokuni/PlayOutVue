@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import ContextMenu, { type MenuItem } from '../ContextMenu.vue';
 import { closeActiveContextMenu } from '../../lib/activeContextMenu';
-import { commercialTagTone, contentTypeTone, ratingBadge, ratingTone } from '../../lib/menuTones';
+import { contentTypeTone, ratingBadge, ratingTone } from '../../lib/menuTones';
 
 /**
  * The context menu's colour vocabulary.
@@ -43,8 +43,9 @@ describe('Context menu tones', () => {
 
     expect(contentTypeTone('documentary')).toBe('type-documentary');
     expect(contentTypeTone('none')).toBe('neutral');
-    expect(commercialTagTone('spot')).toBe('tag-spot');
-    expect(commercialTagTone('none')).toBe('neutral');
+    // The old commercial tag is a content type now.
+    expect(contentTypeTone('spot')).toBe('type-spot');
+    expect(contentTypeTone('KIDS')).toBe('type-kids');
   });
 
   it('puts the tone on the row and renders its badge and swatch', async () => {

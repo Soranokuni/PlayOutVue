@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, inject } from 'vue';
 import type { RundownItem } from '../stores/rundown';
-import type { LibraryIndicator } from '../stores/mediaDefaults';
 import StatusIndicator from './StatusIndicator.vue';
 import AppIcon from './ui/AppIcon.vue';
 import DescriptorChips from './ui/DescriptorChips.vue';
+import { contentTypeLabel, effectiveContentType } from '../lib/contentTypes';
 import RenderIsland from './ui/RenderIsland.vue';
 import { RUNDOWN_LIVE_PROGRESS } from '../lib/rundownLiveProgress';
 import type { IconName } from './ui/icons';
@@ -108,18 +108,13 @@ const msToShortDisplay = (ms: number) => {
 
 const ratingClass = (rating: string) => `rating-${rating || 'none'}`;
 const ratingToneClass = (rating: RundownItem['complianceRating']) => `tone-rating-${rating || 'none'}`;
-const indicatorToneClass = (indicator?: LibraryIndicator) => `tone-tag-${indicator || 'none'}`;
-const indicatorLabel = (indicator?: LibraryIndicator) => ({
-  spot: 'SPOT',
-  telemarketing: 'TMK',
-  none: ''
-}[indicator || 'none']);
 
-const indicatorTitle = (indicator?: LibraryIndicator) => ({
-  spot: 'Commercial tag: spot',
-  telemarketing: 'Commercial tag: telemarketing',
-  none: ''
-}[indicator || 'none']);
+/** Content type, including a legacy commercial tag the row may still carry. */
+const contentType = computed(() => effectiveContentType(props.item.content_type, props.item.libraryIndicator));
+const typeIconTitle = computed(() => {
+  const ct = contentTypeLabel(contentType.value);
+  return ct ? `${typeLabel(props.item.type)} · ${ct}` : typeLabel(props.item.type);
+});
 
 // §6.1: the content type is a 3px tint bar and a tooltip, not a chip. It used
 // to be a full-width row tint that lowered the contrast of `selected` and
@@ -170,10 +165,6 @@ const rowClass = computed(() => ({
   'gap-line': props.item.type === 'gap',
   // §6.2: the rating is expressed by its chip alone now. It used to also drive
   // a 6px inset stripe on the row and a signal bar next to the status dot.
-  'ct-movie': props.item.content_type === 'movie',
-  'ct-show': props.item.content_type === 'show',
-  'ct-documentary': props.item.content_type === 'documentary',
-  'ct-news': props.item.content_type === 'news'
 }));
 
 /**
@@ -221,6 +212,7 @@ const itemTooltip = computed(() => {
     :aria-selected="selected"
     :data-item-id="item.id"
     :class="rowClass"
+    :data-content-type="item.type !== 'gap' && contentType !== 'none' ? contentType : undefined"
     :data-progress-tone="progressTone || undefined"
     @click="emit('select', $event)"
     @contextmenu.prevent="emit('contextmenu', $event)"
@@ -244,7 +236,7 @@ const itemTooltip = computed(() => {
       <StatusIndicator :tone="itemStatusTone" variant="dot" :tooltip="itemTooltip" />
     </div>
 
-    <div class="rw-type-icon" :style="{ color: typeColor(item.type) }" :title="typeLabel(item.type)">
+    <div class="rw-type-icon" :style="{ color: typeColor(item.type) }" :title="typeIconTitle">
       <AppIcon :name="typeIcon(item.type)" />
     </div>
 
@@ -269,12 +261,6 @@ const itemTooltip = computed(() => {
       <span v-else-if="item.tp_flag" class="rw-tag-badge tone-tp" title="Product placement">TP</span>
       <DescriptorChips class="rw-desc-chips" :ids="item.complianceDescriptors" />
 
-      <span
-        v-if="item.libraryIndicator && item.libraryIndicator !== 'none'"
-        class="rw-tag-badge"
-        :class="indicatorToneClass(item.libraryIndicator)"
-        :title="indicatorTitle(item.libraryIndicator)"
-      >{{ indicatorLabel(item.libraryIndicator) }}</span>
     </div>
 
     <div class="rw-inout" :title="trimTitle(item)">{{ trimDisplay(item) }}</div>
@@ -365,10 +351,10 @@ const itemTooltip = computed(() => {
 .rw-row:hover { --rw-row-bg: var(--bg-hover); }
 /* §6.2 precedence, top wins:
    1 playing · 2 next-up-imminent · 3 next-up · 4 selected · 5 played ·
-   6 content-type (a 3px left bar only) · 7 rating (its chip only).
-   The content tints used to be full-row backgrounds that lowered the contrast
-   of selected and next-up underneath them, and whose :hover collapsed to one
-   blue `!important`.
+   6 content type (a faint row tint plus a 4px left bar) · 7 rating (its chip).
+   The content tint is weak (9%) and sits *under* every state in the ordered
+   block below, so it never lowers the contrast of selected / next / on air;
+   the operator reads ads vs programmes at a glance and state still wins.
 
    The rules that carry that precedence are further down, in one ordered
    block — see "§3.10". */
@@ -450,6 +436,16 @@ const itemTooltip = computed(() => {
  * Flat tints, so the row paints once when it starts playing rather than four
  * times a second for the length of the clip.
  */
+/* Content type, weakest of all: before every state so each one overrides it.
+   `:where(:hover)` keeps the hover rule at the same specificity, so hovering a
+   selected or on-air row still shows the state colour. */
+.rw-row[data-content-type] {
+  --rw-row-bg: color-mix(in srgb, var(--rw-ct) 9%, var(--surface-row));
+}
+.rw-row[data-content-type]:where(:hover) {
+  --rw-row-bg: color-mix(in srgb, var(--rw-ct) 14%, var(--bg-hover));
+}
+
 .rw-row.selected {
   --rw-row-bg: var(--bg-active);
   border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
@@ -560,8 +556,6 @@ const itemTooltip = computed(() => {
 .rw-rating-badge.rating-12, .rw-signal.tone-rating-12 { color: var(--rating-12); background: color-mix(in srgb, var(--rating-12) 18%, transparent); border-color: color-mix(in srgb, var(--rating-12) 45%, transparent); }
 .rw-rating-badge.rating-16, .rw-signal.tone-rating-16 { color: var(--rating-16); background: color-mix(in srgb, var(--rating-16) 16%, transparent); border-color: color-mix(in srgb, var(--rating-16) 40%, transparent); }
 .rw-rating-badge.rating-18, .rw-signal.tone-rating-18 { color: var(--rating-18); background: color-mix(in srgb, var(--rating-18) 18%, transparent); border-color: color-mix(in srgb, var(--rating-18) 45%, transparent); }
-.rw-tag-badge.tone-tag-spot, .rw-signal.tone-tag-spot { color: var(--tag-spot); background: color-mix(in srgb, var(--tag-spot) 16%, transparent); border-color: color-mix(in srgb, var(--tag-spot) 40%, transparent); }
-.rw-tag-badge.tone-tag-telemarketing, .rw-signal.tone-tag-telemarketing { color: var(--tag-telemarketing); background: color-mix(in srgb, var(--tag-telemarketing) 16%, transparent); border-color: color-mix(in srgb, var(--tag-telemarketing) 40%, transparent); }
 /* §3.2: `0:12→0:00` overflowed 86 px at 0.76rem. At the token size it fits,
    and anything longer ellipses with the full `IN … OUT …` in the tooltip
    rather than spilling into the duration column. */
@@ -691,27 +685,31 @@ const itemTooltip = computed(() => {
 
 .rw-ghost { opacity: var(--opacity-disabled); background: var(--bg-hover); }
 
-/* Content Type subtle row tints */
-/* Content type: a 3px bar at the leading edge, never a row tint. Drawn on a
-   pseudo-element so it composes with whatever state colour the row carries. */
-.rw-row.ct-movie::before,
-.rw-row.ct-show::before,
-.rw-row.ct-documentary::before,
-.rw-row.ct-news::before {
+/* Content type: the colour, then a 4px bar at the leading edge on a
+   pseudo-element, so it stays visible under whatever state tint the row has.
+   The row tint itself is in the ordered state block (§3.10). */
+.rw-row[data-content-type='movie'] { --rw-ct: var(--type-movie); }
+.rw-row[data-content-type='show'] { --rw-ct: var(--type-show); }
+.rw-row[data-content-type='documentary'] { --rw-ct: var(--type-documentary); }
+.rw-row[data-content-type='news'] { --rw-ct: var(--type-news); }
+.rw-row[data-content-type='kids'] { --rw-ct: var(--type-kids); }
+.rw-row[data-content-type='spot'] { --rw-ct: var(--type-spot); }
+.rw-row[data-content-type='promo'] { --rw-ct: var(--type-promo); }
+.rw-row[data-content-type='jingle'] { --rw-ct: var(--type-jingle); }
+.rw-row[data-content-type='telemarketing'] { --rw-ct: var(--type-telemarketing); }
+
+/* Not while the row shows a drop marker, which uses the same pseudo-element. */
+.rw-row[data-content-type]:not(.drop-target-before, .drop-target-after)::before {
   content: '';
   position: absolute;
   left: 0;
-  top: var(--space-2);
-  bottom: var(--space-2);
-  width: var(--border-accent-w);
+  top: var(--space-1);
+  bottom: var(--space-1);
+  width: var(--space-1);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--rw-ct);
   pointer-events: none;
 }
-
-.rw-row.ct-movie::before { background: var(--type-movie); }
-.rw-row.ct-show::before { background: var(--type-show); }
-.rw-row.ct-documentary::before { background: var(--type-documentary); }
-.rw-row.ct-news::before { background: var(--type-news); }
 
 /* Badges styling */
 .rw-name {
@@ -761,10 +759,6 @@ const itemTooltip = computed(() => {
   border: 1px solid var(--border-medium);
 }
 
-.badge-content.content-movie { background: var(--type-movie); color: var(--text-on-danger); }
-.badge-content.content-show { background: var(--type-show); color: var(--text-on-accent); }
-.badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: var(--fw-semibold); }
-.badge-content.content-news { background: var(--type-news); color: var(--text-on-success); }
 
 /* --- §6.1 flags column ---------------------------------------------------- */
 

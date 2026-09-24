@@ -206,12 +206,17 @@
   /* Content type */
   --type-movie: #f43f5e;
   --type-show: #38bdf8;
-  --type-documentary: #a855f7;
+  --type-documentary: #8b5cf6;
   --type-news: #2ecc71;
+  --type-kids: #facc15;
+  --type-spot: #f97316;
+  --type-promo: #2dd4bf;
+  --type-jingle: #e879f9;
+  --type-telemarketing: #a3e635;
 
-  /* Commercial tag */
-  --tag-spot: #f97316;
-  --tag-telemarketing: #a855f7;
+  /* The old commercial tag is the spot / telemarketing content type now. */
+  --tag-spot: var(--type-spot);
+  --tag-telemarketing: var(--type-telemarketing);
 
   /* Elevation */
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -279,9 +284,15 @@
   --type-show: #66d9ef;
   --type-documentary: #ae81ff;
   --type-news: #a6e22e;
+  --type-kids: #e6db74;
+  --type-spot: #fd971f;
+  --type-promo: #4fd6be;
+  --type-jingle: #ff79c6;
+  --type-telemarketing: #3fd48a;
 
-  --tag-spot: #fd971f;
-  --tag-telemarketing: #ae81ff;
+  /* The old commercial tag is the spot / telemarketing content type now. */
+  --tag-spot: var(--type-spot);
+  --tag-telemarketing: var(--type-telemarketing);
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -340,11 +351,17 @@
 
   --type-movie: #be123c;
   --type-show: #0369a1;
-  --type-documentary: #7e22ce;
+  --type-documentary: #6d28d9;
   --type-news: #15803d;
+  --type-kids: #a16207;
+  --type-spot: #c2410c;
+  --type-promo: #0f766e;
+  --type-jingle: #a21caf;
+  --type-telemarketing: #4d7c0f;
 
-  --tag-spot: #c2410c;
-  --tag-telemarketing: #7e22ce;
+  /* The old commercial tag is the spot / telemarketing content type now. */
+  --tag-spot: var(--type-spot);
+  --tag-telemarketing: var(--type-telemarketing);
 
   --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.08);
   --shadow-2: 0 4px 12px rgba(15, 23, 42, 0.12);
@@ -470,11 +487,17 @@
 
   --type-movie: #f0506e;
   --type-show: #7cc4fa;
-  --type-documentary: #c084fc;
+  --type-documentary: #a78bfa;
   --type-news: #4ade80;
+  --type-kids: #fde047;
+  --type-spot: #fb923c;
+  --type-promo: #5eead4;
+  --type-jingle: #f0abfc;
+  --type-telemarketing: #bef264;
 
-  --tag-spot: #fb923c;
-  --tag-telemarketing: #c084fc;
+  /* The old commercial tag is the spot / telemarketing content type now. */
+  --tag-spot: var(--type-spot);
+  --tag-telemarketing: var(--type-telemarketing);
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -572,9 +595,15 @@
   --type-show: #8fb8e8;
   --type-documentary: #c4a4f5;
   --type-news: #4ade80;
+  --type-kids: #fcd34d;
+  --type-spot: #fb923c;
+  --type-promo: #6ee7d0;
+  --type-jingle: #f0a0d8;
+  --type-telemarketing: #bef264;
 
-  --tag-spot: #fb923c;
-  --tag-telemarketing: #c4a4f5;
+  /* The old commercial tag is the spot / telemarketing content type now. */
+  --tag-spot: var(--type-spot);
+  --tag-telemarketing: var(--type-telemarketing);
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.55);
@@ -670,11 +699,17 @@
 
   --type-movie: #b91c1c;
   --type-show: #1d4ed8;
-  --type-documentary: #7e22ce;
+  --type-documentary: #6d28d9;
   --type-news: #15803d;
+  --type-kids: #a16207;
+  --type-spot: #c2410c;
+  --type-promo: #0f766e;
+  --type-jingle: #a21caf;
+  --type-telemarketing: #4d7c0f;
 
-  --tag-spot: #c2410c;
-  --tag-telemarketing: #7e22ce;
+  /* The old commercial tag is the spot / telemarketing content type now. */
+  --tag-spot: var(--type-spot);
+  --tag-telemarketing: var(--type-telemarketing);
 
   --shadow-1: 0 1px 2px rgba(28, 25, 23, 0.08);
   --shadow-2: 0 4px 12px rgba(28, 25, 23, 0.12);

@@ -1,4 +1,5 @@
 import type { MenuTone } from '../components/ContextMenu.vue';
+import { parseContentType } from './contentTypes';
 
 /**
  * The colour a compliance value carries in a context menu.
@@ -36,40 +37,8 @@ export function ratingBadge(rating: string | null | undefined): string {
   return value === 'none' ? '–' : value.toUpperCase();
 }
 
+/** Content type → the colour its rundown row and library bar carry. */
 export function contentTypeTone(contentType: string | null | undefined): MenuTone {
-  switch ((contentType || 'none').toLowerCase()) {
-    case 'movie':
-      return 'type-movie';
-    case 'show':
-      return 'type-show';
-    case 'documentary':
-      return 'type-documentary';
-    case 'news':
-      return 'type-news';
-    default:
-      return 'neutral';
-  }
-}
-
-export function commercialTagTone(tag: string | null | undefined): MenuTone {
-  switch ((tag || 'none').toLowerCase()) {
-    case 'spot':
-      return 'tag-spot';
-    case 'telemarketing':
-      return 'tag-telemarketing';
-    default:
-      return 'neutral';
-  }
-}
-
-/** Short form for the tag's own chip: the rundown row shows SPOT / TMK. */
-export function commercialTagBadge(tag: string | null | undefined): string | undefined {
-  switch ((tag || 'none').toLowerCase()) {
-    case 'spot':
-      return 'SPOT';
-    case 'telemarketing':
-      return 'TMK';
-    default:
-      return undefined;
-  }
+  const type = parseContentType(contentType);
+  return type === 'none' ? 'neutral' : `type-${type}`;
 }

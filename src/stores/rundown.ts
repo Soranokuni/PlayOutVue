@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { invoke } from '@tauri-apps/api/core';
 import { computed, shallowRef, triggerRef, ref, watch, toRaw } from 'vue';
 import type { LibraryIndicator } from './mediaDefaults';
+import { parseContentType, effectiveContentType, legacyIndicatorFor, type ContentType } from '../lib/contentTypes';
 import { useIngestorStatusStore } from './ingestorStatus';
 import { playStartTime, casparPlayoutService } from '../services/caspar';
 import { useMediaLibraryStore } from './mediaLibrary';
@@ -47,7 +48,7 @@ export interface RundownItem {
     trim_in_ms?: number;
     trim_out_ms?: number;
     tp_flag?: boolean;
-    content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+    content_type?: ContentType;
     timeline?: Array<{ start: number; end: number; text: string }>;
     fps?: number;
     fps_num?: number;
@@ -185,7 +186,7 @@ export interface OptimizedPlaylistItem {
     hs?: string;
     igs?: string;
     tp?: boolean;
-    cot?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+    cot?: ContentType;
     tl?: Array<{ start: number; end: number; text: string }>;
 }
 
@@ -280,7 +281,7 @@ const filenameFromPath = (value: string) => {
 export interface BroadcastMetadata {
     ageRating: ComplianceRating;
     tpFlag: boolean;
-    contentType: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+    contentType: ContentType;
     timeline: Array<{ start: number; end: number; text: string }>;
     advisoryText?: string;
     descriptors?: ContentDescriptorId[];
@@ -297,10 +298,7 @@ export const parseBroadcastRating = (ratingStr: string | null | undefined): Broa
         return { ageRating: age, tpFlag: false, contentType: 'none', timeline: [], advisoryText: '', descriptors: [] };
     }
     const tpFlag = (parts[1] || '').toUpperCase() === 'TP';
-    const rawContent = (parts[2] || '').toLowerCase();
-    const contentType = ['movie', 'show', 'documentary', 'news'].includes(rawContent)
-        ? rawContent as BroadcastMetadata['contentType']
-        : 'none';
+    const contentType = parseContentType(parts[2]);
     
     let timeline: BroadcastMetadata['timeline'] = [];
     if (parts[3]) {
@@ -819,7 +817,7 @@ export const useRundownStore = defineStore('rundown', () => {
             trim_in_ms,
             trim_out_ms,
             tp_flag: item.tp_flag || false,
-            content_type: item.content_type || 'none',
+            content_type: effectiveContentType(item.content_type, item.libraryIndicator),
             timeline: item.timeline || [],
             mezzanine_ok: item.mezzanine_ok,
             fps: item.fps,
@@ -2250,7 +2248,7 @@ export const useRundownStore = defineStore('rundown', () => {
             complianceDescriptors?: ContentDescriptorId[];
             complianceText?: string;
             tp_flag?: boolean;
-            content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+            content_type?: ContentType;
             timeline?: Array<{ start: number; end: number; text: string }>;
         }
     ) => {
@@ -2264,6 +2262,10 @@ export const useRundownStore = defineStore('rundown', () => {
         const age = updates.complianceRating !== undefined ? updates.complianceRating : (item.complianceRating || 'none');
         const tp = updates.tp_flag !== undefined ? updates.tp_flag : (item.tp_flag || false);
         const content = updates.content_type !== undefined ? updates.content_type : (item.content_type || 'none');
+        // Content type absorbed the old commercial tag; keep that legacy field
+        // in step so a playlist saved now still marks its ads in older builds.
+        const indicatorFor = (row: RundownItem) =>
+            updates.content_type !== undefined ? legacyIndicatorFor(content) : row.libraryIndicator;
         const timeline = updates.timeline !== undefined
             ? updates.timeline
             : (updates.complianceText ? [{ start: 0, end: 30000, text: updates.complianceText }] : (item.timeline || []));
@@ -2285,6 +2287,7 @@ export const useRundownStore = defineStore('rundown', () => {
         // Update local item immediately
         playlist.items[idx] = {
             ...item,
+            libraryIndicator: indicatorFor(item),
             complianceRating: age,
             complianceDescriptors: descriptors,
             complianceText: text,
@@ -2301,6 +2304,7 @@ export const useRundownStore = defineStore('rundown', () => {
                 if (e.playoutvueId === dbUuid && e.id !== itemId) {
                     playlist.items[i] = {
                         ...e,
+                        libraryIndicator: indicatorFor(e),
                         complianceRating: age,
                         complianceDescriptors: descriptors,
                         complianceText: text,

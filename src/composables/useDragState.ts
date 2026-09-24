@@ -1,6 +1,7 @@
 // Shared drag state module - bypasses Tauri WebView2 dataTransfer restrictions
 import { ref } from 'vue';
 import type { ComplianceRating } from '../stores/rundown';
+import type { ContentType } from '../lib/contentTypes';
 import type { TargetRowRect } from '../lib/reorderHelper';
 
 export type DragSource = 'library' | 'rundown' | 'external';
@@ -26,7 +27,7 @@ export interface DragPayload {
     trim_in_ms?: number;
     trim_out_ms?: number;
     tp_flag?: boolean;
-    content_type?: 'movie' | 'show' | 'documentary' | 'news' | 'none';
+    content_type?: ContentType;
 }
 
 export interface DragSession {

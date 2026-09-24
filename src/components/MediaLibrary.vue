@@ -39,6 +39,7 @@ import { describeErrorMessage, rawErrorText } from '../lib/describeError';
 import EmptyState from './ui/EmptyState.vue';
 import BaseButton from './ui/BaseButton.vue';
 import DescriptorChips from './ui/DescriptorChips.vue';
+import { CONTENT_TYPES, contentTypeLabel, effectiveContentType, type ContentType } from '../lib/contentTypes';
 import { LIBRARY_SORT_OPTIONS, DEFAULT_LIBRARY_SORT, nextLibrarySort, sanitizeLibrarySort, sortLibraryAssets, type LibrarySort, type LibrarySortKey } from '../lib/librarySort';
 
 // PERF F-14: pickers/bin are opened rarely; fetch on first open, mount only while open.
@@ -797,18 +798,12 @@ function isAssetPrimarySelected(uuid: string): boolean {
 }
 
 /**
- * §5.2: the content type left-bar and the two-line subline need the word, not
- * the enum. One map, so the rows, the tooltip and the subline never disagree.
+ * The type a library row shows: the asset's own content type, else a legacy
+ * per-workstation commercial tag (spot / telemarketing) it may still carry.
+ * Labels come from the one list in lib/contentTypes.
  */
-const CONTENT_TYPE_LABELS: Record<string, string> = {
-    movie: 'Movie',
-    show: 'Show',
-    documentary: 'Documentary',
-    news: 'News',
-};
-
-function contentTypeLabel(contentType: string): string {
-    return CONTENT_TYPE_LABELS[contentType] ?? contentType.toUpperCase();
+function assetContentType(asset: LibraryAsset): ContentType {
+    return effectiveContentType(cachedRatingMeta(asset).contentType, mediaDefaults.getIndicator(asset.uuid, asset.current_path));
 }
 
 /** The rating chip carries TP as a dot; the tooltip is what spells it out. */
@@ -816,7 +811,8 @@ function assetFlagTooltip(asset: LibraryAsset): string {
     const meta = cachedRatingMeta(asset);
     const parts = [`Age rating ${meta.ageRating.toUpperCase()}`];
     if (meta.tpFlag) parts.push('Product placement (TP)');
-    if (meta.contentType !== 'none') parts.push(contentTypeLabel(meta.contentType));
+    const type = assetContentType(asset);
+    if (type !== 'none') parts.push(contentTypeLabel(type));
     const descriptors = GREEK_CONTENT_DESCRIPTORS.filter((d) => meta.descriptors?.includes(d.id)).map((d) => d.label);
     if (descriptors.length) parts.push(descriptors.join(', '));
     return parts.join(' · ');
@@ -1787,13 +1783,10 @@ const ratingOptions = [
   { id: '18', label: '18+' }
 ] as const;
 
-const contentTypeOptions = [
+const contentTypeOptions: ReadonlyArray<{ id: ContentType; label: string }> = [
   { id: 'none', label: 'None' },
-  { id: 'movie', label: 'Movie' },
-  { id: 'show', label: 'Show' },
-  { id: 'documentary', label: 'Documentary' },
-  { id: 'news', label: 'News' }
-] as const;
+  ...CONTENT_TYPES.map((t) => ({ id: t.id, label: t.label })),
+];
 
 interface AgeRatingOption {
   /** Distinguishes "with explanation" from "badge only" in the menu (F-10). */
@@ -1889,7 +1882,7 @@ async function ctxToggleTP() {
   closeContextMenu();
 }
 
-async function ctxSetContentType(cType: typeof contentTypeOptions[number]['id']) {
+async function ctxSetContentType(cType: ContentType) {
   const asset = contextMenu.value.node?.asset;
   if (asset) {
     await mediaLibrary.updateAssetMetadata(asset.uuid, { content_type: cType });
@@ -2694,7 +2687,7 @@ const menuItems = computed<MenuItem[]>(() => {
           }"
           role="option"
           :data-asset-id="asset.uuid"
-          :data-content-type="cachedRatingMeta(asset).contentType"
+          :data-content-type="assetContentType(asset)"
           :aria-selected="isAssetSelected(asset.uuid)"
           :tabindex="isAssetPrimarySelected(asset.uuid) ? 0 : -1"
           @click="onAssetClick(asset, $event)"
@@ -2706,9 +2699,9 @@ const menuItems = computed<MenuItem[]>(() => {
                competed with the rating for the width the title needed; the bar
                costs nothing and the tooltip carries the word. -->
           <span
-            v-if="cachedRatingMeta(asset).contentType !== 'none'"
+            v-if="assetContentType(asset) !== 'none'"
             class="lib-type-bar"
-            :title="contentTypeLabel(cachedRatingMeta(asset).contentType)"
+            :title="contentTypeLabel(assetContentType(asset))"
             aria-hidden="true"
           />
 
@@ -2766,8 +2759,8 @@ const menuItems = computed<MenuItem[]>(() => {
             </span>
             <span v-if="libraryRowMode === 'two-line'" class="lib-subline">
               <span class="lib-subline-path">{{ assetFolderLabel(asset) }}</span>
-              <span v-if="cachedRatingMeta(asset).contentType !== 'none'" class="lib-subline-type">
-                {{ contentTypeLabel(cachedRatingMeta(asset).contentType) }}
+              <span v-if="assetContentType(asset) !== 'none'" class="lib-subline-type">
+                {{ contentTypeLabel(assetContentType(asset)) }}
               </span>
             </span>
           </span>
@@ -3545,10 +3538,6 @@ const menuItems = computed<MenuItem[]>(() => {
   border: 1px solid var(--border-medium);
 }
 
-.badge-content.content-movie { background: var(--type-movie); color: var(--text-on-danger); }
-.badge-content.content-show { background: var(--type-show); color: var(--text-on-accent); }
-.badge-content.content-documentary { background: var(--type-documentary); color: var(--text-on-danger); font-weight: var(--fw-semibold); }
-.badge-content.content-news { background: var(--type-news); color: var(--text-on-success); }
 
 /* §5.2: the content-type tint bar. 3 px of colour on the leading edge reads as
    fast as a chip at a fraction of the width, and it never truncates a title. */
@@ -3566,6 +3555,11 @@ const menuItems = computed<MenuItem[]>(() => {
 .lib-row[data-content-type='show'] .lib-type-bar { background: var(--type-show); }
 .lib-row[data-content-type='documentary'] .lib-type-bar { background: var(--type-documentary); }
 .lib-row[data-content-type='news'] .lib-type-bar { background: var(--type-news); }
+.lib-row[data-content-type='kids'] .lib-type-bar { background: var(--type-kids); }
+.lib-row[data-content-type='spot'] .lib-type-bar { background: var(--type-spot); }
+.lib-row[data-content-type='promo'] .lib-type-bar { background: var(--type-promo); }
+.lib-row[data-content-type='jingle'] .lib-type-bar { background: var(--type-jingle); }
+.lib-row[data-content-type='telemarketing'] .lib-type-bar { background: var(--type-telemarketing); }
 
 /* TP as a dot on the rating chip (§5.2). The ring is the chip's own background
    so the dot reads as applied *to* the rating rather than floating near it. */
