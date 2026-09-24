@@ -204,3 +204,60 @@ pub async fn verify_paths_exist(paths: Vec<String>) -> Result<std::collections::
     .await
     .map_err(|e| format!("verify_paths_exist task failed: {}", e))
 }
+
+/// Creation time (ms since the Unix epoch) of each file, for the library's
+/// "Date added" sort. A mezzanine is written once by the transcoder, so its
+/// creation time is its ingest time. Paths that can't be read are left out.
+#[tauri::command]
+pub async fn get_file_created_times(paths: Vec<String>) -> Result<std::collections::HashMap<String, i64>, String> {
+    const MAX_PATHS: usize = 5_000;
+    if paths.len() > MAX_PATHS {
+        return Err(format!(
+            "get_file_created_times refused {} paths (limit {})",
+            paths.len(),
+            MAX_PATHS
+        ));
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = std::collections::HashMap::with_capacity(paths.len());
+        for path in paths {
+            if let Some(ms) = file_created_ms(Path::new(path.trim())) {
+                out.insert(path, ms);
+            }
+        }
+        out
+    })
+    .await
+    .map_err(|e| format!("get_file_created_times task failed: {}", e))
+}
+
+fn file_created_ms(path: &Path) -> Option<i64> {
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    // Some filesystems don't record a creation time; fall back to mtime.
+    let time = meta.created().or_else(|_| meta.modified()).ok()?;
+    let ms = time.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
+    i64::try_from(ms).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn created_ms_reads_a_real_file_and_skips_missing_ones() {
+        let dir = std::env::temp_dir().join(format!("playout-ctime-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.mxf");
+        std::fs::write(&file, b"x").unwrap();
+
+        assert!(file_created_ms(&file).unwrap() > 0);
+        assert!(file_created_ms(&dir.join("missing.mxf")).is_none());
+        assert!(file_created_ms(&dir).is_none(), "a directory is not a file");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
