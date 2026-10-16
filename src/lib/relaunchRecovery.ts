@@ -44,6 +44,13 @@ export interface GraphicsCheckpoint {
     crawlText: string;
 }
 
+/** PlayOut fork: the engine's event cursor (recovery.rs `EngineCheckpoint`). */
+export interface EngineCheckpoint {
+    mode: 'unknown' | 'stock' | 'fork';
+    instance: number | null;
+    lastSeq: number | null;
+}
+
 export interface PlayoutCheckpoint {
     version: number;
     seq: number;
@@ -53,6 +60,8 @@ export interface PlayoutCheckpoint {
     graphics: GraphicsCheckpoint;
     rundownRevision: number;
     cleanShutdown: boolean;
+    /** Absent in checkpoints written before the fork integration. */
+    engine?: EngineCheckpoint;
 }
 
 export interface SessionRecord {

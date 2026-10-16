@@ -7,13 +7,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  */
 interface FakeEngine {
     foreground: string;
+    /** Ticks into the foreground clip (50 per second on 1080i50). */
+    foregroundFrame: number;
     waiting: string[];
     log: string[];
     /** Runs once before the next mutating fork command (a cut during an edit). */
     beforeNext: (() => void) | null;
 }
 
-const engine: FakeEngine = { foreground: '', waiting: [], log: [], beforeNext: null };
+const engine: FakeEngine = { foreground: '', foregroundFrame: 0, waiting: [], log: [], beforeNext: null };
 
 function fakeInvoke(cmd: string, args: any = {}): unknown {
     const mutate = () => {
@@ -26,7 +28,7 @@ function fakeInvoke(cmd: string, args: any = {}): unknown {
             return {
                 channel: 1, layer: 10, instance: 1, frame: 0, eventSeq: 0,
                 foreground: engine.foreground
-                    ? { tag: engine.foreground, producer: 'ffmpeg', frame: 0, frames: 250, paused: false, starting: false }
+                    ? { tag: engine.foreground, producer: 'ffmpeg', frame: engine.foregroundFrame, frames: 500, paused: false, starting: false }
                     : null,
                 waiting: engine.waiting.map((tag) => ({ tag, producer: 'ffmpeg', auto: true })),
                 fallback: { set: false, tag: '', active: false, stall: 0 },
@@ -90,6 +92,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 import { setActivePinia, createPinia } from 'pinia';
 import {
     casparPlayoutService,
+    engineRecovery,
     isCasparConnected,
     __playoutQueueTestHooks as queue,
     __forkTestHooks as fork,
@@ -125,7 +128,10 @@ const engineCut = () => {
 };
 
 const settle = async () => {
-    for (let i = 0; i < 60; i += 1) await Promise.resolve();
+    for (let round = 0; round < 3; round += 1) {
+        for (let i = 0; i < 40; i += 1) await Promise.resolve();
+        await fork.syncIdle();
+    }
 };
 
 const advances: Array<string | null> = [];
@@ -145,6 +151,7 @@ describe('fork mode playout', () => {
         // The progress bar's rAF/visibility timer needs a DOM; not under test here.
         vi.spyOn(useRundownStore(), 'startPlaybackProgressTimer').mockImplementation(() => {});
         engine.foreground = '';
+        engine.foregroundFrame = 0;
         engine.waiting = [];
         engine.log = [];
         engine.beforeNext = null;
@@ -312,6 +319,43 @@ describe('fork mode playout', () => {
         expect(fork.state().foregroundTag).toBe('fallback');
         expect(fork.state().currentKey).toBe('a');
         expect(fork.state().waitingTags).toEqual([]);
+    });
+
+    it('adopts the row on air by its tag after a relaunch and rebuilds the queue', async () => {
+        const items = [item('a'), item('b'), item('c'), item('d')];
+        queue.setState(items, null, false);
+        // The engine kept playing while PlayOut was away: b (queued as b:2 by
+        // the previous session) is 8 s in, with tags this session never saw.
+        engine.foreground = 'b:2';
+        engine.foregroundFrame = 400;
+        engine.waiting = ['c', 'x'];
+
+        expect(await fork.adoptForkOnAir()).toBe(true);
+        await settle();
+
+        expect(fork.state()).toMatchObject({ currentKey: 'b', foregroundTag: 'b:2' });
+        expect(advances).toContain('b');
+        // Unknown waiting tags are never trusted: cleared and queued again.
+        expect(engine.log).toContain('CLEAR EXPECT b:2');
+        expect(engine.waiting).toEqual(['c', 'd']);
+    });
+
+    it('does not adopt the fallback or an empty layer', async () => {
+        queue.setState([item('a')], null, false);
+        engine.foreground = 'fallback';
+        expect(await fork.adoptForkOnAir()).toBe(false);
+        engine.foreground = '';
+        expect(await fork.adoptForkOnAir()).toBe(false);
+    });
+
+    it('an engine restart drops the queue state and enters the outage path', async () => {
+        await startOn([item('a'), item('b'), item('c')]);
+        expect(fork.state().waitingTags).toEqual(['b', 'c']);
+
+        fork.engineInstanceChanged('event-seq-reset');
+
+        expect(fork.state()).toMatchObject({ foregroundTag: null, waitingTags: [], clipTags: [] });
+        expect(['outage', 'restoring']).toContain(engineRecovery.value.phase);
     });
 
     it('stock mode keeps the old path', async () => {

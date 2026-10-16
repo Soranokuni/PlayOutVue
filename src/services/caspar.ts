@@ -773,6 +773,7 @@ let forkSyncDirty = false;
 let forkSyncIdle: Promise<void> = Promise.resolve();
 const forkReleasedAssets = new Map<string, number>();
 let engineEventUnlisten: (() => void) | null = null;
+let engineInstanceUnlisten: (() => void) | null = null;
 
 const advisorySvgCache = createAdvisorySvgCache((path) => invoke<string>('read_svg_file', { path }));
 
@@ -1216,8 +1217,24 @@ function forkFallbackTag(): string {
 async function detectEngineMode(): Promise<void> {
     let mode: EngineMode = 'stock';
     try {
-        const report = await invoke<{ mode: EngineMode; info: ForkQueueInfo | null; restarted: boolean }>('caspar_engine_detect');
+        const report = await invoke<{
+            mode: EngineMode;
+            info: ForkQueueInfo | null;
+            restarted: boolean;
+            replayed: EngineEvent[];
+            replayLost: boolean;
+        }>('caspar_engine_detect');
         mode = report?.mode === 'fork' ? 'fork' : 'stock';
+        // A known engine instance was replaced: every layer is empty now.
+        if (report?.restarted) engineRestartSuspected = true;
+        if (report?.replayed?.length) {
+            const aired = report.replayed.filter((e) => e.kind === 'onair').map((e) => tagBase(e.tag));
+            invoke('push_diagnostic_log', {
+                level: report.replayLost ? 'warn' : 'info',
+                scope: 'caspar-recovery',
+                message: `While PlayOut was away the engine aired ${aired.length} item(s)${aired.length ? `: ${aired.join(', ')}` : ''}${report.replayLost ? ' (some events fell out of the engine log)' : ''}. Recorded in the as-run.`,
+            }).catch(() => {});
+        }
     } catch (error) {
         // Rust stays in its undetected (stock) behaviour too.
         console.warn('[CasparCG] Engine mode detection failed; using the stock path', error);
@@ -1239,9 +1256,13 @@ export const __forkTestHooks = {
     setEngineMode(mode: EngineMode) {
         engineMode.value = mode;
         resetForkState();
+        forkReleasedAssets.clear();
     },
     handleEngineEvent,
     runForkSync,
+    adoptForkOnAir: () => adoptForkOnAir(),
+    syncIdle: () => forkSyncIdle,
+    engineInstanceChanged: (reason: string) => onEngineInstanceChanged(reason),
     state: () => ({
         foregroundTag: forkForegroundTag,
         pendingTakeTag: forkPendingTakeTag,
@@ -1613,6 +1634,10 @@ const disposeFeedbackListener = async () => {
     if (engineEventUnlisten) {
         try { engineEventUnlisten(); } catch { /* ignore */ }
         engineEventUnlisten = null;
+    }
+    if (engineInstanceUnlisten) {
+        try { engineInstanceUnlisten(); } catch { /* ignore */ }
+        engineInstanceUnlisten = null;
     }
     confirmWaiters = [];
     positionConfirmWaiters = [];
@@ -2203,6 +2228,12 @@ const ensureFeedbackListener = async () => {
             });
         }
 
+        if (!engineInstanceUnlisten) {
+            engineInstanceUnlisten = await listen<{ instance: number | null; reason: string }>('caspar://engine-instance', (event) => {
+                onEngineInstanceChanged(event.payload?.reason || 'new instance');
+            });
+        }
+
         if (!prematureTransitionUnlisten) {
             prematureTransitionUnlisten = await listen<{ currentUuid: string | null; observedPath?: string; earlyByMs?: number; message?: string }>(
                 'caspar://premature-transition',
@@ -2291,7 +2322,156 @@ const ensureFeedbackListener = async () => {
  * (PLAY, LOAD, CLEAR).
  * If Layer 10 is idle or empty, fallback to persisted crash-resume evaluation.
  */
+/// Channel ticks per second as SEEK/LENGTH and `QUEUE INFO` count them
+/// (fields on an interlaced channel).
+const channelTicksPerSecond = () => (getSettingsSnapshot().playoutProfile === 'PAL_1080P25' ? 25 : 50);
+
+/**
+ * Fork mode, on (re)connect or PlayOut relaunch: the engine kept playing its
+ * queue, and `QUEUE INFO` names the row on air (`foreground.tag`). Adopt it
+ * by id: no file-name matching, no INFO parsing. Returns false when nothing
+ * of ours is on air (empty layer, the fallback, a foreign tag): the stock
+ * adoption, the engine recovery or the relaunch plan then decide.
+ */
+async function adoptForkOnAir(): Promise<boolean> {
+    let info: ForkQueueInfo | null = null;
+    try {
+        info = await invoke<ForkQueueInfo | null>('caspar_fork_probe', {
+            channel: PROGRAM_CHANNEL,
+            layer: CASPAR_LAYERS.video,
+        });
+    } catch (error) {
+        console.warn('[CasparCG] QUEUE INFO failed during adoption', error);
+        return false;
+    }
+    const foreground = info?.foreground;
+    const tag = foreground?.tag || '';
+    if (!foreground || !tag || tag === FALLBACK_TAG || tag === forkFallbackTag()) return false;
+
+    const rowId = tagBase(tag);
+    const store = useRundownStore();
+    if (!queueContainsKey(queuedItems, rowId)) {
+        const playlistId = pickRecoveryPlaylistId(store, relaunchCandidate?.onAir.playlistId, [rowId], '');
+        if (!playlistId) return false;
+        const queue = store.getPlayableItems(playlistId).map((i: any) => ({ ...i })) as PlayoutItem[];
+        if (!queueContainsKey(queue, rowId)) return false;
+        if (store.onAirPlaylistId !== playlistId) store.onAirPlaylistId = playlistId;
+        queuedItems = queue;
+    }
+    const index = queuedItems.findIndex((it) => queueKey(it) === rowId);
+    const item = findLiveItemById(rowId) ?? queuedItems[index]!;
+    const hydrated = hydratePlayoutItem(item);
+    const trimInMs = hydrated.trim_in_ms || 0;
+    // `frame`/`frames` count from the clip's SEEK point: they are the
+    // position into, and the length of, the trimmed window.
+    const ticks = channelTicksPerSecond();
+    const positionMs = Math.max(0, Math.round((foreground.frame * 1000) / ticks));
+    const durationMs = foreground.frames > 0
+        ? Math.round((foreground.frames * 1000) / ticks)
+        : Math.max(0, (hydrated.trim_out_ms || 0) - trimInMs);
+    console.info(`[CasparCG] Fork engine has row ${rowId} on air (tag ${tag}) at ${(positionMs / 1000).toFixed(1)} s; adopting it.`);
+
+    claimCurrentKey(rowId);
+    // The waiting items carry tags this session did not queue: the refill
+    // below replaces them (EXPECT keeps that safe against a cut).
+    fenceForkNaturalCuts();
+    forkForegroundTag = tag;
+    forkPendingTakeTag = null;
+    let path = '';
+    try {
+        path = (await prepareCasparMediaPath(hydrated.path)).replace(/\\/g, '/').replace(/"/g, '');
+    } catch { /* the clock works without it */ }
+    forkClips.set(tag, {
+        path,
+        seek: null,
+        length: null,
+        durationMs,
+        trimInMs,
+        rowId,
+        tag,
+        fingerprint: forkFingerprint(item),
+        addsTemplate: false,
+    });
+
+    isCasparPlaying.value = true;
+    playStartIndex.value = index;
+    playStartTime.value = Date.now() - positionMs;
+    currentCasparDurationMs.value = durationMs;
+    updateDisplayedTime(positionMs);
+    store.setOnAirPlayingItemById(rowId);
+    if (store.onAirPlaylistId) store.setOnAirPlayingIndex(index);
+    store.startPlaybackProgressTimer(rowId, durationMs, playStartTime.value);
+    onAdvanceCallback?.(rowId);
+
+    clearPlaybackState();
+    wasPlayingOnDisconnect = false;
+    lastOscTickAtMs = Date.now();
+    if (resumeEvalTimer) {
+        clearTimeout(resumeEvalTimer);
+        resumeEvalTimer = null;
+    }
+    if (engineLoss) {
+        engineLoss = null;
+        setEngineRecovery('restored', `CasparCG kept playing "${item.filename || rowId}" through the outage; adopted it by tag`, {
+            itemId: rowId,
+            filename: item.filename ?? null,
+            positionMs,
+        });
+    }
+    invoke('caspar_register_playback', {
+        uuid: rowId,
+        durationMs,
+        expectedOutPointMs: durationMs,
+        currentPath: path,
+        nextPath: null,
+        trimInMs,
+        playGeneration: playToken,
+        takeId: `adopt-${Date.now()}`,
+        rundownItemId: rowId,
+        playbackInstanceId: `adopt-${tag}`,
+        isAdopted: true,
+        elapsedMs: trimInMs + positionMs,
+    }).catch((error: any) => console.warn('[CasparCG] Failed to register the adopted clock', error));
+    if (relaunchCandidate) {
+        invoke('recovery_note', {
+            event: 'relaunch-pickup',
+            uuid: rowId,
+            filename: item.filename,
+            positionMs: nonNegativeInt(positionMs),
+            detail: `CasparCG was still playing it (${relaunchCandidate.source}; fork tag ${tag})`,
+        }).catch(() => {});
+        consumeRelaunchCandidate();
+    }
+    pushCheckpoint('adopt');
+    try {
+        await casparPlayoutService.applyComplianceForItem?.(item);
+    } catch (error) {
+        console.warn('[CasparCG] Failed to apply compliance for the adopted row', error);
+    }
+    scheduleForkSync();
+    return true;
+}
+
+/**
+ * `caspar://engine-instance`: the engine restarted under a connected AMCP
+ * session (its event seq went back, or `QUEUE INFO`/`EVENTS` showed a new
+ * instance). Its queue is gone. The outage path re-queues from the
+ * schedule; a handshake in progress does that itself.
+ */
+function onEngineInstanceChanged(reason: string) {
+    if (!isForkMode()) return;
+    engineRestartSuspected = true;
+    resetForkState();
+    if (!isCasparPlaying.value || !currentKey) return;
+    enterEngineOutage(`CasparCG restarted (${reason})`);
+    if (reconnectInFlight || !isCasparConnected.value) return;
+    const loss = engineLoss;
+    engineLoss = null;
+    if (loss) void runEngineRecovery(loss);
+}
+
 const synchronizeOnAirState = async () => {
+    if (isForkMode() && await adoptForkOnAir()) return;
     let info = '';
     try {
         info = await sendRawCommand(`INFO ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);

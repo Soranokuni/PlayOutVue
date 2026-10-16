@@ -271,6 +271,7 @@ pub fn run() {
             caspar_fork::caspar_fork_fallback,
             caspar_fork::caspar_engine_detect,
             caspar_fork::caspar_engine_state,
+            caspar_fork::caspar_engine_asrun,
             find_default_caspar_config,
             load_caspar_config,
             save_caspar_config_raw,

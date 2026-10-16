@@ -457,8 +457,9 @@ pub struct EngineInstanceChanged {
 const EVENT_TOPIC: &str = "caspar://engine-event";
 const INSTANCE_TOPIC: &str = "caspar://engine-instance";
 
-fn emit_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, events: Vec<EngineEvent>) {
+fn emit_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, instance: Option<i64>, events: Vec<EngineEvent>) {
     use tauri::Emitter;
+    record_asrun(events.iter().map(|e| AsRunEntry::from_event(e, instance, false)).collect());
     for event in events {
         log::info!(
             "[CasparCG] event #{} {} {} ({}) frame {}",
@@ -480,17 +481,17 @@ pub fn after_osc_packet<R: tauri::Runtime>(
     state: &std::sync::Arc<parking_lot::Mutex<crate::caspar::PlaybackStateInner>>,
     now_ms: u64,
 ) {
-    let drain = {
+    let (drain, instance) = {
         let mut s = state.lock();
         if !s.fork.is_fork() {
             return;
         }
-        s.fork.drain(now_ms)
+        (s.fork.drain(now_ms), s.fork.instance)
     };
     if drain.restarted {
         emit_instance(app, None, "event-seq-reset");
     }
-    emit_events(app, drain.events);
+    emit_events(app, instance, drain.events);
     if let Some(since) = drain.fetch_since {
         let app = app.clone();
         let state = state.clone();
@@ -518,7 +519,7 @@ pub fn after_osc_packet<R: tauri::Runtime>(
                     if restarted {
                         emit_instance(&app, Some(reply.instance), "events-instance");
                     }
-                    emit_events(&app, events);
+                    emit_events(&app, Some(reply.instance), events);
                 }
                 Err(error) => {
                     log::warn!("[CasparCG] EVENTS gap fetch failed: {}", error);
@@ -537,6 +538,19 @@ pub struct EngineDetect {
     pub info: Option<QueueInfo>,
     /// A known fork instance was replaced: the engine restarted.
     pub restarted: bool,
+    /// Events that aired while PlayOut was not running (same engine
+    /// instance as the previous session's checkpoint), oldest first.
+    pub replayed: Vec<EngineEvent>,
+    /// Some of those events fell out of the engine's 128-event log.
+    pub replay_lost: bool,
+}
+
+/// After a PlayOut relaunch: the cursor to replay from, when the engine is
+/// the same instance the previous session saw.
+fn replay_cursor(previous: Option<&crate::recovery::EngineCheckpoint>, info: &QueueInfo) -> Option<u64> {
+    let previous = previous?;
+    let since = previous.last_seq?;
+    (previous.instance == Some(info.instance) && since < info.event_seq).then_some(since)
 }
 
 /// D1: `QUEUE INFO` on the program layer decides the engine mode. Call on
@@ -550,13 +564,15 @@ pub async fn caspar_engine_detect<R: tauri::Runtime>(
     let channel = crate::caspar_layers::PROGRAM_CHANNEL;
     let layer = crate::caspar_layers::CasparLayer::Video.layer();
     let info = probe(&client, channel, layer).await?;
-    let (mode, restarted) = {
+    let (mode, restarted, fresh_process) = {
         let mut s = playback.0.lock();
+        // No cursor yet: this process has not seen the engine before.
+        let fresh_process = s.fork.last_seq.is_none();
         match &info {
-            Some(info) => (EngineMode::Fork, s.fork.set_fork(info.instance, info.event_seq)),
+            Some(info) => (EngineMode::Fork, s.fork.set_fork(info.instance, info.event_seq), fresh_process),
             None => {
                 s.fork.set_stock();
-                (EngineMode::Stock, false)
+                (EngineMode::Stock, false, fresh_process)
             }
         }
     };
@@ -564,7 +580,33 @@ pub async fn caspar_engine_detect<R: tauri::Runtime>(
         emit_instance(&app, info.as_ref().map(|i| i.instance), "queue-info-instance");
     }
     log::info!("[CasparCG] Engine mode: {:?}", mode);
-    Ok(EngineDetect { mode, info, restarted })
+
+    // D7: what aired while PlayOut was away goes into the as-run. The live
+    // cursor already starts at the engine's current seq, so nothing is
+    // replayed into the playout logic.
+    let mut replayed = Vec::new();
+    let mut replay_lost = false;
+    if let (true, Some(info)) = (fresh_process, info.as_ref()) {
+        let previous = tauri::Manager::try_state::<crate::recovery::RecoveryState>(&app)
+            .and_then(|recovery| recovery.previous_engine());
+        if let Some(since) = replay_cursor(previous.as_ref(), info) {
+            match fetch_events(&client, channel, layer, Some(since)).await {
+                Ok(reply) => {
+                    replay_lost = reply.lost;
+                    replayed = reply.events.into_iter().filter(|e| e.seq <= info.event_seq).collect();
+                    record_asrun(replayed.iter().map(|e| AsRunEntry::from_event(e, Some(info.instance), true)).collect());
+                    log::info!(
+                        "[CasparCG] {} engine event(s) aired while PlayOut was away (since #{}{})",
+                        replayed.len(),
+                        since,
+                        if replay_lost { ", some lost from the engine log" } else { "" }
+                    );
+                }
+                Err(error) => log::warn!("[CasparCG] EVENTS replay after relaunch failed: {}", error),
+            }
+        }
+    }
+    Ok(EngineDetect { mode, info, restarted, replayed, replay_lost })
 }
 
 #[tauri::command]
@@ -572,6 +614,109 @@ pub async fn caspar_engine_state(
     playback: State<'_, crate::caspar::CasparPlaybackState>,
 ) -> Result<EngineStateReport, String> {
     Ok(EngineStateReport::from(&playback.0.lock().fork))
+}
+
+// ── As-run from engine events (handoff D7) ─────────────────────────────────
+
+/// One aired event, as the engine stamped it. Appended to
+/// `recovery/asrun-YYYY-MM-DD.jsonl` (UTC day of the event).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsRunEntry {
+    /// Engine wall-clock time of the event, ms since the epoch.
+    pub at_ms: i64,
+    pub instance: Option<i64>,
+    pub seq: u64,
+    pub kind: String,
+    pub tag: String,
+    /// The rundown row (the tag without its occurrence suffix).
+    pub row_id: String,
+    /// Channel tick counter of the event.
+    pub frame: i64,
+    pub reason: String,
+    /// Replayed by `EVENTS` after a relaunch: it aired while PlayOut was away.
+    pub replayed: bool,
+}
+
+impl AsRunEntry {
+    pub fn from_event(event: &EngineEvent, instance: Option<i64>, replayed: bool) -> Self {
+        let row_id = event.tag.split(':').next().unwrap_or("").to_string();
+        AsRunEntry {
+            at_ms: event.time,
+            instance,
+            seq: event.seq,
+            kind: event.kind.clone(),
+            tag: event.tag.clone(),
+            row_id,
+            frame: event.frame,
+            reason: event.reason.clone(),
+            replayed,
+        }
+    }
+}
+
+/// UTC calendar date of an epoch-ms time (`YYYY-MM-DD`), civil-from-days.
+pub fn utc_date(epoch_ms: i64) -> String {
+    let days = epoch_ms.div_euclid(86_400_000);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{:04}-{:02}-{:02}", year, month, day)
+}
+
+fn asrun_path(dir: &std::path::Path, epoch_ms: i64) -> std::path::PathBuf {
+    dir.join(format!("asrun-{}.jsonl", utc_date(epoch_ms)))
+}
+
+/// Append entries, one JSON line each, to the file of each entry's day.
+pub fn append_asrun(dir: &std::path::Path, entries: &[AsRunEntry]) -> std::io::Result<()> {
+    use std::io::Write;
+    std::fs::create_dir_all(dir)?;
+    for entry in entries {
+        let line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(asrun_path(dir, entry.at_ms))?;
+        writeln!(file, "{}", line)?;
+    }
+    Ok(())
+}
+
+/// The last `limit` entries of the given day's file.
+pub fn read_asrun(dir: &std::path::Path, epoch_ms: i64, limit: usize) -> Vec<AsRunEntry> {
+    let Ok(raw) = std::fs::read_to_string(asrun_path(dir, epoch_ms)) else { return Vec::new() };
+    let entries: Vec<AsRunEntry> = raw.lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    let skip = entries.len().saturating_sub(limit);
+    entries.into_iter().skip(skip).collect()
+}
+
+fn record_asrun(entries: Vec<AsRunEntry>) {
+    if entries.is_empty() {
+        return;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = append_asrun(&crate::recovery::recovery_dir(), &entries) {
+            log::warn!("[CasparCG] Could not append {} as-run event(s): {}", entries.len(), error);
+        }
+    });
+}
+
+/// Today's (UTC) engine as-run, newest last.
+#[tauri::command]
+pub async fn caspar_engine_asrun(limit: Option<usize>) -> Result<Vec<AsRunEntry>, String> {
+    let limit = limit.unwrap_or(200).min(5_000);
+    tauri::async_runtime::spawn_blocking(move || {
+        read_asrun(&crate::recovery::recovery_dir(), crate::recovery::now_epoch_ms() as i64, limit)
+    })
+    .await
+    .map_err(|e| format!("as-run read failed: {}", e))
 }
 
 #[cfg(test)]
@@ -843,5 +988,76 @@ mod tests {
         assert_eq!(json["timeMs"], 1_792_069_797_688i64);
         assert_eq!(json["kind"], "onair");
         assert!(json.get("time").is_none());
+    }
+
+    // ── As-run and relaunch replay ────────────────────────────────────────
+
+    #[test]
+    fn utc_dates() {
+        assert_eq!(utc_date(0), "1970-01-01");
+        assert_eq!(utc_date(951_782_400_000), "2000-02-29");
+        assert_eq!(utc_date(1_792_065_829_887), "2026-10-15");
+        assert_eq!(utc_date(1_792_108_799_999), "2026-10-15");
+        assert_eq!(utc_date(1_792_108_800_000), "2026-10-16");
+    }
+
+    fn onair(seq: u64, tag: &str, time: i64) -> EngineEvent {
+        EngineEvent { seq, frame: seq as i64 * 25, time, kind: "onair".into(), tag: tag.into(), reason: "auto".into() }
+    }
+
+    #[test]
+    fn asrun_entries_carry_the_row_id() {
+        let entry = AsRunEntry::from_event(&onair(4, "row-1:2", 7), Some(9), true);
+        assert_eq!(entry.row_id, "row-1");
+        assert_eq!(entry.tag, "row-1:2");
+        assert!(entry.replayed);
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["atMs"], 7);
+        assert_eq!(json["rowId"], "row-1");
+    }
+
+    #[test]
+    fn asrun_appends_per_day_and_reads_the_tail() {
+        let dir = std::env::temp_dir().join(format!("playout-asrun-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let day = 1_792_065_829_887;
+        let next_day = day + 86_400_000;
+        let entries: Vec<AsRunEntry> = vec![
+            AsRunEntry::from_event(&onair(1, "a", day), Some(1), false),
+            AsRunEntry::from_event(&onair(2, "b", day + 1), Some(1), false),
+            AsRunEntry::from_event(&onair(3, "c", next_day), Some(1), false),
+        ];
+        append_asrun(&dir, &entries[..2]).unwrap();
+        append_asrun(&dir, &entries[2..]).unwrap();
+        assert_eq!(read_asrun(&dir, day, 10), entries[..2].to_vec());
+        assert_eq!(read_asrun(&dir, day, 1), entries[1..2].to_vec());
+        assert_eq!(read_asrun(&dir, next_day, 10), entries[2..].to_vec());
+        assert!(read_asrun(&dir, next_day + 86_400_000, 10).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn info(instance: i64, event_seq: u64) -> QueueInfo {
+        QueueInfo {
+            channel: 1,
+            layer: 10,
+            instance,
+            frame: 0,
+            event_seq,
+            foreground: None,
+            waiting: vec![],
+            fallback: Default::default(),
+        }
+    }
+
+    #[test]
+    fn relaunch_replays_only_on_the_same_engine_instance() {
+        use crate::recovery::EngineCheckpoint;
+        let previous = EngineCheckpoint { mode: EngineMode::Fork, instance: Some(100), last_seq: Some(40) };
+        assert_eq!(replay_cursor(Some(&previous), &info(100, 52)), Some(40));
+        assert_eq!(replay_cursor(Some(&previous), &info(100, 40)), None, "nothing new");
+        assert_eq!(replay_cursor(Some(&previous), &info(200, 52)), None, "the engine restarted");
+        assert_eq!(replay_cursor(None, &info(100, 52)), None);
+        let no_cursor = EngineCheckpoint { last_seq: None, ..previous };
+        assert_eq!(replay_cursor(Some(&no_cursor), &info(100, 52)), None);
     }
 }

@@ -135,6 +135,17 @@ pub struct OnAirCheckpoint {
     pub paused: bool,
 }
 
+/// PlayOut fork: the engine's event cursor. After a relaunch against the same
+/// engine `instance`, `EVENTS <last_seq>` replays what aired while PlayOut was
+/// away; a different instance means the engine restarted and its queue is gone.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EngineCheckpoint {
+    pub mode: crate::caspar_fork::EngineMode,
+    pub instance: Option<i64>,
+    pub last_seq: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayoutCheckpoint {
@@ -146,6 +157,9 @@ pub struct PlayoutCheckpoint {
     pub graphics: GraphicsContext,
     pub rundown_revision: u64,
     pub clean_shutdown: bool,
+    /// Absent in checkpoints written before the fork integration.
+    #[serde(default)]
+    pub engine: EngineCheckpoint,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -413,6 +427,10 @@ impl RecoveryState {
             inner.last_position_ms = position;
             OnAirCheckpoint { context, position_ms: position, paused }
         });
+        let engine = {
+            let s = playback.0.lock();
+            EngineCheckpoint { mode: s.fork.mode, instance: s.fork.instance, last_seq: s.fork.last_seq }
+        };
         inner.seq += 1;
         PlayoutCheckpoint {
             version: CHECKPOINT_VERSION,
@@ -423,7 +441,18 @@ impl RecoveryState {
             graphics: inner.context.graphics.clone(),
             rundown_revision: inner.context.rundown_revision,
             clean_shutdown,
+            engine,
         }
+    }
+
+    /// The engine cursor the previous session left, if it ran in fork mode.
+    pub fn previous_engine(&self) -> Option<EngineCheckpoint> {
+        self.inner
+            .lock()
+            .previous_checkpoint
+            .as_ref()
+            .map(|c| c.engine.clone())
+            .filter(|e| e.mode == crate::caspar_fork::EngineMode::Fork)
     }
 
     /// Final checkpoint and session record on the way out.
@@ -834,13 +863,29 @@ mod tests {
             graphics: GraphicsContext { advisory_on_air: true, ..Default::default() },
             rundown_revision: 3,
             clean_shutdown: false,
+            engine: EngineCheckpoint {
+                mode: crate::caspar_fork::EngineMode::Fork,
+                instance: Some(1_792_065_829_887),
+                last_seq: Some(14),
+            },
         };
         let json = serde_json::to_string(&checkpoint).unwrap();
+        assert!(json.contains("\"engine\":{\"mode\":\"fork\",\"instance\":1792065829887,\"lastSeq\":14}"));
         assert!(json.contains("\"positionMs\":42000"));
         assert!(json.contains("\"uuid\":\"b\""));
         assert!(json.contains("\"nextUuid\":\"c\""));
         let back: PlayoutCheckpoint = serde_json::from_str(&json).unwrap();
         assert_eq!(back, checkpoint);
+    }
+
+    #[test]
+    fn checkpoints_written_before_the_fork_integration_still_load() {
+        let json = r#"{"version":1,"seq":2,"sessionId":"s","writtenAtMs":1,"onAir":null,
+            "graphics":{"advisoryOnAir":false,"crawlActive":false,"crawlText":""},
+            "rundownRevision":0,"cleanShutdown":true}"#;
+        let checkpoint: PlayoutCheckpoint = serde_json::from_str(json).unwrap();
+        assert_eq!(checkpoint.engine, EngineCheckpoint::default());
+        assert_eq!(checkpoint.engine.mode, crate::caspar_fork::EngineMode::Unknown);
     }
 
     #[test]
