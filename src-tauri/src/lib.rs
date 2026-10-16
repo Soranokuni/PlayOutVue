@@ -12,6 +12,7 @@ mod media_server;
 mod media_index;
 mod caspar;
 mod caspar_layers;
+mod caspar_fork;
 mod amcp;
 mod caspar_config;
 mod caspar_config_patch;
@@ -261,6 +262,13 @@ pub fn run() {
             caspar_clear_playback,
             caspar_clear_playback_if_uuid,
             caspar_set_playback_paused,
+            caspar_fork::caspar_fork_probe,
+            caspar_fork::caspar_fork_events,
+            caspar_fork::caspar_fork_item,
+            caspar_fork::caspar_fork_queue_clear,
+            caspar_fork::caspar_fork_queue_remove,
+            caspar_fork::caspar_fork_onair,
+            caspar_fork::caspar_fork_fallback,
             find_default_caspar_config,
             load_caspar_config,
             save_caspar_config_raw,

@@ -132,11 +132,25 @@ pub fn validate_amcp_command(cmd: &str) -> Result<(), String> {
 const ALLOWED_PASSTHROUGH_VERBS: &[&str] = &[
     "PLAY", "LOADBG", "LOAD", "STOP", "PAUSE", "RESUME", "CLEAR", "CALL", "SWAP",
     "ADD", "REMOVE", "MIXER", "CG", "INFO", "CLS", "TLS", "CINF", "VERSION", "PING",
+    // PlayOut fork (`PLAYOUT-FORK.md` §4). A stock server answers `400`.
+    "QUEUE", "ONAIR", "FALLBACK", "EVENTS",
 ];
+
+/// Commands the fork accepts inside `ONAIR <ch>-<layer> <tag> <command>`
+/// (`PLAYOUT-FORK.md` §3.4), restricted to the passthrough allow-list. The
+/// fork verbs themselves are never nested.
+const ALLOWED_ONAIR_VERBS: &[&str] = &[
+    "PLAY", "LOADBG", "LOAD", "STOP", "PAUSE", "RESUME", "CLEAR", "CALL", "MIXER", "CG",
+];
+
+fn verb_in(verb: &str, list: &[&str]) -> bool {
+    list.iter().any(|allowed| verb.eq_ignore_ascii_case(allowed))
+}
 
 /// Returns true if the leading verb of `cmd` is in the passthrough allow-list.
 /// Commands with a request-id prefix (`REQ <id> <VERB>`) are checked on the
-/// verb that follows the id.
+/// verb that follows the id. An `ONAIR` line is also checked on the command
+/// it attaches.
 pub fn is_allowed_passthrough_command(cmd: &str) -> bool {
     let mut tokens = cmd.split_whitespace();
     let Some(first) = tokens.next() else { return false };
@@ -150,9 +164,41 @@ pub fn is_allowed_passthrough_command(cmd: &str) -> bool {
     } else {
         first
     };
-    ALLOWED_PASSTHROUGH_VERBS
-        .iter()
-        .any(|allowed| verb.eq_ignore_ascii_case(allowed))
+    if verb.eq_ignore_ascii_case("ONAIR") {
+        // `ONAIR <ch>-<layer> <tag> <VERB> …`
+        let (Some(_), Some(tag), Some(inner)) = (tokens.next(), tokens.next(), tokens.next()) else {
+            return false;
+        };
+        return is_valid_tag(tag) && verb_in(inner, ALLOWED_ONAIR_VERBS);
+    }
+    verb_in(verb, ALLOWED_PASSTHROUGH_VERBS)
+}
+
+/// Tag rule of the fork's `check_tag`: 1 to 128 of `A-Z a-z 0-9 . _ : -`.
+/// Rundown row ids (uuids) and the `<id>:<n>` occurrence suffix both fit.
+pub fn is_valid_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag.len() <= 128
+        && tag
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
+}
+
+fn check_tag(tag: &str) -> Result<&str, String> {
+    if is_valid_tag(tag) {
+        Ok(tag)
+    } else {
+        Err(format!("Invalid CasparCG item tag '{}'", tag))
+    }
+}
+
+/// `EXPECT` accepts a tag or `-` ("no tagged item on air").
+fn check_expect(expect: &str) -> Result<&str, String> {
+    if expect == "-" {
+        Ok(expect)
+    } else {
+        check_tag(expect)
+    }
 }
 
 /// CG template names are interpolated unescaped into `CG ... ADD` (they are
@@ -181,6 +227,14 @@ pub fn is_safe_read_only_command(cmd: &str) -> bool {
         || upper.starts_with("BYE")
         || upper.starts_with("PING")
         || upper.starts_with("DATA RETRIEVE")
+        || upper.starts_with("EVENTS")
+        || is_queue_info_command(&upper)
+}
+
+/// `QUEUE <ch>-<layer> INFO` and nothing else (every other `QUEUE` form mutates).
+fn is_queue_info_command(upper: &str) -> bool {
+    let tokens: Vec<&str> = upper.split_whitespace().collect();
+    matches!(tokens.as_slice(), ["QUEUE", _, "INFO"])
 }
 
 impl AmcpClient {
@@ -569,6 +623,297 @@ pub fn play_trimmed_cmd(
         }
     }
     cmd
+}
+
+// ── PlayOut fork commands (`D:\casparcg-fork\PLAYOUT-FORK.md` §4) ──────────
+
+/// Append `TAG <tag>` and `EXPECT <tag>` to a `PLAY`/`LOAD`/`LOADBG`/`QUEUE`
+/// line. The fork strips both before the producer sees its parameters.
+pub fn with_tag(cmd: String, tag: Option<&str>, expect: Option<&str>) -> Result<String, String> {
+    let mut cmd = cmd;
+    if let Some(tag) = tag {
+        cmd.push_str(&format!(" TAG {}", check_tag(tag)?));
+    }
+    if let Some(expect) = expect {
+        cmd.push_str(&format!(" EXPECT {}", check_expect(expect)?));
+    }
+    Ok(cmd)
+}
+
+/// How a tagged item reaches the layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ItemVerb {
+    /// Append to the wait queue.
+    Queue,
+    /// Replace the background only; the queue behind it stays.
+    Loadbg,
+    /// A take: drops the background and the queue.
+    Play,
+}
+
+impl ItemVerb {
+    fn as_str(self) -> &'static str {
+        match self {
+            ItemVerb::Queue => "QUEUE",
+            ItemVerb::Loadbg => "LOADBG",
+            ItemVerb::Play => "PLAY",
+        }
+    }
+}
+
+/// One tagged clip. `seek`/`length` are channel units (fields on an
+/// interlaced channel), already decided by the caller's trim rules
+/// (`trimCommands.ts` `computeTrimFields`): `None` omits the parameter.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaggedItem {
+    pub path: String,
+    #[serde(default)]
+    pub seek: Option<u32>,
+    #[serde(default)]
+    pub length: Option<u32>,
+    #[serde(default)]
+    pub auto: bool,
+    pub tag: String,
+    #[serde(default)]
+    pub expect: Option<String>,
+}
+
+/// `<VERB> <ch>-<layer> "<path>"[ SEEK X][ LENGTH Y][ AUTO] TAG <tag>[ EXPECT <tag>]`.
+/// Fork items are always tagged: an untagged item makes no events. `AUTO`
+/// is ignored for `PLAY`. A zero `SEEK` or `LENGTH` is never sent.
+pub fn tagged_item_cmd(verb: ItemVerb, channel: u8, layer: u16, item: &TaggedItem) -> Result<String, String> {
+    if item.path.trim().is_empty() || item.path.contains('"') {
+        return Err(format!("Invalid CasparCG clip path '{}'", item.path));
+    }
+    let mut cmd = format!("{} {}-{} \"{}\"", verb.as_str(), channel, layer, item.path);
+    if let Some(seek) = item.seek.filter(|&s| s > 0) {
+        cmd.push_str(&format!(" SEEK {}", seek));
+    }
+    if let Some(length) = item.length.filter(|&l| l > 0) {
+        cmd.push_str(&format!(" LENGTH {}", length));
+    }
+    if item.auto && verb != ItemVerb::Play {
+        cmd.push_str(" AUTO");
+    }
+    with_tag(cmd, Some(&item.tag), item.expect.as_deref())
+}
+
+/// `QUEUE <ch>-<layer> CLEAR[ AFTER <tag>][ EXPECT <tag>]`. Without `after`
+/// it drops the background and the whole queue.
+pub fn queue_clear_cmd(
+    channel: u8,
+    layer: u16,
+    after: Option<&str>,
+    expect: Option<&str>,
+) -> Result<String, String> {
+    let mut cmd = format!("QUEUE {}-{} CLEAR", channel, layer);
+    if let Some(after) = after {
+        cmd.push_str(&format!(" AFTER {}", check_tag(after)?));
+    }
+    with_tag(cmd, None, expect)
+}
+
+/// `QUEUE <ch>-<layer> REMOVE <tag>[ EXPECT <tag>]`.
+pub fn queue_remove_cmd(
+    channel: u8,
+    layer: u16,
+    tag: &str,
+    expect: Option<&str>,
+) -> Result<String, String> {
+    with_tag(format!("QUEUE {}-{} REMOVE {}", channel, layer, check_tag(tag)?), None, expect)
+}
+
+/// `QUEUE <ch>-<layer> INFO`: `201` + one line of JSON ([`QueueInfo`]).
+pub fn queue_info_cmd(channel: u8, layer: u16) -> String {
+    format!("QUEUE {}-{} INFO", channel, layer)
+}
+
+/// `ONAIR <ch>-<layer> <tag> <inner>`. `inner` must be a single command the
+/// fork can attach (§3.4) and must itself pass the passthrough allow-list.
+pub fn onair_cmd(channel: u8, layer: u16, tag: &str, inner: &str) -> Result<String, String> {
+    validate_amcp_command(inner)?;
+    let inner = inner.trim();
+    let verb = inner.split_whitespace().next().unwrap_or("");
+    if !verb_in(verb, ALLOWED_ONAIR_VERBS) {
+        return Err(format!("AMCP verb '{}' cannot run as an ONAIR action", verb));
+    }
+    Ok(format!("ONAIR {}-{} {} {}", channel, layer, check_tag(tag)?, inner))
+}
+
+/// `FALLBACK <ch>-<layer> "<clip>"[ LOOP] TAG <tag>[ STALL <ticks>]`.
+pub fn fallback_cmd(
+    channel: u8,
+    layer: u16,
+    clip: &str,
+    looped: bool,
+    tag: &str,
+    stall_ticks: Option<u32>,
+) -> Result<String, String> {
+    if clip.is_empty() || clip.contains('"') {
+        return Err(format!("Invalid fallback clip '{}'", clip));
+    }
+    let mut cmd = format!("FALLBACK {}-{} \"{}\"", channel, layer, clip);
+    if looped {
+        cmd.push_str(" LOOP");
+    }
+    cmd = with_tag(cmd, Some(tag), None)?;
+    if let Some(ticks) = stall_ticks {
+        cmd.push_str(&format!(" STALL {}", ticks));
+    }
+    Ok(cmd)
+}
+
+/// `FALLBACK <ch>-<layer> CLEAR`: removes the clip; the STALL limit stays.
+pub fn fallback_clear_cmd(channel: u8, layer: u16) -> String {
+    format!("FALLBACK {}-{} CLEAR", channel, layer)
+}
+
+/// `FALLBACK <ch>-<layer> STALL <ticks>` (`0` = off).
+pub fn fallback_stall_cmd(channel: u8, layer: u16, ticks: u32) -> String {
+    format!("FALLBACK {}-{} STALL {}", channel, layer, ticks)
+}
+
+/// `EVENTS <ch>-<layer>[ <seq>]`: the events after `since`, oldest first.
+pub fn events_cmd(channel: u8, layer: u16, since: Option<u64>) -> String {
+    match since {
+        Some(seq) => format!("EVENTS {}-{} {}", channel, layer, seq),
+        None => format!("EVENTS {}-{}", channel, layer),
+    }
+}
+
+/// `foreground` of `QUEUE INFO`. `tag` is empty for an untagged item;
+/// `frames` is `-1` for an endless producer. Both count fields on an
+/// interlaced channel.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct QueueForeground {
+    #[serde(default)]
+    pub tag: String,
+    #[serde(default)]
+    pub producer: String,
+    #[serde(default)]
+    pub frame: i64,
+    #[serde(default)]
+    pub frames: i64,
+    #[serde(default)]
+    pub paused: bool,
+    /// A take that has not shown its first frame yet.
+    #[serde(default)]
+    pub starting: bool,
+}
+
+/// One waiting item: the background first, then the queue.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct QueueWaiting {
+    #[serde(default)]
+    pub tag: String,
+    #[serde(default)]
+    pub producer: String,
+    #[serde(default)]
+    pub auto: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct QueueFallback {
+    #[serde(default)]
+    pub set: bool,
+    #[serde(default)]
+    pub tag: String,
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub stall: i64,
+}
+
+/// `QUEUE INFO` reply. `instance` is the server start time in ms; a new
+/// value means the engine restarted and the queue is gone.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct QueueInfo {
+    pub channel: u32,
+    pub layer: u32,
+    pub instance: i64,
+    pub frame: i64,
+    #[serde(default)]
+    pub event_seq: u64,
+    pub foreground: Option<QueueForeground>,
+    #[serde(default)]
+    pub waiting: Vec<QueueWaiting>,
+    #[serde(default)]
+    pub fallback: QueueFallback,
+}
+
+/// One engine event (`PLAYOUT-FORK.md` §3.6). `kind` is `onair`, `offair`,
+/// `ended`, `stalled` or `actionfailed`; `time` is wall-clock ms.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct EngineEvent {
+    pub seq: u64,
+    pub frame: i64,
+    #[serde(alias = "time_ms", rename(serialize = "timeMs"))]
+    pub time: i64,
+    pub kind: String,
+    #[serde(default)]
+    pub tag: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+/// `EVENTS` reply. `since < oldest - 1` means events fell out of the log.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct EventsReply {
+    pub channel: u32,
+    pub layer: u32,
+    pub instance: i64,
+    pub frame: i64,
+    pub last: u64,
+    pub oldest: u64,
+    #[serde(default)]
+    pub events: Vec<EngineEvent>,
+    /// Set by the caller: events after the requested seq fell out of the log.
+    #[serde(default, skip_deserializing)]
+    pub lost: bool,
+}
+
+impl EventsReply {
+    /// True when the events after `since` are no longer all in the log.
+    pub fn lost_events_after(&self, since: u64) -> bool {
+        self.oldest > 0 && since + 1 < self.oldest
+    }
+}
+
+/// The JSON line of a `201` fork reply (`201 QUEUE INFO OK\r\n{…}`).
+fn reply_json_line(body: &str) -> Result<&str, String> {
+    let mut lines = body.lines();
+    let status = lines.next().unwrap_or("").trim();
+    if !status.starts_with("201") {
+        return Err(format!("Unexpected CasparCG reply: {}", status));
+    }
+    lines
+        .map(str::trim)
+        .find(|line| line.starts_with('{'))
+        .ok_or_else(|| format!("CasparCG reply has no JSON line: {}", status))
+}
+
+pub fn parse_queue_info(body: &str) -> Result<QueueInfo, String> {
+    serde_json::from_str(reply_json_line(body)?)
+        .map_err(|error| format!("Invalid QUEUE INFO JSON: {}", error))
+}
+
+pub fn parse_events(body: &str) -> Result<EventsReply, String> {
+    serde_json::from_str(reply_json_line(body)?)
+        .map_err(|error| format!("Invalid EVENTS JSON: {}", error))
+}
+
+/// `QUEUE CLEAR` replies `201 QUEUE CLEAR OK` and the count on the next line.
+pub fn parse_queue_clear_count(body: &str) -> Option<u32> {
+    let mut lines = body.lines();
+    if !lines.next()?.trim().starts_with("201") {
+        return None;
+    }
+    lines.next()?.trim().parse().ok()
 }
 
 #[cfg(test)]
@@ -978,5 +1323,250 @@ mod tests {
         let body = read_framed_reply(&mut client).await.unwrap();
         assert_eq!(body, "400 ERROR\r\n");
         server.await.unwrap();
+    }
+
+    // ── PlayOut fork ──────────────────────────────────────────────────────
+
+    const ROW: &str = "0b6c4f2e-8a1d-4e7b-9c3a-5d2f1e0a9be1";
+
+    #[test]
+    fn fork_verbs_pass_the_allow_list() {
+        for good in [
+            "QUEUE 1-10 INFO",
+            "QUEUE 1-10 CLEAR AFTER a EXPECT b",
+            "FALLBACK 1-10 \"playout/emergency\" LOOP TAG fallback STALL 50",
+            "EVENTS 1-10 12",
+            "ONAIR 1-10 abc CLEAR 1-31",
+            "ONAIR 1-10 abc CG 1-32 UPDATE 1 \"{}\"",
+            "REQ r1 ONAIR 1-10 abc MIXER 1-31 OPACITY 1",
+        ] {
+            assert!(is_allowed_passthrough_command(good), "{}", good);
+        }
+        for bad in [
+            "ONAIR 1-10 abc KILL",
+            "ONAIR 1-10 abc ONAIR 1-10 abc CLEAR 1-31",
+            "ONAIR 1-10 abc QUEUE 1-10 CLEAR",
+            "ONAIR 1-10 abc SWAP 1-10 1-20",
+            "ONAIR 1-10 bad\"tag CLEAR 1-31",
+            "ONAIR 1-10 abc",
+        ] {
+            assert!(!is_allowed_passthrough_command(bad), "{}", bad);
+        }
+    }
+
+    #[test]
+    fn read_only_mode_allows_fork_queries_only() {
+        assert!(is_safe_read_only_command("QUEUE 1-10 INFO"));
+        assert!(is_safe_read_only_command("EVENTS 1-10 4"));
+        assert!(!is_safe_read_only_command("QUEUE 1-10 CLEAR"));
+        assert!(!is_safe_read_only_command("QUEUE 1-10 \"INFO\" AUTO TAG x"));
+        assert!(!is_safe_read_only_command("ONAIR 1-10 x CLEAR 1-31"));
+    }
+
+    #[test]
+    fn tag_rule_mirrors_the_server() {
+        assert!(is_valid_tag(ROW));
+        assert!(is_valid_tag(&format!("{}:2", ROW)));
+        assert!(is_valid_tag("a.b_c-d"));
+        assert!(is_valid_tag(&"x".repeat(128)));
+        assert!(!is_valid_tag(&"x".repeat(129)));
+        assert!(!is_valid_tag(""));
+        assert!(!is_valid_tag("has space"));
+        assert!(!is_valid_tag("quote\""));
+        assert!(!is_valid_tag("ελληνικά"));
+    }
+
+    #[test]
+    fn with_tag_appends_tag_and_expect() {
+        let play = play_trimmed_cmd(1, 10, "clips/a", 50, 150);
+        assert_eq!(
+            with_tag(play, Some("x"), None).unwrap(),
+            "PLAY 1-10 \"clips/a\" SEEK 50 LENGTH 100 TAG x"
+        );
+        let loadbg = loadbg_cmd(1, 10, "clips/a", 0, 0, false);
+        assert_eq!(
+            with_tag(loadbg, Some("x"), Some("-")).unwrap(),
+            "LOADBG 1-10 \"clips/a\" TAG x EXPECT -"
+        );
+        assert!(with_tag("PLAY 1-10".into(), Some("bad tag"), None).is_err());
+        assert!(with_tag("PLAY 1-10".into(), None, Some("")).is_err());
+    }
+
+    #[test]
+    fn tagged_item_cmd_builds_queue_loadbg_and_play() {
+        let item = TaggedItem {
+            path: "clips/b".into(),
+            seek: Some(100),
+            length: Some(500),
+            auto: true,
+            tag: "b".into(),
+            expect: Some("a".into()),
+        };
+        assert_eq!(
+            tagged_item_cmd(ItemVerb::Queue, 1, 10, &item).unwrap(),
+            "QUEUE 1-10 \"clips/b\" SEEK 100 LENGTH 500 AUTO TAG b EXPECT a"
+        );
+        let take = TaggedItem { auto: false, expect: None, ..item.clone() };
+        assert_eq!(
+            tagged_item_cmd(ItemVerb::Loadbg, 1, 10, &take).unwrap(),
+            "LOADBG 1-10 \"clips/b\" SEEK 100 LENGTH 500 TAG b"
+        );
+        // PLAY never carries AUTO.
+        assert_eq!(
+            tagged_item_cmd(ItemVerb::Play, 1, 10, &item).unwrap(),
+            "PLAY 1-10 \"clips/b\" SEEK 100 LENGTH 500 TAG b EXPECT a"
+        );
+        // A zero SEEK is never sent.
+        let head = TaggedItem { seek: Some(0), length: None, expect: None, ..item.clone() };
+        assert_eq!(tagged_item_cmd(ItemVerb::Queue, 1, 10, &head).unwrap(), "QUEUE 1-10 \"clips/b\" AUTO TAG b");
+        assert!(tagged_item_cmd(ItemVerb::Queue, 1, 10, &TaggedItem { tag: "".into(), ..item.clone() }).is_err());
+        assert!(tagged_item_cmd(ItemVerb::Queue, 1, 10, &TaggedItem { path: "a\" KILL".into(), ..item }).is_err());
+    }
+
+    #[test]
+    fn tagged_item_deserializes_from_the_frontend_shape() {
+        let item: TaggedItem = serde_json::from_str(
+            r#"{"path":"clips/b","seek":10,"length":null,"auto":true,"tag":"b","expect":"a"}"#,
+        )
+        .unwrap();
+        assert_eq!(item.seek, Some(10));
+        assert_eq!(item.length, None);
+        assert_eq!(item.expect.as_deref(), Some("a"));
+        let verb: ItemVerb = serde_json::from_str("\"loadbg\"").unwrap();
+        assert_eq!(verb, ItemVerb::Loadbg);
+    }
+
+    #[test]
+    fn queue_clear_and_remove_builders() {
+        assert_eq!(queue_clear_cmd(1, 10, None, None).unwrap(), "QUEUE 1-10 CLEAR");
+        assert_eq!(
+            queue_clear_cmd(1, 10, Some("b"), Some("a")).unwrap(),
+            "QUEUE 1-10 CLEAR AFTER b EXPECT a"
+        );
+        assert_eq!(queue_clear_cmd(1, 10, None, Some("a")).unwrap(), "QUEUE 1-10 CLEAR EXPECT a");
+        assert!(queue_clear_cmd(1, 10, Some("b c"), None).is_err());
+        assert_eq!(queue_remove_cmd(1, 10, "c", None).unwrap(), "QUEUE 1-10 REMOVE c");
+        assert_eq!(
+            queue_remove_cmd(1, 10, "c", Some("a")).unwrap(),
+            "QUEUE 1-10 REMOVE c EXPECT a"
+        );
+        assert_eq!(queue_info_cmd(1, 10), "QUEUE 1-10 INFO");
+    }
+
+    #[test]
+    fn onair_cmd_validates_its_inner_command() {
+        assert_eq!(onair_cmd(1, 10, ROW, "CLEAR 1-31").unwrap(), format!("ONAIR 1-10 {} CLEAR 1-31", ROW));
+        let update = cg_update_cmd(1, 32, 1, r#"{"text":"Ακατάλληλο \"17\""}"#);
+        let onair = onair_cmd(1, 10, ROW, &update).unwrap();
+        assert_eq!(onair, format!("ONAIR 1-10 {} {}", ROW, update));
+        assert!(is_allowed_passthrough_command(&onair));
+        assert!(onair_cmd(1, 10, ROW, "KILL").is_err());
+        assert!(onair_cmd(1, 10, ROW, "QUEUE 1-10 CLEAR").is_err());
+        assert!(onair_cmd(1, 10, ROW, "CLEAR 1-31\r\nKILL").is_err());
+        assert!(onair_cmd(1, 10, "bad tag", "CLEAR 1-31").is_err());
+    }
+
+    #[test]
+    fn fallback_and_events_builders() {
+        assert_eq!(
+            fallback_cmd(1, 10, "playout/emergency", true, "fallback", Some(50)).unwrap(),
+            "FALLBACK 1-10 \"playout/emergency\" LOOP TAG fallback STALL 50"
+        );
+        assert_eq!(
+            fallback_cmd(1, 10, "slate", false, "slate", None).unwrap(),
+            "FALLBACK 1-10 \"slate\" TAG slate"
+        );
+        assert!(fallback_cmd(1, 10, "a\" KILL", true, "f", None).is_err());
+        assert_eq!(fallback_clear_cmd(1, 10), "FALLBACK 1-10 CLEAR");
+        assert_eq!(fallback_stall_cmd(1, 10, 0), "FALLBACK 1-10 STALL 0");
+        assert_eq!(events_cmd(1, 10, None), "EVENTS 1-10");
+        assert_eq!(events_cmd(1, 10, Some(14)), "EVENTS 1-10 14");
+    }
+
+    const QUEUE_INFO_REPLY: &str = concat!(
+        "201 QUEUE INFO OK\r\n",
+        r#"{"channel":1,"layer":10,"instance":1792065829887,"frame":553,"event_seq":14,"#,
+        r#""foreground":{"tag":"a","producer":"ffmpeg","frame":5,"frames":50,"paused":false,"starting":false},"#,
+        r#""waiting":[{"tag":"b","producer":"transition","auto":true},{"tag":"c","producer":"transition","auto":true}],"#,
+        r#""fallback":{"set":true,"tag":"slate","active":false,"stall":50}}"#,
+        "\r\n"
+    );
+
+    #[test]
+    fn parses_queue_info_reply() {
+        let info = parse_queue_info(QUEUE_INFO_REPLY).unwrap();
+        assert_eq!(info.instance, 1792065829887);
+        assert_eq!(info.event_seq, 14);
+        let fg = info.foreground.as_ref().unwrap();
+        assert_eq!((fg.tag.as_str(), fg.frame, fg.frames, fg.starting), ("a", 5, 50, false));
+        let waiting: Vec<&str> = info.waiting.iter().map(|w| w.tag.as_str()).collect();
+        assert_eq!(waiting, ["b", "c"]);
+        assert!(info.fallback.set && !info.fallback.active);
+        assert_eq!(info.fallback.stall, 50);
+
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["eventSeq"], 14);
+    }
+
+    #[test]
+    fn parses_queue_info_with_no_layer() {
+        let body = concat!(
+            "201 QUEUE INFO OK\r\n",
+            r#"{"channel":1,"layer":10,"instance":7,"frame":0,"event_seq":0,"foreground":null,"waiting":[],"#,
+            r#""fallback":{"set":false,"tag":"","active":false,"stall":0}}"#
+        );
+        let info = parse_queue_info(body).unwrap();
+        assert!(info.foreground.is_none());
+        assert!(info.waiting.is_empty());
+    }
+
+    #[test]
+    fn stock_server_reply_is_not_fork_json() {
+        assert!(parse_queue_info("400 ERROR\r\nQUEUE 1-10 INFO").is_err());
+        assert!(parse_events("201 EVENTS OK\r\n").is_err());
+    }
+
+    #[test]
+    fn parses_events_reply() {
+        let body = concat!(
+            "201 EVENTS OK\r\n",
+            r#"{"channel":1,"layer":10,"instance":1792065829887,"frame":620,"last":9,"oldest":1,"events":["#,
+            r#"{"seq":8,"frame":421,"time":1792066165620,"kind":"ended","tag":"c","reason":"ended"},"#,
+            r#"{"seq":9,"frame":430,"time":1792066165980,"kind":"offair","tag":"c","reason":"clear"}]}"#,
+            "\r\n"
+        );
+        let reply = parse_events(body).unwrap();
+        assert_eq!(reply.last, 9);
+        assert_eq!(reply.events.len(), 2);
+        assert_eq!(reply.events[0].kind, "ended");
+        assert_eq!(reply.events[1].reason, "clear");
+        assert_eq!(reply.events[1].time, 1792066165980);
+        assert!(!reply.lost_events_after(7));
+        assert!(!reply.lost_events_after(0));
+
+        let json = serde_json::to_value(&reply.events[0]).unwrap();
+        assert_eq!(json["timeMs"], 1792066165620i64);
+    }
+
+    #[test]
+    fn events_gap_detection() {
+        let reply = EventsReply {
+            channel: 1,
+            layer: 10,
+            instance: 1,
+            frame: 0,
+            last: 300,
+            oldest: 173,
+            events: vec![],
+            lost: false,
+        };
+        assert!(reply.lost_events_after(100));
+        assert!(!reply.lost_events_after(172));
+    }
+
+    #[test]
+    fn parses_queue_clear_count() {
+        assert_eq!(parse_queue_clear_count("201 QUEUE CLEAR OK\r\n2"), Some(2));
+        assert_eq!(parse_queue_clear_count("409 QUEUE CLEAR CONFLICT"), None);
     }
 }
