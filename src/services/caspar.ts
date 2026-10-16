@@ -1108,7 +1108,7 @@ function handleEngineEvent(event: EngineEvent) {
 function onForkOnAir(event: EngineEvent) {
     const tag = event.tag;
     if (!tag) return;
-    if (tag === FALLBACK_TAG || tag === forkFallbackTag()) {
+    if (tag === FALLBACK_TAG) {
         forkForegroundTag = tag;
         forkWaitingTags = [];
         forkFault(`Fallback clip on air (${event.reason}): no queued item was ready.`, 'error');
@@ -1209,9 +1209,30 @@ function onForkActionFailed(event: EngineEvent) {
     }
 }
 
-function forkFallbackTag(): string {
-    const tag = String((getSettingsSnapshot() as any).forkFallbackTag || '').trim();
-    return tag || FALLBACK_TAG;
+/**
+ * D5: the layer's fallback clip and stall limit, from the settings. Sent on
+ * every connect in fork mode and after a settings save. The engine keeps the
+ * configuration per layer index (it survives `CLEAR`). A missing clip keeps
+ * the stall check alone (a stall then skips to the AUTO background).
+ */
+export async function applyForkFallbackSettings(): Promise<void> {
+    if (!isForkMode() || !isCasparConnected.value) return;
+    await configureForkFallback();
+}
+
+async function configureForkFallback(): Promise<void> {
+    const settings = getSettingsSnapshot() as any;
+    const clip = String(settings.forkFallbackClip ?? 'playout/emergency').trim();
+    const rawStall = Number(settings.forkStallTicks);
+    const stall = Number.isFinite(rawStall) && rawStall >= 0 ? Math.round(rawStall) : 50;
+    const channel = PROGRAM_CHANNEL;
+    const layer = CASPAR_LAYERS.video;
+    try {
+        await invoke<ForkReply>('caspar_fork_fallback', { channel, layer, clip: clip || null, tag: FALLBACK_TAG, stall });
+    } catch (error) {
+        forkFault(`Fallback clip "${clip}" could not be set (${String((error as any)?.message || error)}); stall detection only. Deploy the templates or choose a clip in Settings.`);
+        await invoke('caspar_fork_fallback', { channel, layer, clip: null, tag: null, stall }).catch(() => {});
+    }
 }
 
 async function detectEngineMode(): Promise<void> {
@@ -1249,6 +1270,7 @@ async function detectEngineMode(): Promise<void> {
         resetForkState();
     }
     engineMode.value = mode;
+    if (mode === 'fork') await configureForkFallback();
 }
 
 /// Test hooks for fork mode (no Tauri event bus in vitest).
@@ -2346,7 +2368,7 @@ async function adoptForkOnAir(): Promise<boolean> {
     }
     const foreground = info?.foreground;
     const tag = foreground?.tag || '';
-    if (!foreground || !tag || tag === FALLBACK_TAG || tag === forkFallbackTag()) return false;
+    if (!foreground || !tag || tag === FALLBACK_TAG) return false;
 
     const rowId = tagBase(tag);
     const store = useRundownStore();

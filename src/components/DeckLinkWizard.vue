@@ -273,6 +273,7 @@ const deployTemplates = async (overwrite: boolean = true) => {
 
     const res = await invoke<TemplateDeployResult>('deploy_caspar_templates', {
       templatePath: templateBase,
+      mediaPath: settings.localMediaPath || null,
       overwrite,
     });
     templateDeployResult.value = res;

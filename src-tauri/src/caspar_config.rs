@@ -425,7 +425,7 @@ fn resolve_caspar_template_dir<R: Runtime>(app: Option<&AppHandle<R>>, explicit:
 pub async fn deploy_caspar_templates<R: Runtime>(
     app: AppHandle<R>,
     template_path: Option<String>,
-    _media_path: Option<String>,
+    media_path: Option<String>,
     overwrite: Option<bool>,
 ) -> Result<TemplateDeployResult, String> {
     let base_dir = resolve_caspar_template_dir(Some(&app), template_path.as_deref());
@@ -500,6 +500,27 @@ pub async fn deploy_caspar_templates<R: Runtime>(
                 deployed.push("playout/advisory_default_preset.json".into());
             }
         }
+    }
+
+    // PlayOut fork: the fallback slate (`FALLBACK 1-10 "playout/emergency" LOOP`)
+    // lives in the media folder, next to the clips.
+    match media_path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(media) => {
+            let slate_dir = PathBuf::from(strip_verbatim_prefix(media)).join("playout");
+            let slate_path = slate_dir.join(crate::caspar_fork::EMERGENCY_SLATE_FILE);
+            let name = format!("media/playout/{}", crate::caspar_fork::EMERGENCY_SLATE_FILE);
+            if slate_path.exists() && !overwrite_files {
+                skipped.push(name);
+            } else {
+                std::fs::create_dir_all(&slate_dir)
+                    .map_err(|e| format!("Failed to create '{}': {}", slate_dir.display(), e))?;
+                let png = crate::caspar_fork::emergency_slate_png()?;
+                crate::atomic_fs::write_atomic(&slate_path, &png)
+                    .map_err(|e| format!("Failed to write the fallback slate '{}': {}", slate_path.display(), e))?;
+                deployed.push(name);
+            }
+        }
+        None => skipped.push("media/playout/emergency.png (no media folder configured)".into()),
     }
 
     let deployed_preset = crate::studio_server::load_saved_default_preset(&app);

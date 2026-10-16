@@ -32,7 +32,7 @@ import { useRundownStore } from './stores/rundown';
 import { useIngestorStatusStore } from './stores/ingestorStatus';
 import { useMediaLibraryStore } from './stores/mediaLibrary';
 import { useOperatorShortcuts, activeModalName, closeCommandPalette, activeInspectorItem, openInspectorModal, closeInspectorModal } from './composables/useOperatorShortcuts';
-import { advanceNext, manualTakeFailure, engineRecovery, dismissEngineRecovery } from './services/caspar';
+import { advanceNext, manualTakeFailure, engineRecovery, dismissEngineRecovery, engineMode } from './services/caspar';
 import { persistenceFault, clearPersistenceFault } from './lib/persistenceStorage';
 import { frontendFaults, dismissFrontendFault } from './lib/frontendFaults';
 import {
@@ -460,7 +460,7 @@ const connectionTone = computed<'ready' | 'processing' | 'error' | 'warning' | '
  */
 const connectionShortState = computed(() => {
   if (!isPrimaryInstance.value) return isPlayoutConnected.value ? 'Monitor' : 'Monitor · offline';
-  if (isPlayoutConnected.value) return 'Connected';
+  if (isPlayoutConnected.value) return engineMode.value === 'fork' ? 'Connected · fork' : 'Connected';
   if (processStatus.value?.circuitBreakerTripped) return 'Crash loop';
   switch (processState.value) {
     case 'unconfigured': return 'Not found';
@@ -471,6 +471,15 @@ const connectionShortState = computed(() => {
     case 'disconnected': return 'Offline';
     case 'operational': return 'Ready';
     default: return 'Offline';
+  }
+});
+
+/** Handoff D1: which playout path the connected server takes. */
+const engineModeLabel = computed(() => {
+  switch (engineMode.value) {
+    case 'fork': return 'PlayOut fork';
+    case 'stock': return 'Stock';
+    default: return 'Detecting…';
   }
 });
 
@@ -1021,6 +1030,11 @@ onUnmounted(() => {
               <span class="status-dot" :class="'tone-' + connectionTone"></span>
               <span>CasparCG</span>
               <span class="popover-item-badge">{{ connectionLabel }}</span>
+            </div>
+            <div v-if="isPlayoutConnected" class="popover-item is-static" data-testid="engine-mode">
+              <AppIcon name="layers" :size="14" />
+              <span>Engine</span>
+              <span class="popover-item-badge">{{ engineModeLabel }}</span>
             </div>
             <div class="popover-divider" role="separator" />
             <button

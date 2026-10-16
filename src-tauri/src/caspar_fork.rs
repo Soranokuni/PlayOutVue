@@ -616,6 +616,23 @@ pub async fn caspar_engine_state(
     Ok(EngineStateReport::from(&playback.0.lock().fork))
 }
 
+// ── Fallback slate (handoff D5) ────────────────────────────────────────────
+
+/// Deployed to `<media>/playout/` with the templates; the default fallback
+/// clip `playout/emergency` resolves to it.
+pub const EMERGENCY_SLATE_FILE: &str = "emergency.png";
+
+/// A full-frame, opaque, near-black slate (1920x1080). Plain on purpose: it
+/// replaces a frozen or empty picture, and it must never look like content.
+pub fn emergency_slate_png() -> Result<Vec<u8>, String> {
+    let image = image::RgbaImage::from_pixel(1920, 1080, image::Rgba([12, 14, 18, 255]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode the fallback slate: {}", e))?;
+    Ok(bytes.into_inner())
+}
+
 // ── As-run from engine events (handoff D7) ─────────────────────────────────
 
 /// One aired event, as the engine stamped it. Appended to
@@ -991,6 +1008,15 @@ mod tests {
     }
 
     // ── As-run and relaunch replay ────────────────────────────────────────
+
+    #[test]
+    fn emergency_slate_is_a_full_hd_png() {
+        let png = emergency_slate_png().unwrap();
+        assert_eq!(&png[1..4], b"PNG");
+        let decoded = image::load_from_memory(&png).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (1920, 1080));
+        assert!(png.len() < 64 * 1024, "a solid slate compresses to a few KB");
+    }
 
     #[test]
     fn utc_dates() {

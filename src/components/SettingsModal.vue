@@ -19,6 +19,7 @@ import {
     type CasparValidationInfo
 } from '../services/casparProcess';
 import { getActivePlayoutService } from '../services/playout';
+import { applyForkFallbackSettings, engineMode } from '../services/caspar';
 import { describeError, describeErrorMessage } from '../lib/describeError';
 import { showToast } from '../lib/toasts';
 import BaseModal from './ui/BaseModal.vue';
@@ -280,6 +281,9 @@ const localState = ref({
     relaunchResumeWithinS: 30,
     relaunchJoinWithinMin: 30,
     relaunchCountdownS: 10,
+    forkQueueDepth: 2,
+    forkFallbackClip: 'playout/emergency',
+    forkStallTicks: 50,
     ingestorApiBaseUrl: '',
     ingestorApiToken: '',
     aiProvider: 'anthropic' as const,
@@ -307,6 +311,14 @@ const localState = ref({
 });
 
 
+const engineModeLabel = computed(() => {
+    switch (engineMode.value) {
+        case 'fork': return 'The connected server is the fork.';
+        case 'stock': return 'The connected server is stock CasparCG, so they are not used.';
+        default: return 'No server connected yet.';
+    }
+});
+
 const isDeployingTemplates = ref(false);
 const deployTemplatesFromSettings = async () => {
     isDeployingTemplates.value = true;
@@ -316,7 +328,8 @@ const deployTemplatesFromSettings = async () => {
 
         const res = await invoke<{ template_dir: string; deployed: string[]; skipped: string[] }>('deploy_caspar_templates', {
             templatePath,
-            mediaPath: null,
+            // The fork's fallback slate goes next to the clips.
+            mediaPath: localState.value.localMediaPath || null,
             overwrite: true
         });
 
@@ -377,6 +390,9 @@ const mapLocalState = () => {
         relaunchResumeWithinS: settings.relaunchResumeWithinS ?? 30,
         relaunchJoinWithinMin: settings.relaunchJoinWithinMin ?? 30,
         relaunchCountdownS: settings.relaunchCountdownS ?? 10,
+        forkQueueDepth: settings.forkQueueDepth ?? 2,
+        forkFallbackClip: settings.forkFallbackClip ?? 'playout/emergency',
+        forkStallTicks: settings.forkStallTicks ?? 50,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
         ingestorApiToken: settings.ingestorApiToken || '',
         aiProvider: settings.aiProvider || 'anthropic',
@@ -705,6 +721,8 @@ const saveSettings = async () => {
     try {
         await invoke('configure_caspar_osc_listener', { port: localState.value.casparOscPort });
     } catch {}
+    // Fork engine only; a no-op on a stock engine or while disconnected.
+    await applyForkFallbackSettings().catch(() => {});
 
     // UI F-07: Save used to close the dialog silently, so there was no way to
     // tell a save from a mis-click on Cancel.
@@ -1053,6 +1071,28 @@ const openTemplateDir = async () => {
               <label class="field-label" for="relaunch-countdown">Countdown before the plan runs by itself (s)</label>
               <input id="relaunch-countdown" v-model.number="localState.relaunchCountdownS" class="input" type="number" min="0" max="120" />
               <p class="field-hint">0 always waits for the operator. The as-run journal is in the app data folder under <span class="mono">recovery/</span>.</p>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">PlayOut fork engine</h3>
+            <p class="field-hint">
+              These apply when the server is the PlayOut fork of CasparCG: the engine plays the queued rows by itself and reports each cut. {{ engineModeLabel }}
+            </p>
+            <div class="field">
+              <label class="field-label" for="fork-queue-depth">Rows queued behind the on-air clip</label>
+              <input id="fork-queue-depth" v-model.number="localState.forkQueueDepth" class="input" type="number" min="1" max="8" />
+              <p class="field-hint">Each queued clip keeps a decoder open. 2 covers a short clip ending right after a cut.</p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="fork-fallback-clip">Fallback clip when the queue runs dry or a clip fails</label>
+              <input id="fork-fallback-clip" v-model="localState.forkFallbackClip" class="input mono" type="text" placeholder="playout/emergency" />
+              <p class="field-hint">Relative to the media folder. Deploying the templates installs <span class="mono">playout/emergency</span>. Empty: no fallback clip.</p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="fork-stall">Stall limit (channel ticks)</label>
+              <input id="fork-stall" v-model.number="localState.forkStallTicks" class="input" type="number" min="0" max="1500" />
+              <p class="field-hint">A clip that delivers no frame for this long is replaced. 50 is 2 s at 1080i50; 0 turns the check off.</p>
             </div>
           </section>
 

@@ -97,6 +97,8 @@ const INT_FIELDS: Record<string, { min: number; max: number }> = {
     relaunchResumeWithinS: { min: 0, max: 3600 },
     relaunchJoinWithinMin: { min: 0, max: 24 * 60 },
     relaunchCountdownS: { min: 0, max: 120 },
+    forkQueueDepth: { min: 1, max: 8 },
+    forkStallTicks: { min: 0, max: 1500 },
 };
 
 /** A single token of the AMCP grammar: letters, digits, `_`, `-`, `.` */
@@ -140,6 +142,12 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
     // Strings that end up inside an AMCP command line as bare tokens.
     if (typeof state.decklinkInputFormat !== 'string' || !AMCP_TOKEN.test(state.decklinkInputFormat)) {
         (state as any).decklinkInputFormat = defaults.decklinkInputFormat;
+    }
+    // Media-relative clip name inside `FALLBACK 1-10 "<clip>"`; empty = none.
+    if (typeof state.forkFallbackClip !== 'string'
+        || !/^[A-Za-z0-9_./ -]{0,256}$/.test(state.forkFallbackClip)
+        || state.forkFallbackClip.includes('..')) {
+        (state as any).forkFallbackClip = defaults.forkFallbackClip;
     }
     for (const key of ['cgCrawlTemplate', 'cgExplanationTemplate'] as const) {
         const value = state[key];
@@ -272,6 +280,16 @@ export const useSettingsStore = defineStore('settings', {
         relaunchResumeWithinS: 30,
         relaunchJoinWithinMin: 30,
         relaunchCountdownS: 10,
+
+        // PlayOut fork of CasparCG (CASPAR-FORK-INTEGRATION-HANDOFF.md), used
+        // when the engine answers `QUEUE 1-10 INFO`. D3: rows queued behind the
+        // on-air item (each holds an open decoder). D5: the clip the engine
+        // shows when its queue runs dry or a clip fails (media-relative, empty =
+        // none), and the stall limit in channel ticks (50 = 2 s at 1080i50;
+        // 0 = off).
+        forkQueueDepth: 2,
+        forkFallbackClip: 'playout/emergency',
+        forkStallTicks: 50,
 
         // Character Generator (CG) settings.
         //
