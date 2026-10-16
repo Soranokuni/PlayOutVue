@@ -36,6 +36,7 @@ import { onCasparProcessStateChange, type CasparProcessStatus } from './casparPr
 import { planEngineRecovery, type EngineLossSnapshot } from '../lib/engineRecovery';
 import {
     planRelaunchRecovery,
+    rebaseOnEngineReplay,
     resolveAdoptionIndex,
     clipBase,
     type AdoptionHint,
@@ -45,6 +46,7 @@ import {
     type OnAirCheckpoint,
     type PlayoutCheckpoint,
     type RelaunchAction,
+    type RelaunchInput,
     type RelaunchOffer,
 } from '../lib/relaunchRecovery';
 
@@ -291,6 +293,9 @@ let engineExitObserved = false;
 /// Set when the supervisor reports the engine gone; the next handshake then
 /// treats every layer as empty unless INFO proves otherwise.
 let engineRestartSuspected = false;
+/// Fork mode: the engine events that aired while PlayOut was away (the
+/// `EVENTS` replay of the last `caspar_engine_detect`), for the relaunch plan.
+let forkReplay: EngineEvent[] = [];
 /// OSC positions after a resumed PLAY count from the resume point (the
 /// producer was SEEKed past it). Everything that shows or persists a position
 /// adds this back so the clock, the progress bar and a second crash all see
@@ -530,19 +535,32 @@ function offerRelaunchRecovery(candidate: NonNullable<typeof relaunchCandidate>,
     const queue = store.getPlayableItems(playlistId).map((i: any) => ({ ...i })) as PlayoutItem[];
     queuedItems = queue;
     const settings = getSettingsSnapshot() as any;
+    const schedule = queue.map((it) => {
+        const live = findLiveItemById(queueKey(it)) ?? it;
+        return { id: queueKey(it), type: live.type, ingestorStatus: live.ingestorStatus, durationMs: Math.round(itemDurationMs(live)) };
+    });
+    let input: RelaunchInput = {
+        key: onAir.uuid,
+        positionMs: onAir.positionMs,
+        durationMs: onAir.durationMs,
+        nextKey: onAir.nextUuid ?? null,
+        writtenAtMs: checkpoint.writtenAtMs,
+        paused: onAir.paused,
+    };
+    // Fork mode: the engine kept airing its queue after PlayOut died, and
+    // its fallback may be on air now. Plan from the last row it really
+    // aired, not from the checkpoint, or the resume re-airs those rows.
+    const rebased = isForkMode()
+        ? rebaseOnEngineReplay(input, forkReplay.filter((e) => e.tag !== FALLBACK_TAG), schedule, tagBase, channelTicksPerSecond())
+        : null;
+    forkReplay = [];
+    if (rebased) {
+        input = { ...rebased.input, paused: false };
+        engine = rebased.engine;
+    }
     const offer = planRelaunchRecovery(
-        {
-            key: onAir.uuid,
-            positionMs: onAir.positionMs,
-            durationMs: onAir.durationMs,
-            nextKey: onAir.nextUuid ?? null,
-            writtenAtMs: checkpoint.writtenAtMs,
-            paused: onAir.paused,
-        },
-        queue.map((it) => {
-            const live = findLiveItemById(queueKey(it)) ?? it;
-            return { id: queueKey(it), type: live.type, ingestorStatus: live.ingestorStatus, durationMs: Math.round(itemDurationMs(live)) };
-        }),
+        input,
+        schedule,
         engine,
         Date.now(),
         {
@@ -1248,6 +1266,7 @@ async function detectEngineMode(): Promise<void> {
         mode = report?.mode === 'fork' ? 'fork' : 'stock';
         // A known engine instance was replaced: every layer is empty now.
         if (report?.restarted) engineRestartSuspected = true;
+        forkReplay = report?.replayed ?? [];
         if (report?.replayed?.length) {
             const aired = report.replayed.filter((e) => e.kind === 'onair').map((e) => tagBase(e.tag));
             invoke('push_diagnostic_log', {

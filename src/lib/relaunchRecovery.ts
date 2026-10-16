@@ -368,3 +368,64 @@ export function planRelaunchRecovery(
 
     return { primary, alternatives, autoConfirmS, offAirMs, reason };
 }
+
+// ---------------------------------------------------------------------------
+// 3. PlayOut fork: what the engine aired while PlayOut was away
+// ---------------------------------------------------------------------------
+
+/** One replayed engine event (`EngineEvent` in forkQueue.ts). */
+export interface ReplayedEvent {
+    kind: string;
+    tag: string;
+    frame: number;
+    timeMs: number;
+    reason: string;
+}
+
+/**
+ * Fork mode: the checkpoint names the row on air when PlayOut died, but the
+ * engine kept playing its queue and may since have aired the queued rows and
+ * gone to its fallback. Rebase the relaunch input on the last row of `queue`
+ * the replay shows on air, ended at `timeMs` of its `offair`, so the plan
+ * continues after what really aired instead of re-airing it.
+ *
+ * Null when the replay names no row of the queue, or that row is still on
+ * air (adoption by tag handles that).
+ */
+export function rebaseOnEngineReplay(
+    input: RelaunchInput,
+    replay: readonly ReplayedEvent[],
+    queue: readonly ScheduleItem[],
+    rowOf: (tag: string) => string,
+    ticksPerSecond: number
+): { input: RelaunchInput; engine: EngineAtRelaunch } | null {
+    let at = -1;
+    for (let i = replay.length - 1; i >= 0; i -= 1) {
+        const event = replay[i]!;
+        if (event.kind === 'onair' && queue.some((q) => q.id === rowOf(event.tag))) {
+            at = i;
+            break;
+        }
+    }
+    if (at === -1) return null;
+    const onAir = replay[at]!;
+    const later = replay.slice(at + 1).filter((e) => e.tag === onAir.tag);
+    const offAir = later.find((e) => e.kind === 'offair');
+    if (!offAir) return null;
+
+    const key = rowOf(onAir.tag);
+    const durationMs = Math.max(0, queue.find((q) => q.id === key)?.durationMs ?? 0);
+    if (later.some((e) => e.kind === 'ended')) {
+        return {
+            input: { key, positionMs: durationMs, durationMs, nextKey: null, writtenAtMs: offAir.timeMs },
+            engine: 'ended-on-current',
+        };
+    }
+    // Cut short (a stall, an error, a clear): continue from where it stopped.
+    const ticks = ticksPerSecond > 0 ? ticksPerSecond : 50;
+    const positionMs = Math.max(0, Math.round(((offAir.frame - onAir.frame) * 1000) / ticks));
+    return {
+        input: { key, positionMs, durationMs, nextKey: null, writtenAtMs: offAir.timeMs },
+        engine: 'empty',
+    };
+}
