@@ -18,6 +18,9 @@ const { component: SettingsModal, preload: preloadSettingsModal } = lazyComponen
   () => import('./components/SettingsModal.vue'),
 );
 import IngestorStatusLight from './components/IngestorStatusLight.vue';
+import MediaHealthChip from './components/MediaHealthChip.vue';
+import MediaRootBanner from './components/MediaRootBanner.vue';
+import { useMediaRootStore } from './stores/mediaRoot';
 import AppIcon from './components/ui/AppIcon.vue';
 import RenderIsland from './components/ui/RenderIsland.vue';
 import ToastHost from './components/ui/ToastHost.vue';
@@ -57,6 +60,14 @@ const openSettings = (section: SettingsSection = 'appearance') => {
   showSettings.value = true;
 };
 const ingestorStatus = useIngestorStatusStore();
+// MEDIA-FALLBACK-HANDOFF AE-1: media root verification, re-read every minute
+// and whenever the path or the transcoder changes.
+const mediaRoot = useMediaRootStore();
+watch(
+  () => [settings.localMediaPath, settings.ingestorApiBaseUrl, settings.ingestorApiToken],
+  () => { void mediaRoot.refresh(); },
+);
+const openSettingsSection = (section: string) => openSettings(section as SettingsSection);
 const playoutHalted = ref(false);
 // Audit F-4: the banner used to say only "3 consecutive errors". The operator
 // needs the row and the reason to act on it.
@@ -813,6 +824,7 @@ onMounted(async () => {
   window.addEventListener('pointerdown', handleGlobalPointerDown);
   window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
   startControlBarObserver();
+  mediaRoot.start();
   revealWindow();
   if (settings.debugMode) {
     startJankMonitor();
@@ -902,6 +914,7 @@ onUnmounted(() => {
   window.removeEventListener('pointerdown', handleGlobalPointerDown);
   window.removeEventListener('playout:open-inspector', handleInspectorOpenEvent);
   stopControlBarObserver();
+  mediaRoot.stop();
   if (unlistenHeartbeat) {
     unlistenHeartbeat();
     unlistenHeartbeat = null;
@@ -949,6 +962,9 @@ onUnmounted(() => {
       </div>
       <button v-if="recoveryDismissible" type="button" class="btn btn--sm halt-dismiss-btn" @click="dismissEngineRecovery()">Dismiss</button>
     </div>
+
+    <!-- AE-1: CasparCG's media path is not the verified media root. -->
+    <MediaRootBanner :on-air="isPlayoutPlaying" />
 
     <!-- Audit T1-8: rundown changes are not reaching localStorage -->
     <div v-if="persistenceFault" class="halt-banner persist-banner" role="alert">
@@ -1205,6 +1221,8 @@ onUnmounted(() => {
           <span class="label-caps ctrl-label">INGEST</span>
         </span>
 
+        <MediaHealthChip @open="openSettingsSection" />
+
         <button
           class="btn ctrl-btn ctrl-settings-btn"
           aria-label="Settings"
@@ -1244,6 +1262,7 @@ onUnmounted(() => {
             <span>Ingestor</span>
             <span class="popover-item-badge">{{ ingestorStatus.isIngestorOnline ? 'ONLINE' : 'OFFLINE' }}</span>
           </div>
+          <MediaHealthChip @open="showControlBarMore = false; openSettingsSection($event)" />
           <div class="popover-divider" role="separator" />
           <button
             class="popover-item"

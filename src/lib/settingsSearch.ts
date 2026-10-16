@@ -53,6 +53,7 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
   { section: 'hardware', title: 'Tools', terms: ['setup wizard', 'decklink wizard', 'configurator', 'casparcg config editor'] },
 
   { section: 'media', title: 'PlayoutTranscode API', terms: ['api base url', 'api token', 'ingestor', 'transcoder', 'test connection', '4353'] },
+  { section: 'media', title: 'Media root', terms: ['verify', 'registry marker', 'transcoder folder', 'unc', 'share', 'mapped drive', 'casparcg media path', 'fix media path', 'local media path'] },
   { section: 'media', title: 'AI designer', terms: ['api key', 'model', 'effort', 'monthly cap', 'budget', 'anthropic', 'claude'] },
   { section: 'media', title: 'FFmpeg', terms: ['binary folder override', 'ffprobe', 'tools path'] },
   { section: 'media', title: 'Recycle Bin', terms: ['keep deleted items for', 'purge', 'empty now', 'trash', 'retention'] },

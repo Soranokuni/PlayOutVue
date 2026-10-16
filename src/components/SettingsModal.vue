@@ -18,7 +18,8 @@ import {
     validateCasparExecutablePath,
     type CasparValidationInfo
 } from '../services/casparProcess';
-import { getActivePlayoutService } from '../services/playout';
+import { getActivePlayoutService, isPlayoutPlaying } from '../services/playout';
+import { useMediaRootSettings } from '../composables/useMediaRootSettings';
 import { applyForkFallbackSettings, engineMode } from '../services/caspar';
 import { describeError, describeErrorMessage } from '../lib/describeError';
 import { showToast } from '../lib/toasts';
@@ -310,6 +311,16 @@ const localState = ref({
     cgAdvisoryConfig: { ...DEFAULT_CG_ADVISORY_CONFIG } as CgAdvisoryTemplateConfig
 });
 
+
+// MEDIA-FALLBACK-HANDOFF AE-1: Settings → Media → Media root.
+const mediaRootDraft = computed({
+    get: () => localState.value.localMediaPath,
+    set: (value: string) => { localState.value.localMediaPath = value; },
+});
+const mediaRootUi = useMediaRootSettings(mediaRootDraft, () => settings.localMediaPath);
+watch(activeSection, (section) => {
+    if (section === 'media') void mediaRootUi.verify();
+}, { immediate: true });
 
 const engineModeLabel = computed(() => {
     switch (engineMode.value) {
@@ -1242,6 +1253,76 @@ const openTemplateDir = async () => {
                 Needed once the service has a token (<code>PlayoutTranscode gen-token</code>); without it every call but
                 the health check is refused. Sent as an <code>X-Api-Token</code> header and never written to logs.
               </p>
+            </div>
+          </section>
+
+          <section class="settings-section" data-testid="media-root-settings">
+            <h3 class="section-title">Media root</h3>
+            <p class="section-hint">
+              The transcoder, PlayOut and CasparCG must use the same folder. PlayOut proves it by finding the
+              transcoder's registry marker (<span class="mono">.playouttranscode-registry.json</span>) in the folder below.
+            </p>
+            <dl v-if="mediaRootUi.advert.value" class="env-list">
+              <div class="env-row">
+                <dt>Transcoder publishes to</dt>
+                <dd class="mono">
+                  {{ mediaRootUi.advert.value.target_folder || '—' }}<template v-if="mediaRootUi.advert.value.host"> on {{ mediaRootUi.advert.value.host }}</template>
+                </dd>
+              </div>
+            </dl>
+            <p v-else-if="mediaRootUi.result.value?.transcoder_error" class="field-hint">
+              The transcoder did not say where it publishes ({{ mediaRootUi.result.value.transcoder_error }}).
+            </p>
+            <div v-if="mediaRootUi.proposal.value" class="probe-result probe-ok" data-testid="media-root-proposal">
+              <AppIcon name="info" :size="14" />
+              <span>The transcoder runs on this PC and publishes to <span class="mono">{{ mediaRootUi.proposal.value }}</span>.</span>
+              <BaseButton variant="secondary" size="sm" @click="mediaRootUi.useProposal()">Use this folder</BaseButton>
+            </div>
+            <div class="field">
+              <label class="field-label" for="media-root-path">
+                {{ mediaRootUi.isRemote.value ? "How this PC sees the transcoder's folder" : 'Local media path' }}
+              </label>
+              <div class="input-with-button">
+                <input
+                  id="media-root-path"
+                  v-model="localState.localMediaPath"
+                  class="input mono"
+                  type="text"
+                  :placeholder="mediaRootUi.isRemote.value ? '\\\\TRANSCODER\\Mezz or Z:/' : 'D:/Media'"
+                />
+                <BaseButton
+                  variant="secondary"
+                  :loading="mediaRootUi.verifying.value"
+                  data-testid="media-root-verify"
+                  @click="mediaRootUi.verify()"
+                >Verify</BaseButton>
+              </div>
+              <p v-if="mediaRootUi.verifyError.value" class="field-error">{{ mediaRootUi.verifyError.value }}</p>
+              <p
+                v-else-if="mediaRootUi.resultIsForDraft.value && !mediaRootUi.view.value.hidden"
+                class="probe-result"
+                :class="mediaRootUi.view.value.tone === 'ready' ? 'probe-ok' : 'probe-fail'"
+                data-testid="media-root-verdict"
+              >
+                <AppIcon :name="mediaRootUi.view.value.tone === 'ready' ? 'check' : 'alert'" :size="14" />
+                <span>{{ mediaRootUi.view.value.detail }}</span>
+              </p>
+              <p v-else class="field-hint">The same value as Hardware → Media path. Save to apply it.</p>
+            </div>
+            <dl v-if="mediaRootUi.mediaRoot.status?.caspar_media_path" class="env-list">
+              <div class="env-row">
+                <dt>CasparCG plays from</dt>
+                <dd class="mono">{{ mediaRootUi.mediaRoot.status.caspar_media_path }}</dd>
+              </div>
+            </dl>
+            <div v-if="mediaRootUi.canFix.value" class="server-actions">
+              <BaseButton
+                variant="primary"
+                :disabled="isPlayoutPlaying || mediaRootUi.mediaRoot.fixing"
+                :loading="mediaRootUi.mediaRoot.fixing"
+                data-testid="media-root-fix-settings"
+                @click="mediaRootUi.mediaRoot.fixCasparMediaPath(isPlayoutPlaying)"
+              >Fix CasparCG media path</BaseButton>
             </div>
           </section>
 

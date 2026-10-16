@@ -30,6 +30,7 @@ import { registerAssetReleaseHandler } from '../lib/assetRelease';
 import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
 import { recordFrontendFault } from '../lib/frontendFaults';
+import { getAdvertisedMediaRoot, isMediaRootError } from '../lib/mediaRootContext';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
 import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordinator';
 import { onCasparProcessStateChange, type CasparProcessStatus } from './casparProcess';
@@ -83,6 +84,7 @@ const DISPATCH_RETRY_DELAY_MS = 400;
 function isHardDispatchError(error: unknown): boolean {
     const msg = String((error as any)?.message || error || '').toLowerCase();
     return (
+        isMediaRootError(error) ||
         msg.includes('degenerate trim') ||
         msg.includes('file not found') ||
         msg.includes('qc not passed') ||
@@ -1638,9 +1640,12 @@ const prepareCasparMediaPath = async (rawPath: string) => {
     try {
         return await invoke<string>('prepare_caspar_media_path', {
             path: rawPath,
-            mediaRoot: getSettingsSnapshot().localMediaPath || ''
+            mediaRoot: getSettingsSnapshot().localMediaPath || '',
+            advertisedRoot: getAdvertisedMediaRoot() || null
         });
     } catch (error) {
+        // AE-1: never guess a path for a registry asset outside the verified root.
+        if (isMediaRootError(error)) throw error instanceof Error ? error : new Error(String(error));
         console.warn('[CasparCG] Falling back to direct path after prepare failure', rawPath, error);
         return normalizeMediaPath(rawPath);
     }
@@ -3311,7 +3316,8 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
                 const settings = useSettingsStore();
                 nextPath = await invoke<string>('prepare_caspar_media_path', {
                     path: nextRawPath,
-                    mediaRoot: settings.localMediaPath || ''
+                    mediaRoot: settings.localMediaPath || '',
+                    advertisedRoot: getAdvertisedMediaRoot() || null
                 });
                 nextPath = nextPath.replace(/\\/g, '/').replace(/"/g, '');
             } catch (e) {
@@ -3647,7 +3653,8 @@ async function advanceToNext(token: number, natural: boolean) {
                         const settings = useSettingsStore();
                         nextNextPath = await invoke<string>('prepare_caspar_media_path', {
                             path: nextNextRawPath,
-                            mediaRoot: settings.localMediaPath || ''
+                            mediaRoot: settings.localMediaPath || '',
+                            advertisedRoot: getAdvertisedMediaRoot() || null
                         });
                         nextNextPath = nextNextPath.replace(/\\/g, '/').replace(/"/g, '');
                     } catch (e) {
@@ -3855,7 +3862,8 @@ export async function playItemWithIntent(
                 try {
                     nextPath = (await invoke<string>('prepare_caspar_media_path', {
                         path: nextRawPath,
-                        mediaRoot: getSettingsSnapshot().localMediaPath || ''
+                        mediaRoot: getSettingsSnapshot().localMediaPath || '',
+                        advertisedRoot: getAdvertisedMediaRoot() || null
                     })).replace(/\\/g, '/').replace(/"/g, '');
                 } catch (e) {
                     nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');

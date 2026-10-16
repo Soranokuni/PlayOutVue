@@ -99,6 +99,7 @@ const INT_FIELDS: Record<string, { min: number; max: number }> = {
     relaunchCountdownS: { min: 0, max: 120 },
     forkQueueDepth: { min: 1, max: 8 },
     forkStallTicks: { min: 0, max: 1500 },
+    mediaRootVerifiedAt: { min: 0, max: Number.MAX_SAFE_INTEGER },
 };
 
 /** A single token of the AMCP grammar: letters, digits, `_`, `-`, `.` */
@@ -164,6 +165,10 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
             (state as any)[key] = state[key].replace(/[\u0000-\u001f\u007f]/g, ' ');
         }
     }
+    // AE-1: the registry the verified media root belongs to (marker id).
+    if (typeof state.mediaRootRegistryId !== 'string' || !/^[!-~]{0,128}$/.test(state.mediaRootRegistryId)) {
+        (state as any).mediaRootRegistryId = '';
+    }
     if (typeof state.ingestorApiBaseUrl !== 'string' || !/^https?:\/\/[^\s]+$/i.test(state.ingestorApiBaseUrl)) {
         (state as any).ingestorApiBaseUrl = defaults.ingestorApiBaseUrl;
     }
@@ -217,6 +222,10 @@ export const useSettingsStore = defineStore('settings', {
 
         // Media Paths
         localMediaPath: '',
+        // MEDIA-FALLBACK-HANDOFF AE-1 (C3): the transcoder registry whose marker
+        // was found in `localMediaPath`, and when (ms; 0 = never verified).
+        mediaRootRegistryId: '',
+        mediaRootVerifiedAt: 0,
         ffmpegBinPath: '',
         debugMode: false,
 

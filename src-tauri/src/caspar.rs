@@ -39,10 +39,39 @@ pub struct CasparOscListenerControl {
 }
 
 #[tauri::command]
-pub async fn prepare_caspar_media_path(path: String, media_root: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || resolve_caspar_media_path(&path, &media_root))
-        .await
-        .map_err(|error| format!("CasparCG path worker failed: {}", error))?
+pub async fn prepare_caspar_media_path(
+    path: String,
+    media_root: String,
+    advertised_root: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        resolve_with_advertised_root(&path, &media_root, advertised_root.as_deref().unwrap_or(""))
+    })
+    .await
+    .map_err(|error| format!("CasparCG path worker failed: {}", error))?
+}
+
+/// MEDIA-FALLBACK-HANDOFF AE-1: a path inside the transcoder's advertised
+/// root is a registry asset. Its CasparCG path is the part below that root,
+/// and the file must exist there under the local media root; otherwise the
+/// take fails with a `[media-root]` message instead of the basename, `/media/`
+/// and alias guesses below, which used to hide a wrong *Local media path*.
+fn resolve_with_advertised_root(path: &str, media_root: &str, advertised_root: &str) -> Result<String, String> {
+    if !advertised_root.trim().is_empty() {
+        if let Some(strict) = crate::media_root::registry_relative_path(path, media_root, advertised_root) {
+            let relative = strict?;
+            if is_caspar_safe_path(&relative) {
+                return Ok(relative);
+            }
+            let root = PathBuf::from(media_root.trim());
+            let alias_path = ensure_ascii_alias(&root.join(&relative), &root)?;
+            let alias_relative = alias_path
+                .strip_prefix(&root)
+                .map_err(|error| format!("Failed to relativize CasparCG alias path: {}", error))?;
+            return Ok(normalize_caspar_path(alias_relative));
+        }
+    }
+    resolve_caspar_media_path(path, media_root)
 }
 
 fn resolve_caspar_media_path(path: &str, media_root: &str) -> Result<String, String> {

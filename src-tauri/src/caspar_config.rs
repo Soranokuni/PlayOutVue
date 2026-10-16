@@ -1067,6 +1067,12 @@ fn serialize_config(config: &CasparConfiguration) -> Result<String, String> {
     Ok(format!("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n{}\n", body))
 }
 
+/// The engine's `casparcg.config`, derived from the executable path like the
+/// configurator does (MEDIA-FALLBACK-HANDOFF AE-1).
+pub(crate) fn engine_config_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    resolve_requested_path(Some(app), None)
+}
+
 fn resolve_requested_path<R: Runtime>(app: Option<&AppHandle<R>>, path: Option<String>) -> Result<PathBuf, String> {
     let trimmed = path.unwrap_or_default().trim().to_string();
     if !trimmed.is_empty() {
