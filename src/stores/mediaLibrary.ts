@@ -8,6 +8,7 @@ import type { ContentType } from '../lib/contentTypes';
 import { invoke } from '@tauri-apps/api/core';
 import { message } from '@tauri-apps/plugin-dialog';
 import { normalizePurgeOutcome, type PurgeOutcome } from '../lib/ingestorFeedback';
+import { releaseAssetsBeforeDelete } from '../lib/assetRelease';
 
 export interface QcFinding {
     severity: 'info' | 'warning' | 'error' | string;
@@ -963,6 +964,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         async function trashAsset(uuid: string) {
             try {
                 if (!uuid.startsWith('local:')) {
+                    const release = releaseAssetsBeforeDelete([uuid]);
+                    if (release) await release;
                     await invoke('trash_ingestor_asset', { uuid, apiBaseUrlOverride: null });
                 }
             } catch (error) {
@@ -983,6 +986,13 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         async function trashFolder(folderPath: string) {
             const norm = normalizeVirtualFolder(folderPath);
             try {
+                const release = releaseAssetsBeforeDelete(assets.value
+                    .filter(a => {
+                        const vf = normalizeVirtualFolder(a.virtual_folder);
+                        return norm === '/' || vf === norm || vf.startsWith(norm + '/');
+                    })
+                    .map(a => a.uuid));
+                if (release) await release;
                 await invoke('trash_ingestor_folder', { folderPath: norm, apiBaseUrlOverride: null });
             } catch (error) {
                 console.error('[LibraryStore] Failed to trash folder on backend:', error);
@@ -1146,6 +1156,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         async function purgeAsset(uuid: string): Promise<PurgeOutcome> {
             let outcome: PurgeOutcome;
             try {
+                const release = releaseAssetsBeforeDelete([uuid]);
+                if (release) await release;
                 outcome = normalizePurgeOutcome(
                     await invoke<unknown>('purge_ingestor_asset', { uuid, apiBaseUrlOverride: null })
                 );
@@ -1163,6 +1175,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
             const norm = normalizeVirtualFolder(folderPath);
             let outcome: PurgeOutcome;
             try {
+                const release = releaseAssetsBeforeDelete(recycleBinAssets.value.map(a => a.uuid));
+                if (release) await release;
                 outcome = normalizePurgeOutcome(
                     await invoke<unknown>('purge_ingestor_folder', { folderPath: norm, apiBaseUrlOverride: null })
                 );
@@ -1178,6 +1192,8 @@ export const useMediaLibraryStore = defineStore('mediaLibrary',
         async function emptyRecycleBin(): Promise<PurgeOutcome> {
             let outcome: PurgeOutcome;
             try {
+                const release = releaseAssetsBeforeDelete(recycleBinAssets.value.map(a => a.uuid));
+                if (release) await release;
                 outcome = normalizePurgeOutcome(
                     await invoke<unknown>('purge_ingestor_recycle_bin', { apiBaseUrlOverride: null })
                 );

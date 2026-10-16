@@ -3,16 +3,35 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { ref } from 'vue';
 import { useSettingsStore } from '../stores/settings';
-import { useRundownStore, type ComplianceRating, type IngestorStatus } from '../stores/rundown';
+import { useRundownStore, type IngestorStatus } from '../stores/rundown';
 import type { PlayoutAdvanceCallback, PlayoutItem, PlayoutService } from './playout';
 import { hydrateItem, type RundownItem } from '../lib/rundownHydrator';
-import { dispatchPlay, dispatchLoadbg, computeDurationMsFromTrim, type FrameTrimResult } from '../lib/playoutDispatch';
+import {
+    dispatchPlay,
+    dispatchLoadbg,
+    computeDurationMsFromTrim,
+    prepareForkClip,
+    dispatchForkItem,
+    type ForkClip,
+    type FrameTrimResult
+} from '../lib/playoutDispatch';
+import {
+    FALLBACK_TAG,
+    syncForkQueue,
+    tagBase,
+    takeTag,
+    type EngineEvent,
+    type EngineMode,
+    type ForkQueueInfo,
+    type ForkReply
+} from '../lib/forkQueue';
+import { advisoryTemplateName, buildAdvisoryCgData, createAdvisorySvgCache } from '../lib/advisoryPayload';
+import { registerAssetReleaseHandler } from '../lib/assetRelease';
 import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
 import { recordFrontendFault } from '../lib/frontendFaults';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
 import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordinator';
-import { parseDescriptorsFromText, getGreekRatingDefaultText } from '../lib/greekCompliance';
 import { onCasparProcessStateChange, type CasparProcessStatus } from './casparProcess';
 import { planEngineRecovery, type EngineLossSnapshot } from '../lib/engineRecovery';
 import {
@@ -700,6 +719,538 @@ const preloadMatchesItem = (key: string, item: PlayoutItem) => {
         && normBasename(fingerprint.path) === normBasename(item.path || item.shortPath || '');
 };
 
+// ── PlayOut fork mode (CASPAR-FORK-INTEGRATION-HANDOFF.md) ─────────────────
+// With the fork, the engine plays the queued rows back to back and reports
+// each cut as an `onair <tag>` event (tag = row id). PlayOut keeps a short
+// window of the next rows queued, attaches each row's graphics as `ONAIR`
+// lines when it queues the row, and reacts to the events. The OSC advance
+// inference, the first-frame gates and the single-slot LOADBG preload are not
+// used. A stock engine (or one not yet detected) keeps the code path above.
+
+/** Decided on every (re)connect by `QUEUE 1-10 INFO` (handoff D1). */
+export const engineMode = ref<EngineMode>('unknown');
+const isForkMode = () => engineMode.value === 'fork';
+
+/** Handoff D3: the next row plus one more. Each queued clip holds a decoder. */
+const FORK_QUEUE_DEPTH_DEFAULT = 2;
+const FORK_QUEUE_DEPTH_MAX = 8;
+const FORK_ROW_RETRY_MS = 1000;
+const FORK_ROW_MAX_RETRIES = 10;
+/** A row whose asset is being deleted is not queued again for this long. */
+const FORK_RELEASED_ASSET_HOLD_MS = 60_000;
+
+interface ForkClipRecord extends ForkClip {
+    rowId: string;
+    tag: string;
+    fingerprint: string;
+    /** Its `ONAIR` lines add the advisory template (instead of updating it). */
+    addsTemplate: boolean;
+}
+
+/** Every clip PlayOut tagged on layer 10 (takes and queued rows), by tag. */
+const forkClips = new Map<string, ForkClipRecord>();
+/**
+ * Tags waiting behind the logical foreground, in engine order. Only these may
+ * claim a natural cut: a take empties the list synchronously, so a cut the
+ * engine makes from the old queue during the take cannot claim the channel.
+ */
+let forkWaitingTags: string[] = [];
+/** The logical foreground: the take just PLAYed, or the item last reported on air. */
+let forkForegroundTag: string | null = null;
+/** A take whose `onair` has not arrived yet. */
+let forkPendingTakeTag: string | null = null;
+let forkTakeCounter = 0;
+/** The advisory `CG ADD` is attached to a queued or taken item already. */
+let forkTemplateScheduled = false;
+/** A live row is on layer 20; the next take clears it on its first frame. */
+let forkLiveOnAir = false;
+let forkLiveTimer: ReturnType<typeof setTimeout> | null = null;
+let forkRowRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let forkRowRetries = 0;
+let forkSyncRunning = false;
+let forkSyncDirty = false;
+/** Resolves when the running refill loop ends. */
+let forkSyncIdle: Promise<void> = Promise.resolve();
+const forkReleasedAssets = new Map<string, number>();
+let engineEventUnlisten: (() => void) | null = null;
+
+const advisorySvgCache = createAdvisorySvgCache((path) => invoke<string>('read_svg_file', { path }));
+
+type OnairAction =
+    | { kind: 'command'; cmd: string }
+    | { kind: 'cgAdd'; layer: number; template: string; play: boolean; data: unknown }
+    | { kind: 'cgUpdate'; layer: number; data: unknown };
+
+function forkQueueDepth(): number {
+    const raw = Number((getSettingsSnapshot() as any).forkQueueDepth);
+    if (!Number.isFinite(raw) || raw < 1) return FORK_QUEUE_DEPTH_DEFAULT;
+    return Math.min(FORK_QUEUE_DEPTH_MAX, Math.round(raw));
+}
+
+function clearForkTimers() {
+    if (forkLiveTimer) clearTimeout(forkLiveTimer);
+    forkLiveTimer = null;
+    if (forkRowRetryTimer) clearTimeout(forkRowRetryTimer);
+    forkRowRetryTimer = null;
+}
+
+/** A take or play owns the channel from now: the old queue may not claim a cut. */
+function fenceForkNaturalCuts() {
+    forkWaitingTags = [];
+    clearForkTimers();
+}
+
+function resetForkState() {
+    forkClips.clear();
+    forkWaitingTags = [];
+    forkForegroundTag = null;
+    forkPendingTakeTag = null;
+    forkTemplateScheduled = false;
+    forkLiveOnAir = false;
+    forkRowRetries = 0;
+    clearForkTimers();
+}
+
+/** Everything that ends up in a row's `QUEUE` and `ONAIR` lines. */
+function forkFingerprint(item: PlayoutItem): string {
+    const hydrated = hydratePlayoutItem(item);
+    return JSON.stringify([
+        item.path || item.shortPath || '',
+        hydrated.trim_in_ms,
+        hydrated.trim_out_ms,
+        item.complianceRating || 'none',
+        item.complianceText || '',
+        item.complianceDescriptors || [],
+        !!item.tp_flag,
+        item.content_type || 'none',
+    ]);
+}
+
+function isAssetReleased(item: PlayoutItem): boolean {
+    const asset = (item as any).playoutvueId as string | undefined;
+    if (!asset) return false;
+    const until = forkReleasedAssets.get(asset);
+    if (until === undefined) return false;
+    if (Date.now() < until) return true;
+    forkReleasedAssets.delete(asset);
+    return false;
+}
+
+/**
+ * Handoff D4: the row's graphics as `ONAIR` lines, built when the row is
+ * queued. The clears run on the item's first frame; the advisory `CG`
+ * command runs right after it, on the engine's own thread, without a
+ * round trip through the WebView.
+ */
+async function forkComplianceActions(item: PlayoutItem, extra: OnairAction[] = []) {
+    const settings = getSettingsSnapshot();
+    const svgs = await advisorySvgCache.get(settings as any);
+    const data = buildAdvisoryCgData(item, settings as any, svgs);
+    const actions: OnairAction[] = [
+        ...extra,
+        { kind: 'command', cmd: `CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.rating}` },
+        { kind: 'command', cmd: `CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.tp}` },
+    ];
+    const addsTemplate = !isAdvisoryTemplateLoaded && !forkTemplateScheduled;
+    if (addsTemplate) {
+        actions.push(
+            { kind: 'command', cmd: `CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.explanation}` },
+            { kind: 'cgAdd', layer: CASPAR_LAYERS.explanation, template: advisoryTemplateName(settings as any), play: true, data }
+        );
+    } else {
+        actions.push({ kind: 'cgUpdate', layer: CASPAR_LAYERS.explanation, data });
+    }
+    return { actions, addsTemplate };
+}
+
+async function attachForkOnair(tag: string, actions: OnairAction[]) {
+    const replies = await invoke<ForkReply[]>('caspar_fork_onair', {
+        channel: PROGRAM_CHANNEL,
+        layer: CASPAR_LAYERS.video,
+        tag,
+        actions,
+    });
+    if (replies.some((reply) => reply.code >= 400)) {
+        console.warn(`[CasparCG] ONAIR for ${tag} not attached: the item left the layer.`);
+    }
+}
+
+/**
+ * Take recipe (`PLAYOUT-FORK.md` §8.2): drop the queue, load the row tagged
+ * into the background, attach its graphics, then `PLAY 1-10`. The graphics
+ * run on the take's first frame; until then the old item stays on air.
+ */
+async function forkTake(
+    item: PlayoutItem,
+    resumeSeekMs: number,
+    isStale: () => boolean
+): Promise<ForkClipRecord | null> {
+    fenceForkNaturalCuts();
+    const clip = await prepareForkClip(hydratePlayoutItem(item), 'take', resumeSeekMs);
+    if (isStale()) return null;
+    forkTakeCounter += 1;
+    const tag = takeTag(item.id, forkForegroundTag, forkTakeCounter);
+    const extra: OnairAction[] = forkLiveOnAir
+        ? [{ kind: 'command', cmd: `CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}` }]
+        : [];
+    const { actions, addsTemplate } = await forkComplianceActions(item, extra);
+    if (isStale()) return null;
+
+    fenceForkNaturalCuts();
+    await invoke<ForkReply>('caspar_fork_queue_clear', {
+        channel: PROGRAM_CHANNEL,
+        layer: CASPAR_LAYERS.video,
+        after: null,
+        expect: null,
+    });
+    const loaded = await dispatchForkItem('loadbg', PROGRAM_CHANNEL, CASPAR_LAYERS.video, clip, tag);
+    if (loaded.code >= 400) {
+        throw new Error(`LOADBG of ${describeForkItem(item)} refused: ${loaded.body}`);
+    }
+    await attachForkOnair(tag, actions);
+    // A newer take clears this background before it loads its own.
+    if (isStale()) return null;
+
+    const record: ForkClipRecord = { ...clip, rowId: item.id, tag, fingerprint: forkFingerprint(item), addsTemplate };
+    forkClips.set(tag, record);
+    if (addsTemplate) forkTemplateScheduled = true;
+    forkPendingTakeTag = tag;
+    await sendRawCommand(`PLAY ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
+    forkForegroundTag = tag;
+    forkLiveOnAir = false;
+    return record;
+}
+
+const describeForkItem = (item: PlayoutItem) => item.filename || item.id;
+
+/** forkTake with dispatchPlayWithRetry's policy for transient failures. */
+async function forkTakeWithRetry(item: PlayoutItem, resumeSeekMs: number, isStale: () => boolean) {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= DISPATCH_RETRY_ATTEMPTS; attempt++) {
+        try {
+            return await forkTake(item, resumeSeekMs, isStale);
+        } catch (error) {
+            lastError = error;
+            if (isHardDispatchError(error) || attempt === DISPATCH_RETRY_ATTEMPTS || isStale()) throw error;
+            console.warn(`[CasparCG] fork take attempt ${attempt}/${DISPATCH_RETRY_ATTEMPTS} failed, retrying:`, error);
+            await new Promise((resolve) => setTimeout(resolve, DISPATCH_RETRY_DELAY_MS));
+        }
+    }
+    throw lastError;
+}
+
+function flagForkRowError(item: PlayoutItem, why: string) {
+    console.warn(`[CasparCG] ${why}`);
+    invoke('push_diagnostic_log', { level: 'error', scope: 'caspar-playout', message: why }).catch(() => {});
+    try {
+        if (item.ingestorStatus !== 'missing') useRundownStore().updateItem(item.id, { ingestorStatus: 'error' });
+    } catch (storeError) {
+        console.warn('[CasparCG] Could not flag un-queued row', storeError);
+    }
+    emit('playout://preload-failed', { itemId: item.id, filename: item.filename ?? null }).catch(() => {});
+}
+
+/** Refill the wait queue behind the on-air item. Serialized; coalesces bursts of edits. */
+function scheduleForkSync(): void {
+    if (!isForkMode()) return;
+    forkSyncDirty = true;
+    if (forkSyncRunning) return;
+    forkSyncRunning = true;
+    forkSyncIdle = (async () => {
+        try {
+            while (forkSyncDirty) {
+                forkSyncDirty = false;
+                await runForkSync();
+            }
+        } catch (error) {
+            console.warn('[CasparCG] Fork queue sync failed', error);
+        } finally {
+            forkSyncRunning = false;
+        }
+    })();
+}
+
+async function runForkSync(): Promise<void> {
+    if (!isForkMode() || !isCasparPlaying.value || !currentKey || !forkForegroundTag) return;
+    // A live row or a take not sent yet: nothing to queue behind.
+    if (tagBase(forkForegroundTag) !== currentKey) return;
+    const onAirTag = forkForegroundTag;
+    const token = playToken;
+    const isStale = () => token !== playToken || forkForegroundTag !== onAirTag || !isForkMode();
+
+    const currentIndex = queuedItems.findIndex((it) => queueKey(it) === currentKey);
+    if (currentIndex < 0) return;
+
+    const rows: PlayoutItem[] = [];
+    let blockedBy: PlayoutItem | null = null;
+    for (let i = currentIndex + 1; i < queuedItems.length && rows.length < forkQueueDepth(); i += 1) {
+        const item = findLiveItemById(queueKey(queuedItems[i]!)) ?? queuedItems[i]!;
+        // A live row is taken explicitly when the clip before it ends.
+        if (item.type !== 'video') break;
+        // Skipped, as a natural advance skips it.
+        if (item.ingestorStatus === 'error' || isAssetReleased(item)) continue;
+        if (!item.path || item.ingestorStatus !== 'ready') {
+            blockedBy = item;
+            break;
+        }
+        rows.push(item);
+    }
+
+    const desired = rows.map((row) => ({ id: row.id, fingerprint: forkFingerprint(row) }));
+    const known = new Map<string, string>([...forkClips].map(([tag, clip]) => [tag, clip.fingerprint]));
+    const channel = PROGRAM_CHANNEL;
+    const layer = CASPAR_LAYERS.video;
+
+    const result = await syncForkQueue(onAirTag, desired, known, {
+        queueInfo: async () => {
+            const info = await invoke<ForkQueueInfo | null>('caspar_fork_probe', { channel, layer });
+            return info ? { foregroundTag: info.foreground?.tag ?? '', waiting: info.waiting.map((w) => w.tag) } : null;
+        },
+        clear: async (kept, expect) => {
+            const reply = await invoke<ForkReply>('caspar_fork_queue_clear', {
+                channel,
+                layer,
+                after: kept.length > 0 ? kept[kept.length - 1] : null,
+                expect,
+            });
+            if (reply.code < 400) forkWaitingTags = [...kept];
+            return reply.code;
+        },
+        queue: async (index, tag, expect) => {
+            const row = rows[index]!;
+            let clip: ForkClip;
+            try {
+                clip = await prepareForkClip(hydratePlayoutItem(row), 'queue');
+            } catch (error) {
+                flagForkRowError(row, `Queue of ${describeForkItem(row)} failed: ${String((error as any)?.message || error)}`);
+                return 422;
+            }
+            const { actions, addsTemplate } = await forkComplianceActions(row);
+            if (isStale()) return 409;
+            const reply = await dispatchForkItem('queue', channel, layer, clip, tag, { auto: true, expect });
+            if (reply.code >= 400) {
+                if (reply.code !== 409) flagForkRowError(row, `QUEUE of ${describeForkItem(row)} refused: ${reply.body}`);
+                return reply.code;
+            }
+            forkClips.set(tag, { ...clip, rowId: row.id, tag, fingerprint: desired[index]!.fingerprint, addsTemplate });
+            if (addsTemplate) forkTemplateScheduled = true;
+            forkWaitingTags = [...forkWaitingTags, tag];
+            await attachForkOnair(tag, actions);
+            return reply.code;
+        },
+        isStale,
+    });
+
+    if (result.status === 'ok') {
+        forkWaitingTags = result.tags;
+        pruneForkClips();
+    } else if (result.status === 'failed' && result.failedIndex !== undefined) {
+        // The failed row is flagged now and skipped by the next pass.
+        forkSyncDirty = true;
+    } else if (result.status === 'conflict') {
+        console.warn('[CasparCG] Fork queue refill kept conflicting with cuts; retrying on the next event.');
+    }
+
+    if (blockedBy && !isStale()) {
+        const row = blockedBy;
+        if (forkRowRetries < FORK_ROW_MAX_RETRIES) {
+            forkRowRetries += 1;
+            if (forkRowRetryTimer) clearTimeout(forkRowRetryTimer);
+            forkRowRetryTimer = setTimeout(() => {
+                forkRowRetryTimer = null;
+                scheduleForkSync();
+            }, FORK_ROW_RETRY_MS);
+        } else {
+            forkRowRetries = 0;
+            flagForkRowError(row, `Queue of ${describeForkItem(row)} gave up: path or ingestor status not ready after retries`);
+            forkSyncDirty = true;
+        }
+    } else if (!blockedBy) {
+        forkRowRetries = 0;
+    }
+}
+
+/** Forget clips that are neither on air nor waiting. */
+function pruneForkClips() {
+    const live = new Set([forkForegroundTag, forkPendingTakeTag, ...forkWaitingTags]);
+    for (const tag of forkClips.keys()) {
+        if (!live.has(tag)) forkClips.delete(tag);
+    }
+}
+
+function forkFault(message: string, level: 'warn' | 'error' = 'warn') {
+    console.warn(`[CasparCG] ${message}`);
+    invoke('push_diagnostic_log', { level, scope: 'caspar-playout', message }).catch(() => {});
+    recordFrontendFault('caspar-playout', message);
+}
+
+function handleEngineEvent(event: EngineEvent) {
+    if (!isForkMode() || !event) return;
+    switch (event.kind) {
+        case 'onair':
+            onForkOnAir(event);
+            break;
+        case 'ended':
+            onForkEnded(event);
+            break;
+        case 'stalled':
+            forkFault(`CasparCG reported ${event.tag || 'the on-air item'} stalled (${event.reason}) at frame ${event.frame}.`);
+            break;
+        case 'actionfailed':
+            onForkActionFailed(event);
+            break;
+        default:
+            break;
+    }
+}
+
+function onForkOnAir(event: EngineEvent) {
+    const tag = event.tag;
+    if (!tag) return;
+    if (tag === FALLBACK_TAG || tag === forkFallbackTag()) {
+        forkForegroundTag = tag;
+        forkWaitingTags = [];
+        forkFault(`Fallback clip on air (${event.reason}): no queued item was ready.`, 'error');
+        return;
+    }
+
+    const rowId = tagBase(tag);
+    let natural = false;
+    if (tag === forkPendingTakeTag) {
+        forkPendingTakeTag = null;
+        // A newer take or a stop superseded this one.
+        if (currentKey !== rowId) return;
+    } else {
+        const at = forkWaitingTags.indexOf(tag);
+        if (at === -1) {
+            console.info(`[CasparCG] onair ${tag} ignored: not a take or a queued row of this rundown.`);
+            return;
+        }
+        forkWaitingTags = forkWaitingTags.slice(at + 1);
+        natural = true;
+    }
+    forkForegroundTag = tag;
+
+    if (natural) {
+        // The cut belongs to the engine; everything that belonged to the
+        // outgoing item is obsolete.
+        playToken += 1;
+        if (currentKey) activeGuard.delete(currentKey);
+        claimCurrentKey(rowId);
+        playStartTime.value = Date.now();
+        onAdvanceCallback?.(rowId);
+    }
+
+    const record = forkClips.get(tag);
+    const item = findLiveItemById(rowId) ?? queuedItems.find((it) => queueKey(it) === rowId) ?? null;
+    if (item) lastAppliedComplianceItem = item;
+    advisoryShouldBeOnAir = true;
+    if (record?.addsTemplate) isAdvisoryTemplateLoaded = true;
+
+    isCasparPlaying.value = true;
+    consecutiveSkips = 0;
+    const offsetMs = resumeOffsetFor(rowId);
+    const durationMs = record?.durationMs ?? 0;
+    updateDisplayedTime(offsetMs);
+    currentCasparDurationMs.value = durationMs + offsetMs;
+    useRundownStore().startPlaybackProgressTimer(rowId, durationMs + offsetMs, Date.now() - offsetMs);
+    if (record) {
+        // The clock only: in fork mode Rust does not infer the end of the clip.
+        invoke('caspar_register_playback', {
+            uuid: rowId,
+            durationMs,
+            expectedOutPointMs: durationMs,
+            currentPath: record.path,
+            nextPath: null,
+            trimInMs: record.trimInMs,
+            playGeneration: playToken,
+            isAdopted: true,
+            elapsedMs: record.trimInMs,
+        }).catch((error: any) => console.warn('[CasparCG] Failed to register the on-air clock', error));
+    }
+    pushCheckpoint(natural ? 'advance' : offsetMs > 0 ? 'resume' : 'take');
+    pruneForkClips();
+    scheduleForkSync();
+}
+
+/**
+ * The on-air item ended with nothing queued behind it: the next row is a
+ * live row, was not ready, or the rundown ends. Take it explicitly, as the
+ * stock path does when no preload was armed.
+ */
+function onForkEnded(event: EngineEvent) {
+    const tag = event.tag;
+    if (!tag || tag !== forkForegroundTag) return;
+    // A refill in flight may still queue the next row; the engine then plays
+    // it at once (an AUTO item on an ended layer) and reports it on air.
+    // Taking it explicitly as well would restart it.
+    void forkSyncIdle.then(() => {
+        const rowId = tagBase(tag);
+        if (tag !== forkForegroundTag || rowId !== currentKey || forkWaitingTags.length > 0) return;
+        advanceNext(true, rowId).catch((error) => console.error('[CasparCG] advance after ended failed', error));
+    });
+}
+
+function onForkActionFailed(event: EngineEvent) {
+    forkFault(`On-air action for ${event.tag} failed: ${event.reason}`);
+    if (!/^CG\b/i.test(event.reason)) return;
+    // The advisory template is not where PlayOut thinks it is (an engine
+    // restart, a template load error). Re-add it directly for the on-air row.
+    isAdvisoryTemplateLoaded = false;
+    forkTemplateScheduled = false;
+    const rowId = tagBase(event.tag);
+    if (rowId !== currentKey) return;
+    const item = findLiveItemById(rowId) ?? queuedItems.find((it) => queueKey(it) === rowId);
+    if (item) {
+        casparPlayoutService.applyComplianceForItem?.(item)?.catch?.((error: any) => {
+            console.warn('[CasparCG] Advisory recovery after a failed on-air action failed', error);
+        });
+    }
+}
+
+function forkFallbackTag(): string {
+    const tag = String((getSettingsSnapshot() as any).forkFallbackTag || '').trim();
+    return tag || FALLBACK_TAG;
+}
+
+async function detectEngineMode(): Promise<void> {
+    let mode: EngineMode = 'stock';
+    try {
+        const report = await invoke<{ mode: EngineMode; info: ForkQueueInfo | null; restarted: boolean }>('caspar_engine_detect');
+        mode = report?.mode === 'fork' ? 'fork' : 'stock';
+    } catch (error) {
+        // Rust stays in its undetected (stock) behaviour too.
+        console.warn('[CasparCG] Engine mode detection failed; using the stock path', error);
+    }
+    if (mode !== engineMode.value) {
+        console.info(`[CasparCG] Engine mode: ${mode}`);
+        invoke('push_diagnostic_log', {
+            level: 'info',
+            scope: 'caspar-playout',
+            message: `Engine mode: ${mode === 'fork' ? 'PlayOut fork (tagged queue, engine events)' : 'stock CasparCG'}`
+        }).catch(() => {});
+        resetForkState();
+    }
+    engineMode.value = mode;
+}
+
+/// Test hooks for fork mode (no Tauri event bus in vitest).
+export const __forkTestHooks = {
+    setEngineMode(mode: EngineMode) {
+        engineMode.value = mode;
+        resetForkState();
+    },
+    handleEngineEvent,
+    runForkSync,
+    state: () => ({
+        foregroundTag: forkForegroundTag,
+        pendingTakeTag: forkPendingTakeTag,
+        waitingTags: [...forkWaitingTags],
+        clipTags: [...forkClips.keys()],
+        currentKey,
+    }),
+};
+
 async function applyComplianceForPlayback(item: PlayoutItem, token: number): Promise<boolean> {
     if (token !== playToken) return false;
     await casparPlayoutService.applyComplianceForItem?.(item);
@@ -1058,6 +1609,10 @@ const disposeFeedbackListener = async () => {
     if (prematureTransitionUnlisten) {
         try { prematureTransitionUnlisten(); } catch { /* ignore */ }
         prematureTransitionUnlisten = null;
+    }
+    if (engineEventUnlisten) {
+        try { engineEventUnlisten(); } catch { /* ignore */ }
+        engineEventUnlisten = null;
     }
     confirmWaiters = [];
     positionConfirmWaiters = [];
@@ -1642,6 +2197,12 @@ const ensureFeedbackListener = async () => {
             });
         }
 
+        if (!engineEventUnlisten) {
+            engineEventUnlisten = await listen<EngineEvent>('caspar://engine-event', (event) => {
+                handleEngineEvent(event.payload);
+            });
+        }
+
         if (!prematureTransitionUnlisten) {
             prematureTransitionUnlisten = await listen<{ currentUuid: string | null; observedPath?: string; earlyByMs?: number; message?: string }>(
                 'caspar://premature-transition',
@@ -1658,6 +2219,7 @@ const ensureFeedbackListener = async () => {
             let debounceTimer: any = null;
             templateDeployedUnlisten = await listen<any>('caspar://template-deployed', (event) => {
                 console.info('[CasparCG] Template deployment detected, synchronizing preset payload...', event?.payload);
+                advisorySvgCache.invalidate();
 
                 // 1. Synchronize Pinia settings store immediately
                 if (event?.payload && typeof event.payload === 'object') {
@@ -2111,6 +2673,7 @@ async function runEngineRecovery(loss: EngineLossSnapshot) {
 const performHandshake = async () => {
     await ensureFeedbackListener();
     await sendRawCommandCore('INFO');
+    await detectEngineMode();
     isCasparConnected.value = true;
     reconnectAttempt = 0;
     clearReconnectTimer();
@@ -2281,6 +2844,12 @@ async function preloadNextItemAt(
     preloadToken: number = preloadGeneration,
     gate: PreloadArmGate = 'await-first-frame'
 ) {
+    // Fork mode: an untagged LOADBG AUTO would replace the tagged queue's
+    // head. Every caller (take, advance, edit, adoption) refills the queue.
+    if (isForkMode()) {
+        scheduleForkSync();
+        return;
+    }
     const isStale = () => token !== playToken || preloadToken !== preloadGeneration;
     if (isStale()) return;
     if (index < 0 || index >= queuedItems.length) return;
@@ -2442,7 +3011,8 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         if (token !== playToken) return;
 
         onAdvanceCallback?.(key);
-        if (!await applyComplianceForPlayback(item, token)) return;
+        const forkVideo = isForkMode() && item.type !== 'live';
+        if (!forkVideo && !await applyComplianceForPlayback(item, token)) return;
 
         // Synchronously persist playback state immediately at dispatch start
         savePlaybackState(key, Date.now() - resumeSeekMs, durationMs, {
@@ -2487,6 +3057,22 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
             });
             pushCheckpoint('take-live');
 
+            if (isForkMode()) {
+                // The engine does not time layer 20. The next take clears it
+                // on its own first frame (ONAIR CLEAR 1-20).
+                fenceForkNaturalCuts();
+                forkForegroundTag = null;
+                forkLiveOnAir = true;
+                if (durationMs > 0) {
+                    forkLiveTimer = setTimeout(() => {
+                        forkLiveTimer = null;
+                        if (token !== playToken || currentKey !== key) return;
+                        advanceNext(true, key).catch((error) => console.error('[CasparCG] live row advance failed', error));
+                    }, durationMs);
+                }
+                return;
+            }
+
             await preloadNextItemAfterVerifiedStart(index + 1, token);
             return;
         }
@@ -2526,6 +3112,19 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         updateDisplayedTime(0);
         currentCasparDurationMs.value = 0;
         store.stopPlaybackProgressTimer();
+
+        if (forkVideo) {
+            // The clock, the progress bar and the checkpoint start on the
+            // take's `onair` event; the queue behind it fills at once
+            // (`EXPECT` counts a starting take as the foreground).
+            const record = await forkTakeWithRetry(item, resumeSeekMs, () => token !== playToken);
+            if (!record || token !== playToken) return;
+            isCasparPlaying.value = true;
+            consecutiveSkips = 0;
+            currentCasparDurationMs.value = record.durationMs + resumeSeekMs;
+            scheduleForkSync();
+            return;
+        }
 
         // Register the first-frame waiter BEFORE dispatch: Rust emits the
         // confirmation once it sees a /file/time sample inside the new clip's
@@ -2746,6 +3345,7 @@ async function advanceToNext(token: number, natural: boolean) {
         // frame 0 / the wrong window — fall through to playItemAt, which sends
         // an explicit PLAY with the correct SEEK/LENGTH.
         const isNaturalVideoTransition =
+            !isForkMode() &&
             natural &&
             currentItem &&
             currentItem.type === 'video' &&
@@ -3004,6 +3604,28 @@ export async function playItemWithIntent(
         currentCasparDurationMs.value = 0;
         store.stopPlaybackProgressTimer();
 
+        if (isForkMode() && item.type !== 'live') {
+            assertPlaybackIntent(intent);
+            const isStale = () => requestToken !== playToken
+                || intent.playGeneration !== playbackCoordinator.playGeneration
+                || intent.takeId !== playbackCoordinator.activeIntent?.takeId;
+            const record = await forkTake(item, 0, isStale);
+            if (!record || isStale()) return false;
+            const forkConfirmed = playbackCoordinator.confirmTake(
+                intent.takeId,
+                intent.playGeneration,
+                PROGRAM_CHANNEL,
+                CASPAR_LAYERS.video,
+                store.getPlayableItems() as any
+            );
+            if (!forkConfirmed) return false;
+            isCasparPlaying.value = true;
+            currentCasparDurationMs.value = record.durationMs;
+            onAdvanceCallback?.(key);
+            scheduleForkSync();
+            return true;
+        }
+
         const nextQueueItem = queueIndex !== -1 ? queuedItems[queueIndex + 1] : null;
         let nextPath: string | null = null;
         if (nextQueueItem && nextQueueItem.type === 'video') {
@@ -3157,6 +3779,7 @@ export const casparPlayoutService: PlayoutService = {
         claimCurrentKey(startIndex >= 0 && startIndex < items.length
             ? queueKey(items[startIndex]!)
             : null);
+        fenceForkNaturalCuts();
 
         await ensureFeedbackListener();
         if (!isCasparConnected.value) {
@@ -3200,6 +3823,7 @@ export const casparPlayoutService: PlayoutService = {
 
     async stop() {
         playToken += 1;
+        fenceForkNaturalCuts();
         invalidatePreloads();
         activeGuard.clear();
         playbackCoordinator.stop('operator stop');
@@ -3223,9 +3847,18 @@ export const casparPlayoutService: PlayoutService = {
             if (settings.cg?.stationIdEnabled === false) {
                 await this.clearBranding?.();
             }
+            if (isForkMode()) {
+                await invoke('caspar_fork_queue_clear', {
+                    channel: PROGRAM_CHANNEL,
+                    layer: CASPAR_LAYERS.video,
+                    after: null,
+                    expect: null,
+                }).catch((error) => console.warn('[CasparCG] QUEUE CLEAR on stop failed', error));
+            }
             await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.video}`);
             await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
         }
+        resetForkState();
 
         // Release Rust playback ownership.
         await invoke('caspar_clear_playback').catch(() => {});
@@ -3264,6 +3897,11 @@ export const casparPlayoutService: PlayoutService = {
             const scheduledNext = currentIndex >= 0 ? queuedItems[currentIndex + 1] : null;
             if (!scheduledNext || queueKey(scheduledNext) !== queueKey(item)) {
                 throw new Error('Cannot cue a non-next item while programme is on air: it would replace the protected AUTO background.');
+            }
+
+            if (isForkMode()) {
+                scheduleForkSync();
+                return;
             }
 
             // Same rule as preloadNextItemAt: until the on-air clip has
@@ -3336,6 +3974,7 @@ export const casparPlayoutService: PlayoutService = {
         }
 
         claimCurrentKey(queueKey(item));
+        fenceForkNaturalCuts();
         manualTakeFailure.value = null;
         playToken += 1;
         const takeToken = playToken;
@@ -3402,6 +4041,14 @@ export const casparPlayoutService: PlayoutService = {
         }
 
         queuedItems = items.map((i: any) => ({ ...i }));
+
+        // Fork mode: diff against `QUEUE INFO`, then `QUEUE CLEAR AFTER …
+        // EXPECT <on-air>` and queue the tail. A stale edit gets `409` and is
+        // re-planned; the on-air item and its unchanged successors stay.
+        if (isForkMode()) {
+            scheduleForkSync();
+            return;
+        }
 
         // A queued AUTO background belongs to the prior queue topology. Keep
         // the foreground token intact (the on-air clip must continue), but
@@ -3508,94 +4155,16 @@ export const casparPlayoutService: PlayoutService = {
         // from now on. A reconnect to a fresh engine restores it from this.
         advisoryShouldBeOnAir = true;
 
-        const rating = (item.complianceRating || 'none') as ComplianceRating;
-        const tpFlag = !!item.tp_flag;
-        const isLive = item.type === 'live';
-        const contentType = (item.content_type || 'none') as string;
-
-        // Determine broadcast show tag from playlist metadata
-        let showTag: string | undefined = undefined;
-        if (isLive) {
-            showTag = 'live';
-        } else if (contentType && contentType !== 'none') {
-            showTag = contentType;
-        } else if (tpFlag) {
-            showTag = 'telemarketing';
-        }
-
         // Ensure legacy PNG layers (31 & 34) are cleared defensively
         await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: ratingLayer }).catch(() => {});
         await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: tpLayer }).catch(() => {});
 
         // SOTA HTML5 Vector Graphics Mode (Layer 32 advisory.html with permanent Station Logo & dynamic show tags)
-        let template = settings.cgExplanationTemplate || 'playout/advisory';
-        if (!template || template === 'testdada') {
-            template = 'playout/advisory';
-        }
-        const advisoryText = item.complianceText || '';
-        const isLogoOnly = advisoryText === '__LOGO_ONLY__' || advisoryText === 'LOGO_ONLY';
-        let descriptors = item.complianceDescriptors || [];
-        if ((!descriptors || descriptors.length === 0) && advisoryText && !isLogoOnly) {
-            descriptors = parseDescriptorsFromText(advisoryText);
-        }
-
-        const ratingExplanationText = isLogoOnly ? '' : getGreekRatingDefaultText(rating as any);
-        const ratingHoldSec = settings.cgAdvisoryConfig?.ratingHoldSec ?? 30;
-        const warningHoldSec = settings.cgAdvisoryConfig?.warningHoldSec ?? 30;
-
-        // Load custom SVGs if specified in Settings (swappable without code changes)
-        let customLogoSvg: string | null = null;
-        const customLogos: Record<string, string> = {};
-
-        const logoSvgPath = settings.cgAdvisoryConfig?.customLogoSvgPath;
-        if (logoSvgPath) {
-            try {
-                customLogoSvg = await invoke<string>('read_svg_file', { path: logoSvgPath });
-            } catch (err) {
-                console.warn('[CasparCG] Failed to load custom logo SVG from:', logoSvgPath, err);
-            }
-        }
-
-        const ratingSvgPaths = settings.cgAdvisoryConfig?.customRatingSvgPaths;
-        if (ratingSvgPaths && typeof ratingSvgPaths === 'object') {
-            for (const [key, p] of Object.entries(ratingSvgPaths)) {
-                if (p) {
-                    try {
-                        const svgContent = await invoke<string>('read_svg_file', { path: p });
-                        customLogos[key.toUpperCase()] = svgContent;
-                    } catch (err) {
-                        console.warn(`[CasparCG] Failed to load custom rating SVG for ${key} from:`, p, err);
-                    }
-                }
-            }
-        }
-
-        const hasAdvisoryContent = (rating !== 'none' || tpFlag || isLive || (contentType && contentType !== 'none'));
-
-        const cgData = {
-            on_air: true,
-            playout_mode: 'on_air',
-            is_on_air: true,
-            rating: rating !== 'none' ? rating : 'none',
-            rating_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
-            warning_text: isLogoOnly ? '' : advisoryText,
-            text: isLogoOnly ? '' : ratingExplanationText,
-            custom_text: isLogoOnly ? '__LOGO_ONLY__' : ratingExplanationText,
-            explanation: hasAdvisoryContent && !isLogoOnly && rating !== 'none',
-            show_explanation: hasAdvisoryContent && !isLogoOnly && rating !== 'none',
-            show_station_logo: true, // Station logo is ALWAYS ON!
-            warnings: hasAdvisoryContent ? descriptors : [],
-            durationSec: ratingHoldSec,
-            hold_time: ratingHoldSec,
-            warning_hold_time: warningHoldSec,
-            tp: tpFlag,
-            content_type: contentType,
-            is_live: isLive,
-            show_tag: showTag || 'none',
-            styling: settings.cgAdvisoryConfig,
-            customLogoSvg: customLogoSvg || undefined,
-            customLogos: Object.keys(customLogos).length > 0 ? customLogos : undefined
-        };
+        const template = advisoryTemplateName(settings as any);
+        // Custom SVGs (swappable without code changes) are read once per set
+        // of paths, not on every item.
+        const svgs = await advisorySvgCache.get(settings as any);
+        const cgData = buildAdvisoryCgData(item, settings as any, svgs);
 
         if (isAdvisoryTemplateLoaded) {
             // Template already running on layer 32: update in-place without reload,
@@ -3636,6 +4205,7 @@ export const casparPlayoutService: PlayoutService = {
         timelineTimers.forEach(clearTimeout);
         timelineTimers = [];
         isAdvisoryTemplateLoaded = false;
+        forkTemplateScheduled = false;
         advisoryShouldBeOnAir = false;
         lastAppliedComplianceItem = null;
         for (const layer of [CASPAR_LAYERS.rating, CASPAR_LAYERS.explanation, CASPAR_LAYERS.tp]) {
@@ -3648,6 +4218,8 @@ export const casparPlayoutService: PlayoutService = {
     async reloadComplianceTemplate() {
         if (!isCasparConnected.value) return;
         isAdvisoryTemplateLoaded = false;
+        forkTemplateScheduled = false;
+        advisorySvgCache.invalidate();
         await invoke('caspar_clear_layer', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.explanation }).catch(() => {});
         await new Promise(r => setTimeout(r, 100));
         const item = (lastAppliedComplianceItem && isCasparPlaying.value)
@@ -3761,4 +4333,32 @@ export const updateCrawlTickerText = async () => {
 // Automatically bind process supervisor lifecycle to playout engine
 onCasparProcessStateChange((status) => {
     casparPlayoutService.handleProcessStateEvent?.(status);
+});
+
+// Fork mode: a queued clip holds an open decoder, so Windows refuses to
+// delete its file. Remove the asset's waiting rows before the library
+// trashes or purges it, and keep them out of the queue for a while.
+registerAssetReleaseHandler((assetUuids) => {
+    if (!isForkMode()) return null;
+    const assets = new Set(assetUuids);
+    const holdUntil = Date.now() + FORK_RELEASED_ASSET_HOLD_MS;
+    for (const asset of assets) forkReleasedAssets.set(asset, holdUntil);
+    const tags = forkWaitingTags.filter((tag) => {
+        const rowId = forkClips.get(tag)?.rowId ?? tagBase(tag);
+        const row = findLiveItemById(rowId) ?? queuedItems.find((it) => queueKey(it) === rowId);
+        return !!row && assets.has((row as any).playoutvueId);
+    });
+    if (tags.length === 0) return null;
+    return (async () => {
+        for (const tag of tags) {
+            const reply = await invoke<ForkReply>('caspar_fork_queue_remove', {
+                channel: PROGRAM_CHANNEL,
+                layer: CASPAR_LAYERS.video,
+                tag,
+                expect: null,
+            });
+            if (reply.code < 400) forkWaitingTags = forkWaitingTags.filter((t) => t !== tag);
+        }
+        scheduleForkSync();
+    })();
 });

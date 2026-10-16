@@ -8,6 +8,7 @@ import {
     buildLoadbgCommand,
     type TrimCommandFields
 } from './trimCommands';
+import type { ForkReply } from './forkQueue';
 
 export interface FrameTrimResult {
     in_frame: number;
@@ -221,6 +222,97 @@ export async function dispatchPlay(
     await invoke('caspar_send_command', { cmd });
 
     return { durationMs, expectedOutMs };
+}
+
+/** A clip ready for a tagged fork command (`caspar_fork_item`). */
+export interface ForkClip {
+    /** Media-root-relative path. */
+    path: string;
+    /** Channel units (fields on an interlaced channel); `null` = not sent. */
+    seek: number | null;
+    length: number | null;
+    /** Content duration (remaining duration on a resume). */
+    durationMs: number;
+    /** Where the producer starts, in file ms: trim IN plus any resume offset. */
+    trimInMs: number;
+}
+
+/**
+ * Pre-flight, trim and path for a fork take or queue entry, with the same
+ * rules as `dispatchPlay` (take) and `dispatchLoadbg` (queue). Nothing is sent.
+ */
+export async function prepareForkClip(
+    item: RundownItem,
+    mode: 'take' | 'queue',
+    resumeSeekMs = 0
+): Promise<ForkClip> {
+    const readiness = await verifyPlaybackReady(item.path);
+    if (mode === 'take' && !readiness.ready) {
+        throw new Error(`Playback pre-flight check failed for ${describeItem(item)}: ${readiness.error}`);
+    }
+    if (mode === 'queue' && !readiness.fileExists) {
+        throw new Error(`Preload pre-flight check failed — file not found for ${describeItem(item)}`);
+    }
+
+    const [trim, path] = await Promise.all([
+        invoke<FrameTrimResult>('compute_frame_trim', {
+            path: item.path,
+            trimInMs: item.trim_in_ms,
+            trimOutMs: item.trim_out_ms
+        }),
+        preparePath(item.path)
+    ]);
+
+    // Same degenerate-trim guards as dispatchPlay / dispatchLoadbg: never send
+    // a trimmed LENGTH without its SEEK.
+    if (trim.start_frame_degenerate || ((item.trim_in_ms || 0) > 100 && trim.in_frame === 0)) {
+        throw new Error(
+            `Degenerate trim for ${describeItem(item)}: in-point ${item.trim_in_ms}ms exceeds the file duration, ` +
+            `so playback would start from frame 0. Adjust the trim or re-import the subclip.`
+        );
+    }
+
+    const fileFps = parseFpsRational(trim.fps_rational) ?? 25;
+    const resumeFrames = resumeSeekMs > 0 ? Math.round((resumeSeekMs / 1000) * fileFps) : 0;
+    const fields = computeTrimFields(trim, resumeFrames, channelOutputRateHz());
+    const durationMs = resumeSeekMs > 0
+        ? Math.max(1, Math.round((fields.lengthFields / fields.fieldMultiplier / fileFps) * 1000))
+        : computeDurationMsFromTrim(trim, item.id);
+
+    return {
+        path,
+        seek: fields.hasInTrim ? fields.seekFields : null,
+        length: fields.hasOutTrim ? fields.lengthFields : null,
+        durationMs,
+        trimInMs: (item.trim_in_ms || 0) + (resumeSeekMs > 0 ? resumeSeekMs : 0),
+    };
+}
+
+/**
+ * `QUEUE` / `LOADBG` / `PLAY` of a tagged clip on the fork. A `409` (stale
+ * `EXPECT`) comes back as `{ code: 409 }`, not as an error.
+ */
+export async function dispatchForkItem(
+    verb: 'queue' | 'loadbg' | 'play',
+    channel: number,
+    layer: number,
+    clip: ForkClip,
+    tag: string,
+    options: { auto?: boolean; expect?: string | null } = {}
+): Promise<ForkReply> {
+    return invoke<ForkReply>('caspar_fork_item', {
+        verb,
+        channel,
+        layer,
+        item: {
+            path: clip.path,
+            seek: clip.seek,
+            length: clip.length,
+            auto: options.auto ?? false,
+            tag,
+            expect: options.expect ?? null,
+        },
+    });
 }
 
 export async function dispatchLoadbg(
