@@ -12,6 +12,8 @@ import PlaylistTotals from './PlaylistTotals.vue';
 import { onAppMenuAction } from '../lib/appMenu';
 import { usePlaylistFile } from '../composables/usePlaylistFile';
 import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
+import { useLookAheadStore } from '../stores/lookAhead';
+import { issueLabel } from '../lib/lookAhead';
 import { contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
 import { CONTENT_TYPES, effectiveContentType, type ContentType } from '../lib/contentTypes';
 import AppIcon from './ui/AppIcon.vue';
@@ -725,7 +727,32 @@ const menuItems = computed<MenuItem[]>(() => {
   const item = contextMenu.value.item;
   if (!item) return [];
   
-  const list: MenuItem[] = [
+  const list: MenuItem[] = [];
+  // AE-3: the pre-flight's verdict and the two ways out, first.
+  const issue = lookAhead.issues[item.id];
+  if (issue) {
+    list.push(
+      { type: 'label', label: `Pre-flight: ${issueLabel(issue)} (${issue.reason})` },
+      {
+        type: 'action',
+        icon: 'arrow-down',
+        tone: 'warning',
+        label: 'Skip this row',
+        disabled: store.isRundownLocked,
+        action: () => { lookAhead.skip(item.id); closeContextMenu(); }
+      },
+      {
+        type: 'action',
+        icon: 'pause',
+        tone: 'warning',
+        label: 'Hold before this row',
+        disabled: store.isRundownLocked,
+        action: () => { lookAhead.hold(item.id); closeContextMenu(); }
+      },
+      { type: 'divider' }
+    );
+  }
+  list.push(
     {
       type: 'label',
       label: 'Clip'
@@ -755,7 +782,7 @@ const menuItems = computed<MenuItem[]>(() => {
       disabled: store.isRundownLocked,
       action: ctxDuplicate
     }
-  ];
+  );
   
   if (item.type !== 'gap') {
     const currentRating = item.complianceRating || 'none';
@@ -1098,6 +1125,13 @@ const rowAtText = (index: number) => {
   return eta && (eta.kind === 'gap' || eta.kind === 'time') ? eta.text || '' : '';
 };
 const rowPlayProtected = (index: number) => isProtectedPlayingRow(index);
+// AE-3: look-ahead pre-flight problems, as row badges.
+const lookAhead = useLookAheadStore();
+const rowPreflightLabel = (item: RundownItem) => {
+  const issue = lookAhead.issues[item.id];
+  return issue ? issueLabel(issue) : '';
+};
+const rowPreflightReason = (item: RundownItem) => lookAhead.issues[item.id]?.reason ?? '';
 
 /**
  * §6.1: true on the first row of each scheduled day, so the list can draw one
@@ -1654,7 +1688,9 @@ onUnmounted(() => {
           rowAtKind(index),
           rowAtText(index),
           rowPlayProtected(index),
-          dayBreakBefore(index)
+          dayBreakBefore(index),
+          rowPreflightLabel(item),
+          rowPreflightReason(item)
         ]"
       >
         <!-- §6.1: a day separator instead of repeating the weekday on all 300
@@ -1680,6 +1716,9 @@ onUnmounted(() => {
           :at-kind="rowAtKind(index)"
           :at-text="rowAtText(index)"
           :play-protected="rowPlayProtected(index)"
+          :preflight-label="rowPreflightLabel(item)"
+          :preflight-reason="rowPreflightReason(item)"
+          @preflight="onContextMenu($event, index, item)"
           @select="onRowSelect(item, $event)"
           @contextmenu="onContextMenu($event, index, item)"
           @pointerdown-handle="onRowHandlePointerDown($event, item)"

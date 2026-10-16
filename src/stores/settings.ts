@@ -100,6 +100,8 @@ const INT_FIELDS: Record<string, { min: number; max: number }> = {
     forkQueueDepth: { min: 1, max: 8 },
     forkStallTicks: { min: 0, max: 1500 },
     mediaRootVerifiedAt: { min: 0, max: Number.MAX_SAFE_INTEGER },
+    lookAheadRows: { min: 1, max: 50 },
+    lookAheadMinutes: { min: 1, max: 720 },
 };
 
 /** A media-relative engine clip name. */
@@ -306,6 +308,12 @@ export const useSettingsStore = defineStore('settings', {
         forkQueueDepth: 2,
         forkFallbackClip: 'playout/emergency',
         forkStallTicks: 50,
+
+        // AE-3 (C3): the look-ahead pre-flight checks the next rows due within
+        // this window every 30 s (file under the verified root, size and uuid
+        // match the sidecar).
+        lookAheadRows: 5,
+        lookAheadMinutes: 30,
 
         // Character Generator (CG) settings.
         //

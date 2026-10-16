@@ -287,6 +287,8 @@ const localState = ref({
     forkQueueDepth: 2,
     forkFallbackClip: 'playout/emergency',
     forkStallTicks: 50,
+    lookAheadRows: 5,
+    lookAheadMinutes: 30,
     ingestorApiBaseUrl: '',
     ingestorApiToken: '',
     aiProvider: 'anthropic' as const,
@@ -408,6 +410,8 @@ const mapLocalState = () => {
         forkQueueDepth: settings.forkQueueDepth ?? 2,
         forkFallbackClip: settings.forkFallbackClip ?? 'playout/emergency',
         forkStallTicks: settings.forkStallTicks ?? 50,
+        lookAheadRows: settings.lookAheadRows ?? 5,
+        lookAheadMinutes: settings.lookAheadMinutes ?? 30,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
         ingestorApiToken: settings.ingestorApiToken || '',
         aiProvider: settings.aiProvider || 'anthropic',
@@ -1165,6 +1169,24 @@ const openTemplateDir = async () => {
               <label class="field-label" for="fork-stall">Stall limit (channel ticks)</label>
               <input id="fork-stall" v-model.number="localState.forkStallTicks" class="input" type="number" min="0" max="1500" />
               <p class="field-hint">A clip that delivers no frame for this long is replaced. 50 is 2 s at 1080i50; 0 turns the check off.</p>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Look-ahead pre-flight</h3>
+            <p class="field-hint">
+              Every 30 s the next rows are checked: the file is in the media root, its size and asset id match its
+              sidecar. A problem shows on the row as "will fail at HH:MM", with Skip and Hold, before the cut.
+            </p>
+            <div class="field-row">
+              <div class="field">
+                <label class="field-label" for="look-ahead-rows">Rows</label>
+                <input id="look-ahead-rows" v-model.number="localState.lookAheadRows" class="input" type="number" min="1" max="50" />
+              </div>
+              <div class="field">
+                <label class="field-label" for="look-ahead-minutes">Minutes ahead</label>
+                <input id="look-ahead-minutes" v-model.number="localState.lookAheadMinutes" class="input" type="number" min="1" max="720" />
+              </div>
             </div>
           </section>
 

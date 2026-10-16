@@ -22,6 +22,7 @@ import MediaHealthChip from './components/MediaHealthChip.vue';
 import MediaRootBanner from './components/MediaRootBanner.vue';
 import { useMediaRootStore } from './stores/mediaRoot';
 import { startFallbackMonitor, stopFallbackMonitor } from './services/fallbackMonitor';
+import { useLookAheadStore } from './stores/lookAhead';
 import AppIcon from './components/ui/AppIcon.vue';
 import RenderIsland from './components/ui/RenderIsland.vue';
 import ToastHost from './components/ui/ToastHost.vue';
@@ -69,6 +70,8 @@ watch(
   () => { void mediaRoot.refresh(); },
 );
 const openSettingsSection = (section: string) => openSettings(section as SettingsSection);
+// AE-3: look-ahead pre-flight of the next rows, every 30 s.
+const lookAhead = useLookAheadStore();
 const playoutHalted = ref(false);
 // Audit F-4: the banner used to say only "3 consecutive errors". The operator
 // needs the row and the reason to act on it.
@@ -827,6 +830,7 @@ onMounted(async () => {
   startControlBarObserver();
   mediaRoot.start();
   startFallbackMonitor();
+  lookAhead.start();
   revealWindow();
   if (settings.debugMode) {
     startJankMonitor();
@@ -918,6 +922,7 @@ onUnmounted(() => {
   stopControlBarObserver();
   mediaRoot.stop();
   stopFallbackMonitor();
+  lookAhead.stop();
   if (unlistenHeartbeat) {
     unlistenHeartbeat();
     unlistenHeartbeat = null;
