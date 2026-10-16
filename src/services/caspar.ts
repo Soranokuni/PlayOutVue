@@ -30,7 +30,7 @@ import { advisoryTemplateName, buildAdvisoryCgData, createAdvisorySvgCache } fro
 import { registerAssetReleaseHandler } from '../lib/assetRelease';
 import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
-import { recordFrontendFault } from '../lib/frontendFaults';
+import { recordFrontendFault, resolveFrontendFaults } from '../lib/frontendFaults';
 import { getAdvertisedMediaRoot, isMediaRootError } from '../lib/mediaRootContext';
 import { fallbackHealth, normalizeFallbackClip } from '../lib/fallbackHealth';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
@@ -1204,6 +1204,7 @@ function onForkOnAir(event: EngineEvent) {
     forkForegroundTag = tag;
     // A row of ours is on air: the fillers / slate are over.
     fallbackHealth.onAir = null;
+    resolveFrontendFaults('caspar-playout', (m) => / on air \(.+\): no queued item was ready\.$/.test(m));
     fallbackHealth.rundownFinished = false;
 
     if (natural) {
@@ -1362,6 +1363,7 @@ async function configureForkFallback(): Promise<void> {
             if (reply.code < 400) {
                 fallbackHealth.mode = 'list';
                 fallbackHealth.target = folder;
+                resolveFrontendFaults('caspar-playout', (m) => /^(Fallback clip|Filler folder) "/.test(m));
                 await readForkFallbackArmed();
                 return;
             }
@@ -1375,6 +1377,7 @@ async function configureForkFallback(): Promise<void> {
         await invoke<ForkReply>('caspar_fork_fallback', { channel, layer, clip: clip || null, tag: FALLBACK_TAG, stall });
         fallbackHealth.mode = clip ? 'clip' : 'none';
         fallbackHealth.target = clip;
+        if (clip) resolveFrontendFaults('caspar-playout', (m) => m.startsWith('Fallback clip "'));
     } catch (error) {
         forkFault(`Fallback clip "${clip}" could not be set (${String((error as any)?.message || error)}); stall detection only. Deploy the templates or choose a clip in Settings.`);
         await invoke('caspar_fork_fallback', { channel, layer, clip: null, tag: null, stall }).catch(() => {});

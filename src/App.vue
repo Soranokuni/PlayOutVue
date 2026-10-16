@@ -2194,6 +2194,13 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+/* A dialog is the operator's focus, and its footer (Save) sits where the
+   toasts are: while one is open they wait beneath its backdrop and come back
+   when it closes. */
+:global(body:has(.modal-backdrop)) .fault-toasts {
+  z-index: calc(var(--z-modal) - 1);
+}
+
 .fault-toast {
   display: flex;
   align-items: center;

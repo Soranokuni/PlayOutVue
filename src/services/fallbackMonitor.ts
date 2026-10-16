@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settings';
 import { applyForkFallbackSettings, engineMode, isCasparConnected, readForkFallbackArmed } from './caspar';
 import { fallbackHealth, type FallbackSelfTest } from '../lib/fallbackHealth';
-import { recordFrontendFault } from '../lib/frontendFaults';
+import { recordFrontendFault, resolveFrontendFaults } from '../lib/frontendFaults';
 
 /** MEDIA-FALLBACK-HANDOFF AE-2: self-test on connect and every hour. */
 export const FALLBACK_SELF_TEST_MS = 60 * 60 * 1000;
@@ -37,10 +37,14 @@ export async function runFallbackSelfTest(): Promise<FallbackSelfTest | null> {
             fallbackHealth.testedAt = Date.now();
             if (result.clip && !result.clip.ok) {
                 report(`Fallback clip self-test failed: ${result.clip.reason ?? 'unknown error'}`, 'error');
+            } else {
+                resolveFrontendFaults('fallback', (m) => m.startsWith('Fallback clip self-test failed'));
             }
             const fillersUsable = !result.fillers || result.fillers.ok;
             if (result.fillers && !result.fillers.ok) {
                 report(`Filler folder self-test failed (${result.fillers.reason ?? 'unknown error'}); using the single fallback clip.`);
+            } else {
+                resolveFrontendFaults('fallback', (m) => m.startsWith('Filler folder self-test failed'));
             }
             if (fillersUsable !== fallbackHealth.fillersUsable) {
                 fallbackHealth.fillersUsable = fillersUsable;

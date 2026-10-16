@@ -39,6 +39,16 @@ export function dismissFrontendFault(id: number): void {
   frontendFaults.value = frontendFaults.value.filter((f) => f.id !== id);
 }
 
+/**
+ * Drop the toasts of `source` whose message matches: the fault they report
+ * is over (a fallback that could not be set now is). Without this a toast
+ * kept counting up after the operator had fixed the cause.
+ */
+export function resolveFrontendFaults(source: string, match: (message: string) => boolean = () => true): void {
+  const kept = frontendFaults.value.filter((f) => !(f.source === source && match(f.message)));
+  if (kept.length !== frontendFaults.value.length) frontendFaults.value = kept;
+}
+
 export function clearFrontendFaults(): void {
   frontendFaults.value = [];
 }
