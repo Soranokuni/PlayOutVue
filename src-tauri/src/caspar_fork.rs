@@ -16,7 +16,7 @@ use crate::amcp::{
     cg_add_cmd, cg_update_cmd, events_cmd, fallback_clear_cmd, fallback_cmd, fallback_stall_cmd,
     is_safe_template_name, onair_cmd, parse_events, parse_queue_clear_count, parse_queue_info,
     queue_clear_cmd, queue_info_cmd, queue_remove_cmd, tagged_item_cmd, AmcpClient, AmcpResponse,
-    EventsReply, ItemVerb, QueueInfo, TaggedItem,
+    EngineEvent, EventsReply, ItemVerb, QueueInfo, TaggedItem,
 };
 
 /// Reply of a fork command whose `404`/`409` the caller handles itself.
@@ -214,10 +214,370 @@ pub async fn caspar_fork_fallback(
     accept(&cmd, resp, &[])
 }
 
+// ── Engine mode and fork OSC events (`PLAYOUT-FORK.md` §5) ──────────────────
+
+/// Which server drives the program layer. `Unknown` until the first probe;
+/// `Stock` keeps the OSC advance inference in `caspar.rs`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EngineMode {
+    #[default]
+    Unknown,
+    Stock,
+    Fork,
+}
+
+/// One fork OSC message on the program layer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForkOscMessage {
+    /// `…/event/seq`: the layer's last event seq.
+    Seq(u64),
+    /// `…/event/<kind>`: the latest event of that kind, re-sent every tick.
+    Event(EngineEvent),
+    /// `…/foreground/tag`.
+    ForegroundTag(String),
+    /// `/channel/N/stage/frame`: the channel tick counter.
+    Frame(i64),
+}
+
+const EVENT_KINDS: [&str; 5] = ["onair", "offair", "ended", "stalled", "actionfailed"];
+
+fn osc_int(arg: &rosc::OscType) -> Option<i64> {
+    match arg {
+        rosc::OscType::Long(v) => Some(*v),
+        rosc::OscType::Int(v) => Some(i64::from(*v)),
+        _ => None,
+    }
+}
+
+fn osc_str(arg: &rosc::OscType) -> Option<&str> {
+    match arg {
+        rosc::OscType::String(v) => Some(v.as_str()),
+        _ => None,
+    }
+}
+
+/// Parse a fork address of `channel`/`layer`. `None` for everything else,
+/// including the stock `file/*` addresses.
+pub fn parse_fork_osc(channel: u8, layer: u16, address: &str, args: &[rosc::OscType]) -> Option<ForkOscMessage> {
+    let stage = format!("/channel/{}/stage/", channel);
+    let rest = address.trim().strip_prefix(&stage)?;
+    if rest == "frame" {
+        return args.first().and_then(osc_int).map(ForkOscMessage::Frame);
+    }
+    let rest = rest.strip_prefix(&format!("layer/{}/", layer))?;
+    if rest == "foreground/tag" {
+        return args.first().and_then(osc_str).map(|t| ForkOscMessage::ForegroundTag(t.to_string()));
+    }
+    let kind = rest.strip_prefix("event/")?;
+    if kind == "seq" {
+        return args.first().and_then(osc_int).and_then(|v| u64::try_from(v).ok()).map(ForkOscMessage::Seq);
+    }
+    if !EVENT_KINDS.contains(&kind) || args.len() < 5 {
+        return None;
+    }
+    Some(ForkOscMessage::Event(EngineEvent {
+        seq: u64::try_from(osc_int(&args[0])?).ok()?,
+        frame: osc_int(&args[1])?,
+        time: osc_int(&args[2])?,
+        kind: kind.to_string(),
+        tag: osc_str(&args[3])?.to_string(),
+        reason: osc_str(&args[4])?.to_string(),
+    }))
+}
+
+/// Minimum spacing of `EVENTS` gap fetches.
+const GAP_FETCH_INTERVAL_MS: u64 = 250;
+
+/// What [`ForkOscState::drain`] asks the caller to do.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ForkDrain {
+    /// Events to emit, in seq order.
+    pub events: Vec<EngineEvent>,
+    /// Fetch `EVENTS <since>`: seqs are missing.
+    pub fetch_since: Option<u64>,
+    /// The seq counter went back: the engine restarted.
+    pub restarted: bool,
+}
+
+/// Fork-mode engine state, fed by OSC. Lives in the playback state so the
+/// OSC listener needs no extra lock.
+#[derive(Debug, Default)]
+pub struct ForkOscState {
+    pub mode: EngineMode,
+    /// Server start time (ms) from the last `QUEUE INFO`/`EVENTS`.
+    pub instance: Option<i64>,
+    /// Last seq handed to the frontend. `None` until seeded.
+    pub last_seq: Option<u64>,
+    announced_seq: u64,
+    pending: std::collections::BTreeMap<u64, EngineEvent>,
+    pub foreground_tag: String,
+    pub frame: i64,
+    fetch_in_flight: bool,
+    last_fetch_ms: u64,
+}
+
+impl ForkOscState {
+    pub fn is_fork(&self) -> bool {
+        self.mode == EngineMode::Fork
+    }
+
+    /// Stock server: OSC fork addresses never arrive; drop any fork state.
+    pub fn set_stock(&mut self) {
+        *self = ForkOscState { mode: EngineMode::Stock, ..ForkOscState::default() };
+    }
+
+    /// Fork server seen by `QUEUE INFO`. On the same instance the seq cursor
+    /// is kept, so the gap fetch replays what happened since; on a new
+    /// instance (or the first probe) it starts at `event_seq`. Returns true
+    /// when a known instance was replaced: the engine restarted.
+    pub fn set_fork(&mut self, instance: i64, event_seq: u64) -> bool {
+        let restarted = self.instance.is_some_and(|known| known != instance);
+        let same_instance = self.instance == Some(instance);
+        self.mode = EngineMode::Fork;
+        self.instance = Some(instance);
+        if !same_instance || self.last_seq.is_none() {
+            self.last_seq = Some(event_seq);
+            self.pending.clear();
+        }
+        self.announced_seq = self.announced_seq.max(event_seq);
+        restarted
+    }
+
+    pub fn observe(&mut self, message: ForkOscMessage) {
+        if !self.is_fork() {
+            return;
+        }
+        match message {
+            ForkOscMessage::Seq(seq) => self.announced_seq = seq,
+            // Kept even at or below the cursor: after an engine restart the
+            // seq counts from 1 again. `drain` drops what is already handed out.
+            ForkOscMessage::Event(event) => {
+                self.pending.insert(event.seq, event);
+            }
+            ForkOscMessage::ForegroundTag(tag) => self.foreground_tag = tag,
+            ForkOscMessage::Frame(frame) => self.frame = frame,
+        }
+    }
+
+    /// Call after each OSC packet: hand out the events that follow the cursor
+    /// without a hole, and ask for a fetch when one is missing.
+    pub fn drain(&mut self, now_ms: u64) -> ForkDrain {
+        let mut out = ForkDrain::default();
+        if !self.is_fork() {
+            return out;
+        }
+        let Some(mut last) = self.last_seq else {
+            // Not seeded by a probe: start at what the engine shows now.
+            let base = self.announced_seq.max(self.pending.keys().next_back().copied().unwrap_or(0));
+            if base > 0 {
+                self.last_seq = Some(base);
+                self.pending.clear();
+            }
+            return out;
+        };
+        if self.announced_seq > 0 && self.announced_seq < last {
+            // A restarted engine counts from 1 again.
+            out.restarted = true;
+            last = 0;
+            let announced = self.announced_seq;
+            self.pending.retain(|seq, _| *seq <= announced);
+        }
+        while let Some(event) = self.pending.remove(&(last + 1)) {
+            last += 1;
+            out.events.push(event);
+        }
+        self.pending.retain(|seq, _| *seq > last);
+        self.last_seq = Some(last);
+
+        let target = self.announced_seq.max(self.pending.keys().next_back().copied().unwrap_or(0));
+        if target > last && !self.fetch_in_flight && now_ms.saturating_sub(self.last_fetch_ms) >= GAP_FETCH_INTERVAL_MS {
+            self.fetch_in_flight = true;
+            self.last_fetch_ms = now_ms;
+            out.fetch_since = Some(last);
+        }
+        out
+    }
+
+    /// Apply an `EVENTS` reply fetched for a gap. Returns the events to emit
+    /// and whether the reply came from another engine instance.
+    pub fn apply_fetched(&mut self, reply: &EventsReply) -> (Vec<EngineEvent>, bool) {
+        self.fetch_in_flight = false;
+        let restarted = self.instance.is_some_and(|known| known != reply.instance);
+        self.instance = Some(reply.instance);
+        let mut last = if restarted { 0 } else { self.last_seq.unwrap_or(0) };
+        let mut events: Vec<EngineEvent> = reply.events.iter().filter(|e| e.seq > last).cloned().collect();
+        events.sort_by_key(|e| e.seq);
+        if let Some(newest) = events.last() {
+            last = newest.seq;
+        }
+        // Seqs that fell out of the log are skipped, never waited for.
+        last = last.max(reply.last);
+        self.pending.retain(|seq, _| *seq > last);
+        self.last_seq = Some(last);
+        (events, restarted)
+    }
+
+    pub fn fetch_failed(&mut self) {
+        self.fetch_in_flight = false;
+    }
+}
+
+/// Snapshot for the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineStateReport {
+    pub mode: EngineMode,
+    pub instance: Option<i64>,
+    pub last_seq: Option<u64>,
+    pub foreground_tag: String,
+    pub frame: i64,
+}
+
+impl From<&ForkOscState> for EngineStateReport {
+    fn from(s: &ForkOscState) -> Self {
+        EngineStateReport {
+            mode: s.mode,
+            instance: s.instance,
+            last_seq: s.last_seq,
+            foreground_tag: s.foreground_tag.clone(),
+            frame: s.frame,
+        }
+    }
+}
+
+/// `caspar://engine-instance`: the engine restarted, its queue is gone.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineInstanceChanged {
+    pub instance: Option<i64>,
+    pub reason: String,
+}
+
+const EVENT_TOPIC: &str = "caspar://engine-event";
+const INSTANCE_TOPIC: &str = "caspar://engine-instance";
+
+fn emit_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, events: Vec<EngineEvent>) {
+    use tauri::Emitter;
+    for event in events {
+        log::info!(
+            "[CasparCG] event #{} {} {} ({}) frame {}",
+            event.seq, event.kind, event.tag, event.reason, event.frame
+        );
+        let _ = app.emit(EVENT_TOPIC, event);
+    }
+}
+
+fn emit_instance<R: tauri::Runtime>(app: &tauri::AppHandle<R>, instance: Option<i64>, reason: &str) {
+    use tauri::Emitter;
+    log::warn!("[CasparCG] Engine instance changed ({}): the queue is gone", reason);
+    let _ = app.emit(INSTANCE_TOPIC, EngineInstanceChanged { instance, reason: reason.to_string() });
+}
+
+/// After one OSC packet: emit the in-order events and start a gap fetch.
+pub fn after_osc_packet<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    state: &std::sync::Arc<parking_lot::Mutex<crate::caspar::PlaybackStateInner>>,
+    now_ms: u64,
+) {
+    let drain = {
+        let mut s = state.lock();
+        if !s.fork.is_fork() {
+            return;
+        }
+        s.fork.drain(now_ms)
+    };
+    if drain.restarted {
+        emit_instance(app, None, "event-seq-reset");
+    }
+    emit_events(app, drain.events);
+    if let Some(since) = drain.fetch_since {
+        let app = app.clone();
+        let state = state.clone();
+        tauri::async_runtime::spawn(async move {
+            let Some(client) = tauri::Manager::try_state::<AmcpClient>(&app).map(|c| c.inner().clone()) else {
+                state.lock().fork.fetch_failed();
+                return;
+            };
+            let reply = fetch_events(
+                &client,
+                crate::caspar_layers::PROGRAM_CHANNEL,
+                crate::caspar_layers::CasparLayer::Video.layer(),
+                Some(since),
+            )
+            .await;
+            match reply {
+                Ok(reply) => {
+                    if reply.lost {
+                        log::warn!(
+                            "[CasparCG] Events after #{} fell out of the engine log (oldest #{})",
+                            since, reply.oldest
+                        );
+                    }
+                    let (events, restarted) = state.lock().fork.apply_fetched(&reply);
+                    if restarted {
+                        emit_instance(&app, Some(reply.instance), "events-instance");
+                    }
+                    emit_events(&app, events);
+                }
+                Err(error) => {
+                    log::warn!("[CasparCG] EVENTS gap fetch failed: {}", error);
+                    state.lock().fork.fetch_failed();
+                }
+            }
+        });
+    }
+}
+
+/// Result of [`caspar_engine_detect`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineDetect {
+    pub mode: EngineMode,
+    pub info: Option<QueueInfo>,
+    /// A known fork instance was replaced: the engine restarted.
+    pub restarted: bool,
+}
+
+/// D1: `QUEUE INFO` on the program layer decides the engine mode. Call on
+/// every (re)connect.
+#[tauri::command]
+pub async fn caspar_engine_detect<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    client: State<'_, AmcpClient>,
+    playback: State<'_, crate::caspar::CasparPlaybackState>,
+) -> Result<EngineDetect, String> {
+    let channel = crate::caspar_layers::PROGRAM_CHANNEL;
+    let layer = crate::caspar_layers::CasparLayer::Video.layer();
+    let info = probe(&client, channel, layer).await?;
+    let (mode, restarted) = {
+        let mut s = playback.0.lock();
+        match &info {
+            Some(info) => (EngineMode::Fork, s.fork.set_fork(info.instance, info.event_seq)),
+            None => {
+                s.fork.set_stock();
+                (EngineMode::Stock, false)
+            }
+        }
+    };
+    if restarted {
+        emit_instance(&app, info.as_ref().map(|i| i.instance), "queue-info-instance");
+    }
+    log::info!("[CasparCG] Engine mode: {:?}", mode);
+    Ok(EngineDetect { mode, info, restarted })
+}
+
+#[tauri::command]
+pub async fn caspar_engine_state(
+    playback: State<'_, crate::caspar::CasparPlaybackState>,
+) -> Result<EngineStateReport, String> {
+    Ok(EngineStateReport::from(&playback.0.lock().fork))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::amcp::{AmcpStatus, is_allowed_passthrough_command};
+    use crate::amcp::{is_allowed_passthrough_command, AmcpStatus};
 
     fn resp(code: u16, body: &str) -> AmcpResponse {
         AmcpResponse { code, status: AmcpStatus::from_code(code), body: body.to_string() }
@@ -267,5 +627,221 @@ mod tests {
             data: serde_json::json!({}),
         }];
         assert!(onair_lines(1, 10, "row-1", &bad_template).is_err());
+    }
+
+    // ── Fork OSC ──────────────────────────────────────────────────────────
+
+    use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
+
+    const P: &str = "/channel/1/stage/layer/10";
+
+    fn msg(addr: &str, args: Vec<OscType>) -> OscPacket {
+        OscPacket::Message(OscMessage { addr: addr.to_string(), args })
+    }
+
+    fn event_msg(kind: &str, seq: i64, frame: i64, tag: &str, reason: &str) -> OscPacket {
+        msg(
+            &format!("{}/event/{}", P, kind),
+            vec![
+                OscType::Long(seq),
+                OscType::Long(frame),
+                OscType::Long(1_792_069_797_688),
+                OscType::String(tag.into()),
+                OscType::String(reason.into()),
+            ],
+        )
+    }
+
+    /// Encode then decode, as the listener receives it, and feed every message.
+    fn feed(state: &mut ForkOscState, content: Vec<OscPacket>) {
+        let bundle = OscPacket::Bundle(OscBundle { timetag: OscTime { seconds: 0, fractional: 1 }, content });
+        let bytes = rosc::encoder::encode(&bundle).unwrap();
+        let (_, packet) = rosc::decoder::decode_udp(&bytes).unwrap();
+        fn walk(state: &mut ForkOscState, packet: OscPacket) {
+            match packet {
+                OscPacket::Message(m) => {
+                    if let Some(parsed) = parse_fork_osc(1, 10, &m.addr, &m.args) {
+                        state.observe(parsed);
+                    }
+                }
+                OscPacket::Bundle(b) => b.content.into_iter().for_each(|p| walk(state, p)),
+            }
+        }
+        walk(state, packet);
+    }
+
+    fn fork_state(seq: u64) -> ForkOscState {
+        let mut s = ForkOscState::default();
+        assert!(!s.set_fork(1_792_069_796_000, seq));
+        s
+    }
+
+    fn seqs(events: &[EngineEvent]) -> Vec<u64> {
+        events.iter().map(|e| e.seq).collect()
+    }
+
+    #[test]
+    fn parses_fork_addresses_only() {
+        assert_eq!(
+            parse_fork_osc(1, 10, "/channel/1/stage/frame", &[OscType::Long(553)]),
+            Some(ForkOscMessage::Frame(553))
+        );
+        assert_eq!(
+            parse_fork_osc(1, 10, &format!("{}/foreground/tag", P), &[OscType::String("a".into())]),
+            Some(ForkOscMessage::ForegroundTag("a".into()))
+        );
+        assert_eq!(parse_fork_osc(1, 10, &format!("{}/event/seq", P), &[OscType::Int(4)]), Some(ForkOscMessage::Seq(4)));
+        assert_eq!(parse_fork_osc(1, 10, &format!("{}/file/time", P), &[OscType::Float(1.0)]), None);
+        assert_eq!(parse_fork_osc(1, 10, "/channel/1/stage/layer/20/event/seq", &[OscType::Long(4)]), None);
+        assert_eq!(parse_fork_osc(1, 10, &format!("{}/event/bogus", P), &[]), None);
+        assert_eq!(parse_fork_osc(1, 10, &format!("{}/event/onair", P), &[OscType::Long(1)]), None);
+    }
+
+    /// One tick of an AUTO hand-over latches `ended`, `offair` and `onair` in one bundle.
+    #[test]
+    fn auto_handover_bundle_drains_in_seq_order() {
+        let mut s = fork_state(1);
+        feed(&mut s, vec![
+            msg(&format!("{}/event/seq", P), vec![OscType::Long(4)]),
+            event_msg("onair", 4, 443, "b", "auto"),
+            event_msg("offair", 3, 443, "a", "auto"),
+            event_msg("ended", 2, 443, "a", "ended"),
+            msg(&format!("{}/foreground/tag", P), vec![OscType::String("b".into())]),
+        ]);
+        let drain = s.drain(1_000);
+        assert_eq!(seqs(&drain.events), [2, 3, 4]);
+        assert_eq!(drain.events[2].kind, "onair");
+        assert_eq!(drain.events[2].tag, "b");
+        assert_eq!(drain.fetch_since, None);
+        assert_eq!(s.foreground_tag, "b");
+
+        // Latched events are re-sent every tick: nothing new.
+        feed(&mut s, vec![
+            msg(&format!("{}/event/seq", P), vec![OscType::Long(4)]),
+            event_msg("onair", 4, 443, "b", "auto"),
+            event_msg("ended", 2, 443, "a", "ended"),
+        ]);
+        assert_eq!(s.drain(1_040), ForkDrain::default());
+    }
+
+    #[test]
+    fn a_lost_latched_event_triggers_one_fetch() {
+        let mut s = fork_state(4);
+        // Two onair events between packets: #5 (ended b) and #6 (offair b) were
+        // overwritten by #8/#9 of the same kind before the next packet.
+        feed(&mut s, vec![
+            msg(&format!("{}/event/seq", P), vec![OscType::Long(10)]),
+            event_msg("ended", 8, 523, "c", "ended"),
+            event_msg("offair", 9, 523, "c", "auto"),
+            event_msg("onair", 10, 523, "d", "auto"),
+        ]);
+        let drain = s.drain(1_000);
+        assert!(drain.events.is_empty());
+        assert_eq!(drain.fetch_since, Some(4));
+        // In flight: no second fetch.
+        assert_eq!(s.drain(2_000).fetch_since, None);
+
+        let reply = EventsReply {
+            channel: 1,
+            layer: 10,
+            instance: 1_792_069_796_000,
+            frame: 530,
+            last: 10,
+            oldest: 1,
+            events: (5..=10)
+                .map(|seq| EngineEvent {
+                    seq,
+                    frame: 500,
+                    time: 0,
+                    kind: "onair".into(),
+                    tag: format!("t{}", seq),
+                    reason: "auto".into(),
+                })
+                .collect(),
+            lost: false,
+        };
+        let (events, restarted) = s.apply_fetched(&reply);
+        assert!(!restarted);
+        assert_eq!(seqs(&events), [5, 6, 7, 8, 9, 10]);
+        assert_eq!(s.last_seq, Some(10));
+        assert_eq!(s.drain(3_000), ForkDrain::default());
+    }
+
+    #[test]
+    fn events_lost_from_the_engine_log_are_skipped() {
+        let mut s = fork_state(4);
+        feed(&mut s, vec![msg(&format!("{}/event/seq", P), vec![OscType::Long(300)])]);
+        assert_eq!(s.drain(1_000).fetch_since, Some(4));
+        let reply = EventsReply {
+            channel: 1, layer: 10, instance: 1_792_069_796_000, frame: 0, last: 300, oldest: 173,
+            events: vec![], lost: true,
+        };
+        let (events, _) = s.apply_fetched(&reply);
+        assert!(events.is_empty());
+        assert_eq!(s.last_seq, Some(300));
+    }
+
+    #[test]
+    fn seq_going_back_means_the_engine_restarted() {
+        let mut s = fork_state(40);
+        feed(&mut s, vec![
+            msg(&format!("{}/event/seq", P), vec![OscType::Long(1)]),
+            event_msg("onair", 1, 12, "fallback", "ended"),
+        ]);
+        let drain = s.drain(1_000);
+        assert!(drain.restarted);
+        assert_eq!(seqs(&drain.events), [1]);
+        assert_eq!(s.last_seq, Some(1));
+    }
+
+    #[test]
+    fn probe_seeding_keeps_the_cursor_on_the_same_instance() {
+        let mut s = ForkOscState::default();
+        assert!(!s.set_fork(100, 7));
+        assert_eq!(s.last_seq, Some(7));
+        s.last_seq = Some(9);
+        assert!(!s.set_fork(100, 12));
+        assert_eq!(s.last_seq, Some(9), "same instance: the gap fetch replays 10..12");
+        assert!(s.set_fork(200, 3));
+        assert_eq!(s.last_seq, Some(3));
+    }
+
+    #[test]
+    fn stock_mode_ignores_fork_messages() {
+        let mut s = ForkOscState::default();
+        s.set_stock();
+        feed(&mut s, vec![
+            msg(&format!("{}/event/seq", P), vec![OscType::Long(2)]),
+            event_msg("onair", 2, 1, "x", "take"),
+        ]);
+        assert_eq!(s.drain(1_000), ForkDrain::default());
+        assert_eq!(s.last_seq, None);
+    }
+
+    #[test]
+    fn unseeded_fork_state_starts_at_the_current_seq() {
+        let mut s = ForkOscState { mode: EngineMode::Fork, ..ForkOscState::default() };
+        feed(&mut s, vec![
+            msg(&format!("{}/event/seq", P), vec![OscType::Long(6)]),
+            event_msg("onair", 6, 1, "x", "take"),
+        ]);
+        assert!(s.drain(1_000).events.is_empty(), "history is not replayed as live events");
+        assert_eq!(s.last_seq, Some(6));
+        feed(&mut s, vec![
+            msg(&format!("{}/event/seq", P), vec![OscType::Long(7)]),
+            event_msg("offair", 7, 2, "x", "stop"),
+        ]);
+        assert_eq!(seqs(&s.drain(1_100).events), [7]);
+    }
+
+    #[test]
+    fn engine_event_payload_shape() {
+        let event = EngineEvent {
+            seq: 4, frame: 443, time: 1_792_069_797_688, kind: "onair".into(), tag: "b".into(), reason: "auto".into(),
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["timeMs"], 1_792_069_797_688i64);
+        assert_eq!(json["kind"], "onair");
+        assert!(json.get("time").is_none());
     }
 }
