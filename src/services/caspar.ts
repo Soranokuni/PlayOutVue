@@ -1151,7 +1151,13 @@ function onForkFallbackOnAir(event: EngineEvent) {
     };
     if (wasOnFallback) return;
 
-    const lastRow = queuedItems.length > 0 ? queueKey(queuedItems[queuedItems.length - 1]!) : null;
+    // The end of the rundown: nothing playable follows the row that ended
+    // (rows flagged `error` are skipped, so a flagged last row counts as the end).
+    const endedIndex = endedRow ? queuedItems.findIndex((it) => queueKey(it) === endedRow) : -1;
+    const lastRow = endedIndex >= 0 && !queuedItems.slice(endedIndex + 1).some((it) => {
+        const live = findLiveItemById(queueKey(it)) ?? it;
+        return live.ingestorStatus !== 'error';
+    }) ? endedRow : null;
     const settings = getSettingsSnapshot() as any;
     const endOfRundown = fallbackHealth.rundownFinished || (!!endedRow && endedRow === lastRow);
     const what = fallbackHealth.mode === 'list' ? 'Fillers' : 'Fallback clip';
@@ -3363,12 +3369,21 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         const resumeSeekMs = pendingResumeSeekMs;
         pendingResumeSeekMs = 0;
 
-        // Skip items with error status immediately
+        // Skip items with error status immediately. Skip by index: re-running
+        // advanceNext() from the unchanged currentKey picked this same row
+        // again, every 100 ms, for as long as it stayed flagged -- and took it
+        // the moment the library reconcile set it back to ready.
         if (item.ingestorStatus === 'error') {
             console.warn(`[CasparCG] Skipping item ${item.filename} because it is flagged with error status.`);
-            setTimeout(() => {
-                advanceNext(false).catch(() => {});
-            }, 100);
+            if (index + 1 < queuedItems.length) {
+                await playItemAt(index + 1, token, isManual);
+            } else if (shouldFinishOnFallback()) {
+                await finishRundownOnFallback();
+                onAdvanceCallback?.(null);
+            } else {
+                await casparPlayoutService.stop();
+                onAdvanceCallback?.(null);
+            }
             return;
         }
 

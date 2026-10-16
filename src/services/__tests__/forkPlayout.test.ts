@@ -362,6 +362,50 @@ describe('fork mode playout', () => {
         expect(fallbackHealth.rundownFinished).toBe(true);
     });
 
+    it('a flagged last row is skipped once: the fillers stay, and a later "ready" does not take it', async () => {
+        const warn = vi.spyOn(console, 'warn');
+        await startOn([item('a'), item('b', { ingestorStatus: 'error' })]);
+        expect(engine.waiting).toEqual([]);
+
+        event('ended', 'a', 'ended');
+        event('offair', 'a');
+        event('onair', 'fallback:1', 'ended', 'promo_a.mov');
+        await settle();
+        await new Promise((resolve) => setTimeout(resolve, 400));
+
+        const skips = warn.mock.calls.filter((c) => String(c[0]).includes('Skipping item b.mp4')).length;
+        expect(skips).toBeLessThanOrEqual(1);
+        expect(fork.state().currentKey).toBeNull();
+        expect(engine.log).not.toContain('CLEAR 1-10');
+        expect(fallbackHealth.rundownFinished).toBe(true);
+
+        // The library reconcile sets the row back to ready: nothing is taken.
+        engine.log = [];
+        useRundownStore().updateItem('b', { ingestorStatus: 'ready' });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await settle();
+        expect(engine.log.some((l) => l.startsWith('LOADBG'))).toBe(false);
+        warn.mockRestore();
+    });
+
+    it('a flagged last row: same result when "ended" is handled before the fallback arrives', async () => {
+        const warn = vi.spyOn(console, 'warn');
+        await startOn([item('a'), item('b', { ingestorStatus: 'error' })]);
+
+        event('ended', 'a', 'ended');
+        await settle();
+        event('offair', 'a');
+        event('onair', 'fallback:1', 'ended', 'promo_a.mov');
+        await settle();
+        await new Promise((resolve) => setTimeout(resolve, 400));
+
+        expect(warn.mock.calls.filter((c) => String(c[0]).includes('Skipping item b.mp4')).length).toBeLessThanOrEqual(1);
+        expect(fork.state().currentKey).toBeNull();
+        expect(engine.log).not.toContain('CLEAR 1-10');
+        expect(fallbackHealth.rundownFinished).toBe(true);
+        warn.mockRestore();
+    });
+
     it('fillers clear the advisory to the logo and the TP / rating layers', async () => {
         await startOn([item('a'), item('b', { ingestorStatus: 'processing' })]);
         const { invoke } = await import('@tauri-apps/api/core');
