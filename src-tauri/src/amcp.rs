@@ -518,6 +518,19 @@ pub fn escape_amcp_data(json: &str) -> String {
     json.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// Escape the data of a `CG ADD`/`CG UPDATE` for an HTML template.
+///
+/// CasparCG's html producer splices the data into `update("<data>")` and
+/// escapes only `"` on the way, so any backslash in the JSON (`\"` around a
+/// quote in the advisory text, `\\`, `\n`) would end or corrupt that JS
+/// string literal: the template then throws a SyntaxError and keeps showing
+/// the previous item's advisory. Doubling the backslashes first makes the
+/// template receive the JSON unchanged; `escape_amcp_data` then escapes the
+/// result for the AMCP token. Checked live against the fork (2.5.1 code).
+pub fn escape_cg_data(json: &str) -> String {
+    escape_amcp_data(&json.replace('\\', "\\\\"))
+}
+
 /// Build a `CG <ch>-<layer> ADD <index> "<template>" <play> "<data>"` command.
 pub fn cg_add_cmd(
     channel: u8,
@@ -534,7 +547,7 @@ pub fn cg_add_cmd(
         index,
         template,
         if play { 1 } else { 0 },
-        escape_amcp_data(data)
+        escape_cg_data(data)
     )
 }
 
@@ -545,7 +558,7 @@ pub fn cg_update_cmd(channel: u8, layer: u16, index: u16, data: &str) -> String 
         channel,
         layer,
         index,
-        escape_amcp_data(data)
+        escape_cg_data(data)
     )
 }
 
@@ -1105,6 +1118,67 @@ mod tests {
     fn cg_update_cmd_format() {
         let cmd = cg_update_cmd(PROGRAM_CHANNEL, 33, 1, "{\"text\":\"hi\"}");
         assert_eq!(cmd, "CG 1-33 UPDATE 1 \"{\\\"text\\\":\\\"hi\\\"}\"");
+    }
+
+    /// What the template's `update()` receives: the AMCP tokenizer unescapes
+    /// the token, the html producer builds `update("…")` escaping only `"`,
+    /// and the JS engine unescapes that string literal. Returns `None` where
+    /// the literal would end early (the SyntaxError seen live).
+    fn caspar_html_update_arg(token: &str) -> Option<String> {
+        let mut amcp = String::new();
+        let mut chars = token.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                amcp.push(chars.next()?);
+            } else {
+                amcp.push(c);
+            }
+        }
+        let literal = amcp.replace('"', "\\\"");
+        let mut js = String::new();
+        let mut chars = literal.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '"' => return None,
+                '\\' => match chars.next()? {
+                    'n' => js.push('\n'),
+                    'r' => js.push('\r'),
+                    't' => js.push('\t'),
+                    'u' => {
+                        let hex: String = chars.by_ref().take(4).collect();
+                        js.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+                    }
+                    other => js.push(other),
+                },
+                other => js.push(other),
+            }
+        }
+        Some(js)
+    }
+
+    #[test]
+    fn cg_data_reaches_the_html_template_unchanged() {
+        let texts = [
+            "Ακατάλληλο για παιδιά κάτω των 12 — \"Βία\" & <Γλώσσα>",
+            "back\\slash, 'single', \"double\"",
+            "line1\nline2\ttab\r",
+            "\u{2028}\u{2029} </script> {json} [x]",
+            "\\\"",
+        ];
+        for text in texts {
+            let json = serde_json::json!({ "warning_text": text, "svg": "<svg viewBox=\"0 0 1 1\"/>" }).to_string();
+            for cmd in [
+                cg_update_cmd(PROGRAM_CHANNEL, 32, 1, &json),
+                cg_add_cmd(PROGRAM_CHANNEL, 32, 1, "playout/advisory", true, &json),
+            ] {
+                let token = cmd.rsplit_once(" \"").map(|(_, t)| t.trim_end_matches('"')).unwrap();
+                let received = caspar_html_update_arg(token);
+                assert_eq!(received.as_deref(), Some(json.as_str()), "{:?} via {}", text, cmd);
+            }
+        }
+        // The plain AMCP escaping alone breaks the literal at the first `\"`.
+        let json = serde_json::json!({ "t": "a \"q\"" }).to_string();
+        assert_eq!(caspar_html_update_arg(&escape_amcp_data(&json)), None);
     }
 
     #[test]

@@ -769,7 +769,8 @@ mod tests {
         assert_eq!(lines[1], "ONAIR 1-10 row-1 CLEAR 1-34");
         assert_eq!(
             lines[2],
-            r#"ONAIR 1-10 row-1 CG 1-32 UPDATE 1 "{\"text\":\"Ακατάλληλο για \\\"13\\\"\"}""#
+            // Backslashes doubled for the html producer's update("…") literal, then AMCP-escaped.
+            r#"ONAIR 1-10 row-1 CG 1-32 UPDATE 1 "{\"text\":\"Ακατάλληλο για \\\\\"13\\\\\"\"}""#
         );
         assert_eq!(lines[3], r#"ONAIR 1-10 row-1 CG 1-32 ADD 1 "playout/advisory" 1 "{}""#);
         assert!(lines.iter().all(|l| is_allowed_passthrough_command(l)));
