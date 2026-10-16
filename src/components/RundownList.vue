@@ -729,6 +729,21 @@ const menuItems = computed<MenuItem[]>(() => {
   if (!item) return [];
   
   const list: MenuItem[] = [];
+  // A row playout skipped or held stays out of the chain until released.
+  if (item.playoutHold) {
+    list.push(
+      { type: 'label', label: item.playoutHold.status === 'error' ? 'Skipped by playout' : 'Held by playout' },
+      {
+        type: 'action',
+        icon: 'restore',
+        tone: 'accent',
+        label: 'Re-enable row',
+        disabled: store.isRundownLocked,
+        action: () => { store.releaseHold(item.id); closeContextMenu(); }
+      },
+      { type: 'divider' }
+    );
+  }
   // AE-3: the pre-flight's verdict and the two ways out, first.
   const issue = lookAhead.issues[item.id];
   if (issue) {
