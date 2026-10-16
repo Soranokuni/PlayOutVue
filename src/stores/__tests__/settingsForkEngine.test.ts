@@ -16,8 +16,14 @@ describe('fork engine settings hydration', () => {
     expect(sanitizeSettingsState({ ...DEFAULTS, forkFallbackClip: '' }, DEFAULTS).forkFallbackClip).toBe('');
   });
 
+  it('accepts an absolute local path (AE-2: the fork takes D:/... as is)', () => {
+    for (const good of ['D:/fallback/slate.mov', 'D:\\fallback\\slate.mov', 'e:/Fill ers/a b.mxf']) {
+      expect(sanitizeSettingsState({ ...DEFAULTS, forkFallbackClip: good }, DEFAULTS).forkFallbackClip).toBe(good);
+    }
+  });
+
   it('rejects a clip that could break the AMCP line or leave the media folder', () => {
-    for (const bad of ['a" LOOP\r\nKILL', 'a"b', '../system/x', 'C:\\media\\x', 42]) {
+    for (const bad of ['a" LOOP\r\nKILL', 'a"b', '../system/x', 'D:/x/../y', 'D:/a"b', 'D:/a\r\nKILL', '\\\\server\\share\\x', 42]) {
       expect(sanitizeSettingsState({ ...DEFAULTS, forkFallbackClip: bad } as Record<string, unknown>, DEFAULTS).forkFallbackClip)
         .toBe('playout/emergency');
     }

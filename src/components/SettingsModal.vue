@@ -20,6 +20,8 @@ import {
 } from '../services/casparProcess';
 import { getActivePlayoutService, isPlayoutPlaying } from '../services/playout';
 import { useMediaRootSettings } from '../composables/useMediaRootSettings';
+import { afterTemplatesDeployed, fallbackSettingsChanged } from '../services/fallbackMonitor';
+import { isAbsoluteClipPath } from '../lib/fallbackHealth';
 import { applyForkFallbackSettings, engineMode } from '../services/caspar';
 import { describeError, describeErrorMessage } from '../lib/describeError';
 import { showToast } from '../lib/toasts';
@@ -362,6 +364,8 @@ const deployTemplatesFromSettings = async () => {
 
         // Auto-refresh Layer 32 so changes take effect immediately with latest preset styling
         await getActivePlayoutService().reloadComplianceTemplate?.();
+        // F4: the default slate exists only now; re-arm the fork's fallback.
+        void afterTemplatesDeployed();
 
         await message(`Broadcast CG Templates deployed successfully!\n\nTarget Directory:\n${res.template_dir}\n\nFiles Deployed:\n• ${res.deployed.join('\n• ')}\n\n(On-air graphics have been refreshed automatically without server restart)`, {
             title: 'Broadcast CG Studio',
@@ -666,7 +670,48 @@ const oscPortError = computed(() => {
     return '';
 });
 
-const validationErrors = computed(() => [apiUrlError.value, oscPortError.value].filter(Boolean));
+/* --- AE-2: the fork's fallback must live on a local disk --- */
+
+interface LocalPathCheck { local: boolean; kind: string; reason: string | null }
+const fallbackClipError = ref('');
+const looksLikeNetworkPath = (value: string) => /^(\\\\|\/\/)/.test(value.trim());
+const checkLocalPath = async (value: string): Promise<string> => {
+    const trimmed = value.trim();
+    if (!trimmed || (!isAbsoluteClipPath(trimmed) && !looksLikeNetworkPath(trimmed))) return '';
+    try {
+        const check = await invoke<LocalPathCheck>('check_local_media_path', { path: trimmed });
+        return check.local ? '' : (check.reason || 'Not a local disk');
+    } catch (error) {
+        return String((error as any)?.message ?? error);
+    }
+};
+watch(() => localState.value.forkFallbackClip, async (value) => {
+    const error = await checkLocalPath(value || '');
+    if ((localState.value.forkFallbackClip || '') === (value || '')) fallbackClipError.value = error;
+}, { immediate: true });
+
+const pickFallbackClip = async () => {
+    const current = (localState.value.forkFallbackClip || '').trim();
+    const selection = await open({
+        title: 'Choose the fallback clip (local disk)',
+        multiple: false,
+        directory: false,
+        defaultPath: isAbsoluteClipPath(current) ? current : undefined,
+        filters: [
+            { name: 'Video and stills', extensions: ['mov', 'mp4', 'mxf', 'mkv', 'avi', 'm4v', 'mpg', 'ts', 'webm', 'png', 'jpg', 'jpeg', 'tga'] },
+            { name: 'All Files', extensions: ['*'] },
+        ],
+    });
+    if (!selection || Array.isArray(selection)) return;
+    const error = await checkLocalPath(selection);
+    if (error) {
+        await message(`${selection}\n\n${error}.`, { title: 'Fallback clip', kind: 'warning' });
+        return;
+    }
+    localState.value.forkFallbackClip = selection.replace(/\\/g, '/');
+};
+
+const validationErrors = computed(() => [apiUrlError.value, oscPortError.value, fallbackClipError.value].filter(Boolean));
 
 const canSave = computed(() => isDirty.value && validationErrors.value.length === 0);
 
@@ -734,6 +779,7 @@ const saveSettings = async () => {
     } catch {}
     // Fork engine only; a no-op on a stock engine or while disconnected.
     await applyForkFallbackSettings().catch(() => {});
+    fallbackSettingsChanged();
 
     // UI F-07: Save used to close the dialog silently, so there was no way to
     // tell a save from a mis-click on Cancel.
@@ -1097,8 +1143,23 @@ const openTemplateDir = async () => {
             </div>
             <div class="field">
               <label class="field-label" for="fork-fallback-clip">Fallback clip when the queue runs dry or a clip fails</label>
-              <input id="fork-fallback-clip" v-model="localState.forkFallbackClip" class="input mono" type="text" placeholder="playout/emergency" />
-              <p class="field-hint">Relative to the media folder. Deploying the templates installs <span class="mono">playout/emergency</span>. Empty: no fallback clip.</p>
+              <div class="input-with-button">
+                <input
+                  id="fork-fallback-clip"
+                  v-model="localState.forkFallbackClip"
+                  class="input mono"
+                  :class="{ 'input--invalid': fallbackClipError }"
+                  type="text"
+                  placeholder="D:/fallback/slate.mov"
+                />
+                <BaseButton variant="secondary" icon="folder-open" data-testid="fork-fallback-browse" @click="pickFallbackClip">Browse</BaseButton>
+              </div>
+              <p v-if="fallbackClipError" class="field-error" data-testid="fork-fallback-error">{{ fallbackClipError }}</p>
+              <p v-else class="field-hint">
+                A file on a local disk, so a media-share outage cannot take it out; network drives are refused.
+                <span class="mono">playout/emergency</span> (relative to the media folder) is the slate Deploy templates installs.
+                Empty: no fallback clip.<template v-if="engineMode === 'stock'"> Needs the PlayOut fork.</template>
+              </p>
             </div>
             <div class="field">
               <label class="field-label" for="fork-stall">Stall limit (channel ticks)</label>

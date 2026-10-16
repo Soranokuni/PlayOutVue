@@ -21,6 +21,7 @@ import IngestorStatusLight from './components/IngestorStatusLight.vue';
 import MediaHealthChip from './components/MediaHealthChip.vue';
 import MediaRootBanner from './components/MediaRootBanner.vue';
 import { useMediaRootStore } from './stores/mediaRoot';
+import { startFallbackMonitor, stopFallbackMonitor } from './services/fallbackMonitor';
 import AppIcon from './components/ui/AppIcon.vue';
 import RenderIsland from './components/ui/RenderIsland.vue';
 import ToastHost from './components/ui/ToastHost.vue';
@@ -825,6 +826,7 @@ onMounted(async () => {
   window.addEventListener('playout:open-inspector', handleInspectorOpenEvent);
   startControlBarObserver();
   mediaRoot.start();
+  startFallbackMonitor();
   revealWindow();
   if (settings.debugMode) {
     startJankMonitor();
@@ -915,6 +917,7 @@ onUnmounted(() => {
   window.removeEventListener('playout:open-inspector', handleInspectorOpenEvent);
   stopControlBarObserver();
   mediaRoot.stop();
+  stopFallbackMonitor();
   if (unlistenHeartbeat) {
     unlistenHeartbeat();
     unlistenHeartbeat = null;

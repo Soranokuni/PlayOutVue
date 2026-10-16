@@ -31,6 +31,7 @@ import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../l
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
 import { recordFrontendFault } from '../lib/frontendFaults';
 import { getAdvertisedMediaRoot, isMediaRootError } from '../lib/mediaRootContext';
+import { fallbackHealth, normalizeFallbackClip } from '../lib/fallbackHealth';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
 import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordinator';
 import { onCasparProcessStateChange, type CasparProcessStatus } from './casparProcess';
@@ -1242,17 +1243,38 @@ export async function applyForkFallbackSettings(): Promise<void> {
 
 async function configureForkFallback(): Promise<void> {
     const settings = getSettingsSnapshot() as any;
-    const clip = String(settings.forkFallbackClip ?? 'playout/emergency').trim();
+    // AE-2: an absolute local path goes to the engine as is, with forward slashes (FK-1).
+    const clip = normalizeFallbackClip(String(settings.forkFallbackClip ?? 'playout/emergency'));
     const rawStall = Number(settings.forkStallTicks);
     const stall = Number.isFinite(rawStall) && rawStall >= 0 ? Math.round(rawStall) : 50;
     const channel = PROGRAM_CHANNEL;
     const layer = CASPAR_LAYERS.video;
     try {
         await invoke<ForkReply>('caspar_fork_fallback', { channel, layer, clip: clip || null, tag: FALLBACK_TAG, stall });
+        fallbackHealth.mode = clip ? 'clip' : 'none';
+        fallbackHealth.target = clip;
     } catch (error) {
         forkFault(`Fallback clip "${clip}" could not be set (${String((error as any)?.message || error)}); stall detection only. Deploy the templates or choose a clip in Settings.`);
         await invoke('caspar_fork_fallback', { channel, layer, clip: null, tag: null, stall }).catch(() => {});
+        fallbackHealth.mode = 'none';
+        fallbackHealth.target = '';
     }
+    await readForkFallbackArmed();
+}
+
+/** AE-2: what the engine says about the layer's fallback (`QUEUE INFO` `fallback.set`). */
+export async function readForkFallbackArmed(): Promise<boolean | null> {
+    if (!isForkMode() || !isCasparConnected.value) {
+        fallbackHealth.engineSet = null;
+        return null;
+    }
+    try {
+        const info = await invoke<ForkQueueInfo | null>('caspar_fork_probe', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.video });
+        fallbackHealth.engineSet = info ? info.fallback?.set === true : null;
+    } catch {
+        fallbackHealth.engineSet = null;
+    }
+    return fallbackHealth.engineSet;
 }
 
 async function detectEngineMode(): Promise<void> {

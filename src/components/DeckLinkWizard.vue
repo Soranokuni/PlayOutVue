@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useSettingsStore } from '../stores/settings';
+import { afterTemplatesDeployed } from '../services/fallbackMonitor';
 import AppIcon from './ui/AppIcon.vue';
 
 const props = defineProps<{
@@ -278,6 +279,8 @@ const deployTemplates = async (overwrite: boolean = true) => {
     });
     templateDeployResult.value = res;
     statusMessage.value = `CG Templates deployed to ${res.template_dir}: ${res.deployed.length} installed, ${res.skipped.length} existing.`;
+    // F4: the default slate exists only now; re-arm the fork's fallback.
+    void afterTemplatesDeployed();
   } catch (error) {
     errorMessage.value = `Failed to deploy templates: ${String(error)}`;
   } finally {

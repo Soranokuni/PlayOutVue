@@ -102,6 +102,11 @@ const INT_FIELDS: Record<string, { min: number; max: number }> = {
     mediaRootVerifiedAt: { min: 0, max: Number.MAX_SAFE_INTEGER },
 };
 
+/** A media-relative engine clip name. */
+const FORK_CLIP_RELATIVE = /^[A-Za-z0-9_./ -]{0,256}$/;
+/** An absolute local path (`D:/…` or `D:\…`): no quote, no control character. */
+const FORK_CLIP_ABSOLUTE = /^[A-Za-z]:[\\/][^"\u0000-\u001f]{0,253}$/;
+
 /** A single token of the AMCP grammar: letters, digits, `_`, `-`, `.` */
 const AMCP_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
 
@@ -144,9 +149,11 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
     if (typeof state.decklinkInputFormat !== 'string' || !AMCP_TOKEN.test(state.decklinkInputFormat)) {
         (state as any).decklinkInputFormat = defaults.decklinkInputFormat;
     }
-    // Media-relative clip name inside `FALLBACK 1-10 "<clip>"`; empty = none.
+    // Clip inside `FALLBACK 1-10 "<clip>"`; empty = none. Media-relative, or
+    // (AE-2) an absolute path on a local disk; never a quote, a control
+    // character or a `..`. UNC paths are refused here as well as in the picker.
     if (typeof state.forkFallbackClip !== 'string'
-        || !/^[A-Za-z0-9_./ -]{0,256}$/.test(state.forkFallbackClip)
+        || !(FORK_CLIP_RELATIVE.test(state.forkFallbackClip) || FORK_CLIP_ABSOLUTE.test(state.forkFallbackClip))
         || state.forkFallbackClip.includes('..')) {
         (state as any).forkFallbackClip = defaults.forkFallbackClip;
     }

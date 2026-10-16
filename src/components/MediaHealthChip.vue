@@ -3,6 +3,8 @@ import { computed } from 'vue';
 import { vTooltip } from '../lib/tooltip';
 import { useMediaRootStore } from '../stores/mediaRoot';
 import { pickHeadline, type HealthItem } from '../lib/mediaHealth';
+import { describeFallback, fallbackHealth } from '../lib/fallbackHealth';
+import { engineMode, isCasparConnected } from '../services/caspar';
 
 /**
  * MEDIA-FALLBACK-HANDOFF: one chip for what the channel falls back on and
@@ -17,6 +19,8 @@ const items = computed<HealthItem[]>(() => {
     const list: HealthItem[] = [];
     const root = mediaRoot.view;
     if (!root.hidden) list.push({ key: 'media-root', tone: root.tone, label: root.label, detail: root.detail, section: 'media' });
+    const fallback = describeFallback(fallbackHealth, isCasparConnected.value && engineMode.value === 'fork');
+    if (fallback) list.push(fallback);
     return list;
 });
 
