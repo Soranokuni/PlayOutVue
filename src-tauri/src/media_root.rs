@@ -237,16 +237,29 @@ pub fn rewrite_media_path(xml: &str, new_root: &str) -> Result<String, String> {
     Ok(out)
 }
 
-/// `casparcg.config.bak-YYYYMMDD-HHMMSS` (UTC) next to the config.
-pub fn backup_path_for(config_path: &Path, epoch_ms: i64) -> PathBuf {
-    let date = crate::caspar_fork::utc_date(epoch_ms).replace('-', "");
-    let secs = epoch_ms.div_euclid(1000).rem_euclid(86_400);
+/// `casparcg.config.bak-YYYYMMDD-HHMMSS` next to the config, in the PC's
+/// local time (the time on the operator's clock): `offset_min` is local
+/// minus UTC, from [`local_utc_offset_minutes`].
+pub fn backup_path_for(config_path: &Path, epoch_ms: i64, offset_min: i32) -> PathBuf {
+    let local_ms = epoch_ms + i64::from(offset_min) * 60_000;
+    let date = crate::caspar_fork::utc_date(local_ms).replace('-', "");
+    let secs = local_ms.div_euclid(1000).rem_euclid(86_400);
     let stamp = format!("{}-{:02}{:02}{:02}", date, secs / 3600, (secs / 60) % 60, secs % 60);
     let name = config_path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "casparcg.config".to_string());
     config_path.with_file_name(format!("{}.bak-{}", name, stamp))
+}
+
+/// Local time minus UTC at `epoch_ms`, in minutes (DST included).
+pub fn local_utc_offset_minutes(epoch_ms: i64) -> i32 {
+    use chrono::{Local, Offset, TimeZone};
+    Local
+        .timestamp_millis_opt(epoch_ms)
+        .single()
+        .map(|t| t.offset().fix().local_minus_utc() / 60)
+        .unwrap_or(0)
 }
 
 /// Strict CasparCG path for a registry asset (AE-1 resolver): `current_path`
@@ -358,11 +371,11 @@ pub struct MediaPathFix {
     pub restart_error: Option<String>,
 }
 
-fn write_media_path_fix(config_path: &Path, root: &str, epoch_ms: i64) -> Result<(PathBuf, String), String> {
+fn write_media_path_fix(config_path: &Path, root: &str, epoch_ms: i64, offset_min: i32) -> Result<(PathBuf, String), String> {
     let xml = std::fs::read_to_string(config_path)
         .map_err(|e| format!("Cannot read '{}': {}", config_path.display(), e))?;
     let rewritten = rewrite_media_path(&xml, root)?;
-    let backup = backup_path_for(config_path, epoch_ms);
+    let backup = backup_path_for(config_path, epoch_ms, offset_min);
     std::fs::copy(config_path, &backup)
         .map_err(|e| format!("Cannot back up '{}' to '{}': {}", config_path.display(), backup.display(), e))?;
     crate::atomic_fs::write_atomic(config_path, rewritten.as_bytes())
@@ -409,7 +422,7 @@ pub async fn fix_caspar_media_path<R: Runtime>(
     let path_for_write = config_path.clone();
     let root_for_write = root.clone();
     let (backup, media_path) = tauri::async_runtime::spawn_blocking(move || {
-        write_media_path_fix(&path_for_write, &root_for_write, epoch_ms)
+        write_media_path_fix(&path_for_write, &root_for_write, epoch_ms, local_utc_offset_minutes(epoch_ms))
     })
     .await
     .map_err(|e| format!("config worker failed: {}", e))??;
@@ -570,8 +583,9 @@ mod tests {
         let cfg = dir.join("casparcg.config");
         std::fs::write(&cfg, CONFIG_KEBAB).unwrap();
         let epoch_ms = 1_792_144_800_000; // 2026-10-16T10:00:00Z
-        let (backup, media) = write_media_path_fix(&cfg, "D:/Mezz", epoch_ms).unwrap();
-        assert_eq!(backup.file_name().unwrap().to_string_lossy(), "casparcg.config.bak-20261016-100000");
+        // Athens summer time, UTC+3: the name carries the operator's clock.
+        let (backup, media) = write_media_path_fix(&cfg, "D:/Mezz", epoch_ms, 180).unwrap();
+        assert_eq!(backup.file_name().unwrap().to_string_lossy(), "casparcg.config.bak-20261016-130000");
         assert_eq!(std::fs::read_to_string(&backup).unwrap(), CONFIG_KEBAB);
         assert_eq!(media, "D:/Mezz/");
         assert!(std::fs::read_to_string(&cfg).unwrap().contains("<media-path>D:/Mezz/</media-path>"));
