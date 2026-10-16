@@ -199,6 +199,15 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
     if (!['low', 'medium', 'high', 'xhigh', 'max'].includes(state.aiEffort as string)) {
         (state as any).aiEffort = 'medium';
     }
+    // AE-4: the filler folder goes inside `FALLBACK 1-10 LIST "<folder>"`.
+    if (typeof state.forkFillerFolder !== 'string'
+        || !(FORK_CLIP_RELATIVE.test(state.forkFillerFolder) || FORK_CLIP_ABSOLUTE.test(state.forkFillerFolder))
+        || state.forkFillerFolder.includes('..')) {
+        (state as any).forkFillerFolder = '';
+    }
+    for (const key of ['forkFillerShuffle', 'forkFillOnDry'] as const) {
+        if (typeof state[key] !== 'boolean') (state as any)[key] = key in defaults ? defaults[key] : true;
+    }
     for (const key of ['trimmerAudioMuted', 'trimmerScrubAudio', 'playoutAutoRestart'] as const) {
         if (typeof state[key] !== 'boolean') (state as any)[key] = defaults[key];
     }
@@ -308,6 +317,12 @@ export const useSettingsStore = defineStore('settings', {
         forkQueueDepth: 2,
         forkFallbackClip: 'playout/emergency',
         forkStallTicks: 50,
+        // AE-4 (C3): a local folder the engine rotates as fillers (`FALLBACK
+        // LIST`; empty = the single clip only), in random order, and whether a
+        // natural end of the rundown leaves the fallback / fillers on air (F1).
+        forkFillerFolder: '',
+        forkFillerShuffle: true,
+        forkFillOnDry: true,
 
         // AE-3 (C3): the look-ahead pre-flight checks the next rows due within
         // this window every 30 s (file under the verified root, size and uuid

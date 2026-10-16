@@ -14,6 +14,7 @@ import { usePlaylistFile } from '../composables/usePlaylistFile';
 import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
 import { useLookAheadStore } from '../stores/lookAhead';
 import { issueLabel } from '../lib/lookAhead';
+import { fallbackHealth } from '../lib/fallbackHealth';
 import { contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
 import { CONTENT_TYPES, effectiveContentType, type ContentType } from '../lib/contentTypes';
 import AppIcon from './ui/AppIcon.vue';
@@ -1385,6 +1386,11 @@ onUnmounted(() => {
         <div class="rw-header-name-row">
           <h2 class="text-warning rw-header-name">{{ store.currentPlaylistName }}</h2>
           <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge"><AppIcon name="play" :size="12" /> ON AIR</span>
+          <span
+            v-else-if="fallbackHealth.rundownFinished && fallbackHealth.onAir"
+            class="playing-badge rw-finished-badge"
+            data-testid="rundown-finished-on-fillers"
+          ><AppIcon name="layers" :size="12" /> FINISHED · ON FILLERS</span>
         </div>
         <PlaylistTotals />
       </div>
@@ -1983,6 +1989,13 @@ onUnmounted(() => {
   color: var(--accent-red); font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps);
   padding: var(--space-0) var(--space-2); border-radius: var(--radius-sm);
   animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+}
+/* F1 / AE-4: the rundown ended and the engine's fillers hold the air. */
+.playing-badge.rw-finished-badge {
+  background: color-mix(in srgb, var(--status-processing) 16%, transparent);
+  border-color: color-mix(in srgb, var(--status-processing) 50%, transparent);
+  color: var(--status-processing);
+  animation: none;
 }
 /* §2.1: the second `.icon-action` definition is gone -- it had a different
    radius, padding and hover from the library's, for controls that sit four

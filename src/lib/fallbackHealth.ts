@@ -30,6 +30,16 @@ export interface FallbackSelfTest {
     fillers: FillerTest | null;
 }
 
+/** AE-4: the engine's fallback / fillers are on air. */
+export interface FallbackOnAir {
+    since: number;
+    /** The filler on air (C2 `file`), null for the single clip. */
+    file: string | null;
+    reason: string;
+    /** Fillers aired in this run. */
+    count: number;
+}
+
 export interface FallbackHealthState {
     /** `QUEUE INFO` `fallback.set` after the last FALLBACK; null = not known (stock, offline). */
     engineSet: boolean | null;
@@ -42,6 +52,10 @@ export interface FallbackHealthState {
     testError: string | null;
     /** AE-4: false after the filler folder failed its self-test; the single clip is used instead. */
     fillersUsable: boolean;
+    /** AE-4: what the engine shows instead of a rundown row, null when a row (or nothing) is on air. */
+    onAir: FallbackOnAir | null;
+    /** F1: the rundown ended naturally and the fallback / fillers took over. */
+    rundownFinished: boolean;
 }
 
 export const fallbackHealth = reactive<FallbackHealthState>({
@@ -52,6 +66,8 @@ export const fallbackHealth = reactive<FallbackHealthState>({
     testedAt: 0,
     testError: null,
     fillersUsable: true,
+    onAir: null,
+    rundownFinished: false,
 });
 
 /** Tests only. */
@@ -64,6 +80,8 @@ export function resetFallbackHealth(): void {
         testedAt: 0,
         testError: null,
         fillersUsable: true,
+        onAir: null,
+        rundownFinished: false,
     });
 }
 
@@ -76,6 +94,19 @@ export function isAbsoluteClipPath(clip: string): boolean {
 export function normalizeFallbackClip(clip: string | null | undefined): string {
     const trimmed = (clip ?? '').trim();
     return isAbsoluteClipPath(trimmed) ? trimmed.replace(/\\/g, '/') : trimmed;
+}
+
+/** "On fillers" / "Finished · on fillers": sticky, it is what the channel shows. */
+export function describeFallbackOnAir(state: FallbackHealthState, forkMode: boolean): HealthItem | null {
+    if (!forkMode || !state.onAir) return null;
+    const fillers = state.mode === 'list' || !!state.onAir.file;
+    const what = fillers ? 'On fillers' : 'On fallback';
+    const label = state.rundownFinished ? `Finished · ${what.toLowerCase()}` : what;
+    const playing = state.onAir.file ? ` Now: ${state.onAir.file}.` : '';
+    const detail = state.rundownFinished
+        ? `The rundown finished; CasparCG shows its ${fillers ? 'fillers' : 'fallback clip'} until a row is taken.${playing}`
+        : `CasparCG shows its ${fillers ? 'fillers' : 'fallback clip'} (${state.onAir.reason}) until a row is taken.${playing}`;
+    return { key: 'fallback-on-air', tone: 'processing', label, detail, section: 'playout', sticky: true };
 }
 
 /** The chip item for the fallback; null when it has nothing to say (stock engine). */

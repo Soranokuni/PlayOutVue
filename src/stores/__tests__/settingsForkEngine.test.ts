@@ -29,6 +29,16 @@ describe('fork engine settings hydration', () => {
     }
   });
 
+  it('keeps a local filler folder and drops one that could break FALLBACK LIST', () => {
+    const defaults = { ...DEFAULTS, forkFillerFolder: '', forkFillerShuffle: true, forkFillOnDry: true };
+    expect(sanitizeSettingsState({ ...defaults, forkFillerFolder: 'D:/fillers' }, defaults).forkFillerFolder).toBe('D:/fillers');
+    for (const bad of ['D:/a"b', 'D:/x/../y', 'D:/a\r\nKILL', 7]) {
+      expect(sanitizeSettingsState({ ...defaults, forkFillerFolder: bad } as Record<string, unknown>, defaults).forkFillerFolder).toBe('');
+    }
+    const flags = sanitizeSettingsState({ ...defaults, forkFillerShuffle: 'yes', forkFillOnDry: 0 } as Record<string, unknown>, defaults);
+    expect(flags).toMatchObject({ forkFillerShuffle: true, forkFillOnDry: true });
+  });
+
   it('bounds the queue depth and the stall limit', () => {
     expect(sanitizeSettingsState({ ...DEFAULTS, forkQueueDepth: 0 }, DEFAULTS).forkQueueDepth).toBe(2);
     expect(sanitizeSettingsState({ ...DEFAULTS, forkQueueDepth: 12 }, DEFAULTS).forkQueueDepth).toBe(2);

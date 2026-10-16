@@ -17,6 +17,7 @@ import {
 } from '../lib/playoutDispatch';
 import {
     FALLBACK_TAG,
+    isFallbackTag,
     syncForkQueue,
     tagBase,
     takeTag,
@@ -561,6 +562,9 @@ function offerRelaunchRecovery(candidate: NonNullable<typeof relaunchCandidate>,
         input = { ...rebased.input, paused: false };
         engine = rebased.engine;
     }
+    // AE-4: the engine holds the air with its fillers / slate.
+    const onFallback = isForkMode() && isFallbackTag(forkForegroundTag);
+    if (onFallback) engine = 'fillers';
     const offer = planRelaunchRecovery(
         input,
         schedule,
@@ -580,7 +584,8 @@ function offerRelaunchRecovery(candidate: NonNullable<typeof relaunchCandidate>,
         ...offer.alternatives.map((action) => ({ action, label: actionLabel(action, queue), primary: false })),
     ];
     if (offer.primary.kind !== 'hold') {
-        actions.push({ action: { kind: 'hold', index: -1, seekMs: 0 }, label: 'Stay off air', primary: false });
+        const holdLabel = onFallback ? (fallbackHealth.mode === 'list' ? 'Stay on fillers' : 'Stay on the fallback') : 'Stay off air';
+        actions.push({ action: { kind: 'hold', index: -1, seekMs: 0 }, label: holdLabel, primary: false });
     }
     const previous = bootInfo?.previousSession;
     relaunchOffer.value = {
@@ -1126,13 +1131,52 @@ function handleEngineEvent(event: EngineEvent) {
     }
 }
 
+/**
+ * AE-4: the engine put its fallback on air: the slate (`fallback`) or a filler
+ * (`fallback:<n>`, one event per filler). On the way in, fillers carry no
+ * rating: the advisory goes to logo only and the TP / rating layers clear. If
+ * the rundown's last row was on air, this is the end of the rundown (F1).
+ */
+function onForkFallbackOnAir(event: EngineEvent) {
+    const wasOnFallback = isFallbackTag(forkForegroundTag);
+    const endedRow = !wasOnFallback && !forkPendingTakeTag && isCasparPlaying.value ? currentKey : null;
+    forkForegroundTag = event.tag;
+    forkWaitingTags = [];
+    const previous = fallbackHealth.onAir;
+    fallbackHealth.onAir = {
+        since: wasOnFallback && previous ? previous.since : Date.now(),
+        file: event.file ?? null,
+        reason: event.reason,
+        count: wasOnFallback && previous ? previous.count + 1 : 1,
+    };
+    if (wasOnFallback) return;
+
+    const lastRow = queuedItems.length > 0 ? queueKey(queuedItems[queuedItems.length - 1]!) : null;
+    const settings = getSettingsSnapshot() as any;
+    const endOfRundown = fallbackHealth.rundownFinished || (!!endedRow && endedRow === lastRow);
+    const what = fallbackHealth.mode === 'list' ? 'Fillers' : 'Fallback clip';
+    if (endOfRundown && settings.forkFillOnDry !== false) {
+        invoke('push_diagnostic_log', { level: 'info', scope: 'caspar-playout', message: `${what} on air: the rundown finished.` }).catch(() => {});
+    } else {
+        forkFault(`${what} on air (${event.reason}): no queued item was ready.`, 'error');
+    }
+    // A take on its way brings its own graphics on its first frame.
+    if (!forkPendingTakeTag) {
+        casparPlayoutService.applyComplianceForItem?.(idleStationIdItem())?.catch?.((error: any) => {
+            console.warn('[CasparCG] Clearing the graphics for the fallback failed', error);
+        });
+    }
+    // F1: the last row is off air; finish the rundown without clearing layer 10.
+    if (endedRow && endedRow === lastRow) {
+        advanceNext(true, endedRow).catch((error) => console.error('[CasparCG] end of rundown on the fallback failed', error));
+    }
+}
+
 function onForkOnAir(event: EngineEvent) {
     const tag = event.tag;
     if (!tag) return;
-    if (tag === FALLBACK_TAG) {
-        forkForegroundTag = tag;
-        forkWaitingTags = [];
-        forkFault(`Fallback clip on air (${event.reason}): no queued item was ready.`, 'error');
+    if (isFallbackTag(tag)) {
+        onForkFallbackOnAir(event);
         return;
     }
 
@@ -1152,6 +1196,9 @@ function onForkOnAir(event: EngineEvent) {
         natural = true;
     }
     forkForegroundTag = tag;
+    // A row of ours is on air: the fillers / slate are over.
+    fallbackHealth.onAir = null;
+    fallbackHealth.rundownFinished = false;
 
     if (natural) {
         // The cut belongs to the engine; everything that belonged to the
@@ -1230,6 +1277,49 @@ function onForkActionFailed(event: EngineEvent) {
     }
 }
 
+/** F1: does a natural end of the rundown leave the engine's fallback on air? */
+function shouldFinishOnFallback(): boolean {
+    const settings = getSettingsSnapshot() as any;
+    return isForkMode()
+        && isCasparConnected.value
+        && settings.forkFillOnDry !== false
+        && fallbackHealth.engineSet !== false
+        && fallbackHealth.mode !== 'none';
+}
+
+/**
+ * F1: the rundown ended naturally in fork mode. Release PlayOut's on-air
+ * state exactly as Stop does, but leave layer 10 (the engine's fallback or
+ * fillers) and the station ID alone.
+ */
+async function finishRundownOnFallback(): Promise<void> {
+    playToken += 1;
+    fenceForkNaturalCuts();
+    invalidatePreloads();
+    activeGuard.clear();
+    playbackCoordinator.stop('rundown finished on the fallback');
+    isCasparPlaying.value = false;
+    isLiveActive.value = false;
+    currentCasparDurationMs.value = 0;
+    claimCurrentKey(null);
+    updateDisplayedTime(0);
+    timelineTimers.forEach(clearTimeout);
+    timelineTimers = [];
+    pendingResumeSeekMs = 0;
+    wasPlayingOnDisconnect = false;
+    if (resumeEvalTimer) clearTimeout(resumeEvalTimer);
+    resumeEvalTimer = null;
+    const fallbackTag = isFallbackTag(forkForegroundTag) ? forkForegroundTag : null;
+    resetForkState();
+    // The fillers keep rotating: their next events belong to the same run.
+    forkForegroundTag = fallbackTag;
+    fallbackHealth.rundownFinished = true;
+    await invoke('caspar_clear_playback').catch(() => {});
+    await invoke('caspar_set_playback_paused', { paused: false }).catch(() => {});
+    useRundownStore().stopPlaybackProgressTimer();
+    pushCheckpoint('stop');
+}
+
 /**
  * D5: the layer's fallback clip and stall limit, from the settings. Sent on
  * every connect in fork mode and after a settings save. The engine keeps the
@@ -1245,10 +1335,36 @@ async function configureForkFallback(): Promise<void> {
     const settings = getSettingsSnapshot() as any;
     // AE-2: an absolute local path goes to the engine as is, with forward slashes (FK-1).
     const clip = normalizeFallbackClip(String(settings.forkFallbackClip ?? 'playout/emergency'));
+    const folder = normalizeFallbackClip(String(settings.forkFillerFolder ?? ''));
     const rawStall = Number(settings.forkStallTicks);
     const stall = Number.isFinite(rawStall) && rawStall >= 0 ? Math.round(rawStall) : 50;
     const channel = PROGRAM_CHANNEL;
     const layer = CASPAR_LAYERS.video;
+    // AE-4 (C2): the engine rotates the filler folder by itself, so fillers
+    // outlive PlayOut. The single clip stays the answer when the folder fails.
+    if (folder && fallbackHealth.fillersUsable) {
+        try {
+            const reply = await invoke<ForkReply>('caspar_fork_fallback_list', {
+                channel,
+                layer,
+                folder,
+                shuffle: settings.forkFillerShuffle !== false,
+                noRepeat: null,
+                tag: FALLBACK_TAG,
+                stall,
+            });
+            if (reply.code < 400) {
+                fallbackHealth.mode = 'list';
+                fallbackHealth.target = folder;
+                await readForkFallbackArmed();
+                return;
+            }
+            forkFault(`Filler folder "${folder}" refused (${reply.body}); using the single fallback clip.`);
+        } catch (error) {
+            forkFault(`Filler folder "${folder}" could not be set (${String((error as any)?.message || error)}); using the single fallback clip.`);
+        }
+        fallbackHealth.fillersUsable = false;
+    }
     try {
         await invoke<ForkReply>('caspar_fork_fallback', { channel, layer, clip: clip || null, tag: FALLBACK_TAG, stall });
         fallbackHealth.mode = clip ? 'clip' : 'none';
@@ -2414,7 +2530,20 @@ async function adoptForkOnAir(): Promise<boolean> {
     }
     const foreground = info?.foreground;
     const tag = foreground?.tag || '';
-    if (!foreground || !tag || tag === FALLBACK_TAG) return false;
+    if (foreground && isFallbackTag(tag)) {
+        // AE-4: the engine is on its fallback / fillers (it kept them up while
+        // PlayOut was away). Not a foreign clip: the relaunch plan offers
+        // Join schedule / Stay on fillers.
+        forkForegroundTag = tag;
+        fallbackHealth.onAir = {
+            since: Date.now(),
+            file: info?.fallback?.current ?? null,
+            reason: 'adopted',
+            count: fallbackHealth.onAir?.count ?? 1,
+        };
+        return false;
+    }
+    if (!foreground || !tag) return false;
 
     const rowId = tagBase(tag);
     const store = useRundownStore();
@@ -3564,7 +3693,14 @@ async function advanceToNext(token: number, natural: boolean) {
         const nextIndex = currentIndex + 1;
 
         if (nextIndex >= queuedItems.length) {
-            await casparPlayoutService.stop();
+            // F1: in fork mode the engine already shows its fallback / fillers;
+            // a natural end of the rundown leaves them on air. Stop stays an
+            // explicit CLEAR.
+            if (natural && shouldFinishOnFallback()) {
+                await finishRundownOnFallback();
+            } else {
+                await casparPlayoutService.stop();
+            }
             onAdvanceCallback?.(null);
             return;
         }
@@ -4110,6 +4246,8 @@ export const casparPlayoutService: PlayoutService = {
             await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
         }
         resetForkState();
+        fallbackHealth.onAir = null;
+        fallbackHealth.rundownFinished = false;
 
         // Release Rust playback ownership.
         await invoke('caspar_clear_playback').catch(() => {});

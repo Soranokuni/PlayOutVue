@@ -107,6 +107,21 @@ describe('planRelaunchRecovery', () => {
         expect(offer.autoConfirmS).toBe(10);
     });
 
+    it('AE-4: with fillers on air it offers the schedule, never resumes, never runs by itself', () => {
+        // Short outage: would resume with a countdown on an empty layer.
+        const offer = planRelaunchRecovery(input(), queue, 'fillers', T0 + 12_000, policy);
+        expect(offer.primary.kind).toBe('join');
+        expect(offer.alternatives).toEqual([]);
+        expect(offer.autoConfirmS).toBeNull();
+        expect(offer.reason).toMatch(/fillers/);
+    });
+
+    it('AE-4: fillers on air after the rundown would have ended: stay on them', () => {
+        const offer = planRelaunchRecovery(input(), queue, 'fillers', T0 + 24 * 60 * MIN, policy);
+        expect(offer.primary.kind).toBe('hold');
+        expect(offer.autoConfirmS).toBeNull();
+    });
+
     it('long outage: holds and waits for the operator', () => {
         const offer = planRelaunchRecovery(input(), queue, 'empty', T0 + 45 * MIN, policy);
         expect(offer.primary.kind).toBe('hold');

@@ -16,6 +16,8 @@ interface FakeEngine {
 }
 
 const engine: FakeEngine = { foreground: '', foregroundFrame: 0, waiting: [], log: [], beforeNext: null };
+/** AE-4: how the fake engine answers `FALLBACK LIST` (404 = empty folder). */
+let fillerListCode = 202;
 
 function fakeInvoke(cmd: string, args: any = {}): unknown {
     const mutate = () => {
@@ -24,6 +26,12 @@ function fakeInvoke(cmd: string, args: any = {}): unknown {
         hook?.();
     };
     switch (cmd) {
+        case 'caspar_fork_fallback_list':
+            engine.log.push(`FALLBACK LIST ${args.folder}${args.shuffle ? ' SHUFFLE' : ''} TAG ${args.tag} STALL ${args.stall}`);
+            return { code: fillerListCode, body: fillerListCode === 404 ? '404 FALLBACK LIST EMPTY' : '202 FALLBACK OK' };
+        case 'caspar_fork_fallback':
+            engine.log.push(`FALLBACK ${args.clip ?? 'CLEAR'}`);
+            return { code: 202, body: '202 FALLBACK OK' };
         case 'caspar_fork_probe':
             return {
                 channel: 1, layer: 10, instance: 1, frame: 0, eventSeq: 0,
@@ -91,6 +99,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 import { setActivePinia, createPinia } from 'pinia';
 import {
+    applyForkFallbackSettings,
     casparPlayoutService,
     engineRecovery,
     isCasparConnected,
@@ -99,6 +108,8 @@ import {
 } from '../caspar';
 import { releaseAssetsBeforeDelete } from '../../lib/assetRelease';
 import { useRundownStore } from '../../stores/rundown';
+import { useSettingsStore } from '../../stores/settings';
+import { fallbackHealth, resetFallbackHealth } from '../../lib/fallbackHealth';
 
 const item = (id: string, extra: Record<string, unknown> = {}) =>
     ({
@@ -115,8 +126,8 @@ const item = (id: string, extra: Record<string, unknown> = {}) =>
     }) as any;
 
 let seq = 0;
-const event = (kind: string, tag: string, reason = 'auto') =>
-    fork.handleEngineEvent({ seq: ++seq, kind, tag, frame: seq * 10, timeMs: 0, reason });
+const event = (kind: string, tag: string, reason = 'auto', file?: string) =>
+    fork.handleEngineEvent({ seq: ++seq, kind, tag, frame: seq * 10, timeMs: 0, reason, ...(file ? { file } : {}) });
 
 /** The engine cuts to the head of its queue, as an AUTO hand-over does. */
 const engineCut = () => {
@@ -156,6 +167,8 @@ describe('fork mode playout', () => {
         engine.log = [];
         engine.beforeNext = null;
         advances.length = 0;
+        fillerListCode = 202;
+        resetFallbackHealth();
         isCasparConnected.value = true;
         fork.setEngineMode('fork');
         casparPlayoutService.onAdvance((key) => advances.push(key));
@@ -296,7 +309,8 @@ describe('fork mode playout', () => {
         expect(engine.waiting).toEqual(['c', 'd']);
     });
 
-    it('stops at the end of the rundown like the stock path', async () => {
+    it('stops at the end of the rundown like the stock path without "fill on dry"', async () => {
+        useSettingsStore().updateSettings({ forkFillOnDry: false });
         await startOn([item('a')]);
         expect(engine.waiting).toEqual([]);
 
@@ -306,6 +320,105 @@ describe('fork mode playout', () => {
         expect(fork.state().currentKey).toBeNull();
         expect(engine.log).toContain('CLEAR 1-10');
         expect(advances[advances.length - 1]).toBeNull();
+    });
+
+    it('F1: a natural end of the rundown leaves the fallback on air', async () => {
+        await startOn([item('a')]);
+
+        event('ended', 'a', 'ended');
+        event('offair', 'a');
+        event('onair', 'fallback:1', 'ended', 'promo_a.mov');
+        await settle();
+
+        expect(fork.state().currentKey).toBeNull();
+        expect(engine.log).not.toContain('CLEAR 1-10');
+        expect(advances[advances.length - 1]).toBeNull();
+        expect(fallbackHealth.rundownFinished).toBe(true);
+        expect(fallbackHealth.onAir).toMatchObject({ file: 'promo_a.mov', count: 1 });
+
+        // The next filler of the same run only updates the readout.
+        event('onair', 'fallback:2', 'ended', 'promo_b.mov');
+        await settle();
+        expect(fallbackHealth.onAir).toMatchObject({ file: 'promo_b.mov', count: 2 });
+        expect(fork.state().foregroundTag).toBe('fallback:2');
+
+        // Stop stays an explicit CLEAR.
+        await casparPlayoutService.stop();
+        expect(engine.log).toContain('CLEAR 1-10');
+        expect(fallbackHealth.onAir).toBeNull();
+        expect(fallbackHealth.rundownFinished).toBe(false);
+    });
+
+    it('F1: also when the fallback reaches air before the ended event', async () => {
+        await startOn([item('a')]);
+
+        event('onair', 'fallback:1', 'ended', 'promo_a.mov');
+        await settle();
+        event('ended', 'a', 'ended');
+        await settle();
+
+        expect(fork.state().currentKey).toBeNull();
+        expect(engine.log).not.toContain('CLEAR 1-10');
+        expect(fallbackHealth.rundownFinished).toBe(true);
+    });
+
+    it('fillers clear the advisory to the logo and the TP / rating layers', async () => {
+        await startOn([item('a'), item('b', { ingestorStatus: 'processing' })]);
+        const { invoke } = await import('@tauri-apps/api/core');
+        const calls = vi.mocked(invoke).mock.calls;
+        const before = calls.length;
+
+        event('onair', 'fallback:1', 'ended', 'promo_a.mov');
+        await settle();
+
+        const after = calls.slice(before);
+        const cleared = after.filter(([cmd]) => cmd === 'caspar_clear_layer').map(([, args]) => (args as any).layer);
+        expect(cleared).toEqual(expect.arrayContaining([31, 34]));
+        const cg = after.find(([cmd]) => cmd === 'caspar_cg_update' || cmd === 'caspar_cg_add');
+        expect(cg).toBeTruthy();
+        // A dry queue mid-rundown is not the end: the row stays PlayOut's.
+        expect(fork.state().currentKey).toBe('a');
+        expect(fallbackHealth.rundownFinished).toBe(false);
+    });
+
+    it('arms the filler folder with FALLBACK LIST, and the clip when the folder is refused', async () => {
+        const settings = useSettingsStore();
+        settings.updateSettings({ forkFillerFolder: 'D:\\fillers', forkFillerShuffle: true, forkFallbackClip: 'D:/fallback/slate.mov', forkStallTicks: 50 });
+        await applyForkFallbackSettings();
+        expect(engine.log).toContain('FALLBACK LIST D:/fillers SHUFFLE TAG fallback STALL 50');
+        expect(engine.log).not.toContain('FALLBACK D:/fallback/slate.mov');
+        expect(fallbackHealth.mode).toBe('list');
+
+        engine.log = [];
+        fillerListCode = 404;
+        await applyForkFallbackSettings();
+        expect(engine.log).toEqual(['FALLBACK LIST D:/fillers SHUFFLE TAG fallback STALL 50', 'FALLBACK D:/fallback/slate.mov']);
+        expect(fallbackHealth.mode).toBe('clip');
+        expect(fallbackHealth.fillersUsable).toBe(false);
+    });
+
+    it('after a relaunch, fillers on air are not a foreign clip to adopt', async () => {
+        queue.setState([item('a'), item('b')], null, false);
+        engine.foreground = 'fallback:7';
+        expect(await fork.adoptForkOnAir()).toBe(false);
+        expect(fork.state().foregroundTag).toBe('fallback:7');
+        expect(fallbackHealth.onAir).not.toBeNull();
+        expect(engine.log).not.toContain('CLEAR 1-10');
+    });
+
+    it('a take after the fillers ends the "on fillers" state', async () => {
+        await startOn([item('a')]);
+        event('ended', 'a', 'ended');
+        event('onair', 'fallback:1', 'ended', 'promo_a.mov');
+        await settle();
+        expect(fallbackHealth.onAir).not.toBeNull();
+
+        await casparPlayoutService.play([item('a')], 0);
+        await settle();
+        event('onair', engine.foreground, 'take');
+        await settle();
+        expect(fallbackHealth.onAir).toBeNull();
+        expect(fallbackHealth.rundownFinished).toBe(false);
     });
 
     it('the fallback going on air does not move the on-air row', async () => {

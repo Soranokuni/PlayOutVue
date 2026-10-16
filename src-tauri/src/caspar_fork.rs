@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::amcp::{
-    cg_add_cmd, cg_update_cmd, events_cmd, fallback_clear_cmd, fallback_cmd, fallback_stall_cmd,
+    cg_add_cmd, cg_update_cmd, events_cmd, fallback_clear_cmd, fallback_cmd, fallback_list_cmd, fallback_stall_cmd,
     is_safe_template_name, onair_cmd, parse_events, parse_queue_clear_count, parse_queue_info,
     queue_clear_cmd, queue_info_cmd, queue_remove_cmd, tagged_item_cmd, AmcpClient, AmcpResponse,
     EngineEvent, EventsReply, ItemVerb, QueueInfo, TaggedItem,
@@ -214,6 +214,26 @@ pub async fn caspar_fork_fallback(
     accept(&cmd, resp, &[])
 }
 
+/// Contract C2: rotate a folder of fillers as the layer's fallback. `404`
+/// (empty or unreadable folder) is returned as data: the caller falls back to
+/// the single clip.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn caspar_fork_fallback_list(
+    channel: u8,
+    layer: u16,
+    folder: String,
+    shuffle: bool,
+    no_repeat: Option<u32>,
+    tag: Option<String>,
+    stall: Option<u32>,
+    client: State<'_, AmcpClient>,
+) -> Result<ForkReply, String> {
+    let cmd = fallback_list_cmd(channel, layer, &folder, shuffle, no_repeat, tag.as_deref().unwrap_or("fallback"), stall)?;
+    let resp = client.send(&cmd).await?;
+    accept(&cmd, resp, &[NOT_FOUND])
+}
+
 // ── Engine mode and fork OSC events (`PLAYOUT-FORK.md` §5) ──────────────────
 
 /// Which server drives the program layer. `Unknown` until the first probe;
@@ -283,6 +303,8 @@ pub fn parse_fork_osc(channel: u8, layer: u16, address: &str, args: &[rosc::OscT
         kind: kind.to_string(),
         tag: osc_str(&args[3])?.to_string(),
         reason: osc_str(&args[4])?.to_string(),
+        // C2: an optional sixth argument names the filler's file.
+        file: args.get(5).and_then(osc_str).filter(|f| !f.is_empty()).map(str::to_string),
     }))
 }
 
@@ -653,6 +675,20 @@ pub struct AsRunEntry {
     pub reason: String,
     /// Replayed by `EVENTS` after a relaunch: it aired while PlayOut was away.
     pub replayed: bool,
+    /// AE-4: the filler's file name (`FALLBACK LIST`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+}
+
+/// AE-4: a filler going on air is logged as its own kind, so the as-run tells
+/// fillers from the slate and from rundown rows.
+pub fn asrun_kind(event: &EngineEvent) -> String {
+    let is_fallback = event.tag.split(':').next() == Some("fallback");
+    if is_fallback && event.kind == "onair" && event.file.is_some() {
+        "filler".to_string()
+    } else {
+        event.kind.clone()
+    }
 }
 
 impl AsRunEntry {
@@ -662,12 +698,13 @@ impl AsRunEntry {
             at_ms: event.time,
             instance,
             seq: event.seq,
-            kind: event.kind.clone(),
+            kind: asrun_kind(event),
             tag: event.tag.clone(),
             row_id,
             frame: event.frame,
             reason: event.reason.clone(),
             replayed,
+            file: event.file.clone(),
         }
     }
 }
@@ -919,6 +956,7 @@ mod tests {
                     kind: "onair".into(),
                     tag: format!("t{}", seq),
                     reason: "auto".into(),
+                    file: None,
                 })
                 .collect(),
             lost: false,
@@ -1001,11 +1039,57 @@ mod tests {
     fn engine_event_payload_shape() {
         let event = EngineEvent {
             seq: 4, frame: 443, time: 1_792_069_797_688, kind: "onair".into(), tag: "b".into(), reason: "auto".into(),
+            file: None,
         };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["timeMs"], 1_792_069_797_688i64);
         assert_eq!(json["kind"], "onair");
         assert!(json.get("time").is_none());
+        assert!(json.get("file").is_none());
+    }
+
+    #[test]
+    fn filler_events_carry_their_file_into_the_asrun() {
+        // C2: `EVENTS` JSON with the new optional `file`.
+        let event: EngineEvent = serde_json::from_str(
+            r#"{"seq":9,"frame":900,"time_ms":1792069800000,"kind":"onair","tag":"fallback:3","reason":"ended","file":"promo_a.mov"}"#,
+        )
+        .unwrap();
+        assert_eq!(event.file.as_deref(), Some("promo_a.mov"));
+        let entry = AsRunEntry::from_event(&event, Some(1), false);
+        assert_eq!(entry.kind, "filler");
+        assert_eq!(entry.row_id, "fallback");
+        assert_eq!(entry.file.as_deref(), Some("promo_a.mov"));
+
+        // The single-clip slate and the end of a filler keep their own kinds.
+        let slate: EngineEvent = serde_json::from_str(
+            r#"{"seq":1,"frame":1,"time":1,"kind":"onair","tag":"fallback","reason":"ended"}"#,
+        )
+        .unwrap();
+        assert_eq!(AsRunEntry::from_event(&slate, None, false).kind, "onair");
+        let ended = EngineEvent { kind: "ended".into(), ..event.clone() };
+        assert_eq!(AsRunEntry::from_event(&ended, None, false).kind, "ended");
+    }
+
+    #[test]
+    fn filler_file_rides_on_the_osc_event() {
+        use rosc::OscType;
+        let args = vec![
+            OscType::Long(7),
+            OscType::Long(700),
+            OscType::Long(1),
+            OscType::String("fallback:2".into()),
+            OscType::String("ended".into()),
+            OscType::String("ident.mov".into()),
+        ];
+        let Some(ForkOscMessage::Event(event)) = parse_fork_osc(1, 10, "/channel/1/stage/layer/10/event/onair", &args) else {
+            panic!("not an event");
+        };
+        assert_eq!(event.file.as_deref(), Some("ident.mov"));
+        let Some(ForkOscMessage::Event(event)) = parse_fork_osc(1, 10, "/channel/1/stage/layer/10/event/onair", &args[..5]) else {
+            panic!("not an event");
+        };
+        assert_eq!(event.file, None);
     }
 
     // ── As-run and relaunch replay ────────────────────────────────────────
@@ -1029,7 +1113,7 @@ mod tests {
     }
 
     fn onair(seq: u64, tag: &str, time: i64) -> EngineEvent {
-        EngineEvent { seq, frame: seq as i64 * 25, time, kind: "onair".into(), tag: tag.into(), reason: "auto".into() }
+        EngineEvent { seq, frame: seq as i64 * 25, time, kind: "onair".into(), tag: tag.into(), reason: "auto".into(), file: None }
     }
 
     #[test]

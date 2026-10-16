@@ -174,7 +174,9 @@ export type EngineAtRelaunch =
     /** Frozen on the last frame of the successor it had preloaded. */
     | 'ended-on-next'
     /** Something that is not ours. */
-    | 'foreign';
+    | 'foreign'
+    /** PlayOut fork: the engine's fallback / fillers hold the air (AE-4). */
+    | 'fillers';
 
 export interface ScheduleItem {
     id: string;
@@ -330,6 +332,21 @@ export function planRelaunchRecovery(
 
     let primary: RelaunchAction;
     let reason: string;
+    if (engine === 'fillers') {
+        // AE-4: the channel is not off air, it is on its fillers. Continuing
+        // the interrupted clip would cut them for a row that is already late:
+        // offer the schedule, or staying on the fillers; never by itself.
+        const join = schedule ?? null;
+        return {
+            primary: join ?? HOLD,
+            alternatives: [],
+            autoConfirmS: null,
+            offAirMs,
+            reason: join
+                ? 'CasparCG is on its fillers; join the schedule where it would be now, or stay on the fillers'
+                : 'CasparCG is on its fillers and the rundown would have finished by now',
+        };
+    }
     if (!queue.some((q) => q.id === input.key)) {
         primary = HOLD;
         reason = 'the interrupted item is no longer in the rundown';

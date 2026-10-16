@@ -16,8 +16,10 @@ vi.mock('../caspar', () => ({
 
 import { runFallbackSelfTest, afterTemplatesDeployed } from '../fallbackMonitor';
 import { useSettingsStore } from '../../stores/settings';
+import { pickHeadline } from '../../lib/mediaHealth';
 import {
   describeFallback,
+  describeFallbackOnAir,
   fallbackHealth,
   normalizeFallbackClip,
   resetFallbackHealth,
@@ -57,6 +59,21 @@ describe('fallback health', () => {
     expect(describeFallback(fallbackHealth, true)!.tone).toBe('error');
     fallbackHealth.test = selfTest({ clip: { ...okClip, local: false } });
     expect(describeFallback(fallbackHealth, true)!.label).toBe('Fallback not local');
+  });
+
+  it('says "On fillers" while they air, and takes the chip over', () => {
+    fallbackHealth.engineSet = true;
+    fallbackHealth.mode = 'list';
+    expect(describeFallbackOnAir(fallbackHealth, true)).toBeNull();
+    fallbackHealth.onAir = { since: 1, file: 'promo_a.mov', reason: 'ended', count: 2 };
+    const item = describeFallbackOnAir(fallbackHealth, true)!;
+    expect(item.label).toBe('On fillers');
+    expect(item.detail).toContain('promo_a.mov');
+    fallbackHealth.rundownFinished = true;
+    expect(describeFallbackOnAir(fallbackHealth, true)!.label).toBe('Finished · on fillers');
+    const red = { key: 'media-root', tone: 'error' as const, label: 'Wrong media root', detail: '', section: 'media' };
+    expect(pickHeadline([red, item])!.key).toBe('fallback-on-air');
+    expect(describeFallbackOnAir(fallbackHealth, false)).toBeNull();
   });
 
   it('is green when armed and tested', () => {

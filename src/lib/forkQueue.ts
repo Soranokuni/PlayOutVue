@@ -20,6 +20,8 @@ export interface EngineEvent {
     frame: number;
     timeMs: number;
     reason: string;
+    /** C2: the filler's file name on a `fallback:<n>` event (`FALLBACK LIST`). */
+    file?: string;
 }
 
 export interface ForkQueueInfo {
@@ -37,7 +39,16 @@ export interface ForkQueueInfo {
         starting: boolean;
     } | null;
     waiting: Array<{ tag: string; producer: string; auto: boolean }>;
-    fallback: { set: boolean; tag: string; active: boolean; stall: number };
+    fallback: {
+        set: boolean;
+        tag: string;
+        active: boolean;
+        stall: number;
+        /** C2 (`FALLBACK LIST` engines only). */
+        mode?: 'clip' | 'list';
+        files?: number;
+        current?: string | null;
+    };
 }
 
 /** `caspar_fork_*` reply: 2xx, or a `404`/`409` the caller handles. */
@@ -52,6 +63,11 @@ export const FORK_NOT_FOUND = 404;
 
 /** The fork's default fallback tag (`FALLBACK … TAG`). */
 export const FALLBACK_TAG = 'fallback';
+
+/** The fallback's own tags: `fallback` (single clip) and `fallback:<n>` (fillers, C2). */
+export function isFallbackTag(tag: string | null | undefined): boolean {
+    return !!tag && tagBase(tag) === FALLBACK_TAG;
+}
 
 /** Row id of a tag: the part before an occurrence suffix (`<id>:2`, `<id>:t5`). */
 export function tagBase(tag: string): string {

@@ -287,6 +287,9 @@ const localState = ref({
     forkQueueDepth: 2,
     forkFallbackClip: 'playout/emergency',
     forkStallTicks: 50,
+    forkFillerFolder: '',
+    forkFillerShuffle: true,
+    forkFillOnDry: true,
     lookAheadRows: 5,
     lookAheadMinutes: 30,
     ingestorApiBaseUrl: '',
@@ -410,6 +413,9 @@ const mapLocalState = () => {
         forkQueueDepth: settings.forkQueueDepth ?? 2,
         forkFallbackClip: settings.forkFallbackClip ?? 'playout/emergency',
         forkStallTicks: settings.forkStallTicks ?? 50,
+        forkFillerFolder: settings.forkFillerFolder ?? '',
+        forkFillerShuffle: settings.forkFillerShuffle !== false,
+        forkFillOnDry: settings.forkFillOnDry !== false,
         lookAheadRows: settings.lookAheadRows ?? 5,
         lookAheadMinutes: settings.lookAheadMinutes ?? 30,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
@@ -715,7 +721,31 @@ const pickFallbackClip = async () => {
     localState.value.forkFallbackClip = selection.replace(/\\/g, '/');
 };
 
-const validationErrors = computed(() => [apiUrlError.value, oscPortError.value, fallbackClipError.value].filter(Boolean));
+/* --- AE-4: the filler folder, local disk only --- */
+const fillerFolderError = ref('');
+watch(() => localState.value.forkFillerFolder, async (value) => {
+    const error = await checkLocalPath(value || '');
+    if ((localState.value.forkFillerFolder || '') === (value || '')) fillerFolderError.value = error;
+}, { immediate: true });
+
+const pickFillerFolder = async () => {
+    const current = (localState.value.forkFillerFolder || '').trim();
+    const selection = await open({
+        title: 'Choose the filler folder (local disk)',
+        multiple: false,
+        directory: true,
+        defaultPath: isAbsoluteClipPath(current) ? current : undefined,
+    });
+    if (!selection || Array.isArray(selection)) return;
+    const error = await checkLocalPath(selection);
+    if (error) {
+        await message(`${selection}\n\n${error}.`, { title: 'Filler folder', kind: 'warning' });
+        return;
+    }
+    localState.value.forkFillerFolder = selection.replace(/\\/g, '/');
+};
+
+const validationErrors = computed(() => [apiUrlError.value, oscPortError.value, fallbackClipError.value, fillerFolderError.value].filter(Boolean));
 
 const canSave = computed(() => isDirty.value && validationErrors.value.length === 0);
 
@@ -1165,6 +1195,33 @@ const openTemplateDir = async () => {
                 Empty: no fallback clip.<template v-if="engineMode === 'stock'"> Needs the PlayOut fork.</template>
               </p>
             </div>
+            <div class="field">
+              <label class="field-label" for="fork-filler-folder">Filler folder</label>
+              <div class="input-with-button">
+                <input
+                  id="fork-filler-folder"
+                  v-model="localState.forkFillerFolder"
+                  class="input mono"
+                  :class="{ 'input--invalid': fillerFolderError }"
+                  type="text"
+                  placeholder="D:/fillers"
+                />
+                <BaseButton variant="secondary" icon="folder-open" data-testid="fork-filler-browse" @click="pickFillerFolder">Browse</BaseButton>
+              </div>
+              <p v-if="fillerFolderError" class="field-error" data-testid="fork-filler-error">{{ fillerFolderError }}</p>
+              <p v-else class="field-hint">
+                When set, CasparCG rotates this folder's clips instead of the single fallback clip, even with PlayOut
+                closed. Local disk only. Empty: the fallback clip alone.<template v-if="engineMode === 'stock'"> Needs the PlayOut fork.</template>
+              </p>
+            </div>
+            <label class="check-row">
+              <input v-model="localState.forkFillerShuffle" type="checkbox" />
+              <span>Play the fillers in random order (no repeat within three)</span>
+            </label>
+            <label class="check-row">
+              <input v-model="localState.forkFillOnDry" type="checkbox" data-testid="fork-fill-on-dry" />
+              <span>At the end of the rundown, stay on the fillers until a row is taken</span>
+            </label>
             <div class="field">
               <label class="field-label" for="fork-stall">Stall limit (channel ticks)</label>
               <input id="fork-stall" v-model.number="localState.forkStallTicks" class="input" type="number" min="0" max="1500" />

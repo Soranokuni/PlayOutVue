@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { vTooltip } from '../lib/tooltip';
 import { useMediaRootStore } from '../stores/mediaRoot';
 import { pickHeadline, type HealthItem } from '../lib/mediaHealth';
-import { describeFallback, fallbackHealth } from '../lib/fallbackHealth';
+import { describeFallback, describeFallbackOnAir, fallbackHealth } from '../lib/fallbackHealth';
 import { engineMode, isCasparConnected } from '../services/caspar';
 
 /**
@@ -19,7 +19,10 @@ const items = computed<HealthItem[]>(() => {
     const list: HealthItem[] = [];
     const root = mediaRoot.view;
     if (!root.hidden) list.push({ key: 'media-root', tone: root.tone, label: root.label, detail: root.detail, section: 'media' });
-    const fallback = describeFallback(fallbackHealth, isCasparConnected.value && engineMode.value === 'fork');
+    const forkMode = isCasparConnected.value && engineMode.value === 'fork';
+    const onAir = describeFallbackOnAir(fallbackHealth, forkMode);
+    if (onAir) list.push(onAir);
+    const fallback = describeFallback(fallbackHealth, forkMode);
     if (fallback) list.push(fallback);
     return list;
 });

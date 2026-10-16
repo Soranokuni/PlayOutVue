@@ -272,6 +272,7 @@ pub fn run() {
             caspar_fork::caspar_fork_queue_remove,
             caspar_fork::caspar_fork_onair,
             caspar_fork::caspar_fork_fallback,
+            caspar_fork::caspar_fork_fallback_list,
             caspar_fork::caspar_engine_detect,
             caspar_fork::caspar_engine_state,
             caspar_fork::caspar_engine_asrun,
