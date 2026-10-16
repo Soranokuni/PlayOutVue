@@ -23,12 +23,16 @@ export const useIngestorStatusStore = defineStore(
         // The health endpoint is exempt from the API token, so "online" alone
         // cannot tell the operator that every real call is being answered 401.
         const authRejected = ref(false);
+        // Not persisted: the online state above survives a relaunch, so only a
+        // heartbeat result from this session may report "offline".
+        const checkedThisSession = ref(false);
 
         const isOffline = computed(() => !isIngestorOnline.value);
         const isAuthRejected = computed(() => isIngestorOnline.value && authRejected.value);
 
         function setOnline(online: boolean, seenAt?: number) {
             isIngestorOnline.value = online;
+            checkedThisSession.value = true;
             if (typeof seenAt === 'number') {
                 lastSeenAt.value = seenAt;
             } else {
@@ -89,6 +93,7 @@ export const useIngestorStatusStore = defineStore(
             authRejected,
             isOffline,
             isAuthRejected,
+            checkedThisSession,
             setOnline,
             setAuthRejected,
             log,
