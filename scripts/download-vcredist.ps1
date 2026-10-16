@@ -11,6 +11,14 @@ param(
 # post-install, so it must be a genuine Microsoft-signed binary.
 
 $ErrorActionPreference = "Stop"
+
+# `tauri build` runs this under Windows PowerShell 5.1 (`powershell`). Started
+# from a PowerShell 7 terminal it inherits PS7's PSModulePath, so 5.1 loads
+# PS7's Microsoft.PowerShell.Security and Get-AuthenticodeSignature fails to
+# load: every genuine redistributable then "fails verification".
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $env:PSModulePath = ($env:PSModulePath -split ';' | Where-Object { $_ -and $_ -notmatch '\\PowerShell\\7|\\Documents\\PowerShell\\' }) -join ';'
+}
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $VcredistDir = Join-Path $ProjectRoot "Requirements\vcredist"
 $VcredistExe = Join-Path $VcredistDir "VC_redist.x64.exe"
