@@ -45,6 +45,7 @@ pub async fn start() -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|error| format!("[MediaServer] Failed to bind: {}", error))?;
+    crate::proc_util::disinherit_socket(&listener);
     let port = listener
         .local_addr()
         .map_err(|error| format!("[MediaServer] Failed to get local address: {}", error))?
@@ -57,7 +58,10 @@ pub async fn start() -> Result<u16, String> {
     tokio::spawn(async move {
         loop {
             match listener.accept().await {
-                Ok((stream, _)) => { tokio::spawn(handle(stream)); }
+                Ok((stream, _)) => {
+                    crate::proc_util::disinherit_socket(&stream);
+                    tokio::spawn(handle(stream));
+                }
                 Err(e) => log::warn!("[MediaServer] accept error: {}", e),
             }
         }

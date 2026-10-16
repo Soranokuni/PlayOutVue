@@ -98,6 +98,7 @@ pub fn start_studio_server<R: Runtime>(app: AppHandle<R>) {
                 }
             },
         };
+        crate::proc_util::disinherit_socket(&listener);
 
         // Audit T2-21: bound the number of concurrent connections so a client
         // holding sockets open (each with its own 5 s header/body timeouts)
@@ -110,6 +111,7 @@ pub fn start_studio_server<R: Runtime>(app: AppHandle<R>) {
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
+                    crate::proc_util::disinherit_socket(&stream);
                     let Ok(permit) = connection_permits.clone().try_acquire_owned() else {
                         log::warn!("[StudioServer] Connection limit ({}) reached; dropping connection", MAX_CONCURRENT_CONNECTIONS);
                         drop(stream);

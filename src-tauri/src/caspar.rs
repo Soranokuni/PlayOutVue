@@ -501,6 +501,9 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
     let socket = UdpSocket::bind(&bind_addr)
         .await
         .map_err(|error| format!("Failed to bind CasparCG OSC listener on {}: {}", bind_addr, error))?;
+    // An engine spawned while this socket is open must not inherit it, or it
+    // keeps the port bound after a PlayOut crash and the relaunch cannot bind.
+    crate::proc_util::disinherit_socket(&socket);
 
     let (existing_port, existing_stop_tx, existing_task, existing_watchdog) = {
         let mut guard = state.0.lock();

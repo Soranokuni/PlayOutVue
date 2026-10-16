@@ -344,7 +344,10 @@ async fn amcp_worker(mut rx: mpsc::Receiver<AmcpRequest>) {
         // Ensure a live connection.
         if stream.is_none() {
             match timeout(CONNECT_TIMEOUT, TcpStream::connect(CASPAR_AMCP_ADDR)).await {
-                Ok(Ok(s)) => stream = Some(s),
+                Ok(Ok(s)) => {
+                    crate::proc_util::disinherit_socket(&s);
+                    stream = Some(s);
+                }
                 Ok(Err(e)) => {
                     let _ = req.reply_tx.send(Err(format!(
                         "Failed to connect to CasparCG at {}: {}",

@@ -82,6 +82,28 @@ pub fn windows_system_tool(name: &str) -> std::path::PathBuf {
     }
 }
 
+/// Keep a socket out of the child processes PlayOut spawns.
+///
+/// tokio's sockets (mio's plain `socket()`) are inheritable on Windows, and
+/// CasparCG is spawned with piped stdio, so it gets a copy of every socket
+/// PlayOut has open at that moment: the OSC listener, the studio and media
+/// servers, the AMCP connection. After a PlayOut crash the engine keeps them
+/// alive, and the relaunched PlayOut cannot bind its OSC port again (seen
+/// live: an engine relaunched by the supervisor held 127.0.0.1:6250, so
+/// PlayOut never reconnected). Call this right after creating a socket.
+#[cfg(windows)]
+pub fn disinherit_socket<S: std::os::windows::io::AsRawSocket>(socket: &S) {
+    use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
+    // SAFETY: the raw socket is a valid handle owned by `socket` for the call.
+    let ok = unsafe { SetHandleInformation(socket.as_raw_socket() as HANDLE, HANDLE_FLAG_INHERIT, 0) };
+    if ok == 0 {
+        log::warn!("[proc_util] Could not clear the inherit flag of a socket: {}", std::io::Error::last_os_error());
+    }
+}
+
+#[cfg(not(windows))]
+pub fn disinherit_socket<S>(_socket: &S) {}
+
 fn drain<R: Read>(reader: Option<R>) -> Vec<u8> {
     let mut buffer = Vec::new();
     if let Some(mut reader) = reader {
@@ -126,6 +148,28 @@ mod tests {
         assert!(result.is_err(), "must time out");
         assert!(result.unwrap_err().contains("timed out"));
         assert!(started.elapsed() < Duration::from_secs(4), "kill must be prompt");
+    }
+
+    #[cfg(windows)]
+    fn inherits(socket: &impl std::os::windows::io::AsRawSocket) -> bool {
+        use windows_sys::Win32::Foundation::{GetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
+        let mut flags = 0u32;
+        assert_ne!(unsafe { GetHandleInformation(socket.as_raw_socket() as HANDLE, &mut flags) }, 0);
+        flags & HANDLE_FLAG_INHERIT != 0
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn disinherit_socket_clears_the_inherit_flag() {
+        let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let stream = tokio::net::TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
+        // Why this exists: tokio creates them inheritable.
+        assert!(inherits(&udp) && inherits(&listener) && inherits(&stream));
+        disinherit_socket(&udp);
+        disinherit_socket(&listener);
+        disinherit_socket(&stream);
+        assert!(!inherits(&udp) && !inherits(&listener) && !inherits(&stream));
     }
 
     #[test]
