@@ -63,7 +63,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm audit --audit-level=high
+      # npm audit at high, minus the reviewed no-fix advisories listed in the script.
+      - run: node scripts/audit-gate.mjs
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit --locked
       - run: cargo audit --file src-tauri/Cargo.lock

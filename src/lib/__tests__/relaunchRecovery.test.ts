@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     planRelaunchRecovery,
+    rebaseOnEngineReplay,
     resolveAdoptionIndex,
     schedulePoint,
     type RelaunchInput,
@@ -140,5 +141,42 @@ describe('planRelaunchRecovery', () => {
     it('holds when the interrupted row was deleted', () => {
         const offer = planRelaunchRecovery(input({ key: 'gone' }), queue, 'empty', T0 + 5_000, policy);
         expect(offer.primary.kind).toBe('hold');
+    });
+});
+
+describe('rebaseOnEngineReplay (fork)', () => {
+    const rowOf = (tag: string) => tag.split('~')[0]!;
+    const ev = (kind: string, tag: string, frame: number, timeMs: number, reason = 'auto') => ({ kind, tag, frame, timeMs, reason });
+    // PlayOut died during B; the engine aired B to its end, then C, then went to its fallback.
+    const replay = [
+        ev('ended', 'b', 3000, T0 + 40_000, 'ended'),
+        ev('offair', 'b', 3000, T0 + 40_000),
+        ev('onair', 'c', 3000, T0 + 40_000),
+        ev('ended', 'c', 6000, T0 + 100_000, 'ended'),
+        ev('offair', 'c', 6000, T0 + 100_000, 'ended'),
+        ev('onair', 'fallback', 6000, T0 + 100_000, 'ended'),
+    ];
+
+    it('continues after the last row the engine aired, not the checkpoint row', () => {
+        const rebased = rebaseOnEngineReplay(input(), replay, queue, rowOf, 50)!;
+        expect(rebased.engine).toBe('ended-on-current');
+        expect(rebased.input).toMatchObject({ key: 'c', positionMs: MIN, writtenAtMs: T0 + 100_000 });
+        const offer = planRelaunchRecovery(rebased.input, queue, rebased.engine, T0 + 110_000, policy);
+        expect(offer.primary).toEqual({ kind: 'resume', index: 3, seekMs: 0 });
+        expect(offer.offAirMs).toBe(10_000);
+        expect(offer.autoConfirmS).toBe(10);
+    });
+
+    it('resumes a row that was cut short where it stopped', () => {
+        const stalled = [ev('onair', 'c~2', 1000, T0), ev('stalled', 'c~2', 1500, T0 + 10_000, 'stall'), ev('offair', 'c~2', 1500, T0 + 10_000, 'stall')];
+        const rebased = rebaseOnEngineReplay(input(), stalled, queue, rowOf, 50)!;
+        expect(rebased.engine).toBe('empty');
+        expect(rebased.input).toMatchObject({ key: 'c', positionMs: 10_000, writtenAtMs: T0 + 10_000 });
+    });
+
+    it('leaves the plan alone when the replay names no row of the rundown or the row is still on air', () => {
+        expect(rebaseOnEngineReplay(input(), [], queue, rowOf, 50)).toBeNull();
+        expect(rebaseOnEngineReplay(input(), [ev('onair', 'zz', 1, T0)], queue, rowOf, 50)).toBeNull();
+        expect(rebaseOnEngineReplay(input(), [ev('onair', 'c', 1, T0)], queue, rowOf, 50)).toBeNull();
     });
 });

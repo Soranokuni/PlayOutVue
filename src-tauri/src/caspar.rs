@@ -501,6 +501,9 @@ pub async fn configure_caspar_osc_listener<R: Runtime>(
     let socket = UdpSocket::bind(&bind_addr)
         .await
         .map_err(|error| format!("Failed to bind CasparCG OSC listener on {}: {}", bind_addr, error))?;
+    // An engine spawned while this socket is open must not inherit it, or it
+    // keeps the port bound after a PlayOut crash and the relaunch cannot bind.
+    crate::proc_util::disinherit_socket(&socket);
 
     let (existing_port, existing_stop_tx, existing_task, existing_watchdog) = {
         let mut guard = state.0.lock();
@@ -585,6 +588,7 @@ async fn run_osc_listener<R: Runtime>(
                 match rosc::decoder::decode_udp(&buffer[..size]) {
                     Ok((_remainder, packet)) => {
                         process_decoded_packet(&app, packet, &playback_state);
+                        crate::caspar_fork::after_osc_packet(&app, &playback_state, now_ms());
                     }
                     Err(error) => {
                         let failures = decode_failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -620,6 +624,13 @@ fn process_decoded_packet<R: Runtime>(
             } else if is_program_file_time_address(&address) {
                 let (position_ms, duration_ms) = parse_timing_payload_from_args(&args);
                 handle_playback_osc(app, playback_state, position_ms, duration_ms);
+            } else if let Some(message) = crate::caspar_fork::parse_fork_osc(
+                crate::caspar_layers::PROGRAM_CHANNEL,
+                CasparLayer::Video.layer(),
+                &address,
+                &args,
+            ) {
+                playback_state.lock().fork.observe(message);
             }
             // PERF-PLAN G1: every message used to be re-emitted to the WebView
             // as `caspar-osc` (thousands a second at 50 Hz, each formatted and
@@ -697,7 +708,9 @@ fn handle_playback_path_osc<R: Runtime>(
     path: &str,
 ) {
     let mut s = state.lock();
-    if !s.is_playing || s.is_paused {
+    // Fork mode: tags identify the row on air, so the path-switch advance,
+    // the premature-AUTO detector and the foreground confirmation are off.
+    if !s.is_playing || s.is_paused || s.fork.is_fork() {
         return;
     }
 
@@ -1008,6 +1021,12 @@ pub struct PlaybackStateInner {
     pub auto_advance_not_before_ms: u64,
     pub accepted_post_take_samples: u8,
     pub last_observed_position_ms: u64,
+
+    /// PlayOut fork: engine mode, event cursor and foreground tag. In fork
+    /// mode the engine decides when a clip ends and reports it as an event;
+    /// the advance inference below is switched off and only the clock runs.
+    /// Not reset by `clear_playback_state`: it describes the engine.
+    pub fork: crate::caspar_fork::ForkOscState,
 }
 
 impl Default for PlaybackStateInner {
@@ -1050,6 +1069,7 @@ impl Default for PlaybackStateInner {
             auto_advance_not_before_ms: 0,
             accepted_post_take_samples: 0,
             last_observed_position_ms: 0,
+            fork: crate::caspar_fork::ForkOscState::default(),
         }
     }
 }
@@ -1108,6 +1128,32 @@ fn handle_playback_osc<R: Runtime>(
     let mut foreground_confirmed_uuid: Option<String> = None;
     let mut position_confirmed_uuid: Option<String> = None;
     if !s.is_playing || s.is_paused {
+        return;
+    }
+
+    // Fork mode: the engine advances by itself and reports `onair <tag>`;
+    // `/file/time` only drives the UI clock.
+    if s.fork.is_fork() {
+        if let Some(pos) = position_ms {
+            s.position_ms = pos.saturating_sub(s.trim_in_ms);
+        }
+        if let Some(dur) = duration_ms.filter(|&d| d > 0) {
+            s.duration_ms = dur;
+        }
+        s.last_osc_at_ms = now;
+        if now.saturating_sub(s.last_tick_emit_ms) >= TICK_THROTTLE_MS {
+            s.last_tick_emit_ms = now;
+            let tick = PlaybackTick {
+                position_ms: s.position_ms,
+                duration_ms: s.duration_ms,
+                current_uuid: s.current_uuid.clone(),
+            };
+            let app_clone = app.clone();
+            drop(s);
+            tauri::async_runtime::spawn(async move {
+                let _ = app_clone.emit("caspar://playback-tick", tick);
+            });
+        }
         return;
     }
 
@@ -1289,7 +1335,10 @@ pub fn spawn_playback_watchdog<R: Runtime>(
             let now = now_ms();
             let (emit_stall, emit_advance_payload) = {
                 let mut s = state.lock();
-                if !s.is_playing
+                // Fork mode: the engine reports stalls (`stalled`) and fails
+                // over itself; there is no inferred advance to back up.
+                if s.fork.is_fork()
+                    || !s.is_playing
                     || s.is_paused
                     || !s.path_confirmed
                     || s.current_uuid.is_none()

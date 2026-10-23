@@ -19,6 +19,19 @@ use crate::runtime_settings::{RuntimeSettings, RuntimeSettingsState};
 
 pub const DEFAULT_AMCP_PORT: u16 = 5250;
 
+/// How long a graceful stop waits for the engine to exit after `EXIT`
+/// before it terminates the process.
+const GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A console command line as the engine's stdin expects it. On Windows the
+/// engine puts stdin in `_O_U16TEXT` mode, so a pipe must carry UTF-16LE.
+fn console_command_bytes(command: &str) -> Vec<u8> {
+    format!("{}\n", command)
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(dead_code)]
@@ -755,6 +768,10 @@ pub async fn is_port_listening(port: u16) -> bool {
 struct SupervisorInner {
     state: CasparProcessState,
     child: Option<tokio::process::Child>,
+    /// The engine's stdin, kept open while it runs. At end-of-file the stock
+    /// engine's console thread retries without pause and uses a whole core.
+    /// `stop()` writes `EXIT` here, then closes it.
+    stdin: Option<tokio::process::ChildStdin>,
     pid: Option<u32>,
     exit_code: Option<i32>,
     last_error: Option<String>,
@@ -783,6 +800,7 @@ impl CasparProcessSupervisor {
             inner: Arc::new(Mutex::new(SupervisorInner {
                 state: CasparProcessState::Stopped,
                 child: None,
+                stdin: None,
                 pid: None,
                 exit_code: None,
                 last_error: None,
@@ -1012,6 +1030,7 @@ impl CasparProcessSupervisor {
             cmd.creation_flags(0x08000000);
         }
 
+        cmd.stdin(std::process::Stdio::piped());
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
 
@@ -1087,10 +1106,13 @@ impl CasparProcessSupervisor {
             });
         }
 
+        let stdin = child.stdin.take();
+
         {
             let mut inner = self.inner.lock().await;
             inner.state = CasparProcessState::Starting;
             inner.child = Some(child);
+            inner.stdin = stdin;
             inner.pid = pid;
             inner.exit_code = None;
             inner.last_error = None;
@@ -1134,9 +1156,9 @@ impl CasparProcessSupervisor {
             }
         }
 
-        let (child, adopted_pid) = {
+        let (child, stdin, adopted_pid) = {
             let mut inner = self.inner.lock().await;
-            (inner.child.take(), inner.pid.take())
+            (inner.child.take(), inner.stdin.take(), inner.pid.take())
         };
 
         let port = self.amcp_port;
@@ -1147,14 +1169,28 @@ impl CasparProcessSupervisor {
 
         if let Some(mut c) = child {
             if !force {
-                // Try graceful AMCP command first if client available
                 crate::diagnostics::push_caspar_process_log("INFO", "Initiating graceful shutdown for CasparCG...");
-                // Wait up to 2 seconds
-                let exit = tokio::time::timeout(Duration::from_secs(2), c.wait()).await;
+                // The console command EXIT shuts the engine down in order, so the
+                // outputs close cleanly. Closing stdin then also ends the
+                // "press any key" pause a stock engine runs after EXIT.
+                if let Some(mut stdin) = stdin {
+                    use tokio::io::AsyncWriteExt;
+                    let _ = tokio::time::timeout(Duration::from_millis(500), async {
+                        let _ = stdin.write_all(&console_command_bytes("EXIT")).await;
+                        let _ = stdin.flush().await;
+                    })
+                    .await;
+                }
+                let exit = tokio::time::timeout(GRACEFUL_STOP_TIMEOUT, c.wait()).await;
                 if exit.is_err() {
+                    crate::diagnostics::push_caspar_process_log(
+                        "WARN",
+                        "CasparCG did not exit after EXIT; terminating it.",
+                    );
                     let _ = c.kill().await;
                 }
             } else {
+                drop(stdin);
                 let _ = c.kill().await;
             }
         } else if let Some(pid) = pid_to_terminate {
@@ -1426,6 +1462,7 @@ async fn run_process_watchdog<R: Runtime>(
                         let was_expected = inner.expected_stop;
                         let dead_pid = inner.pid.take();
                         inner.child = None;
+                        inner.stdin = None;
                         inner.exit_code = Some(code);
                         Some((code, was_expected, dead_pid))
                     }
@@ -1506,6 +1543,7 @@ async fn run_process_watchdog<R: Runtime>(
                     let was_expected = inner.expected_stop;
                     let dead_pid = inner.pid.take();
                     inner.child = None;
+                    inner.stdin = None;
                     inner.exit_code = Some(code);
                     drop(inner);
 
@@ -1841,6 +1879,14 @@ pub async fn caspar_process_check_port(port: Option<u16>) -> Result<bool, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn console_commands_are_utf16le_lines() {
+        assert_eq!(
+            console_command_bytes("EXIT"),
+            vec![b'E', 0, b'X', 0, b'I', 0, b'T', 0, b'\n', 0]
+        );
+    }
 
     #[test]
     fn test_cwd_resolution() {
