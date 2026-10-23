@@ -17,6 +17,7 @@ import {
 } from '../lib/playoutDispatch';
 import {
     FALLBACK_TAG,
+    isFallbackTag,
     syncForkQueue,
     tagBase,
     takeTag,
@@ -29,7 +30,9 @@ import { advisoryTemplateName, buildAdvisoryCgData, createAdvisorySvgCache } fro
 import { registerAssetReleaseHandler } from '../lib/assetRelease';
 import { initEndGuard, registerPlayStart, activeGuard, stopEndGuard } from '../lib/endGuard';
 import { clearPlaybackState, loadPlaybackState, savePlaybackState } from '../lib/playbackPersistence';
-import { recordFrontendFault } from '../lib/frontendFaults';
+import { recordFrontendFault, resolveFrontendFaults } from '../lib/frontendFaults';
+import { getAdvertisedMediaRoot, isMediaRootError } from '../lib/mediaRootContext';
+import { fallbackHealth, normalizeFallbackClip } from '../lib/fallbackHealth';
 import { classifyPlayoutFailure, shouldFlagItemFailure } from '../lib/playoutFailurePolicy';
 import { PlaybackCoordinator, type PlaybackIntent } from '../lib/playbackCoordinator';
 import { onCasparProcessStateChange, type CasparProcessStatus } from './casparProcess';
@@ -83,6 +86,7 @@ const DISPATCH_RETRY_DELAY_MS = 400;
 function isHardDispatchError(error: unknown): boolean {
     const msg = String((error as any)?.message || error || '').toLowerCase();
     return (
+        isMediaRootError(error) ||
         msg.includes('degenerate trim') ||
         msg.includes('file not found') ||
         msg.includes('qc not passed') ||
@@ -558,6 +562,9 @@ function offerRelaunchRecovery(candidate: NonNullable<typeof relaunchCandidate>,
         input = { ...rebased.input, paused: false };
         engine = rebased.engine;
     }
+    // AE-4: the engine holds the air with its fillers / slate.
+    const onFallback = isForkMode() && isFallbackTag(forkForegroundTag);
+    if (onFallback) engine = 'fillers';
     const offer = planRelaunchRecovery(
         input,
         schedule,
@@ -577,7 +584,8 @@ function offerRelaunchRecovery(candidate: NonNullable<typeof relaunchCandidate>,
         ...offer.alternatives.map((action) => ({ action, label: actionLabel(action, queue), primary: false })),
     ];
     if (offer.primary.kind !== 'hold') {
-        actions.push({ action: { kind: 'hold', index: -1, seekMs: 0 }, label: 'Stay off air', primary: false });
+        const holdLabel = onFallback ? (fallbackHealth.mode === 'list' ? 'Stay on fillers' : 'Stay on the fallback') : 'Stay off air';
+        actions.push({ action: { kind: 'hold', index: -1, seekMs: 0 }, label: holdLabel, primary: false });
     }
     const previous = bootInfo?.previousSession;
     relaunchOffer.value = {
@@ -1123,13 +1131,58 @@ function handleEngineEvent(event: EngineEvent) {
     }
 }
 
+/**
+ * AE-4: the engine put its fallback on air: the slate (`fallback`) or a filler
+ * (`fallback:<n>`, one event per filler). On the way in, fillers carry no
+ * rating: the advisory goes to logo only and the TP / rating layers clear. If
+ * the rundown's last row was on air, this is the end of the rundown (F1).
+ */
+function onForkFallbackOnAir(event: EngineEvent) {
+    const wasOnFallback = isFallbackTag(forkForegroundTag);
+    const endedRow = !wasOnFallback && !forkPendingTakeTag && isCasparPlaying.value ? currentKey : null;
+    forkForegroundTag = event.tag;
+    forkWaitingTags = [];
+    const previous = fallbackHealth.onAir;
+    fallbackHealth.onAir = {
+        since: wasOnFallback && previous ? previous.since : Date.now(),
+        file: event.file ?? null,
+        reason: event.reason,
+        count: wasOnFallback && previous ? previous.count + 1 : 1,
+    };
+    if (wasOnFallback) return;
+
+    // The end of the rundown: nothing playable follows the row that ended
+    // (rows flagged `error` are skipped, so a flagged last row counts as the end).
+    const endedIndex = endedRow ? queuedItems.findIndex((it) => queueKey(it) === endedRow) : -1;
+    const lastRow = endedIndex >= 0 && !queuedItems.slice(endedIndex + 1).some((it) => {
+        const live = findLiveItemById(queueKey(it)) ?? it;
+        return live.ingestorStatus !== 'error';
+    }) ? endedRow : null;
+    const settings = getSettingsSnapshot() as any;
+    const endOfRundown = fallbackHealth.rundownFinished || (!!endedRow && endedRow === lastRow);
+    const what = fallbackHealth.mode === 'list' ? 'Fillers' : 'Fallback clip';
+    if (endOfRundown && settings.forkFillOnDry !== false) {
+        invoke('push_diagnostic_log', { level: 'info', scope: 'caspar-playout', message: `${what} on air: the rundown finished.` }).catch(() => {});
+    } else {
+        forkFault(`${what} on air (${event.reason}): no queued item was ready.`, 'error');
+    }
+    // A take on its way brings its own graphics on its first frame.
+    if (!forkPendingTakeTag) {
+        casparPlayoutService.applyComplianceForItem?.(idleStationIdItem())?.catch?.((error: any) => {
+            console.warn('[CasparCG] Clearing the graphics for the fallback failed', error);
+        });
+    }
+    // F1: the last row is off air; finish the rundown without clearing layer 10.
+    if (endedRow && endedRow === lastRow) {
+        advanceNext(true, endedRow).catch((error) => console.error('[CasparCG] end of rundown on the fallback failed', error));
+    }
+}
+
 function onForkOnAir(event: EngineEvent) {
     const tag = event.tag;
     if (!tag) return;
-    if (tag === FALLBACK_TAG) {
-        forkForegroundTag = tag;
-        forkWaitingTags = [];
-        forkFault(`Fallback clip on air (${event.reason}): no queued item was ready.`, 'error');
+    if (isFallbackTag(tag)) {
+        onForkFallbackOnAir(event);
         return;
     }
 
@@ -1149,6 +1202,10 @@ function onForkOnAir(event: EngineEvent) {
         natural = true;
     }
     forkForegroundTag = tag;
+    // A row of ours is on air: the fillers / slate are over.
+    fallbackHealth.onAir = null;
+    resolveFrontendFaults('caspar-playout', (m) => / on air \(.+\): no queued item was ready\.$/.test(m));
+    fallbackHealth.rundownFinished = false;
 
     if (natural) {
         // The cut belongs to the engine; everything that belonged to the
@@ -1227,6 +1284,49 @@ function onForkActionFailed(event: EngineEvent) {
     }
 }
 
+/** F1: does a natural end of the rundown leave the engine's fallback on air? */
+function shouldFinishOnFallback(): boolean {
+    const settings = getSettingsSnapshot() as any;
+    return isForkMode()
+        && isCasparConnected.value
+        && settings.forkFillOnDry !== false
+        && fallbackHealth.engineSet !== false
+        && fallbackHealth.mode !== 'none';
+}
+
+/**
+ * F1: the rundown ended naturally in fork mode. Release PlayOut's on-air
+ * state exactly as Stop does, but leave layer 10 (the engine's fallback or
+ * fillers) and the station ID alone.
+ */
+async function finishRundownOnFallback(): Promise<void> {
+    playToken += 1;
+    fenceForkNaturalCuts();
+    invalidatePreloads();
+    activeGuard.clear();
+    playbackCoordinator.stop('rundown finished on the fallback');
+    isCasparPlaying.value = false;
+    isLiveActive.value = false;
+    currentCasparDurationMs.value = 0;
+    claimCurrentKey(null);
+    updateDisplayedTime(0);
+    timelineTimers.forEach(clearTimeout);
+    timelineTimers = [];
+    pendingResumeSeekMs = 0;
+    wasPlayingOnDisconnect = false;
+    if (resumeEvalTimer) clearTimeout(resumeEvalTimer);
+    resumeEvalTimer = null;
+    const fallbackTag = isFallbackTag(forkForegroundTag) ? forkForegroundTag : null;
+    resetForkState();
+    // The fillers keep rotating: their next events belong to the same run.
+    forkForegroundTag = fallbackTag;
+    fallbackHealth.rundownFinished = true;
+    await invoke('caspar_clear_playback').catch(() => {});
+    await invoke('caspar_set_playback_paused', { paused: false }).catch(() => {});
+    useRundownStore().stopPlaybackProgressTimer();
+    pushCheckpoint('stop');
+}
+
 /**
  * D5: the layer's fallback clip and stall limit, from the settings. Sent on
  * every connect in fork mode and after a settings save. The engine keeps the
@@ -1240,17 +1340,66 @@ export async function applyForkFallbackSettings(): Promise<void> {
 
 async function configureForkFallback(): Promise<void> {
     const settings = getSettingsSnapshot() as any;
-    const clip = String(settings.forkFallbackClip ?? 'playout/emergency').trim();
+    // AE-2: an absolute local path goes to the engine as is, with forward slashes (FK-1).
+    const clip = normalizeFallbackClip(String(settings.forkFallbackClip ?? 'playout/emergency'));
+    const folder = normalizeFallbackClip(String(settings.forkFillerFolder ?? ''));
     const rawStall = Number(settings.forkStallTicks);
     const stall = Number.isFinite(rawStall) && rawStall >= 0 ? Math.round(rawStall) : 50;
     const channel = PROGRAM_CHANNEL;
     const layer = CASPAR_LAYERS.video;
+    // AE-4 (C2): the engine rotates the filler folder by itself, so fillers
+    // outlive PlayOut. The single clip stays the answer when the folder fails.
+    if (folder && fallbackHealth.fillersUsable) {
+        try {
+            const reply = await invoke<ForkReply>('caspar_fork_fallback_list', {
+                channel,
+                layer,
+                folder,
+                shuffle: settings.forkFillerShuffle !== false,
+                noRepeat: null,
+                tag: FALLBACK_TAG,
+                stall,
+            });
+            if (reply.code < 400) {
+                fallbackHealth.mode = 'list';
+                fallbackHealth.target = folder;
+                resolveFrontendFaults('caspar-playout', (m) => /^(Fallback clip|Filler folder) "/.test(m));
+                await readForkFallbackArmed();
+                return;
+            }
+            forkFault(`Filler folder "${folder}" refused (${reply.body}); using the single fallback clip.`);
+        } catch (error) {
+            forkFault(`Filler folder "${folder}" could not be set (${String((error as any)?.message || error)}); using the single fallback clip.`);
+        }
+        fallbackHealth.fillersUsable = false;
+    }
     try {
         await invoke<ForkReply>('caspar_fork_fallback', { channel, layer, clip: clip || null, tag: FALLBACK_TAG, stall });
+        fallbackHealth.mode = clip ? 'clip' : 'none';
+        fallbackHealth.target = clip;
+        if (clip) resolveFrontendFaults('caspar-playout', (m) => m.startsWith('Fallback clip "'));
     } catch (error) {
         forkFault(`Fallback clip "${clip}" could not be set (${String((error as any)?.message || error)}); stall detection only. Deploy the templates or choose a clip in Settings.`);
         await invoke('caspar_fork_fallback', { channel, layer, clip: null, tag: null, stall }).catch(() => {});
+        fallbackHealth.mode = 'none';
+        fallbackHealth.target = '';
     }
+    await readForkFallbackArmed();
+}
+
+/** AE-2: what the engine says about the layer's fallback (`QUEUE INFO` `fallback.set`). */
+export async function readForkFallbackArmed(): Promise<boolean | null> {
+    if (!isForkMode() || !isCasparConnected.value) {
+        fallbackHealth.engineSet = null;
+        return null;
+    }
+    try {
+        const info = await invoke<ForkQueueInfo | null>('caspar_fork_probe', { channel: PROGRAM_CHANNEL, layer: CASPAR_LAYERS.video });
+        fallbackHealth.engineSet = info ? info.fallback?.set === true : null;
+    } catch {
+        fallbackHealth.engineSet = null;
+    }
+    return fallbackHealth.engineSet;
 }
 
 async function detectEngineMode(): Promise<void> {
@@ -1638,9 +1787,12 @@ const prepareCasparMediaPath = async (rawPath: string) => {
     try {
         return await invoke<string>('prepare_caspar_media_path', {
             path: rawPath,
-            mediaRoot: getSettingsSnapshot().localMediaPath || ''
+            mediaRoot: getSettingsSnapshot().localMediaPath || '',
+            advertisedRoot: getAdvertisedMediaRoot() || null
         });
     } catch (error) {
+        // AE-1: never guess a path for a registry asset outside the verified root.
+        if (isMediaRootError(error)) throw error instanceof Error ? error : new Error(String(error));
         console.warn('[CasparCG] Falling back to direct path after prepare failure', rawPath, error);
         return normalizeMediaPath(rawPath);
     }
@@ -2387,7 +2539,20 @@ async function adoptForkOnAir(): Promise<boolean> {
     }
     const foreground = info?.foreground;
     const tag = foreground?.tag || '';
-    if (!foreground || !tag || tag === FALLBACK_TAG) return false;
+    if (foreground && isFallbackTag(tag)) {
+        // AE-4: the engine is on its fallback / fillers (it kept them up while
+        // PlayOut was away). Not a foreign clip: the relaunch plan offers
+        // Join schedule / Stay on fillers.
+        forkForegroundTag = tag;
+        fallbackHealth.onAir = {
+            since: Date.now(),
+            file: info?.fallback?.current ?? null,
+            reason: 'adopted',
+            count: fallbackHealth.onAir?.count ?? 1,
+        };
+        return false;
+    }
+    if (!foreground || !tag) return false;
 
     const rowId = tagBase(tag);
     const store = useRundownStore();
@@ -3207,12 +3372,21 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
         const resumeSeekMs = pendingResumeSeekMs;
         pendingResumeSeekMs = 0;
 
-        // Skip items with error status immediately
+        // Skip items with error status immediately. Skip by index: re-running
+        // advanceNext() from the unchanged currentKey picked this same row
+        // again, every 100 ms, for as long as it stayed flagged -- and took it
+        // the moment the library reconcile set it back to ready.
         if (item.ingestorStatus === 'error') {
             console.warn(`[CasparCG] Skipping item ${item.filename} because it is flagged with error status.`);
-            setTimeout(() => {
-                advanceNext(false).catch(() => {});
-            }, 100);
+            if (index + 1 < queuedItems.length) {
+                await playItemAt(index + 1, token, isManual);
+            } else if (shouldFinishOnFallback()) {
+                await finishRundownOnFallback();
+                onAdvanceCallback?.(null);
+            } else {
+                await casparPlayoutService.stop();
+                onAdvanceCallback?.(null);
+            }
             return;
         }
 
@@ -3311,7 +3485,8 @@ async function playItemAt(index: number, token: number, isManual: boolean = fals
                 const settings = useSettingsStore();
                 nextPath = await invoke<string>('prepare_caspar_media_path', {
                     path: nextRawPath,
-                    mediaRoot: settings.localMediaPath || ''
+                    mediaRoot: settings.localMediaPath || '',
+                    advertisedRoot: getAdvertisedMediaRoot() || null
                 });
                 nextPath = nextPath.replace(/\\/g, '/').replace(/"/g, '');
             } catch (e) {
@@ -3536,7 +3711,14 @@ async function advanceToNext(token: number, natural: boolean) {
         const nextIndex = currentIndex + 1;
 
         if (nextIndex >= queuedItems.length) {
-            await casparPlayoutService.stop();
+            // F1: in fork mode the engine already shows its fallback / fillers;
+            // a natural end of the rundown leaves them on air. Stop stays an
+            // explicit CLEAR.
+            if (natural && shouldFinishOnFallback()) {
+                await finishRundownOnFallback();
+            } else {
+                await casparPlayoutService.stop();
+            }
             onAdvanceCallback?.(null);
             return;
         }
@@ -3647,7 +3829,8 @@ async function advanceToNext(token: number, natural: boolean) {
                         const settings = useSettingsStore();
                         nextNextPath = await invoke<string>('prepare_caspar_media_path', {
                             path: nextNextRawPath,
-                            mediaRoot: settings.localMediaPath || ''
+                            mediaRoot: settings.localMediaPath || '',
+                            advertisedRoot: getAdvertisedMediaRoot() || null
                         });
                         nextNextPath = nextNextPath.replace(/\\/g, '/').replace(/"/g, '');
                     } catch (e) {
@@ -3855,7 +4038,8 @@ export async function playItemWithIntent(
                 try {
                     nextPath = (await invoke<string>('prepare_caspar_media_path', {
                         path: nextRawPath,
-                        mediaRoot: getSettingsSnapshot().localMediaPath || ''
+                        mediaRoot: getSettingsSnapshot().localMediaPath || '',
+                        advertisedRoot: getAdvertisedMediaRoot() || null
                     })).replace(/\\/g, '/').replace(/"/g, '');
                 } catch (e) {
                     nextPath = nextRawPath.replace(/\\/g, '/').replace(/"/g, '');
@@ -4080,6 +4264,8 @@ export const casparPlayoutService: PlayoutService = {
             await sendRawCommand(`CLEAR ${PROGRAM_CHANNEL}-${CASPAR_LAYERS.live}`);
         }
         resetForkState();
+        fallbackHealth.onAir = null;
+        fallbackHealth.rundownFinished = false;
 
         // Release Rust playback ownership.
         await invoke('caspar_clear_playback').catch(() => {});

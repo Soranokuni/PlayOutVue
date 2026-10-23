@@ -16,11 +16,27 @@ describe('fork engine settings hydration', () => {
     expect(sanitizeSettingsState({ ...DEFAULTS, forkFallbackClip: '' }, DEFAULTS).forkFallbackClip).toBe('');
   });
 
+  it('accepts an absolute local path (AE-2: the fork takes D:/... as is)', () => {
+    for (const good of ['D:/fallback/slate.mov', 'D:\\fallback\\slate.mov', 'e:/Fill ers/a b.mxf']) {
+      expect(sanitizeSettingsState({ ...DEFAULTS, forkFallbackClip: good }, DEFAULTS).forkFallbackClip).toBe(good);
+    }
+  });
+
   it('rejects a clip that could break the AMCP line or leave the media folder', () => {
-    for (const bad of ['a" LOOP\r\nKILL', 'a"b', '../system/x', 'C:\\media\\x', 42]) {
+    for (const bad of ['a" LOOP\r\nKILL', 'a"b', '../system/x', 'D:/x/../y', 'D:/a"b', 'D:/a\r\nKILL', '\\\\server\\share\\x', 42]) {
       expect(sanitizeSettingsState({ ...DEFAULTS, forkFallbackClip: bad } as Record<string, unknown>, DEFAULTS).forkFallbackClip)
         .toBe('playout/emergency');
     }
+  });
+
+  it('keeps a local filler folder and drops one that could break FALLBACK LIST', () => {
+    const defaults = { ...DEFAULTS, forkFillerFolder: '', forkFillerShuffle: true, forkFillOnDry: true };
+    expect(sanitizeSettingsState({ ...defaults, forkFillerFolder: 'D:/fillers' }, defaults).forkFillerFolder).toBe('D:/fillers');
+    for (const bad of ['D:/a"b', 'D:/x/../y', 'D:/a\r\nKILL', 7]) {
+      expect(sanitizeSettingsState({ ...defaults, forkFillerFolder: bad } as Record<string, unknown>, defaults).forkFillerFolder).toBe('');
+    }
+    const flags = sanitizeSettingsState({ ...defaults, forkFillerShuffle: 'yes', forkFillOnDry: 0 } as Record<string, unknown>, defaults);
+    expect(flags).toMatchObject({ forkFillerShuffle: true, forkFillOnDry: true });
   });
 
   it('bounds the queue depth and the stall limit', () => {

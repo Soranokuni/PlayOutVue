@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { frontendFaults, recordFrontendFault, dismissFrontendFault, clearFrontendFaults } from '../frontendFaults';
+import { frontendFaults, recordFrontendFault, dismissFrontendFault, clearFrontendFaults, resolveFrontendFaults } from '../frontendFaults';
 
 describe('frontendFaults (operator toast source)', () => {
     beforeEach(() => clearFrontendFaults());
@@ -31,5 +31,18 @@ describe('frontendFaults (operator toast source)', () => {
         const id = frontendFaults.value[0]!.id;
         dismissFrontendFault(id);
         expect(frontendFaults.value.map((f) => f.message)).toEqual(['b']);
+    });
+
+    it('resolves the toasts of one source whose fault is over', () => {
+        recordFrontendFault('caspar-playout', 'Fallback clip "playout/emergency" could not be set (404)');
+        recordFrontendFault('caspar-playout', 'CasparCG reported x stalled');
+        recordFrontendFault('fallback', 'Fallback clip self-test failed: not found');
+        resolveFrontendFaults('caspar-playout', (m) => m.startsWith('Fallback clip "'));
+        expect(frontendFaults.value.map((f) => f.source + ': ' + f.message)).toEqual([
+            'caspar-playout: CasparCG reported x stalled',
+            'fallback: Fallback clip self-test failed: not found',
+        ]);
+        resolveFrontendFaults('fallback');
+        expect(frontendFaults.value).toHaveLength(1);
     });
 });

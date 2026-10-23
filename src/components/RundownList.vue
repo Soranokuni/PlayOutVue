@@ -12,6 +12,9 @@ import PlaylistTotals from './PlaylistTotals.vue';
 import { onAppMenuAction } from '../lib/appMenu';
 import { usePlaylistFile } from '../composables/usePlaylistFile';
 import ContextMenu, { type MenuItem, type MenuTone, type TopAction } from './ContextMenu.vue';
+import { useLookAheadStore } from '../stores/lookAhead';
+import { issueLabel } from '../lib/lookAhead';
+import { fallbackHealth } from '../lib/fallbackHealth';
 import { contentTypeTone, ratingBadge, ratingTone } from '../lib/menuTones';
 import { CONTENT_TYPES, effectiveContentType, type ContentType } from '../lib/contentTypes';
 import AppIcon from './ui/AppIcon.vue';
@@ -725,7 +728,47 @@ const menuItems = computed<MenuItem[]>(() => {
   const item = contextMenu.value.item;
   if (!item) return [];
   
-  const list: MenuItem[] = [
+  const list: MenuItem[] = [];
+  // A row playout skipped or held stays out of the chain until released.
+  if (item.playoutHold) {
+    list.push(
+      { type: 'label', label: item.playoutHold.status === 'error' ? 'Skipped by playout' : 'Held by playout' },
+      {
+        type: 'action',
+        icon: 'restore',
+        tone: 'accent',
+        label: 'Re-enable row',
+        disabled: store.isRundownLocked,
+        action: () => { store.releaseHold(item.id); closeContextMenu(); }
+      },
+      { type: 'divider' }
+    );
+  }
+  // AE-3: the pre-flight's verdict and the two ways out, first.
+  const issue = lookAhead.issues[item.id];
+  if (issue) {
+    list.push(
+      { type: 'label', label: `Pre-flight: ${issueLabel(issue)} (${issue.reason})` },
+      {
+        type: 'action',
+        icon: 'arrow-down',
+        tone: 'warning',
+        label: 'Skip this row',
+        disabled: store.isRundownLocked,
+        action: () => { lookAhead.skip(item.id); closeContextMenu(); }
+      },
+      {
+        type: 'action',
+        icon: 'pause',
+        tone: 'warning',
+        label: 'Hold before this row',
+        disabled: store.isRundownLocked,
+        action: () => { lookAhead.hold(item.id); closeContextMenu(); }
+      },
+      { type: 'divider' }
+    );
+  }
+  list.push(
     {
       type: 'label',
       label: 'Clip'
@@ -755,7 +798,7 @@ const menuItems = computed<MenuItem[]>(() => {
       disabled: store.isRundownLocked,
       action: ctxDuplicate
     }
-  ];
+  );
   
   if (item.type !== 'gap') {
     const currentRating = item.complianceRating || 'none';
@@ -1098,6 +1141,13 @@ const rowAtText = (index: number) => {
   return eta && (eta.kind === 'gap' || eta.kind === 'time') ? eta.text || '' : '';
 };
 const rowPlayProtected = (index: number) => isProtectedPlayingRow(index);
+// AE-3: look-ahead pre-flight problems, as row badges.
+const lookAhead = useLookAheadStore();
+const rowPreflightLabel = (item: RundownItem) => {
+  const issue = lookAhead.issues[item.id];
+  return issue ? issueLabel(issue) : '';
+};
+const rowPreflightReason = (item: RundownItem) => lookAhead.issues[item.id]?.reason ?? '';
 
 /**
  * §6.1: true on the first row of each scheduled day, so the list can draw one
@@ -1351,6 +1401,11 @@ onUnmounted(() => {
         <div class="rw-header-name-row">
           <h2 class="text-warning rw-header-name">{{ store.currentPlaylistName }}</h2>
           <span v-if="store.isCurrentPlaylistOnAir" class="playing-badge"><AppIcon name="play" :size="12" /> ON AIR</span>
+          <span
+            v-else-if="fallbackHealth.rundownFinished && fallbackHealth.onAir"
+            class="playing-badge rw-finished-badge"
+            data-testid="rundown-finished-on-fillers"
+          ><AppIcon name="layers" :size="12" /> FINISHED · ON FILLERS</span>
         </div>
         <PlaylistTotals />
       </div>
@@ -1654,7 +1709,9 @@ onUnmounted(() => {
           rowAtKind(index),
           rowAtText(index),
           rowPlayProtected(index),
-          dayBreakBefore(index)
+          dayBreakBefore(index),
+          rowPreflightLabel(item),
+          rowPreflightReason(item)
         ]"
       >
         <!-- §6.1: a day separator instead of repeating the weekday on all 300
@@ -1680,6 +1737,9 @@ onUnmounted(() => {
           :at-kind="rowAtKind(index)"
           :at-text="rowAtText(index)"
           :play-protected="rowPlayProtected(index)"
+          :preflight-label="rowPreflightLabel(item)"
+          :preflight-reason="rowPreflightReason(item)"
+          @preflight="onContextMenu($event, index, item)"
           @select="onRowSelect(item, $event)"
           @contextmenu="onContextMenu($event, index, item)"
           @pointerdown-handle="onRowHandlePointerDown($event, item)"
@@ -1944,6 +2004,13 @@ onUnmounted(() => {
   color: var(--accent-red); font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-caps);
   padding: var(--space-0) var(--space-2); border-radius: var(--radius-sm);
   animation: onair-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+}
+/* F1 / AE-4: the rundown ended and the engine's fillers hold the air. */
+.playing-badge.rw-finished-badge {
+  background: color-mix(in srgb, var(--status-processing) 16%, transparent);
+  border-color: color-mix(in srgb, var(--status-processing) 50%, transparent);
+  color: var(--status-processing);
+  animation: none;
 }
 /* §2.1: the second `.icon-action` definition is gone -- it had a different
    radius, padding and hover from the library's, for controls that sit four

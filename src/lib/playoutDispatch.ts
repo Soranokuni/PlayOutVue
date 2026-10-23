@@ -9,6 +9,7 @@ import {
     type TrimCommandFields
 } from './trimCommands';
 import type { ForkReply } from './forkQueue';
+import { getAdvertisedMediaRoot, isMediaRootError } from './mediaRootContext';
 
 export interface FrameTrimResult {
     in_frame: number;
@@ -83,10 +84,13 @@ async function preparePath(clientPath: string): Promise<string> {
     try {
         const prepared = await invoke<string>('prepare_caspar_media_path', {
             path: clientPath,
-            mediaRoot: settings.localMediaPath || ''
+            mediaRoot: settings.localMediaPath || '',
+            advertisedRoot: getAdvertisedMediaRoot() || null
         });
         return prepared.replace(/\\/g, '/').replace(/"/g, '');
     } catch (e) {
+        // AE-1: a registry asset outside the verified media root fails loudly.
+        if (isMediaRootError(e)) throw e instanceof Error ? e : new Error(String(e));
         console.warn('[playoutDispatch] Failed to prepare path via invoke, using local fallback:', e);
         let p = clientPath.replace(/\\/g, '/');
         const mediaRoot = (settings.localMediaPath || '').replace(/\\/g, '/').replace(/\/+$/, '');

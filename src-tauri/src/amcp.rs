@@ -781,6 +781,37 @@ pub fn fallback_cmd(
     Ok(cmd)
 }
 
+/// `FALLBACK <ch>-<layer> LIST "<folder>" [SHUFFLE] [NOREPEAT <n>] [TAG <tag>] [STALL <n>]`
+/// (contract C2, MEDIA-FALLBACK-HANDOFF): the engine rotates the folder's
+/// video files as fillers, keeping the next one open. `<folder>` is absolute
+/// (forward slashes) or relative to the media path.
+pub fn fallback_list_cmd(
+    channel: u8,
+    layer: u16,
+    folder: &str,
+    shuffle: bool,
+    no_repeat: Option<u32>,
+    tag: &str,
+    stall_ticks: Option<u32>,
+) -> Result<String, String> {
+    let folder = folder.trim();
+    if folder.is_empty() || folder.contains('"') || folder.chars().any(|c| c.is_control()) {
+        return Err(format!("Invalid filler folder '{}'", folder));
+    }
+    let mut cmd = format!("FALLBACK {}-{} LIST \"{}\"", channel, layer, folder);
+    if shuffle {
+        cmd.push_str(" SHUFFLE");
+    }
+    if let Some(n) = no_repeat {
+        cmd.push_str(&format!(" NOREPEAT {}", n));
+    }
+    cmd = with_tag(cmd, Some(tag), None)?;
+    if let Some(ticks) = stall_ticks {
+        cmd.push_str(&format!(" STALL {}", ticks));
+    }
+    Ok(cmd)
+}
+
 /// `FALLBACK <ch>-<layer> CLEAR`: removes the clip; the STALL limit stays.
 pub fn fallback_clear_cmd(channel: u8, layer: u16) -> String {
     format!("FALLBACK {}-{} CLEAR", channel, layer)
@@ -840,6 +871,15 @@ pub struct QueueFallback {
     pub active: bool,
     #[serde(default)]
     pub stall: i64,
+    /// C2: `"clip"` or `"list"`; absent on an engine without `FALLBACK LIST`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// C2: number of fillers in the folder (list mode).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<u32>,
+    /// C2: the filler on air, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
 }
 
 /// `QUEUE INFO` reply. `instance` is the server start time in ms; a new
@@ -874,6 +914,9 @@ pub struct EngineEvent {
     pub tag: String,
     #[serde(default)]
     pub reason: String,
+    /// C2: the filler's file name on a `fallback:<n>` event of a `FALLBACK LIST`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 /// `EVENTS` reply. `since < oldest - 1` means events fell out of the log.
@@ -1106,6 +1149,34 @@ mod tests {
         // The outer quotes become \" so the token can be wrapped in "...".
         assert!(!escaped.contains("\"text\":\""));
         assert!(escaped.contains("\\\"text\\\""));
+    }
+
+    #[test]
+    fn fallback_list_cmd_follows_contract_c2() {
+        assert_eq!(
+            fallback_list_cmd(1, 10, "D:/fillers", true, None, "fallback", Some(50)).unwrap(),
+            "FALLBACK 1-10 LIST \"D:/fillers\" SHUFFLE TAG fallback STALL 50"
+        );
+        assert_eq!(
+            fallback_list_cmd(1, 10, "fillers", false, Some(3), "fallback", None).unwrap(),
+            "FALLBACK 1-10 LIST \"fillers\" NOREPEAT 3 TAG fallback"
+        );
+        assert!(fallback_list_cmd(1, 10, "a\"b", true, None, "fallback", None).is_err());
+        assert!(fallback_list_cmd(1, 10, "a\r\nKILL", true, None, "fallback", None).is_err());
+        assert!(fallback_list_cmd(1, 10, "  ", true, None, "fallback", None).is_err());
+    }
+
+    #[test]
+    fn queue_fallback_reads_the_list_fields() {
+        let with: QueueFallback = serde_json::from_str(
+            r#"{"set":true,"tag":"fallback","active":true,"stall":50,"mode":"list","files":4,"current":"a.mov"}"#,
+        )
+        .unwrap();
+        assert_eq!(with.mode.as_deref(), Some("list"));
+        assert_eq!(with.files, Some(4));
+        assert_eq!(with.current.as_deref(), Some("a.mov"));
+        let older: QueueFallback = serde_json::from_str(r#"{"set":true,"tag":"fallback","active":false,"stall":50}"#).unwrap();
+        assert_eq!(older.mode, None);
     }
 
     #[test]

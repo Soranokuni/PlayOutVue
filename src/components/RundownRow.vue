@@ -50,6 +50,9 @@ const props = defineProps<{
   atKind: '' | 'done' | 'now' | 'gap' | 'time';
   atText: string;
   playProtected: boolean;
+  /** AE-3: "will fail at HH:MM" from the look-ahead pre-flight, '' when fine. */
+  preflightLabel?: string;
+  preflightReason?: string;
 }>();
 
 /**
@@ -74,6 +77,7 @@ const emit = defineEmits<{
   (e: 'play'): void;
   (e: 'delete'): void;
   (e: 'pointerdown-handle', ev: PointerEvent): void;
+  (e: 'preflight', ev: MouseEvent): void;
 }>();
 
 
@@ -245,6 +249,17 @@ const itemTooltip = computed(() => {
          column now, so a clip name no longer truncates to "K…". -->
     <div class="rw-name" :title="getDisplayName(item)">
       <span class="rw-name-text">{{ getDisplayName(item) }}</span>
+      <button
+        v-if="preflightLabel"
+        type="button"
+        class="btn btn--ghost btn--sm rw-preflight-badge"
+        :title="`${preflightReason || 'Pre-flight failed'} · click for Skip / Hold`"
+        data-testid="preflight-badge"
+        @click.stop="emit('preflight', $event)"
+      >
+        <AppIcon name="alert" :size="12" />
+        <span>{{ preflightLabel }}</span>
+      </button>
     </div>
 
     <div class="rw-flags">
@@ -728,6 +743,25 @@ const itemTooltip = computed(() => {
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1;
+}
+/* AE-3: the look-ahead pre-flight found a problem minutes before the cut. */
+.rw-preflight-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--status-error) 50%, transparent);
+  background: color-mix(in srgb, var(--status-error) 14%, transparent);
+  color: var(--text-primary);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: normal;
+  white-space: nowrap;
+}
+.rw-preflight-badge :deep(svg) {
+  color: var(--status-error);
 }
 .rw-meta-badges {
   display: inline-flex;

@@ -43,8 +43,9 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
 
   { section: 'playout', title: 'CasparCG server', terms: ['server location', 'executable', 'casparcg.exe', 'config filename', 'casparcg.config', 'validate', 'engine'] },
   { section: 'playout', title: 'Supervision', terms: ['start the server when aether launches', 'auto start', 'leave the server running', 'keep alive', '24/7', 'relaunch after a crash', 'crash loop', 'resume the clip'] },
-  { section: 'playout', title: 'PlayOut fork engine', terms: ['fork', 'queue depth', 'queued rows', 'fallback clip', 'emergency', 'slate', 'stall', 'engine mode'] },
+  { section: 'playout', title: 'PlayOut fork engine', terms: ['fork', 'queue depth', 'queued rows', 'fallback clip', 'emergency', 'slate', 'stall', 'engine mode', 'fillers', 'filler folder', 'shuffle', 'end of rundown', 'fill on dry'] },
   { section: 'playout', title: 'PlayOut recovery', terms: ['restart aether automatically', 'crash', 'hang', 'watchdog', 'resume the interrupted clip', 'join the schedule', 'countdown', 'relaunch'] },
+  { section: 'playout', title: 'Look-ahead pre-flight', terms: ['look ahead', 'preflight', 'pre-flight', 'will fail', 'skip', 'hold', 'sidecar', 'next rows', 'minutes ahead'] },
   { section: 'playout', title: 'Connection', terms: ['osc', 'feedback port', 'udp', 'amcp', 'port'] },
   { section: 'playout', title: 'Timing', terms: ['playout profile', 'pal', '1080i50', '1080p25', 'interlaced', 'progressive', 'transition length', 'frames', 'pre-roll', 'preroll', 'buffer', 'mix'] },
 
@@ -53,6 +54,7 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
   { section: 'hardware', title: 'Tools', terms: ['setup wizard', 'decklink wizard', 'configurator', 'casparcg config editor'] },
 
   { section: 'media', title: 'PlayoutTranscode API', terms: ['api base url', 'api token', 'ingestor', 'transcoder', 'test connection', '4353'] },
+  { section: 'media', title: 'Media root', terms: ['verify', 'registry marker', 'transcoder folder', 'unc', 'share', 'mapped drive', 'casparcg media path', 'fix media path', 'local media path'] },
   { section: 'media', title: 'AI designer', terms: ['api key', 'model', 'effort', 'monthly cap', 'budget', 'anthropic', 'claude'] },
   { section: 'media', title: 'FFmpeg', terms: ['binary folder override', 'ffprobe', 'tools path'] },
   { section: 'media', title: 'Recycle Bin', terms: ['keep deleted items for', 'purge', 'empty now', 'trash', 'retention'] },

@@ -18,7 +18,10 @@ import {
     validateCasparExecutablePath,
     type CasparValidationInfo
 } from '../services/casparProcess';
-import { getActivePlayoutService } from '../services/playout';
+import { getActivePlayoutService, isPlayoutPlaying } from '../services/playout';
+import { useMediaRootSettings } from '../composables/useMediaRootSettings';
+import { afterTemplatesDeployed, fallbackSettingsChanged } from '../services/fallbackMonitor';
+import { isAbsoluteClipPath } from '../lib/fallbackHealth';
 import { applyForkFallbackSettings, engineMode } from '../services/caspar';
 import { describeError, describeErrorMessage } from '../lib/describeError';
 import { showToast } from '../lib/toasts';
@@ -284,6 +287,11 @@ const localState = ref({
     forkQueueDepth: 2,
     forkFallbackClip: 'playout/emergency',
     forkStallTicks: 50,
+    forkFillerFolder: '',
+    forkFillerShuffle: true,
+    forkFillOnDry: true,
+    lookAheadRows: 5,
+    lookAheadMinutes: 30,
     ingestorApiBaseUrl: '',
     ingestorApiToken: '',
     aiProvider: 'anthropic' as const,
@@ -310,6 +318,16 @@ const localState = ref({
     cgAdvisoryConfig: { ...DEFAULT_CG_ADVISORY_CONFIG } as CgAdvisoryTemplateConfig
 });
 
+
+// MEDIA-FALLBACK-HANDOFF AE-1: Settings → Media → Media root.
+const mediaRootDraft = computed({
+    get: () => localState.value.localMediaPath,
+    set: (value: string) => { localState.value.localMediaPath = value; },
+});
+const mediaRootUi = useMediaRootSettings(mediaRootDraft, () => settings.localMediaPath);
+watch(activeSection, (section) => {
+    if (section === 'media') void mediaRootUi.verify();
+}, { immediate: true });
 
 const engineModeLabel = computed(() => {
     switch (engineMode.value) {
@@ -351,6 +369,8 @@ const deployTemplatesFromSettings = async () => {
 
         // Auto-refresh Layer 32 so changes take effect immediately with latest preset styling
         await getActivePlayoutService().reloadComplianceTemplate?.();
+        // F4: the default slate exists only now; re-arm the fork's fallback.
+        void afterTemplatesDeployed();
 
         await message(`Broadcast CG Templates deployed successfully!\n\nTarget Directory:\n${res.template_dir}\n\nFiles Deployed:\n• ${res.deployed.join('\n• ')}\n\n(On-air graphics have been refreshed automatically without server restart)`, {
             title: 'Broadcast CG Studio',
@@ -393,6 +413,11 @@ const mapLocalState = () => {
         forkQueueDepth: settings.forkQueueDepth ?? 2,
         forkFallbackClip: settings.forkFallbackClip ?? 'playout/emergency',
         forkStallTicks: settings.forkStallTicks ?? 50,
+        forkFillerFolder: settings.forkFillerFolder ?? '',
+        forkFillerShuffle: settings.forkFillerShuffle !== false,
+        forkFillOnDry: settings.forkFillOnDry !== false,
+        lookAheadRows: settings.lookAheadRows ?? 5,
+        lookAheadMinutes: settings.lookAheadMinutes ?? 30,
         ingestorApiBaseUrl: settings.ingestorApiBaseUrl,
         ingestorApiToken: settings.ingestorApiToken || '',
         aiProvider: settings.aiProvider || 'anthropic',
@@ -655,7 +680,72 @@ const oscPortError = computed(() => {
     return '';
 });
 
-const validationErrors = computed(() => [apiUrlError.value, oscPortError.value].filter(Boolean));
+/* --- AE-2: the fork's fallback must live on a local disk --- */
+
+interface LocalPathCheck { local: boolean; kind: string; reason: string | null }
+const fallbackClipError = ref('');
+const looksLikeNetworkPath = (value: string) => /^(\\\\|\/\/)/.test(value.trim());
+const checkLocalPath = async (value: string): Promise<string> => {
+    const trimmed = value.trim();
+    if (!trimmed || (!isAbsoluteClipPath(trimmed) && !looksLikeNetworkPath(trimmed))) return '';
+    try {
+        const check = await invoke<LocalPathCheck>('check_local_media_path', { path: trimmed });
+        return check.local ? '' : (check.reason || 'Not a local disk');
+    } catch (error) {
+        return String((error as any)?.message ?? error);
+    }
+};
+watch(() => localState.value.forkFallbackClip, async (value) => {
+    const error = await checkLocalPath(value || '');
+    if ((localState.value.forkFallbackClip || '') === (value || '')) fallbackClipError.value = error;
+}, { immediate: true });
+
+const pickFallbackClip = async () => {
+    const current = (localState.value.forkFallbackClip || '').trim();
+    const selection = await open({
+        title: 'Choose the fallback clip (local disk)',
+        multiple: false,
+        directory: false,
+        defaultPath: isAbsoluteClipPath(current) ? current : undefined,
+        filters: [
+            { name: 'Video and stills', extensions: ['mov', 'mp4', 'mxf', 'mkv', 'avi', 'm4v', 'mpg', 'ts', 'webm', 'png', 'jpg', 'jpeg', 'tga'] },
+            { name: 'All Files', extensions: ['*'] },
+        ],
+    });
+    if (!selection || Array.isArray(selection)) return;
+    const error = await checkLocalPath(selection);
+    if (error) {
+        await message(`${selection}\n\n${error}.`, { title: 'Fallback clip', kind: 'warning' });
+        return;
+    }
+    localState.value.forkFallbackClip = selection.replace(/\\/g, '/');
+};
+
+/* --- AE-4: the filler folder, local disk only --- */
+const fillerFolderError = ref('');
+watch(() => localState.value.forkFillerFolder, async (value) => {
+    const error = await checkLocalPath(value || '');
+    if ((localState.value.forkFillerFolder || '') === (value || '')) fillerFolderError.value = error;
+}, { immediate: true });
+
+const pickFillerFolder = async () => {
+    const current = (localState.value.forkFillerFolder || '').trim();
+    const selection = await open({
+        title: 'Choose the filler folder (local disk)',
+        multiple: false,
+        directory: true,
+        defaultPath: isAbsoluteClipPath(current) ? current : undefined,
+    });
+    if (!selection || Array.isArray(selection)) return;
+    const error = await checkLocalPath(selection);
+    if (error) {
+        await message(`${selection}\n\n${error}.`, { title: 'Filler folder', kind: 'warning' });
+        return;
+    }
+    localState.value.forkFillerFolder = selection.replace(/\\/g, '/');
+};
+
+const validationErrors = computed(() => [apiUrlError.value, oscPortError.value, fallbackClipError.value, fillerFolderError.value].filter(Boolean));
 
 const canSave = computed(() => isDirty.value && validationErrors.value.length === 0);
 
@@ -723,6 +813,7 @@ const saveSettings = async () => {
     } catch {}
     // Fork engine only; a no-op on a stock engine or while disconnected.
     await applyForkFallbackSettings().catch(() => {});
+    fallbackSettingsChanged();
 
     // UI F-07: Save used to close the dialog silently, so there was no way to
     // tell a save from a mis-click on Cancel.
@@ -1086,13 +1177,73 @@ const openTemplateDir = async () => {
             </div>
             <div class="field">
               <label class="field-label" for="fork-fallback-clip">Fallback clip when the queue runs dry or a clip fails</label>
-              <input id="fork-fallback-clip" v-model="localState.forkFallbackClip" class="input mono" type="text" placeholder="playout/emergency" />
-              <p class="field-hint">Relative to the media folder. Deploying the templates installs <span class="mono">playout/emergency</span>. Empty: no fallback clip.</p>
+              <div class="input-with-button">
+                <input
+                  id="fork-fallback-clip"
+                  v-model="localState.forkFallbackClip"
+                  class="input mono"
+                  :class="{ 'input--invalid': fallbackClipError }"
+                  type="text"
+                  placeholder="D:/fallback/slate.mov"
+                />
+                <BaseButton variant="secondary" icon="folder-open" data-testid="fork-fallback-browse" @click="pickFallbackClip">Browse</BaseButton>
+              </div>
+              <p v-if="fallbackClipError" class="field-error" data-testid="fork-fallback-error">{{ fallbackClipError }}</p>
+              <p v-else class="field-hint">
+                A file on a local disk, so a media-share outage cannot take it out; network drives are refused.
+                <span class="mono">playout/emergency</span> (relative to the media folder) is the slate Deploy templates installs.
+                Empty: no fallback clip.<template v-if="engineMode === 'stock'"> Needs the PlayOut fork.</template>
+              </p>
             </div>
+            <div class="field">
+              <label class="field-label" for="fork-filler-folder">Filler folder</label>
+              <div class="input-with-button">
+                <input
+                  id="fork-filler-folder"
+                  v-model="localState.forkFillerFolder"
+                  class="input mono"
+                  :class="{ 'input--invalid': fillerFolderError }"
+                  type="text"
+                  placeholder="D:/fillers"
+                />
+                <BaseButton variant="secondary" icon="folder-open" data-testid="fork-filler-browse" @click="pickFillerFolder">Browse</BaseButton>
+              </div>
+              <p v-if="fillerFolderError" class="field-error" data-testid="fork-filler-error">{{ fillerFolderError }}</p>
+              <p v-else class="field-hint">
+                When set, CasparCG rotates this folder's clips instead of the single fallback clip, even with PlayOut
+                closed. Local disk only. Empty: the fallback clip alone.<template v-if="engineMode === 'stock'"> Needs the PlayOut fork.</template>
+              </p>
+            </div>
+            <label class="check-row">
+              <input v-model="localState.forkFillerShuffle" type="checkbox" />
+              <span>Play the fillers in random order (no repeat within three)</span>
+            </label>
+            <label class="check-row">
+              <input v-model="localState.forkFillOnDry" type="checkbox" data-testid="fork-fill-on-dry" />
+              <span>At the end of the rundown, stay on the fillers until a row is taken</span>
+            </label>
             <div class="field">
               <label class="field-label" for="fork-stall">Stall limit (channel ticks)</label>
               <input id="fork-stall" v-model.number="localState.forkStallTicks" class="input" type="number" min="0" max="1500" />
               <p class="field-hint">A clip that delivers no frame for this long is replaced. 50 is 2 s at 1080i50; 0 turns the check off.</p>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3 class="section-title">Look-ahead pre-flight</h3>
+            <p class="field-hint">
+              Every 30 s the next rows are checked: the file is in the media root, its size and asset id match its
+              sidecar. A problem shows on the row as "will fail at HH:MM", with Skip and Hold, before the cut.
+            </p>
+            <div class="field-row">
+              <div class="field">
+                <label class="field-label" for="look-ahead-rows">Rows</label>
+                <input id="look-ahead-rows" v-model.number="localState.lookAheadRows" class="input" type="number" min="1" max="50" />
+              </div>
+              <div class="field">
+                <label class="field-label" for="look-ahead-minutes">Minutes ahead</label>
+                <input id="look-ahead-minutes" v-model.number="localState.lookAheadMinutes" class="input" type="number" min="1" max="720" />
+              </div>
             </div>
           </section>
 
@@ -1242,6 +1393,76 @@ const openTemplateDir = async () => {
                 Needed once the service has a token (<code>PlayoutTranscode gen-token</code>); without it every call but
                 the health check is refused. Sent as an <code>X-Api-Token</code> header and never written to logs.
               </p>
+            </div>
+          </section>
+
+          <section class="settings-section" data-testid="media-root-settings">
+            <h3 class="section-title">Media root</h3>
+            <p class="section-hint">
+              The transcoder, PlayOut and CasparCG must use the same folder. PlayOut proves it by finding the
+              transcoder's registry marker (<span class="mono">.playouttranscode-registry.json</span>) in the folder below.
+            </p>
+            <dl v-if="mediaRootUi.advert.value" class="env-list">
+              <div class="env-row">
+                <dt>Transcoder publishes to</dt>
+                <dd class="mono">
+                  {{ mediaRootUi.advert.value.target_folder || '—' }}<template v-if="mediaRootUi.advert.value.host"> on {{ mediaRootUi.advert.value.host }}</template>
+                </dd>
+              </div>
+            </dl>
+            <p v-else-if="mediaRootUi.result.value?.transcoder_error" class="field-hint">
+              The transcoder did not say where it publishes ({{ mediaRootUi.result.value.transcoder_error }}).
+            </p>
+            <div v-if="mediaRootUi.proposal.value" class="probe-result probe-ok" data-testid="media-root-proposal">
+              <AppIcon name="info" :size="14" />
+              <span>The transcoder runs on this PC and publishes to <span class="mono">{{ mediaRootUi.proposal.value }}</span>.</span>
+              <BaseButton variant="secondary" size="sm" @click="mediaRootUi.useProposal()">Use this folder</BaseButton>
+            </div>
+            <div class="field">
+              <label class="field-label" for="media-root-path">
+                {{ mediaRootUi.isRemote.value ? "How this PC sees the transcoder's folder" : 'Local media path' }}
+              </label>
+              <div class="input-with-button">
+                <input
+                  id="media-root-path"
+                  v-model="localState.localMediaPath"
+                  class="input mono"
+                  type="text"
+                  :placeholder="mediaRootUi.isRemote.value ? '\\\\TRANSCODER\\Mezz or Z:/' : 'D:/Media'"
+                />
+                <BaseButton
+                  variant="secondary"
+                  :loading="mediaRootUi.verifying.value"
+                  data-testid="media-root-verify"
+                  @click="mediaRootUi.verify()"
+                >Verify</BaseButton>
+              </div>
+              <p v-if="mediaRootUi.verifyError.value" class="field-error">{{ mediaRootUi.verifyError.value }}</p>
+              <p
+                v-else-if="mediaRootUi.resultIsForDraft.value && !mediaRootUi.view.value.hidden"
+                class="probe-result"
+                :class="mediaRootUi.view.value.tone === 'ready' ? 'probe-ok' : 'probe-fail'"
+                data-testid="media-root-verdict"
+              >
+                <AppIcon :name="mediaRootUi.view.value.tone === 'ready' ? 'check' : 'alert'" :size="14" />
+                <span>{{ mediaRootUi.view.value.detail }}</span>
+              </p>
+              <p v-else class="field-hint">The same value as Hardware → Media path. Save to apply it.</p>
+            </div>
+            <dl v-if="mediaRootUi.mediaRoot.status?.caspar_media_path" class="env-list">
+              <div class="env-row">
+                <dt>CasparCG plays from</dt>
+                <dd class="mono">{{ mediaRootUi.mediaRoot.status.caspar_media_path }}</dd>
+              </div>
+            </dl>
+            <div v-if="mediaRootUi.canFix.value" class="server-actions">
+              <BaseButton
+                variant="primary"
+                :disabled="isPlayoutPlaying || mediaRootUi.mediaRoot.fixing"
+                :loading="mediaRootUi.mediaRoot.fixing"
+                data-testid="media-root-fix-settings"
+                @click="mediaRootUi.mediaRoot.fixCasparMediaPath(isPlayoutPlaying)"
+              >Fix CasparCG media path</BaseButton>
             </div>
           </section>
 

@@ -99,7 +99,15 @@ const INT_FIELDS: Record<string, { min: number; max: number }> = {
     relaunchCountdownS: { min: 0, max: 120 },
     forkQueueDepth: { min: 1, max: 8 },
     forkStallTicks: { min: 0, max: 1500 },
+    mediaRootVerifiedAt: { min: 0, max: Number.MAX_SAFE_INTEGER },
+    lookAheadRows: { min: 1, max: 50 },
+    lookAheadMinutes: { min: 1, max: 720 },
 };
+
+/** A media-relative engine clip name. */
+const FORK_CLIP_RELATIVE = /^[A-Za-z0-9_./ -]{0,256}$/;
+/** An absolute local path (`D:/…` or `D:\…`): no quote, no control character. */
+const FORK_CLIP_ABSOLUTE = /^[A-Za-z]:[\\/][^"\u0000-\u001f]{0,253}$/;
 
 /** A single token of the AMCP grammar: letters, digits, `_`, `-`, `.` */
 const AMCP_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -143,9 +151,11 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
     if (typeof state.decklinkInputFormat !== 'string' || !AMCP_TOKEN.test(state.decklinkInputFormat)) {
         (state as any).decklinkInputFormat = defaults.decklinkInputFormat;
     }
-    // Media-relative clip name inside `FALLBACK 1-10 "<clip>"`; empty = none.
+    // Clip inside `FALLBACK 1-10 "<clip>"`; empty = none. Media-relative, or
+    // (AE-2) an absolute path on a local disk; never a quote, a control
+    // character or a `..`. UNC paths are refused here as well as in the picker.
     if (typeof state.forkFallbackClip !== 'string'
-        || !/^[A-Za-z0-9_./ -]{0,256}$/.test(state.forkFallbackClip)
+        || !(FORK_CLIP_RELATIVE.test(state.forkFallbackClip) || FORK_CLIP_ABSOLUTE.test(state.forkFallbackClip))
         || state.forkFallbackClip.includes('..')) {
         (state as any).forkFallbackClip = defaults.forkFallbackClip;
     }
@@ -163,6 +173,10 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
         } else if (/[\u0000-\u001f\u007f]/.test(state[key])) {
             (state as any)[key] = state[key].replace(/[\u0000-\u001f\u007f]/g, ' ');
         }
+    }
+    // AE-1: the registry the verified media root belongs to (marker id).
+    if (typeof state.mediaRootRegistryId !== 'string' || !/^[!-~]{0,128}$/.test(state.mediaRootRegistryId)) {
+        (state as any).mediaRootRegistryId = '';
     }
     if (typeof state.ingestorApiBaseUrl !== 'string' || !/^https?:\/\/[^\s]+$/i.test(state.ingestorApiBaseUrl)) {
         (state as any).ingestorApiBaseUrl = defaults.ingestorApiBaseUrl;
@@ -184,6 +198,15 @@ export function sanitizeSettingsState<T extends Record<string, any>>(state: T, d
     }
     if (!['low', 'medium', 'high', 'xhigh', 'max'].includes(state.aiEffort as string)) {
         (state as any).aiEffort = 'medium';
+    }
+    // AE-4: the filler folder goes inside `FALLBACK 1-10 LIST "<folder>"`.
+    if (typeof state.forkFillerFolder !== 'string'
+        || !(FORK_CLIP_RELATIVE.test(state.forkFillerFolder) || FORK_CLIP_ABSOLUTE.test(state.forkFillerFolder))
+        || state.forkFillerFolder.includes('..')) {
+        (state as any).forkFillerFolder = '';
+    }
+    for (const key of ['forkFillerShuffle', 'forkFillOnDry'] as const) {
+        if (typeof state[key] !== 'boolean') (state as any)[key] = key in defaults ? defaults[key] : true;
     }
     for (const key of ['trimmerAudioMuted', 'trimmerScrubAudio', 'playoutAutoRestart'] as const) {
         if (typeof state[key] !== 'boolean') (state as any)[key] = defaults[key];
@@ -217,6 +240,10 @@ export const useSettingsStore = defineStore('settings', {
 
         // Media Paths
         localMediaPath: '',
+        // MEDIA-FALLBACK-HANDOFF AE-1 (C3): the transcoder registry whose marker
+        // was found in `localMediaPath`, and when (ms; 0 = never verified).
+        mediaRootRegistryId: '',
+        mediaRootVerifiedAt: 0,
         ffmpegBinPath: '',
         debugMode: false,
 
@@ -290,6 +317,18 @@ export const useSettingsStore = defineStore('settings', {
         forkQueueDepth: 2,
         forkFallbackClip: 'playout/emergency',
         forkStallTicks: 50,
+        // AE-4 (C3): a local folder the engine rotates as fillers (`FALLBACK
+        // LIST`; empty = the single clip only), in random order, and whether a
+        // natural end of the rundown leaves the fallback / fillers on air (F1).
+        forkFillerFolder: '',
+        forkFillerShuffle: true,
+        forkFillOnDry: true,
+
+        // AE-3 (C3): the look-ahead pre-flight checks the next rows due within
+        // this window every 30 s (file under the verified root, size and uuid
+        // match the sidecar).
+        lookAheadRows: 5,
+        lookAheadMinutes: 30,
 
         // Character Generator (CG) settings.
         //

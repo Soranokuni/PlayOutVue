@@ -22,6 +22,8 @@ tauri-build = { version = "2.6.2", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
+# Local time for operator-facing file names (already in the tree via tauri).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 log = "0.4"
 tracing = "0.1"
 regex = "1.12"

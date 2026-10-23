@@ -23,6 +23,9 @@ mod caspar_process;
 mod studio_server;
 mod ai_designer;
 mod recovery;
+mod media_root;
+mod fallback_media;
+mod preflight;
 
 use studio_server::{save_studio_default_preset, get_studio_default_preset};
 
@@ -269,9 +272,15 @@ pub fn run() {
             caspar_fork::caspar_fork_queue_remove,
             caspar_fork::caspar_fork_onair,
             caspar_fork::caspar_fork_fallback,
+            caspar_fork::caspar_fork_fallback_list,
             caspar_fork::caspar_engine_detect,
             caspar_fork::caspar_engine_state,
             caspar_fork::caspar_engine_asrun,
+            media_root::media_root_status,
+            media_root::fix_caspar_media_path,
+            fallback_media::check_local_media_path,
+            fallback_media::fallback_self_test,
+            preflight::preflight_rows,
             find_default_caspar_config,
             load_caspar_config,
             save_caspar_config_raw,

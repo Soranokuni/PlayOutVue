@@ -1954,9 +1954,201 @@ pub async fn set_ingestor_folder_color<R: Runtime>(
     Ok(())
 }
 
+// ── Media root (contract C1, MEDIA-FALLBACK-HANDOFF.md) ─────────────────────
+
+/// Subfolders of the media root the transcoder publishes into.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MediaRootLayout {
+    #[serde(default = "default_videos_dir")]
+    pub videos: String,
+    #[serde(default = "default_sidecars_dir")]
+    pub sidecars: String,
+}
+
+fn default_videos_dir() -> String {
+    "videos".to_string()
+}
+
+fn default_sidecars_dir() -> String {
+    "sidecars".to_string()
+}
+
+impl Default for MediaRootLayout {
+    fn default() -> Self {
+        Self { videos: default_videos_dir(), sidecars: default_sidecars_dir() }
+    }
+}
+
+pub const MEDIA_ROOT_MARKER_FILE: &str = ".playouttranscode-registry.json";
+
+fn default_marker_file() -> String {
+    MEDIA_ROOT_MARKER_FILE.to_string()
+}
+
+/// `GET /api/v2/media-root` (C1), or its weak reconstruction from
+/// `/api/diagnostics` on an older transcoder (`source = "diagnostics"`: no
+/// `registry_id`, the marker is matched on `data_dir` instead).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MediaRootAdvert {
+    #[serde(default)]
+    pub registry_id: String,
+    #[serde(default)]
+    pub target_folder: String,
+    #[serde(default)]
+    pub host: String,
+    #[serde(default)]
+    pub layout: MediaRootLayout,
+    #[serde(default = "default_marker_file")]
+    pub marker_file: String,
+    #[serde(default)]
+    pub claimed: bool,
+    /// Not in C1: filled in by PlayOut. `"v2"` or `"diagnostics"`.
+    #[serde(default)]
+    pub source: String,
+    /// Weak path only: the transcoder's `system.data_dir`.
+    #[serde(default)]
+    pub data_dir: String,
+}
+
+/// What [`fetch_media_root`] learned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MediaRootFetch {
+    Advertised(MediaRootAdvert),
+    /// The transcoder is down, refused the token or answered garbage.
+    Unavailable(String),
+}
+
+/// Parse a `200` of `GET /api/v2/media-root`.
+pub fn parse_media_root_v2(body: &str) -> Result<MediaRootAdvert, String> {
+    let mut advert: MediaRootAdvert =
+        serde_json::from_str(body).map_err(|e| format!("media-root reply is not C1 JSON: {}", e))?;
+    if advert.registry_id.trim().is_empty() {
+        return Err("media-root reply has no registry_id".to_string());
+    }
+    advert.source = "v2".to_string();
+    advert.data_dir.clear();
+    Ok(advert)
+}
+
+/// Build the weak advert from a `/api/diagnostics` body
+/// (`system.data_dir`, `config_summary.target_folder`).
+pub fn parse_media_root_from_diagnostics(body: &str) -> Result<MediaRootAdvert, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(body).map_err(|e| format!("diagnostics reply is not JSON: {}", e))?;
+    let data_dir = value
+        .pointer("/system/data_dir")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let target_folder = value
+        .pointer("/config_summary/target_folder")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if data_dir.trim().is_empty() && target_folder.trim().is_empty() {
+        return Err("diagnostics reply has neither system.data_dir nor config_summary.target_folder".to_string());
+    }
+    Ok(MediaRootAdvert {
+        registry_id: String::new(),
+        target_folder,
+        host: String::new(),
+        layout: MediaRootLayout::default(),
+        marker_file: default_marker_file(),
+        claimed: false,
+        source: "diagnostics".to_string(),
+        data_dir,
+    })
+}
+
+/// Whether the configured transcoder URL points at this machine.
+pub fn ingestor_is_loopback<R: Runtime>(app: &AppHandle<R>) -> bool {
+    url_host(&get_ingestor_api_base_url(app))
+        .map(|host| is_loopback_host(&host))
+        .unwrap_or(false)
+}
+
+/// C1 with the `404 → /api/diagnostics` fallback for older transcoders.
+pub async fn fetch_media_root<R: Runtime>(app: &AppHandle<R>) -> MediaRootFetch {
+    let ingestor = match IngestorClient::connect(app, None) {
+        Ok(client) => client,
+        Err(e) => return MediaRootFetch::Unavailable(e),
+    };
+    let url = format!("{}/api/v2/media-root", ingestor.base_url);
+    let response = match ingestor.get(&url).send().await {
+        Ok(response) => response,
+        Err(e) => return MediaRootFetch::Unavailable(format!("Ingestor media-root request failed for '{}': {}", url, e)),
+    };
+    let status = response.status();
+    let body = read_body_capped(response).await.unwrap_or_default();
+    if status.is_success() {
+        return match parse_media_root_v2(&body) {
+            Ok(advert) => MediaRootFetch::Advertised(advert),
+            Err(e) => MediaRootFetch::Unavailable(e),
+        };
+    }
+    if status.as_u16() != 404 {
+        return MediaRootFetch::Unavailable(http_error(status, &url, &body));
+    }
+
+    let url = format!("{}/api/diagnostics", ingestor.base_url);
+    let response = match ingestor.get(&url).send().await {
+        Ok(response) => response,
+        Err(e) => return MediaRootFetch::Unavailable(format!("Ingestor diagnostics request failed for '{}': {}", url, e)),
+    };
+    let status = response.status();
+    let body = read_body_capped(response).await.unwrap_or_default();
+    if !status.is_success() {
+        return MediaRootFetch::Unavailable(http_error(status, &url, &body));
+    }
+    match parse_media_root_from_diagnostics(&body) {
+        Ok(advert) => MediaRootFetch::Advertised(advert),
+        Err(e) => MediaRootFetch::Unavailable(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn media_root_v2_reply_parses_the_c1_shape() {
+        let body = r#"{
+            "registry_id": "reg-1",
+            "target_folder": "D:\\Mezz",
+            "host": "TX01",
+            "layout": { "videos": "videos", "sidecars": "sidecars" },
+            "marker_file": ".playouttranscode-registry.json",
+            "claimed": true
+        }"#;
+        let advert = parse_media_root_v2(body).unwrap();
+        assert_eq!(advert.registry_id, "reg-1");
+        assert_eq!(advert.target_folder, "D:\\Mezz");
+        assert_eq!(advert.host, "TX01");
+        assert_eq!(advert.layout.videos, "videos");
+        assert!(advert.claimed);
+        assert_eq!(advert.source, "v2");
+        // A reply without the optional parts still parses with the defaults.
+        let minimal = parse_media_root_v2(r#"{"registry_id":"r","target_folder":"E:/M"}"#).unwrap();
+        assert_eq!(minimal.layout, MediaRootLayout::default());
+        assert_eq!(minimal.marker_file, MEDIA_ROOT_MARKER_FILE);
+        assert!(!minimal.claimed);
+        assert!(parse_media_root_v2(r#"{"target_folder":"E:/M"}"#).is_err());
+        assert!(parse_media_root_v2("<html>").is_err());
+    }
+
+    #[test]
+    fn media_root_weak_path_reads_diagnostics() {
+        let body = r#"{
+            "system": { "os": "windows", "data_dir": "C:\\ProgramData\\PlayoutTranscode" },
+            "config_summary": { "watch_folder": "D:\\Watch", "target_folder": "D:\\Mezz" }
+        }"#;
+        let advert = parse_media_root_from_diagnostics(body).unwrap();
+        assert_eq!(advert.source, "diagnostics");
+        assert_eq!(advert.data_dir, "C:\\ProgramData\\PlayoutTranscode");
+        assert_eq!(advert.target_folder, "D:\\Mezz");
+        assert!(advert.registry_id.is_empty());
+        assert!(parse_media_root_from_diagnostics(r#"{"system":{}}"#).is_err());
+    }
 
     #[test]
     fn test_strict_readiness_valid_asset_passes() {

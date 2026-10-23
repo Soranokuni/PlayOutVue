@@ -351,3 +351,67 @@ describe('PERF-PLAN PR C — reconcile respects the disk check', () => {
         expect(refreshQueue).not.toHaveBeenCalled();
     });
 });
+
+describe('playout holds survive the library reconcile', () => {
+    beforeEach(() => {
+        setActivePinia(createPinia());
+        vi.mocked(invoke).mockReset();
+        vi.mocked(invoke).mockResolvedValue({});
+    });
+
+    const row = (store: ReturnType<typeof useRundownStore>, id: string) =>
+        store.currentPlaylist!.items.find((i) => i.id === id)!;
+
+    it('a row playout skipped stays skipped across polls while it is the same file', () => {
+        const store = useRundownStore();
+        const added = addRow(store, { path: 'D:/media/videos/a.mp4' });
+        store.reconcileWithLibrary([asset({ uuid: 'uuid-a' })]);
+        expect(row(store, added.id).ingestorStatus).toBe('ready');
+
+        store.updateItem(added.id, { ingestorStatus: 'error' });
+        expect(row(store, added.id).playoutHold?.status).toBe('error');
+        store.reconcileWithLibrary([asset({ uuid: 'uuid-a' })]);
+        store.reconcileWithLibrary([asset({ uuid: 'uuid-a' })]);
+        expect(row(store, added.id).ingestorStatus).toBe('error');
+
+        // A hold ('missing') is kept the same way.
+        store.updateItem(added.id, { ingestorStatus: 'missing' });
+        store.reconcileWithLibrary([asset({ uuid: 'uuid-a' })]);
+        expect(row(store, added.id).ingestorStatus).toBe('missing');
+    });
+
+    it('a re-publish under a new path releases the hold', () => {
+        const store = useRundownStore();
+        const added = addRow(store, { path: 'D:/media/videos/a.mp4' });
+        store.updateItem(added.id, { ingestorStatus: 'error' });
+        store.reconcileWithLibrary([asset({ uuid: 'uuid-a', current_path: 'D:/media/videos/a_v2.mp4' })]);
+        const after = row(store, added.id);
+        expect(after.ingestorStatus).toBe('ready');
+        expect(after.playoutHold).toBeUndefined();
+    });
+
+    it('Re-enable gives the row back to the library at once', () => {
+        const store = useRundownStore();
+        const added = addRow(store, { path: 'D:/media/videos/a.mp4' });
+        store.reconcileWithLibrary([asset({ uuid: 'uuid-a' })]);
+        store.updateItem(added.id, { ingestorStatus: 'error' });
+
+        store.releaseHold(added.id);
+        const after = row(store, added.id);
+        expect(after.playoutHold).toBeUndefined();
+        expect(after.ingestorStatus).toBe('ready');
+        // Later polls leave it to the library again.
+        store.reconcileWithLibrary([asset({ uuid: 'uuid-a', status: 'error' })]);
+        expect(row(store, added.id).ingestorStatus).toBe('error');
+        expect(row(store, added.id).playoutHold).toBeUndefined();
+    });
+
+    it('the row list (activeItems) sees a status edit at once', () => {
+        const store = useRundownStore();
+        const added = addRow(store, { path: 'D:/media/videos/a.mp4' });
+        store.updateItem(added.id, { ingestorStatus: 'error' });
+        expect(store.activeItems.find((i) => i.id === added.id)?.playoutHold?.status).toBe('error');
+        store.releaseHold(added.id);
+        expect(store.activeItems.find((i) => i.id === added.id)?.playoutHold).toBeUndefined();
+    });
+});

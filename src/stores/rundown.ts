@@ -61,6 +61,14 @@ export interface RundownItem {
     parentAssetUuid?: string;
     virtualSubclip?: boolean;
     persistenceState?: 'persisted' | 'local-only';
+    /**
+     * Set when playout or the operator took the row out of the chain
+     * (`ingestorStatus` 'error' = skip, 'missing' = hold). The library
+     * reconcile keeps that status instead of putting the row back to ready
+     * every 30 s; it clears only on an explicit status change (Re-enable) or
+     * when the asset is re-published under a new path.
+     */
+    playoutHold?: { status: 'error' | 'missing'; at: number };
 }
 
 export interface TrimWarningNotice {
@@ -1132,9 +1140,19 @@ export const useRundownStore = defineStore('rundown', () => {
             ? updates.duration_ms
             : existing.duration_ms;
 
+        // A status edit is the playout's (or the operator's) verdict: record
+        // it so the library reconcile does not undo it (see `playoutHold`).
+        let playoutHold = updates.playoutHold !== undefined ? updates.playoutHold : existing.playoutHold;
+        if (updates.ingestorStatus !== undefined && updates.playoutHold === undefined) {
+            playoutHold = updates.ingestorStatus === 'error' || updates.ingestorStatus === 'missing'
+                ? { status: updates.ingestorStatus, at: Date.now() }
+                : undefined;
+        }
+
         newItems[index] = { 
             ...existing, 
             ...updates,
+            playoutHold,
             display_name: updates.display_name !== undefined ? updates.display_name : (updates.filename !== undefined ? updates.filename : existing.display_name),
             current_path: updates.current_path !== undefined ? updates.current_path : (updates.path !== undefined ? updates.path : existing.current_path),
             duration: newDuration,
@@ -1145,8 +1163,25 @@ export const useRundownStore = defineStore('rundown', () => {
             inPoint,
             outPoint,
         } as RundownItem;
-        playlist.items = newItems;
-        triggerRef(playlists);
+        // A new playlist object, as every other edit makes: assigning `items`
+        // on the shallow ref's raw object left `currentPlaylist` (and so
+        // `activeItems`, the row list) on the old rows until something else
+        // replaced the playlist.
+        updatePlaylistState(playlist.id, { items: newItems });
+    };
+
+    /**
+     * Re-enable: give a row playout took out of the chain back to the
+     * library. Its real state (ready, missing on disk, …) comes from the last
+     * library snapshot at once, and the on-air queue is refreshed.
+     */
+    const releaseHold = (id: string) => {
+        const playlist = currentPlaylist.value;
+        const item = playlist?.items.find((it) => it.id === id);
+        if (!playlist || !item?.playoutHold) return;
+        updateItem(id, { ingestorStatus: 'ready', playoutHold: undefined });
+        if (lastLibrarySnapshot.length) reconcileWithLibrary(lastLibrarySnapshot);
+        syncPlayoutQueue(playlist.id);
     };
 
     const lastTrimWarning = ref<TrimWarningNotice | null>(null);
@@ -1789,13 +1824,17 @@ export const useRundownStore = defineStore('rundown', () => {
         const path = asset.current_path || item.path;
         // The disk check outranks the registry: a file this machine cannot
         // open is missing, whatever the transcoder says about it.
-        const status = statusFromRegistry(path, (asset.status || 'ready') as IngestorStatus);
+        // A row playout took out of the chain keeps that status while it is
+        // the same file; a re-publish under a new path releases it.
+        const held = item.playoutHold && path === item.path ? item.playoutHold : undefined;
+        const status = held ? held.status : statusFromRegistry(path, (asset.status || 'ready') as IngestorStatus);
         const displayName = asset.display_name || item.display_name;
 
         const unchanged =
             item.path === path &&
             item.current_path === path &&
             item.ingestorStatus === status &&
+            item.playoutHold === held &&
             item.duration_ms === fileDurationMs &&
             item.trim_in_ms === trimInMs &&
             item.trim_out_ms === trimOutMs &&
@@ -1828,6 +1867,7 @@ export const useRundownStore = defineStore('rundown', () => {
             trim_out_ms: trimOutMs,
             plannedDuration: effectiveMs / 1000,
             ingestorStatus: status,
+            playoutHold: held,
             mezzanine_ok: asset.mezzanine_ok,
             fps,
             fps_num: asset.fpsNum ?? item.fps_num,
@@ -2705,6 +2745,7 @@ export const useRundownStore = defineStore('rundown', () => {
         reorderItems,
         clearRundown,
         updateItem,
+        releaseHold,
         reconcileWithLibrary,
         reconcileAfterRestore,
         verifyRundownPaths,
