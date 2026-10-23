@@ -18,6 +18,8 @@ interface FakeEngine {
 const engine: FakeEngine = { foreground: '', foregroundFrame: 0, waiting: [], log: [], beforeNext: null };
 /** AE-4: how the fake engine answers `FALLBACK LIST` (404 = empty folder). */
 let fillerListCode = 202;
+/** F-e: the engine refuses `FALLBACK <clip>` (the clip is missing). */
+let fallbackClipRefused = false;
 
 function fakeInvoke(cmd: string, args: any = {}): unknown {
     const mutate = () => {
@@ -31,6 +33,7 @@ function fakeInvoke(cmd: string, args: any = {}): unknown {
             return { code: fillerListCode, body: fillerListCode === 404 ? '404 FALLBACK LIST EMPTY' : '202 FALLBACK OK' };
         case 'caspar_fork_fallback':
             engine.log.push(`FALLBACK ${args.clip ?? 'CLEAR'}`);
+            if (fallbackClipRefused && args.clip) throw new Error('404 FALLBACK FAILED');
             return { code: 202, body: '202 FALLBACK OK' };
         case 'caspar_fork_probe':
             return {
@@ -168,6 +171,7 @@ describe('fork mode playout', () => {
         engine.beforeNext = null;
         advances.length = 0;
         fillerListCode = 202;
+        fallbackClipRefused = false;
         resetFallbackHealth();
         isCasparConnected.value = true;
         fork.setEngineMode('fork');
@@ -429,16 +433,35 @@ describe('fork mode playout', () => {
         const settings = useSettingsStore();
         settings.updateSettings({ forkFillerFolder: 'D:\\fillers', forkFillerShuffle: true, forkFallbackClip: 'D:/fallback/slate.mov', forkStallTicks: 50 });
         await applyForkFallbackSettings();
-        expect(engine.log).toContain('FALLBACK LIST D:/fillers SHUFFLE TAG fallback STALL 50');
-        expect(engine.log).not.toContain('FALLBACK D:/fallback/slate.mov');
+        // F-e: the clip first, so the engine keeps it behind the list as the slate.
+        expect(engine.log).toEqual(['FALLBACK D:/fallback/slate.mov', 'FALLBACK LIST D:/fillers SHUFFLE TAG fallback STALL 50']);
         expect(fallbackHealth.mode).toBe('list');
 
         engine.log = [];
         fillerListCode = 404;
         await applyForkFallbackSettings();
-        expect(engine.log).toEqual(['FALLBACK LIST D:/fillers SHUFFLE TAG fallback STALL 50', 'FALLBACK D:/fallback/slate.mov']);
+        expect(engine.log).toEqual([
+            'FALLBACK D:/fallback/slate.mov',
+            'FALLBACK LIST D:/fillers SHUFFLE TAG fallback STALL 50',
+            'FALLBACK D:/fallback/slate.mov',
+        ]);
         expect(fallbackHealth.mode).toBe('clip');
         expect(fallbackHealth.fillersUsable).toBe(false);
+    });
+
+    it('arms the fillers alone when no clip is set, and still when the clip is refused', async () => {
+        const settings = useSettingsStore();
+        settings.updateSettings({ forkFillerFolder: 'D:/fillers', forkFillerShuffle: false, forkFallbackClip: '', forkStallTicks: 50 });
+        await applyForkFallbackSettings();
+        expect(engine.log).toEqual(['FALLBACK LIST D:/fillers TAG fallback STALL 50']);
+
+        engine.log = [];
+        fallbackClipRefused = true;
+        settings.updateSettings({ forkFallbackClip: 'D:/fallback/missing.mov' });
+        await applyForkFallbackSettings();
+        expect(engine.log).toEqual(['FALLBACK D:/fallback/missing.mov', 'FALLBACK LIST D:/fillers TAG fallback STALL 50']);
+        expect(fallbackHealth.mode).toBe('list');
+        expect(fallbackHealth.fillersUsable).toBe(true);
     });
 
     it('after a relaunch, fillers on air are not a foreign clip to adopt', async () => {

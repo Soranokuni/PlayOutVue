@@ -1350,6 +1350,16 @@ async function configureForkFallback(): Promise<void> {
     // AE-4 (C2): the engine rotates the filler folder by itself, so fillers
     // outlive PlayOut. The single clip stays the answer when the folder fails.
     if (folder && fallbackHealth.fillersUsable) {
+        // F-e: the clip goes first. A fork engine keeps it behind the list as
+        // the slate it airs when every filler fails; an older one drops it
+        // when the list arrives, as before. A missing clip only costs the slate.
+        if (clip) {
+            try {
+                await invoke<ForkReply>('caspar_fork_fallback', { channel, layer, clip, tag: FALLBACK_TAG, stall });
+            } catch (error) {
+                forkFault(`Fallback clip "${clip}" could not be set behind the fillers (${String((error as any)?.message || error)}); no slate if every filler fails.`);
+            }
+        }
         try {
             const reply = await invoke<ForkReply>('caspar_fork_fallback_list', {
                 channel,
