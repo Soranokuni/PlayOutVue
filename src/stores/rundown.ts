@@ -187,6 +187,11 @@ export interface OptimizedPlaylistItem {
     in?: number;
     out?: number;
     pd?: number;
+    /** C-2: the file length in ms. `d` is the trimmed length in seconds. */
+    dms?: number;
+    /** C-2: the effective trim in / out, ms from the file start. */
+    ti?: number;
+    to?: number;
     n?: string;
     cr?: ComplianceRating;
     cd?: string[];
@@ -1294,6 +1299,9 @@ export const useRundownStore = defineStore('rundown', () => {
             in: item.inPoint > 0 ? item.inPoint : undefined,
             out: item.outPoint > 0 ? item.outPoint : undefined,
             pd: item.plannedDuration > 0 ? item.plannedDuration : undefined,
+            dms: item.duration_ms && item.duration_ms > 0 ? item.duration_ms : undefined,
+            ti: item.trim_in_ms && item.trim_in_ms > 0 ? item.trim_in_ms : undefined,
+            to: item.trim_out_ms && item.trim_out_ms > 0 ? item.trim_out_ms : undefined,
             n: item.note || undefined,
             cr: item.complianceRating !== 'none' ? item.complianceRating : undefined,
             cd: item.complianceDescriptors.length ? item.complianceDescriptors : undefined,
@@ -1318,6 +1326,20 @@ export const useRundownStore = defineStore('rundown', () => {
         };
     };
 
+    /**
+     * TRIM-CONTRACT-AUDIT C-2: `d` is the *trimmed* length, so it is not the
+     * file length. Files written since the fix carry `dms`. In an older file
+     * an OUT past `d` proves `d` was trimmed; the file is then at least OUT
+     * long, which keeps the window valid until the library resolve brings the
+     * real length. Otherwise the loader falls back to `d` as before.
+     */
+    const fileDurationMs = (item: OptimizedPlaylistItem): number | undefined => {
+        if (item.dms && item.dms > 0) return item.dms;
+        const out = item.to || item.out || 0;
+        const trimmedMs = (item.d || 0) * 1000;
+        return out > trimmedMs + 500 ? out : undefined;
+    };
+
     const deserializeRundown = (playlistData: AnyPlaylistFile, append = false) => {
         const playlist = currentPlaylist.value;
         if (!playlist) return;
@@ -1340,6 +1362,9 @@ export const useRundownStore = defineStore('rundown', () => {
                 inPoint: item.in || 0,
                 outPoint: item.out || 0,
                 plannedDuration: item.pd || item.d || 0,
+                duration_ms: fileDurationMs(item),
+                trim_in_ms: item.ti || undefined,
+                trim_out_ms: item.to || undefined,
                 note: item.n || '',
                 complianceRating: item.cr || 'none',
                 complianceDescriptors: item.cd || [],

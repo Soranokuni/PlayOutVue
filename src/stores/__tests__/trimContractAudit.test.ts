@@ -107,7 +107,7 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         ]);
     });
 
-    it.fails('C-2: a trimmed sub-clip survives a playlist save and reload while offline', async () => {
+    it('C-2: a trimmed sub-clip survives a playlist save and reload while offline', async () => {
         const store = useRundownStore();
         store.addItem(draft({ playoutvueId: 'sub-uuid', inPoint: 30_000, outPoint: 40_000, trim_in_ms: 30_000, trim_out_ms: 40_000, duration: 10 }) as any);
         await flush();
@@ -123,6 +123,23 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         expect(row.duration_ms).toBe(100_000);
         expect(hydrated.trim_in_ms).toBe(30_000);
         expect(hydrated.trim_out_ms).toBe(40_000);
+    });
+
+    it('C-2: a sub-clip from a playlist file written before the fix still loads a valid window', async () => {
+        const store = useRundownStore();
+        store.addItem(draft() as any);
+        await flush();
+        // What the old serializer wrote: `d` = trimmed seconds, no dms/ti/to.
+        const file = structuredClone(store.serializeRundown('x'));
+        file.items = [{ t: 'v', pid: 'sub-uuid', p: PATH, f: 'Sub', d: 10, in: 30_000, out: 40_000, pd: 10 }];
+
+        store.deserializeRundown(file);
+        await flush();
+        const row = store.currentPlaylist!.items[0]!;
+
+        expect(row.trim_in_ms).toBe(30_000);
+        expect(row.trim_out_ms).toBe(40_000);
+        expect(row.duration_ms).toBeGreaterThanOrEqual(40_000);
     });
 
     it('C-3: a local sub-clip is not resolved against the transcoder and is not marked error', async () => {
@@ -208,7 +225,7 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
         ]);
     });
 
-    it.fails('C-8: SEEK lands on the requested second whatever the file frame rate', () => {
+    it('C-8: SEEK lands on the requested second whatever the file frame rate', () => {
         const cases: Array<[string, number, number]> = [
             ['30000/1001', 30000 / 1001, 50],
             ['24000/1001', 24000 / 1001, 50],
@@ -221,18 +238,21 @@ describe('TRIM-CONTRACT-AUDIT known bugs', () => {
                 0,
                 channelHz
             );
-            expect(Math.abs(fields.seekFields / channelHz - 60), rational).toBeLessThanOrEqual(1 / channelHz);
+            // Within half a channel unit of the IN frame's own time.
+            expect(Math.abs(fields.seekFields / channelHz - inFrame / fps), rational).toBeLessThanOrEqual(0.5 / channelHz + 1e-9);
         }
     });
 
-    it.fails('C-21: a frame-aligned 29.97 point round-trips through ms to the same frame', () => {
+    it('C-21: a frame-aligned 29.97 point round-trips through ms to the same frame', () => {
         const fps = 30000 / 1001;
         const geo = { fps: 29.97, totalFrames: 0, gopFrames: 0, keyframeSafeStartMs: 0, mezzanineOk: true };
         for (let frame = 1; frame <= 1000; frame++) {
             const ms = clampTrimIn((frame * 1001) / 30, geo);
-            // trimmer.rs floors IN and ceils OUT.
-            expect(Math.floor((ms / 1000) * fps), `IN frame ${frame}`).toBe(frame);
-            expect(Math.ceil((ms / 1000) * fps), `OUT frame ${frame}`).toBe(frame);
+            // trimmer.rs floors IN and ceils OUT after allowing 0.5 ms for the
+            // integer-ms rounding (its own test covers the conversion).
+            expect(Number.isInteger(ms)).toBe(true);
+            expect(Math.floor(((ms + 0.5) / 1000) * fps), `IN frame ${frame}`).toBe(frame);
+            expect(Math.ceil(((ms - 0.5) / 1000) * fps), `OUT frame ${frame}`).toBe(frame);
         }
     });
 });

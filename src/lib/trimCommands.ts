@@ -23,11 +23,34 @@ export function parseFpsRational(rational: string): number | null {
     return num / den;
 }
 
-export function computeFieldMultiplier(fileFps: number, channelOutputRateHz = DEFAULT_CHANNEL_OUTPUT_RATE_HZ): number {
-    const safeOutputRate = Number.isFinite(channelOutputRateHz) && channelOutputRateHz > 0
+function safeOutputRate(channelOutputRateHz: number): number {
+    return Number.isFinite(channelOutputRateHz) && channelOutputRateHz > 0
         ? channelOutputRateHz
         : DEFAULT_CHANNEL_OUTPUT_RATE_HZ;
-    return Math.max(1, Math.round(safeOutputRate / fileFps));
+}
+
+/**
+ * Channel units per file frame, exact (C-8): 29.97 in a 50 Hz channel is
+ * 1.668…, 50p in a 25p channel is 0.5. Rounding it to an integer started
+ * those files at the wrong place.
+ */
+export function computeFieldMultiplier(fileFps: number, channelOutputRateHz = DEFAULT_CHANNEL_OUTPUT_RATE_HZ): number {
+    const fps = Number.isFinite(fileFps) && fileFps > 0 ? fileFps : 25;
+    return safeOutputRate(channelOutputRateHz) / fps;
+}
+
+/** File frames → channel units, from the rational frame rate (no float fps). */
+function framesToChannelUnits(frames: number, fpsNum: number, fpsDen: number, outputRateHz: number): number {
+    return Math.round((frames * fpsDen * outputRateHz) / fpsNum);
+}
+
+function parseFpsParts(rational: string): [number, number] | null {
+    const parts = rational.split('/');
+    if (parts.length !== 2) return null;
+    const num = Number(parts[0]);
+    const den = Number(parts[1]);
+    if (!Number.isFinite(num) || !Number.isFinite(den) || num <= 0 || den <= 0) return null;
+    return [num, den];
 }
 
 export interface TrimInput {
@@ -63,17 +86,22 @@ export function computeTrimFields(
     resumeFrames = 0,
     channelOutputRateHz = DEFAULT_CHANNEL_OUTPUT_RATE_HZ
 ): TrimCommandFields {
-    const fileFps = parseFpsRational(trim.fps_rational) ?? 25;
-    const fieldMultiplier = computeFieldMultiplier(fileFps, channelOutputRateHz);
+    const [fpsNum, fpsDen] = parseFpsParts(trim.fps_rational) ?? [25, 1];
+    const fileFps = fpsNum / fpsDen;
+    const outputRate = safeOutputRate(channelOutputRateHz);
+    const fieldMultiplier = computeFieldMultiplier(fileFps, outputRate);
+    const toUnits = (frames: number) => framesToChannelUnits(frames, fpsNum, fpsDen, outputRate);
 
     const safeResumeFrames = Math.max(0, Math.min(resumeFrames, Math.max(0, trim.duration_frames - 1)));
     const inFrames = trim.in_frame + safeResumeFrames;
     const remainingFrames = Math.max(1, trim.duration_frames - safeResumeFrames);
 
-    const seekFields = inFrames * fieldMultiplier;
-    const lengthFields = remainingFrames * fieldMultiplier;
-    const totalFileFields =
-        (trim.out_frame > 0 ? trim.out_frame : trim.in_frame + trim.duration_frames) * fieldMultiplier;
+    // SEEK and LENGTH are converted from their own frame counts, then LENGTH
+    // is taken as the difference of the rounded ends so SEEK + LENGTH lands
+    // exactly on the rounded OUT.
+    const seekFields = toUnits(inFrames);
+    const lengthFields = Math.max(1, toUnits(inFrames + remainingFrames) - seekFields);
+    const totalFileFields = toUnits(trim.out_frame > 0 ? trim.out_frame : trim.in_frame + trim.duration_frames);
 
     const hasInTrim = seekFields > 0 && seekFields < totalFileFields;
     // LENGTH is appended whenever the trimmed window is non-empty and does not
