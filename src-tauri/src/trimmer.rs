@@ -329,6 +329,22 @@ pub async fn compute_frame_trim<R: Runtime>(
     frame_trim_for_file(&path, total_dur, entry.fps_num, entry.fps_den, trim_in_ms, trim_out_ms)
 }
 
+/// The frame at or before `ms`, treating `ms` as up to 0.5 ms early:
+/// floor((ms + 0.5) × num / (1000 × den)).
+fn ms_to_frame_floor(ms: i64, fps_num: i64, fps_den: i64) -> u32 {
+    let n = (2 * ms.max(0) + 1) as i128 * fps_num as i128;
+    let d = 2000 * fps_den as i128;
+    (n / d).clamp(0, u32::MAX as i128) as u32
+}
+
+/// The frame at or after `ms`, treating `ms` as up to 0.5 ms late:
+/// ceil((ms − 0.5) × num / (1000 × den)).
+fn ms_to_frame_ceil(ms: i64, fps_num: i64, fps_den: i64) -> u32 {
+    let n = (2 * ms.max(0) - 1).max(0) as i128 * fps_num as i128;
+    let d = 2000 * fps_den as i128;
+    ((n + d - 1) / d).clamp(0, u32::MAX as i128) as u32
+}
+
 /// The frame window for `trim_in_ms..trim_out_ms` on a file of `total_dur` ms.
 ///
 /// An IN at or beyond the end of the file is an error, never a start from 0.
@@ -349,7 +365,6 @@ pub fn frame_trim_for_file(
     if fps_num <= 0 || fps_den <= 0 {
         return Err(format!("Invalid frame rate for asset: {}/{}", fps_num, fps_den));
     }
-    let fps = fps_num as f64 / fps_den as f64;
     let total_dur = total_dur.max(0);
     let in_ms = trim_in_ms.max(0);
 
@@ -376,10 +391,15 @@ pub fn frame_trim_for_file(
     }
 
     // Convert milliseconds to frame counts. IN is floored, OUT is ceiled so
-    // the LENGTH is never shorter than the requested trim.
-    let in_frame = ((in_ms as f64 / 1000.0) * fps).floor() as u32;
-    let out_frame_raw = ((out_ms as f64 / 1000.0) * fps).ceil() as u32;
-    let total_frames = ((total_dur as f64 / 1000.0) * fps).round() as u32;
+    // the LENGTH is never shorter than the requested trim. Trims are integer
+    // ms, so a frame-aligned point at 29.97/23.976 is up to 0.5 ms off its
+    // frame (C-21); that half millisecond is allowed for before flooring or
+    // ceiling, in integer arithmetic on the rational rate.
+    let in_frame = ms_to_frame_floor(in_ms, fps_num, fps_den);
+    let out_frame_raw = ms_to_frame_ceil(out_ms, fps_num, fps_den);
+    let total_frames = ((total_dur as i128 * fps_num as i128 + 500 * fps_den as i128)
+        / (1000 * fps_den as i128))
+        .clamp(0, u32::MAX as i128) as u32;
 
     // Hard cap OUT at the real total frame count (never produce a LENGTH that
     // runs past the file — that was the other source of the 2-minute stub).
@@ -423,6 +443,28 @@ mod tests {
         assert_eq!((t.in_frame, t.out_frame), (50, 250));
         let t = frame_trim_for_file("D:/m/a.mp4", 10_000, 25, 1, 2_000, 12_000).unwrap();
         assert_eq!((t.in_frame, t.out_frame), (50, 250));
+    }
+
+    #[test]
+    fn frame_aligned_ms_maps_back_to_its_frame_at_ntsc_rates() {
+        // C-21: the UI stores round(frame / fps × 1000) ms; IN (floored) and
+        // OUT (ceiled) must both come back to that frame, never one off.
+        for (num, den) in [(30_000, 1001), (24_000, 1001), (60_000, 1001), (25, 1), (50, 1)] {
+            for frame in 1..=5_000i64 {
+                let ms = ((frame * den * 1000) as f64 / num as f64).round() as i64;
+                assert_eq!(ms_to_frame_floor(ms, num, den) as i64, frame, "IN {num}/{den} frame {frame}");
+                assert_eq!(ms_to_frame_ceil(ms, num, den) as i64, frame, "OUT {num}/{den} frame {frame}");
+            }
+        }
+    }
+
+    #[test]
+    fn mid_frame_ms_still_floors_in_and_ceils_out() {
+        // 41 ms at 25 fps is inside frame 1: IN floors to 1, OUT ceils to 2.
+        assert_eq!(ms_to_frame_floor(41, 25, 1), 1);
+        assert_eq!(ms_to_frame_ceil(41, 25, 1), 2);
+        assert_eq!(ms_to_frame_floor(39, 25, 1), 0);
+        assert_eq!(ms_to_frame_ceil(0, 25, 1), 0);
     }
 
     #[test]
