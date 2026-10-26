@@ -176,6 +176,43 @@ pub fn qc_verdict_for(media_path: &Path) -> QcVerdict {
     }
 }
 
+/// The asset uuid a sidecar belongs to: `playoutvue_id`, else `id`.
+pub fn sidecar_asset_id(sidecar: &TranscoderSidecar) -> &str {
+    if !sidecar.playoutvue_id.is_empty() {
+        &sidecar.playoutvue_id
+    } else {
+        &sidecar.id
+    }
+}
+
+/// TRIM-CONTRACT-AUDIT C-12: the transcoder rewrites a full-length asset's
+/// sidecar trim when it is changed, so a cached entry takes the sidecar's
+/// window on every scan. Only when the sidecar belongs to the entry's asset
+/// and `0 <= in < out <= duration_ms`; otherwise the cached trim stays.
+///
+/// The cache is keyed by path and sub-clips share their parent's path (C-1):
+/// this is the parent's library trim only, never a rundown row's or a
+/// sub-clip's. Returns whether the entry changed.
+pub fn refresh_trim_from_sidecar(
+    entry: &mut crate::db::CachedMediaEntry,
+    sidecar: &TranscoderSidecar,
+) -> bool {
+    let sidecar_id = sidecar_asset_id(sidecar);
+    if sidecar_id.is_empty() || !entry.playoutvue_id.eq_ignore_ascii_case(sidecar_id) {
+        return false;
+    }
+    let (trim_in, trim_out) = (sidecar.trim_in_ms, sidecar.trim_out_ms);
+    if trim_in < 0 || trim_out <= trim_in || trim_out > sidecar.duration_ms {
+        return false;
+    }
+    if entry.trim_in_ms == trim_in && entry.trim_out_ms == trim_out {
+        return false;
+    }
+    entry.trim_in_ms = trim_in;
+    entry.trim_out_ms = trim_out;
+    true
+}
+
 /// Convert a transcoder sidecar into a cached media entry suitable for DB upsert.
 /// This provides reliable metadata without needing ffprobe.
 pub fn sidecar_to_cached_entry(
@@ -361,6 +398,59 @@ pub async fn verify_playback_ready<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ASSET: &str = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+
+    fn trimmed_sidecar(id: &str, trim_in_ms: i64, trim_out_ms: i64) -> TranscoderSidecar {
+        TranscoderSidecar {
+            playoutvue_id: id.to_string(),
+            duration_ms: 60_000,
+            trim_in_ms,
+            trim_out_ms,
+            mezzanine_ok: true,
+            ..Default::default()
+        }
+    }
+
+    fn cached_full_length(id: &str) -> crate::db::CachedMediaEntry {
+        let mut entry = sidecar_to_cached_entry(&trimmed_sidecar(id, 0, 60_000), "C:/media/videos/clip.mp4");
+        entry.playoutvue_id = id.to_string();
+        entry
+    }
+
+    #[test]
+    fn rescan_takes_a_trim_saved_after_caching() {
+        let mut entry = cached_full_length(ASSET);
+        let sidecar = trimmed_sidecar(&ASSET.to_uppercase(), 4_000, 50_000);
+        assert!(refresh_trim_from_sidecar(&mut entry, &sidecar));
+        assert_eq!((entry.trim_in_ms, entry.trim_out_ms), (4_000, 50_000));
+        // Already current: nothing to write.
+        assert!(!refresh_trim_from_sidecar(&mut entry, &sidecar));
+    }
+
+    #[test]
+    fn rescan_falls_back_to_the_sidecar_id_field() {
+        let mut entry = cached_full_length(ASSET);
+        let sidecar = TranscoderSidecar { id: ASSET.to_string(), ..trimmed_sidecar("", 4_000, 50_000) };
+        assert!(refresh_trim_from_sidecar(&mut entry, &sidecar));
+        assert_eq!((entry.trim_in_ms, entry.trim_out_ms), (4_000, 50_000));
+    }
+
+    #[test]
+    fn rescan_keeps_the_cached_trim_for_a_foreign_or_invalid_sidecar() {
+        let foreign = trimmed_sidecar("0f2504e0-4f89-11d3-9a0c-0305e82c3301", 4_000, 50_000);
+        let past_end = trimmed_sidecar(ASSET, 4_000, 60_001);
+        let inverted = trimmed_sidecar(ASSET, 50_000, 4_000);
+        let negative = trimmed_sidecar(ASSET, -1, 50_000);
+        let unset = trimmed_sidecar(ASSET, 0, 0);
+        for sidecar in [foreign, past_end, inverted, negative, unset] {
+            let mut entry = cached_full_length(ASSET);
+            assert!(!refresh_trim_from_sidecar(&mut entry, &sidecar));
+            assert_eq!((entry.trim_in_ms, entry.trim_out_ms), (0, 60_000));
+        }
+        let mut anonymous = cached_full_length("");
+        assert!(!refresh_trim_from_sidecar(&mut anonymous, &trimmed_sidecar("", 4_000, 50_000)));
+    }
 
     #[test]
     fn sidecar_path_resolves_to_sidecars_directory() {

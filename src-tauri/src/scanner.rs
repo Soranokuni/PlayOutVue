@@ -584,6 +584,11 @@ fn load_cached_or_probe(
             if enriched.playoutvue_id.is_empty() && !sc.playoutvue_id.is_empty() {
                 enriched.playoutvue_id = sc.playoutvue_id.clone();
             }
+            if transcoder_sidecar::refresh_trim_from_sidecar(&mut enriched, sc) {
+                if let Some(root) = resolved_media_root.as_deref() {
+                    let _ = media_index::save_trim_profile(root, Path::new(filepath), enriched.trim_in_ms, enriched.trim_out_ms);
+                }
+            }
             let _ = db.upsert(&enriched);
         }
         return Ok(enriched);
@@ -1329,6 +1334,15 @@ pub async fn scan_directory<R: Runtime>(
                 if let Ok(changed) = media_index::enrich_entry_from_index_by_alias(index_root.as_path(), &file_path, &mut entry_meta) {
                     if changed {
                         cache_dirty = true;
+                    }
+                }
+
+                // C-12: the sidecar's trim wins over the local index for the
+                // asset it belongs to; write it back so the index agrees.
+                if let Some(ref sc) = sidecar {
+                    if transcoder_sidecar::refresh_trim_from_sidecar(&mut entry_meta, sc) {
+                        cache_dirty = true;
+                        let _ = media_index::save_trim_profile(index_root.as_path(), &file_path, entry_meta.trim_in_ms, entry_meta.trim_out_ms);
                     }
                 }
 
