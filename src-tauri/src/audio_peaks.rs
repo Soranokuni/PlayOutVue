@@ -102,16 +102,16 @@ impl PeakAccumulator {
             self.frame(&frame);
             data = &data[need..];
         }
-        let whole = data.len() - data.len() % FRAME;
-        for frame in data[..whole].chunks_exact(FRAME) {
+        let (frames, rest) = data.as_chunks::<FRAME>();
+        for frame in frames {
             self.frame(frame);
         }
-        self.carry.extend_from_slice(&data[whole..]);
+        self.carry.extend_from_slice(rest);
     }
 
     fn frame(&mut self, frame: &[u8]) {
-        for (channel, sample) in frame.chunks_exact(2).enumerate() {
-            let value = i16::from_le_bytes([sample[0], sample[1]]) as i32;
+        for (channel, sample) in frame.as_chunks::<2>().0.iter().enumerate() {
+            let value = i16::from_le_bytes(*sample) as i32;
             let abs = value.unsigned_abs();
             if abs > self.max[channel] {
                 self.max[channel] = abs;
@@ -265,7 +265,7 @@ fn prune_disk_cache(dir: &Path) {
     if files.len() <= DISK_CACHE_ENTRIES {
         return;
     }
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     for (_, path) in files.into_iter().skip(DISK_CACHE_ENTRIES) {
         let _ = std::fs::remove_file(path);
     }
