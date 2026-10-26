@@ -164,7 +164,13 @@ mod tests {
         let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let stream = tokio::net::TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
-        // Why this exists: tokio creates them inheritable.
+        // Why this exists: older tokio/mio created them inheritable. Newer
+        // releases do not, so set the flag here to keep exercising the clear.
+        use std::os::windows::io::AsRawSocket;
+        for raw in [udp.as_raw_socket(), listener.as_raw_socket(), stream.as_raw_socket()] {
+            use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
+            assert_ne!(unsafe { SetHandleInformation(raw as HANDLE, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) }, 0);
+        }
         assert!(inherits(&udp) && inherits(&listener) && inherits(&stream));
         disinherit_socket(&udp);
         disinherit_socket(&listener);

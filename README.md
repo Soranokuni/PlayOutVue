@@ -1,244 +1,136 @@
-# PlayOut (PlayOutVue)
+# Aether — PlayOut (PlayOutVue)
 
-[![Author](https://img.shields.io/badge/author-Alex%20Fountas-blue.svg)](https://github.com/Soranokuni)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tauri](https://img.shields.io/badge/Tauri-v2-24c8db?logo=tauri&logoColor=white)](https://tauri.app/)
+[![CI](https://github.com/Soranokuni/PlayOutVue/actions/workflows/ci.yml/badge.svg)](https://github.com/Soranokuni/PlayOutVue/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tauri](https://img.shields.io/badge/Tauri-2.12-24c8db?logo=tauri&logoColor=white)](https://tauri.app/)
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
-[![Rust](https://img.shields.io/badge/Rust-1.88%2B-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.99-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![CasparCG](https://img.shields.io/badge/CasparCG-2.3%2B-orange.svg)](https://casparcg.com/)
-[![Blackmagic](https://img.shields.io/badge/Blackmagic-DeckLink-black.svg)](https://www.blackmagicdesign.com/)
 
-**PlayOut** (PlayOutVue) is a Windows-first, broadcast-grade Master Control Room (MCR) playout automation controller developed by **Alex Fountas** ([Soranokuni](https://github.com/Soranokuni)). Engineered using **Vue 3, Vite, Tauri v2, and Rust**, PlayOut delivers deterministic, frame-accurate playout automation, non-destructive trimming, downstream keyer (DSK) graphics, Greek NCRTV compliance automation, and real-time CasparCG playback synchronization.
+**Aether** is a Windows broadcast master-control (MCR) playout controller. It drives a local
+[CasparCG](https://casparcg.com/) server over AMCP, follows its OSC feed for frame-accurate timing,
+and plays media prepared by the companion ingest service
+**[PlayoutTranscode](https://github.com/Soranokuni/PlayoutTranscode)**.
 
-PlayOut operates in synergy with **[PlayoutTranscode](https://github.com/Soranokuni/PlayoutTranscode)** (its companion media ingestion engine) to ingest, validate, and broadcast frame-accurate progressive and interlaced mezzanine assets.
+- Multi-playlist rundown with automatic, gapless advance (hardware preload with `LOADBG … AUTO`).
+- Frame-accurate, non-destructive trims and virtual sub-clips (rational frame rates, interlace-aware).
+- Greek NCRTV (ΕΣΡ) compliance: per-item age rating, content warnings and product-placement (TP),
+  applied automatically on every take through the advisory CG template.
+- Live DeckLink input with a two-click armed cut, news crawl, station ID bug.
+- Engine supervision: crash relaunch with crash-loop breaker, on-air state restore, PlayOut self-recovery.
+- Optional **PlayOut fork** of CasparCG (engine-side queue, fallback slate and filler list).
+- CG Studio for designing the advisory graphics, with an optional AI designer.
 
----
+## Documentation
 
-## System Architecture & Control Flow
+| Document | Audience |
+|---|---|
+| [Operator manual](docs/OPERATOR-MANUAL.md) | On-air operators: the screen, building a rundown, going on air, graphics, alarms |
+| [Administrator manual](docs/ADMIN-MANUAL.md) | Engineers: install, CasparCG and PlayoutTranscode setup, settings, files, troubleshooting |
+| [Playback operational contract](docs/PLAYBACK-OPERATIONAL-CONTRACT.md) | Developers: identity, fencing and the playback state machine |
+| [Operator UI contract](docs/OPERATOR-UI-CONTRACT.md) | Developers: UI safety rules and boundaries |
+| [Reliability verification](docs/PLAYOUT-RELIABILITY-VERIFICATION.md) | Engineers: post-change test on a non-production channel |
 
-The architecture decouples UI rendering from playout execution. Playout commands execute over AMCP to CasparCG, while real-time frame progress is tracked via an asynchronous UDP OSC feedback listener.
-
-```mermaid
-graph TD
-    subgraph Ingest [Upstream Ingestion Layer]
-        PT[PlayoutTranscode Service - Port 4353]
-    end
-
-    subgraph UI [PlayOutVue UI Panels]
-        App[App.vue - Main Workspace]
-        RL[RundownList - Playlist Grid]
-        ML[MediaLibrary - Virtual Folders]
-        MI[MediaInspector - Trim & Compliance]
-        RB[RecycleBinModal - Safe Purge]
-        DW[DeckLinkWizard - Live Input]
-    end
-
-    subgraph State [Pinia State Management]
-        RundownStore[(Rundown Store)]
-        LibraryStore[(Media Library Store)]
-        SettingsStore[(Settings Store)]
-        IngestStore[(Ingestor Status Store)]
-    end
-
-    subgraph Execution [Playout Dispatch Core]
-        Coord[playbackCoordinator.ts - Stale Token Guard]
-        Dispatch[caspar.ts - Playout Dispatch]
-        Guard[endGuard.ts - Gap Auto-Detector]
-    end
-
-    subgraph Backend [Tauri Rust Backend]
-        IPC[Tauri IPC Bridge]
-        AMCP[amcp.rs - TCP 5250 AMCP Bridge]
-        OSC[caspar.rs - UDP 6250 OSC Tracker]
-        MediaServer[media_server.rs - Local Video Server]
-        LocalDB[(SQLite Local Cache)]
-    end
-
-    subgraph Broadcast [CasparCG Broadcast Playout]
-        Caspar[CasparCG Server 2.3+]
-        DeckLink[Blackmagic DeckLink SDI/HDMI]
-    end
-
-    PT -->|REST & SSE| IngestStore
-    App --> RL & ML & MI & RB & DW
-    RL & ML & MI & RB & DW <--> RundownStore & LibraryStore & SettingsStore & IngestStore
-    RundownStore --> Coord --> Dispatch --> IPC
-    IPC --> AMCP -->|AMCP Commands| Caspar
-    Caspar -->|UDP OSC Packets| OSC -->|OSC Event| Coord
-    IPC --> MediaServer -->|HTTP Video Stream| MI
-    Caspar --> DeckLink
-```
-
----
-
-## CasparCG MCR Layer Stack
-
-PlayOut enforces a strict, collision-free **8-layer channel registry** (`caspar_layers.rs` and `CASPAR_LAYERS` in TypeScript). Each producer type has documented lifecycles, mixer permissions, and automatic take/clear rules.
+## Architecture
 
 ```mermaid
-graph TD
-    L35[Layer 35: Station ID Stingers - Reserved]
-    L34[Layer 34: TP Product Placement Badge - Image]
-    L33[Layer 33: On-Demand Live Crawl Ticker - CG Template]
-    L32[Layer 32: Timed Explanation Banner - CG Template]
-    L31[Layer 31: Greek NCRTV Age Rating Badge - Image]
-    L30[Layer 30: Station Logo Watermark - Always-On Image]
-    L20[Layer 20: DeckLink Live Rebroadcast Input - Live Producer]
-    L10[Layer 10: Primary Program Video - FFmpeg Mezzanine]
-
-    L35 --> L34 --> L33 --> L32 --> L31 --> L30 --> L20 --> L10
+graph LR
+    PT[PlayoutTranscode<br/>HTTP 127.0.0.1:4353] -->|assets, readiness, trims| RS
+    subgraph Aether
+        UI[Vue 3 UI<br/>Pinia stores] --> PC[PlaybackCoordinator<br/>generation / uuid fencing]
+        PC --> PD[playoutDispatch] --> IPC[Tauri IPC]
+        IPC --> RS[Rust backend]
+    end
+    RS -->|AMCP TCP 127.0.0.1:5250| CG[CasparCG]
+    CG -->|OSC UDP 127.0.0.1:6250| RS
+    CG --> SDI[DeckLink SDI out]
 ```
 
-### Layer Specification Table
+- **Take / advance.** UI → `PlaybackCoordinator` (`src/lib/playbackCoordinator.ts`) → `playoutDispatch.ts` →
+  Tauri → `amcp.rs`. The next clip is preloaded with `LOADBG 1-10 … SEEK LENGTH AUTO`; CasparCG cuts at EOF.
+- **Advance authority (stock engine).** `caspar.rs` decides from OSC when a clip has ended and emits
+  `caspar://advance`; the frontend accepts it only for the uuid it expects.
+- **Fork engine.** When the engine answers `QUEUE 1-10 INFO` with `201`, it owns the queue and reports
+  `onair <tag>`; Aether refills a tagged queue with `EXPECT` and attaches graphics as `ONAIR` actions.
 
-| Layer | Name | Producer Type | Lifecycle & Behavior | Supports `MIXER` |
-|---|---|---|---|:---:|
-| **10** | **Program Video** | FFmpeg Decoder | Item-level (`PLAY`, `LOADBG`, `CLEAR`). Cleared on manual live take. | ❌ (Raw) |
-| **20** | **Live Input** | DeckLink Producer | Live item take (`PLAY 1-20 DECKLINK DEVICE 1`). Suppresses Layer 10. | ❌ (Raw) |
-| **30** | **Station Logo** | Image (`PNG`/`SVG`) | Channel watermark; always-on; survives rundown item advances. | ✅ |
-| **31** | **Age Rating** | Image (`PNG`) | Item-level; positioned per station profile (e.g. top-left / top-right). | ✅ |
-| **32** | **Explanation** | CG Template | Timed advisory banner displayed during the first N seconds of a clip. | ❌ (Self-pos) |
-| **33** | **Crawl Ticker** | CG Template | User-toggled breaking news ticker with live text/speed `CG UPDATE`. | ❌ (Self-pos) |
-| **34** | **TP Badge** | Image (`PNG`) | Product Placement indicator; toggled per rundown item. | ✅ |
-| **35** | **Station ID** | Reserved | Dedicated layer for animated channel identifiers. | ✅ |
+### Channel 1 layer map (`src-tauri/src/caspar_layers.rs`)
 
-> [!NOTE]
-> **Mixer vs CG Template Rule**: `MIXER FILL` and `MIXER OPACITY` commands are strictly forbidden on CG template layers (Layers 32 and 33) to prevent squashing self-positioned HTML/Flash templates.
+| Layer | Use |
+|---|---|
+| 10 | Program video |
+| 20 | Live input (DeckLink) |
+| 30 | Station logo |
+| 31 | Age rating (legacy, cleared on each apply) |
+| 32 | Advisory CG — logo, rating, warnings, TP in one template |
+| 33 | News crawl CG |
+| 34 | TP badge (legacy, cleared on each apply) |
+| 35 | Reserved for station ID sting |
 
----
+`MIXER` is never sent to the CG layers 32 and 33.
 
-## Core Capabilities
-
-### 1. Master Control Playout & Auto-Advance
-- **Deterministic Frame Trim Arithmetic**: Accurately computes frame in/out points using broadcast rationals (e.g., `25/1` PAL, `30000/1001` NTSC) preventing A/V sync drift.
-- **Stale-Token Playback Protection**: Dispatches commands with monotonic token tracking to ensure slow AMCP socket responses never override an operator's manual Take.
-- **Continuous Auto-Advance & Gap Guard**: Automatically transitions between rundown items via OSC frame milestones and arms visual gap warnings for missing media.
-- **Undo / Redo Serialization**: Full snapshot history for rundown editing, reordering, duplicate, and delete operations.
-
-### 2. Greek NCRTV Compliance & Graphics Engine
-- **NCRTV Rating System**: Native support for statutory age categories:
-  - `K` (Suitable for all)
-  - `8` (Suitable for ages 8+)
-  - `12` (Suitable for ages 12+)
-  - `16` (Suitable for ages 16+)
-  - `18` (Prohibited for minors)
-  - `TP` (Product Placement warning)
-- **Automated Advisory Timelines**: Displays regulatory explanation banners during the required start-of-program window before auto-fading.
-- **Live Crawl Ticker**: Real-time ticker with adjustable speed, instant text updates, and emergency override capabilities.
-
-### 3. Media Library & Virtual Tree Management
-- **Nested Virtual Folders**: Organize thousands of assets into arbitrary-depth directory trees without moving physical files on disk.
-- **Folders-on-Top Sorting & Tree Guides**: Clean visual hierarchy with subtle guide lines and quick folder-picker dialogs.
-- **Batch Actions & Multi-Select**: Select multiple media files with `Shift` or `Ctrl`, and append them consecutively into the rundown via `F8` or `Shift+F8`.
-
-### 4. Recycle Bin & Reference-Protected Purge
-- **Soft-Delete Lifecycle**: Deleted media moves to a protected Recycle Bin stage.
-- **Reference-Check Protection**: Prevents purging files currently queued in any active or scheduled rundown.
-- **Pulsing Safety Alert**: Visual confirmation barrier with auto-purge timers to prevent accidental physical data loss.
-
-### 5. Local Media Server & Streaming Preview
-- Built-in Rust HTTP server (`media_server.rs`) streams media directly into the browser/Vue UI.
-- Automatically generates on-the-fly FFmpeg proxy video for mezzanine codecs not natively decodable by Chromium/WebKit.
-
----
-
-## Keyboard Shortcuts & Operator Controls
-
-| Shortcut | Action | Scope |
-|---|---|---|
-| <kbd>Enter</kbd> / <kbd>Space</kbd> | **Nothing.** Both are deliberately ignored so a stray press can never put a clip on air. Use the PLAY button or a row's play control. | Rundown |
-| <kbd>F8</kbd> | **Add** selected library item(s) to the end of the rundown | Media Library |
-| <kbd>Shift</kbd> + <kbd>F8</kbd> | **Insert** selected item(s) after the rundown selection | Media Library |
-| <kbd>Ctrl</kbd> + <kbd>↑</kbd> | Move selected rundown item(s) **Up** | Rundown |
-| <kbd>Ctrl</kbd> + <kbd>↓</kbd> | Move selected rundown item(s) **Down** | Rundown |
-| <kbd>Shift</kbd> + <kbd>↓</kbd> | **Duplicate** selected rundown row | Rundown |
-| <kbd>Delete</kbd> / <kbd>Backspace</kbd> | **Remove** item from rundown / Move library asset to Recycle Bin | Global |
-| <kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Ctrl</kbd> + <kbd>Y</kbd> | **Undo** / **Redo** last rundown modification | Rundown |
-| <kbd>Ctrl</kbd> + <kbd>K</kbd> | Open the **command palette** | Global |
-| <kbd>Ctrl</kbd> + <kbd>I</kbd> | **Inspect** the selected clip — metadata and QC | Rundown / Media Library |
-| <kbd>Ctrl</kbd> + <kbd>S</kbd> | **Save** the active playlist to a file | Global |
-| <kbd>Ctrl</kbd> + <kbd>O</kbd> | **Load** a playlist file into the active tab | Global |
-| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> | **Append** a playlist file to the active tab | Global |
-| <kbd>Esc</kbd> | Close the top-most menu or dialog; in a text field, leave the field first | Global |
-
----
-
-## Directory Structure
+## Repository layout
 
 ```text
-PlayOut/
-├── src/                          # Vue 3 Frontend
-│   ├── assets/                   # CSS styles, SVGs, and HTML5 CG templates
-│   ├── components/               # UI Components (RundownList, MediaLibrary, Inspector, etc.)
-│   ├── composables/              # Reusable state & keyboard routing hooks
-│   ├── lib/                      # Pure business logic (frameMath, compliance, dispatch)
-│   ├── services/                 # Hardware & Playout services (caspar.ts, obs.ts)
-│   ├── stores/                   # Pinia Stores (rundown, mediaLibrary, settings, ingest)
-│   └── utils/                    # Timecode formatters, API clients
-├── src-tauri/                    # Tauri v2 Desktop Core (Rust)
-│   ├── src/
-│   │   ├── amcp.rs               # CasparCG TCP AMCP Command Protocol
-│   │   ├── caspar.rs             # OSC Feedback UDP Server & State Tracking
-│   │   ├── caspar_layers.rs      # Single-Source-of-Truth Layer Registry
-│   │   ├── media_server.rs       # Local HTTP Streaming & Proxy Generator
-│   │   ├── ingestor_api.rs       # PlayoutTranscode REST/SSE Client Bridge
-│   │   ├── scanner.rs            # Filesystem Scanner & Fallback Metadata Probe
-│   │   └── trimmer.rs            # FFmpeg Extraction & Lossless Trimmer
-│   └── tauri.conf.json           # Application manifest, windows, security CSP
-└── docs/                         # Operational contracts and test specifications
+src/                 Vue 3 frontend
+  components/        Panels (RundownList, MediaLibrary, TrimPanel, SettingsModal, …) and ui/ primitives
+  composables/       Keyboard routing, playlist files, panel state
+  lib/               Pure logic: coordinator, dispatch, timecode, compliance, status resolution
+  services/          caspar.ts (playout service), commandRegistry, fallback monitor
+  stores/            rundown, mediaLibrary, settings, ingestorStatus, mediaRoot, lookAhead
+src-tauri/src/       Rust backend
+  amcp.rs            AMCP client (allow-listed verbs)
+  caspar.rs          OSC listener, advance authority, path aliases
+  caspar_process.rs  Engine supervision, monitor mode, crash breaker
+  caspar_fork.rs     Fork detection, events, as-run
+  ingestor_api.rs    PlayoutTranscode client (v2 with v1 fallback)
+  media_server.rs    Loopback preview streaming (per-launch token)
+  studio_server.rs   CG Studio bridge and AI designer
+  recovery.rs        Checkpoints, watchdog, relaunch
+templates-src/       Advisory / crawl CG source (built into public/ and src/assets/)
+scripts/             Build helpers (advisory template, vcredist, ffmpeg, audit gate)
+docs/                Manuals and contracts
 ```
 
----
-
-## Development & Build Setup
+## Building from source
 
 ### Prerequisites
-1. **Node.js**: `^20.19.0 || >=22.12.0`
-2. **Rust**: `1.88+` (`rust-toolchain.toml` pins 1.92.0) with `rustup`
-3. **Microsoft C++ Build Tools**: Visual Studio 2022 C++ x64/x86 build tools
-4. **CasparCG Server**: Version 2.3+ (installed locally or reachable over the local network)
-5. **PlayoutTranscode**: Ingest service running on port `4353`. If the service has `server.api_token` set (`PlayoutTranscode gen-token`), enter the same token under Settings → PlayoutTranscode Ingestor API → API Token; without it every call except the health check is refused with HTTP 401.
 
-### 1. Install Dependencies
-```powershell
-npm ci
-```
-`npm ci` installs the exact lockfile versions and registers the `lefthook` pre-commit hooks (ESLint, type-check, `cargo check`).
+- Windows 10/11 x64 with Microsoft C++ Build Tools (Visual Studio 2022, x64)
+- Node.js `^22.22.2 || >=24.15.0` (enforced by `.npmrc` `engine-strict`)
+- Rust via `rustup`; `rust-toolchain.toml` pins **1.99.1** (minimum supported 1.95)
+- CasparCG 2.3+ on the same machine, and PlayoutTranscode for managed media
 
-### 2. Run in Development Mode
-Launch the complete desktop application with hot-reloading:
-```powershell
-npm run tauri dev
-```
+### Commands
 
-Run frontend in browser-only mode:
 ```powershell
-npm run dev
+npm ci                       # install exact lockfile versions; registers lefthook hooks
+npm run tauri dev            # desktop app with hot reload
+npm run dev                  # frontend only, in a browser (Vite on :5173)
+npm test                     # Vitest
+npm run lint                 # ESLint (0 errors required)
+npm run type-check           # vue-tsc
+cargo test   --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+npm run tauri build          # NSIS installer
 ```
 
-### 3. Run Automated Tests
-```powershell
-npm run test
-```
+The installer lands in `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. The build downloads
+and signature-checks the VC++ redistributable (`scripts/download-vcredist.ps1`). ffmpeg/ffprobe are **not**
+bundled; run `scripts/download-ffmpeg.ps1` or see the [administrator manual](docs/ADMIN-MANUAL.md#ffmpeg-and-ffprobe).
+Archive the matching `.pdb` from `…/release/` with every release so crash reports can be symbolised.
 
-### 4. Build Production Installer
-```powershell
-npm run tauri build
-```
-The NSIS installer (`.exe`) is generated in `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/` (`.cargo/config.toml` pins the target triple). Archive the matching `.pdb` from `src-tauri/target/x86_64-pc-windows-msvc/release/` with each release so crash reports can be symbolised.
+### Contributing
 
----
+- Commits follow Conventional Commits (`type(scope): subject`); lefthook runs ESLint, type-check and
+  `cargo check` before each commit.
+- CI (`.github/workflows/ci.yml`) runs lint, type-check, tests, the frontend build, clippy, cargo tests and a
+  dependency audit on every push and pull request. Renovate proposes dependency updates weekly.
+- The advisory template in `public/templates/playout/` and `src/assets/templates/playout/` is build output of
+  `templates-src/advisory`; edit the source and run `npm run build:cg`.
 
-## Author & Project Information
+## Author and license
 
-- **Author**: **Alex Fountas** — [@Soranokuni](https://github.com/Soranokuni)
-- **Email**: [fountasalexandros@gmail.com](mailto:fountasalexandros@gmail.com) · [afountas@cretetv.gr](mailto:afountas@cretetv.gr)
-- **Repository**: [https://github.com/Soranokuni/PlayOutVue](https://github.com/Soranokuni/PlayOutVue)
+**Alex Fountas** ([@Soranokuni](https://github.com/Soranokuni)) ·
+[fountasalexandros@gmail.com](mailto:fountasalexandros@gmail.com) · [afountas@cretetv.gr](mailto:afountas@cretetv.gr)
 
----
-
-## License
-
-Copyright © 2026 Alex Fountas (Soranokuni).
-
-This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for the full text.
+Copyright © 2026 Alex Fountas. Licensed under the [MIT License](LICENSE).

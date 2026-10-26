@@ -18,10 +18,10 @@ jobs:
     name: Frontend (type-check, tests, build)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       # advisory.html is build output from templates-src/advisory/; fail loudly
@@ -36,7 +36,7 @@ jobs:
     name: Backend (clippy, tests)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -57,10 +57,10 @@ jobs:
     # the npm baseline (prod and dev trees) to zero advisories.
     continue-on-error: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
       # npm audit at high, minus the reviewed no-fix advisories listed in the script.

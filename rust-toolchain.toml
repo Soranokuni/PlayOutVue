@@ -2,6 +2,6 @@
 # artefacts agree. `rust-version` in src-tauri/Cargo.toml is the minimum the
 # dependency tree actually needs; this is the version we build with.
 [toolchain]
-channel = "1.92.0"
+channel = "1.99.1"
 components = ["clippy", "rustfmt"]
 targets = ["x86_64-pc-windows-msvc"]

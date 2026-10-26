@@ -6,6 +6,9 @@ use tauri::{AppHandle, Emitter, Runtime, State, Manager};
 use crate::runtime_settings::{get_ingestor_api_base_url, get_ingestor_api_token};
 
 const REQUEST_TIMEOUT_SECS: u64 = 5;
+/// TRIM-CONTRACT-AUDIT C-16: purge and empty-bin can take up to 30 s on the
+/// server; with the 5 s default Aether reported a failure while it finished.
+const DESTRUCTIVE_TIMEOUT_SECS: u64 = 40;
 const HEARTBEAT_INTERVAL_SECS: u64 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -576,7 +579,7 @@ impl IngestorClient {
     /// A request to one of the Ingestor's gated routes (purge, folder trash,
     /// auto-purge): token plus the destructive-operation confirmation header.
     fn destructive(&self, method: reqwest::Method, url: &str) -> reqwest::RequestBuilder {
-        apply_confirmation(self.request(method, url))
+        apply_confirmation(self.request(method, url)).timeout(Duration::from_secs(DESTRUCTIVE_TIMEOUT_SECS))
     }
 }
 
@@ -2542,6 +2545,8 @@ mod tests {
         assert_eq!(*r.method(), reqwest::Method::DELETE);
         assert_eq!(header(&r, CONFIRM_DESTRUCTIVE_HEADER), Some("yes"));
         assert_eq!(header(&r, API_TOKEN_HEADER), Some("tok"));
+        // C-16: gated routes outlast the server's 30 s purge.
+        assert_eq!(r.timeout(), Some(&Duration::from_secs(DESTRUCTIVE_TIMEOUT_SECS)));
         // Reversible routes never carry the confirmation header.
         let r = built(ingestor.put("http://127.0.0.1:4353/api/assets/x/trim"));
         assert!(header(&r, CONFIRM_DESTRUCTIVE_HEADER).is_none());
