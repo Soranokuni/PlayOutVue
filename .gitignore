@@ -33,7 +33,19 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 .DS_Store
+Thumbs.db
+desktop.ini
 *.local
+.env
+.env.*
+!.env.example
+
+# npm is the package manager (package-lock.json, .npmrc engine-strict);
+# lockfiles from other managers are local experiments, never committed.
+pnpm-lock.yaml
+pnpm-workspace.yaml
+yarn.lock
+bun.lockb
 
 # ==============================================================================
 # Editor directories and files
@@ -78,6 +90,8 @@ GEMINI.md
 *-plan*.md
 *-PLAN*.md
 *-AUDIT*.md
+*polish*.md
+ae-report.md
 session-*.md
 NOTEBOOKLM_*.md
 docs/*-HANDOFF.md
